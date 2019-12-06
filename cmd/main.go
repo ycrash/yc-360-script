@@ -1,5 +1,11 @@
 package main
 
+// Change History
+// Dec' 02, 2019: Zhi : Initial Draft
+// Dec' 05, 2019: Ram : Passing JAVA_HOME as parameter to the program instead of hard-coding in the program.
+//                      Changed yc end point
+//                      Changed minor changes to messages printed on the screen
+
 import (
 	"crypto/tls"
 	"flag"
@@ -15,18 +21,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-const Usage = `USAGE: sh ./yc.sh -p <PROCESS_ID> -s <YCRASH_SERVER_URL> -k <API_KEY>
-EXAMPLE: sh ./yc.sh -p 3321 -s https://ycrash.yourcompany.com -k asd@e910a34e-c4fa-4c9a-8254-f0dd107245ee
-`
+	"shell"
+)
 
 // ------------------------------------------------------------------------------
 //  Customer specific Properties
 // ------------------------------------------------------------------------------
 
 // Specify your JDK installation directory.
-var JAVA_HOME = "/usr/lib/jvm/java-11-openjdk-amd64"
+// var JAVA_HOME = "/usr/lib/jvm/java-11-openjdk-amd64"
 
 // ------------------------------------------------------------------------------
 //  Generic Properties
@@ -50,10 +54,12 @@ var (
 // ------------------------------------------------------------------------------
 
 var (
-	Pid      int
-	YcServer string
-	ApiKey   string
-	AppName  string
+	Pid           int
+	YcServer      string
+	ApiKey        string
+	AppName       string
+	GcLogFilePath string
+	javaHome      string
 )
 
 func init() {
@@ -61,12 +67,14 @@ func init() {
 	flag.StringVar(&YcServer, "s", "", "YCrash Server URL, for example: https://ycrash.companyname.com")
 	flag.StringVar(&ApiKey, "k", "", "API Key, for example: tier1app@12312-12233-1442134-112")
 	flag.StringVar(&AppName, "a", "", "APP Name")
+	flag.StringVar(&GcLogFilePath, "gc", "", "GC log file path")
+	flag.StringVar(&javaHome, "j", "", "JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64")
 }
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("No arguments are passed.")
-		fmt.Print(Usage)
+		flag.Usage()
 		return
 	}
 
@@ -76,6 +84,44 @@ func main() {
 	fmt.Printf("YC_SERVER is %s\n", YcServer)
 	fmt.Printf("API_KEY is %s\n", ApiKey)
 	fmt.Printf("APP_NAME is %s\n", AppName)
+	fmt.Printf("GC_LOG is %s\n\n", GcLogFilePath)
+	fmt.Printf("JAVA_HOME is %s\n", javaHome)
+
+	if Pid <= 0 {
+		fmt.Println("Process id is not passed.")
+		flag.Usage()
+		return
+	}
+
+	if len(YcServer) < 1 {
+		fmt.Println("YCrash Server URL is not passed")
+		flag.Usage()
+		return
+	}
+	if len(ApiKey) < 1 {
+		fmt.Println("APIKey is not passed.")
+		flag.Usage()
+		return
+	}
+	if len(GcLogFilePath) < 1 {
+		output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d | grep -o -P "(?<=Xloggc:).*?(?= )"`, Pid))
+		if err == nil && len(output) > 0 {
+			GcLogFilePath = strings.TrimSpace(string(output))
+		}
+	}
+	if len(GcLogFilePath) < 1 {
+		fmt.Println("GC log file path is not passed")
+		flag.Usage()
+		return
+	}
+	if len(javaHome) < 1 {
+		javaHome = os.Getenv("JAVA_HOME")
+	}
+	if len(javaHome) < 1 {
+		fmt.Println("JAVA_HOME path is not passed")
+		flag.Usage()
+		return
+	}
 
 	var err error
 	defer func() {
@@ -110,7 +156,7 @@ func main() {
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
 	logger := Logger{writer: mwriter}
-	logger.Log("linperf.sh script starting...")
+	logger.Log("yc script starting...")
 	logger.Log("Script version: %s", SCRIPT_VERSION)
 
 	// Display the PIDs which have been input to the script
@@ -180,7 +226,7 @@ func main() {
 	}
 	defer netstat.Close()
 	netstat.WriteString(fmt.Sprintf("%s\n", NowString()))
-	cmd := exec.Command("netstat", "-pan")
+	cmd := shell.NewCommand(shell.NetState)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return
@@ -197,35 +243,12 @@ func main() {
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of top data...")
 	top.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
-	topCmd := exec.Command("top", "-bc",
+	topCmd, err := shell.CommandStartInBackgroundWithWriter(top, shell.Top,
 		"-d", strconv.Itoa(TOP_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL+1))
-	stdout, err := topCmd.StdoutPipe()
 	if err != nil {
 		return
 	}
-	stderr, err := topCmd.StderrPipe()
-	if err != nil {
-		return
-	}
-	go func() {
-		defer func() {
-			if err != nil {
-				fmt.Printf("Unexpected Error %s", err)
-				os.Exit(-1)
-			}
-		}()
-		reader := io.MultiReader(stdout, stderr)
-		_, err = io.Copy(top, reader)
-		if err != nil {
-			return
-		}
-	}()
-	err = topCmd.Start()
-	if err != nil {
-		return
-	}
-
 	logger.Log("Collection of top data started.")
 
 	// ------------------------------------------------------------------------------
@@ -235,32 +258,10 @@ func main() {
 	logger.Log("Starting collection of top dash H data...")
 	topdash.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
 	topdash.WriteString(fmt.Sprintf("Collected against PID %d\n\n", Pid))
-	topHCmd := exec.Command("top", "-bH",
+	topHCmd, err := shell.CommandStartInBackgroundWithWriter(topdash, shell.TopH,
 		"-d", strconv.Itoa(TOP_DASH_H_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_DASH_H_INTERVAL+1),
 		"-p", strconv.Itoa(Pid))
-	stdout, err = topHCmd.StdoutPipe()
-	if err != nil {
-		return
-	}
-	stderr, err = topHCmd.StderrPipe()
-	if err != nil {
-		return
-	}
-	go func() {
-		defer func() {
-			if err != nil {
-				fmt.Printf("Unexpected Error %s", err)
-				os.Exit(-1)
-			}
-		}()
-		reader := io.MultiReader(stdout, stderr)
-		_, err = io.Copy(topdash, reader)
-		if err != nil {
-			return
-		}
-	}()
-	err = topHCmd.Start()
 	if err != nil {
 		return
 	}
@@ -273,30 +274,9 @@ func main() {
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of vmstat data...")
 	vmstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	vmstatCmd := exec.Command("vmstat", strconv.Itoa(VMSTAT_INTERVAL),
+	vmstatCmd, err := shell.CommandStartInBackgroundWithWriter(vmstat, shell.VMState,
+		strconv.Itoa(VMSTAT_INTERVAL),
 		strconv.Itoa(SCRIPT_SPAN/VMSTAT_INTERVAL+1))
-	stdout, err = vmstatCmd.StdoutPipe()
-	if err != nil {
-		return
-	}
-	stderr, err = vmstatCmd.StderrPipe()
-	if err != nil {
-		return
-	}
-	go func() {
-		defer func() {
-			if err != nil {
-				fmt.Printf("Unexpected Error %s", err)
-				os.Exit(-1)
-			}
-		}()
-		reader := io.MultiReader(stdout, stderr)
-		_, err = io.Copy(vmstat, reader)
-		if err != nil {
-			return
-		}
-	}()
-	err = vmstatCmd.Start()
 	if err != nil {
 		return
 	}
@@ -311,7 +291,7 @@ func main() {
 		// Collect a ps snapshot: date at the top, data, and then a blank line
 		logger.Log("Collecting a ps snapshot...")
 		ps.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-		cmd := exec.Command("ps", "-eLf")
+		cmd := shell.NewCommand(shell.PS)
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			return
@@ -332,7 +312,7 @@ func main() {
 				return
 			}
 			defer jstack.Close()
-			cmd = exec.Command(path.Join(JAVA_HOME, "bin/jstack"), "-l", strconv.Itoa(Pid))
+			cmd := exec.Command(path.Join(javaHome, "bin/jstack"), "-l", strconv.Itoa(Pid))
 			output, err = cmd.CombinedOutput()
 			if err != nil {
 				return
@@ -357,7 +337,7 @@ func main() {
 	// ------------------------------------------------------------------------------
 	logger.Log("Collecting the final netstat snapshot...")
 	netstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	cmd = exec.Command("netstat", "-pan")
+	cmd = shell.NewCommand(shell.NetState)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return
@@ -372,29 +352,20 @@ func main() {
 	//  				Capture dmesg
 	// ------------------------------------------------------------------------------
 	logger.Log("Collecting other data.  This may take a few moments...")
-	dmesg, err := os.Create("dmesg.out")
+	dmesg, err := shell.CommandCombinedOutputToFile("dmesg.out", shell.DMesg)
 	if err != nil {
 		return
 	}
 	defer dmesg.Close()
-	cmd = exec.Command("dmesg")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return
-	}
-	_, err = dmesg.Write(output)
-	if err != nil {
-		return
-	}
 	// ------------------------------------------------------------------------------
 	//  				Capture Disk Usage
 	// ------------------------------------------------------------------------------
-	df, err := os.Create("df-hk.out")
+	df, err := os.Create("disk.out")
 	if err != nil {
 		return
 	}
 	defer df.Close()
-	cmd = exec.Command("df", "-hk")
+	cmd = shell.NewCommand(shell.Disk)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return
@@ -410,26 +381,24 @@ func main() {
 	// Compute transmitting parameters
 	// -------------------------------
 	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
+	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", YcServer, ApiKey, parameters)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", YcServer, ApiKey, parameters)
 	var ok bool
 	var msg string
 
 	// stop started tasks
-	err = topCmd.Process.Kill()
+	err = topCmd.KillAndWait()
 	if err != nil {
 		return
 	}
-	err = topHCmd.Process.Kill()
+	err = topHCmd.KillAndWait()
 	if err != nil {
 		return
 	}
-	err = vmstatCmd.Process.Kill()
+	err = vmstatCmd.KillAndWait()
 	if err != nil {
 		return
 	}
-	topCmd.Wait()
-	topHCmd.Wait()
-	vmstatCmd.Wait()
 
 	// -------------------------------
 	//     Transmit Top data
@@ -494,18 +463,12 @@ Resp: %s
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf(`ps -f -p %d | grep -o -P "(?<=Xloggc:).*?(?= )"`, Pid))
-	output, err = cmd.CombinedOutput()
+	var gc *os.File
+	gc, err = os.Open(GcLogFilePath)
 	if err == nil {
-		var gc *os.File
-		gc, err = os.Open(string(output))
-		if err == nil {
-			defer gc.Close()
-			msg, ok = PostData(endpoint, "gc", gc)
-		}
-	}
-	if err != nil {
-		output = []byte{}
+		defer gc.Close()
+		msg, ok = PostData(endpoint, "gc", gc)
+	} else {
 		ok = false
 		msg = fmt.Sprintf("%s happens while query GC log for pid %d", err.Error(), Pid)
 	}
@@ -516,20 +479,18 @@ Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, output, ok, msg)
+`, GcLogFilePath, ok, msg)
 
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
 	// 1: concatenate individual thread dumps
-	cmd = exec.Command("/bin/sh", "-c", "cat javacore.* > threaddump.out")
-	err = cmd.Run()
+	err = shell.CommandRun(shell.AppendJavaCoreFiles)
 	if err != nil {
 		return
 	}
 	// 2: Append top -H output file.
-	cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf("cat topdashH.%d.out >> ./threaddump.out", Pid))
-	err = cmd.Run()
+	err = shell.CommandRun(shell.AppendTopH, fmt.Sprintf("cat topdashH.%d.out >> ./threaddump.out", Pid))
 	if err != nil {
 		return
 	}
@@ -538,6 +499,7 @@ Resp: %s
 	if err != nil {
 		return
 	}
+	defer td.Close()
 	msg, ok = PostData(endpoint, "td", td)
 	fmt.Printf(
 		`THREAD DUMP DATA
@@ -559,6 +521,16 @@ See the report: %s
 }
 
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
+	stat, err := file.Stat()
+	if err != nil {
+		msg = err.Error()
+		return
+	}
+	if stat.Size() < 1 {
+		msg = "skipped empty file"
+		return
+	}
+
 	url := fmt.Sprintf("%s&dt=%s", endpoint, dt)
 	transport := http.DefaultTransport.(*http.Transport)
 	transport.TLSClientConfig = &tls.Config{
@@ -567,7 +539,7 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	httpClient := &http.Client{
 		Transport: transport,
 	}
-	_, err := file.Seek(0, 0)
+	_, err = file.Seek(0, 0)
 	if err != nil {
 		msg = err.Error()
 		return
@@ -584,7 +556,7 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 		msg = err.Error()
 		return
 	}
-	msg = fmt.Sprintf("status code %d\n%s", resp.StatusCode, body)
+	msg = fmt.Sprintf("%s\nstatus code %d\n%s", url, resp.StatusCode, body)
 
 	if resp.StatusCode == http.StatusOK {
 		ok = true
