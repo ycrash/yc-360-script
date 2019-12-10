@@ -15,9 +15,9 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/user"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -80,13 +80,7 @@ func main() {
 
 	flag.Parse()
 
-	fmt.Printf("PID is %d\n", Pid)
-	fmt.Printf("YC_SERVER is %s\n", YcServer)
-	fmt.Printf("API_KEY is %s\n", ApiKey)
-	fmt.Printf("APP_NAME is %s\n", AppName)
-	fmt.Printf("GC_LOG is %s\n\n", GcLogFilePath)
-	fmt.Printf("JAVA_HOME is %s\n", javaHome)
-
+	// must passed
 	if Pid <= 0 {
 		fmt.Println("Process id is not passed.")
 		flag.Usage()
@@ -103,17 +97,6 @@ func main() {
 		flag.Usage()
 		return
 	}
-	if len(GcLogFilePath) < 1 {
-		output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d | grep -o -P "(?<=Xloggc:).*?(?= )"`, Pid))
-		if err == nil && len(output) > 0 {
-			GcLogFilePath = strings.TrimSpace(string(output))
-		}
-	}
-	if len(GcLogFilePath) < 1 {
-		fmt.Println("GC log file path is not passed")
-		flag.Usage()
-		return
-	}
 	if len(javaHome) < 1 {
 		javaHome = os.Getenv("JAVA_HOME")
 	}
@@ -123,11 +106,26 @@ func main() {
 		return
 	}
 
+	// can be ignored
+	if len(GcLogFilePath) < 1 {
+		output, err := GetGCLogFile()
+		if err == nil && len(output) > 0 {
+			GcLogFilePath = output
+		}
+	}
+
+	fmt.Printf("PID is %d\n", Pid)
+	fmt.Printf("YC_SERVER is %s\n", YcServer)
+	fmt.Printf("API_KEY is %s\n", ApiKey)
+	fmt.Printf("APP_NAME is %s\n", AppName)
+	fmt.Printf("JAVA_HOME is %s\n", javaHome)
+	fmt.Printf("GC_LOG is %s\n\n", GcLogFilePath)
+
 	var err error
 	defer func() {
 		if err != nil {
 			fmt.Printf("Unexpected Error %s\n", err)
-			os.Exit(-1)
+			panic(err)
 		}
 	}()
 	// -------------------------------------------------------------------
@@ -168,6 +166,29 @@ func main() {
 	logger.Log("TOP_INTERVAL = %d", TOP_INTERVAL)
 	logger.Log("TOP_DASH_H_INTERVAL = %d", TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", VMSTAT_INTERVAL)
+
+	// check if it can find gc log from ps
+	var gc *os.File
+	if len(GcLogFilePath) > 0 {
+		gc, err = os.Open(GcLogFilePath)
+		if err != nil {
+			logger.Log("gc log file open failed %s", err.Error())
+			GcLogFilePath = ""
+		} else {
+			defer gc.Close()
+		}
+	}
+	var jstat shell.CmdHolder
+	if len(GcLogFilePath) < 1 {
+		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
+			shell.Command{path.Join(javaHome, "/bin/jstat"), "-gc", "-t", strconv.Itoa(Pid), "2000", "30"})
+		if err != nil {
+			return
+		}
+		defer gc.Close()
+		GcLogFilePath = "gc.log"
+		logger.Log("gc log set to %s", GcLogFilePath)
+	}
 
 	// Collect the user currently executing the script
 	logger.Log("Collecting user authority data...")
@@ -306,21 +327,14 @@ func main() {
 		//  Javacores are output to the working directory of the JVM; in most cases this is the <profile_root>
 		func() {
 			logger.Log("Collecting thread dump...")
-			var jstack *os.File
-			jstack, err = os.Create(fmt.Sprintf("javacore.%d.out", n))
+			jstack, err := shell.CommandCombinedOutputToFile(fmt.Sprintf("javacore.%d.out", n),
+				shell.Command{path.Join(javaHome, "bin/jstack"), "-l", strconv.Itoa(Pid)})
 			if err != nil {
+				logger.Log("jstack error %s", err.Error())
+				os.Exit(1)
 				return
 			}
 			defer jstack.Close()
-			cmd := exec.Command(path.Join(javaHome, "bin/jstack"), "-l", strconv.Itoa(Pid))
-			output, err = cmd.CombinedOutput()
-			if err != nil {
-				return
-			}
-			_, err = jstack.Write(output)
-			if err != nil {
-				return
-			}
 			logger.Log("Collected a thread dump for PID %d.", Pid)
 		}()
 
@@ -386,6 +400,7 @@ func main() {
 	var ok bool
 	var msg string
 
+	jstat.Wait()
 	// stop started tasks
 	err = topCmd.KillAndWait()
 	if err != nil {
@@ -463,15 +478,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	var gc *os.File
-	gc, err = os.Open(GcLogFilePath)
-	if err == nil {
-		defer gc.Close()
-		msg, ok = PostData(endpoint, "gc", gc)
-	} else {
-		ok = false
-		msg = fmt.Sprintf("%s happens while query GC log for pid %d", err.Error(), Pid)
-	}
+	msg, ok = PostData(endpoint, "gc", gc)
 	fmt.Printf(
 		`GC LOG DATA
 %s
@@ -523,11 +530,11 @@ See the report: %s
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	stat, err := file.Stat()
 	if err != nil {
-		msg = err.Error()
-		return
+		panic(fmt.Errorf("file stat err %w", err))
 	}
+	fileName := stat.Name()
 	if stat.Size() < 1 {
-		msg = "skipped empty file"
+		msg = fmt.Sprintf("skipped empty file %s", fileName)
 		return
 	}
 
@@ -541,19 +548,18 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	}
 	_, err = file.Seek(0, 0)
 	if err != nil {
-		msg = err.Error()
-		return
+		panic(fmt.Errorf("file %s seek err %w", fileName, err))
 	}
 	resp, err := httpClient.Post(url, "Content-Type:text", file)
 	if err != nil {
-		msg = err.Error()
+		msg = fmt.Sprintf("PostData post err %s", err.Error())
 		return
 	}
 
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		msg = err.Error()
+		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
 		return
 	}
 	msg = fmt.Sprintf("%s\nstatus code %d\n%s", url, resp.StatusCode, body)
@@ -591,4 +597,39 @@ func (logger *Logger) Log(format string, values ...interface{}) {
 
 func NowString() string {
 	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
+}
+
+func GetGCLogFile() (result string, err error) {
+	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, Pid))
+	if err != nil {
+		return
+	}
+	re := regexp.MustCompile("-Xlog:gc.+? ")
+	loggc := re.Find(output)
+
+	var fp []byte
+	if len(loggc) > 1 {
+		fre := regexp.MustCompile("file=(.+?):")
+		submatch := fre.FindSubmatch(loggc)
+		if len(submatch) >= 2 {
+			fp = submatch[1]
+		} else {
+			fre := regexp.MustCompile("gc:((.+?)$|(.+?):)")
+			submatch := fre.FindSubmatch(loggc)
+			if len(submatch) >= 2 {
+				fp = submatch[1]
+			}
+		}
+	} else {
+		re := regexp.MustCompile("-Xloggc:(.+?) ")
+		submatch := re.FindSubmatch(output)
+		if len(submatch) > 2 {
+			fp = submatch[1]
+		}
+	}
+	if len(fp) < 1 {
+		return
+	}
+	result = strings.TrimSpace(string(fp))
+	return
 }

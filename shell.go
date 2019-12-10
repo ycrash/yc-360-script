@@ -25,7 +25,7 @@ func (h *CmdHolder) KillAndWait() (err error) {
 	if err != nil {
 		return
 	}
-	h.Cmd.Wait()
+	_ = h.Cmd.Wait()
 	return
 }
 
@@ -61,6 +61,9 @@ func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file
 	}
 	output, err := c.CombinedOutput()
 	if err != nil {
+		if len(output) > 1 {
+			err = fmt.Errorf("%w because %s", err, output)
+		}
 		return
 	}
 	_, err = file.Write(output)
@@ -91,8 +94,7 @@ func CommandStartInBackgroundWithWriter(writer io.Writer, cmd Command, args ...s
 	go func() {
 		defer func() {
 			if err != nil {
-				fmt.Printf("Unexpected Error %s", err)
-				os.Exit(-1)
+				fmt.Printf("Unexpected Error %s\n", err)
 			}
 		}()
 		reader := io.MultiReader(stdout, stderr)
@@ -102,5 +104,14 @@ func CommandStartInBackgroundWithWriter(writer io.Writer, cmd Command, args ...s
 		}
 	}()
 	err = c.Start()
+	return
+}
+
+func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (file *os.File, c CmdHolder, err error) {
+	file, err = os.Create(name)
+	if err != nil {
+		return
+	}
+	c, err = CommandStartInBackgroundWithWriter(file, cmd, args...)
 	return
 }
