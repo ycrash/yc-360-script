@@ -108,7 +108,7 @@ func main() {
 
 	// can be ignored
 	if len(GcLogFilePath) < 1 {
-		output, err := GetGCLogFile()
+		output, err := GetGCLogFile(Pid)
 		if err == nil && len(output) > 0 {
 			GcLogFilePath = output
 		}
@@ -331,7 +331,6 @@ func main() {
 				shell.Command{path.Join(javaHome, "bin/jstack"), "-l", strconv.Itoa(Pid)})
 			if err != nil {
 				logger.Log("jstack error %s", err.Error())
-				os.Exit(1)
 				return
 			}
 			defer jstack.Close()
@@ -599,8 +598,8 @@ func NowString() string {
 	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
 }
 
-func GetGCLogFile() (result string, err error) {
-	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, Pid))
+func GetGCLogFile(pid int) (result string, err error) {
+	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid))
 	if err != nil {
 		return
 	}
@@ -623,7 +622,7 @@ func GetGCLogFile() (result string, err error) {
 	} else {
 		re := regexp.MustCompile("-Xloggc:(.+?) ")
 		submatch := re.FindSubmatch(output)
-		if len(submatch) > 2 {
+		if len(submatch) >= 2 {
 			fp = submatch[1]
 		}
 	}

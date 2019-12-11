@@ -29,6 +29,13 @@ func (h *CmdHolder) KillAndWait() (err error) {
 	return
 }
 
+func (h *CmdHolder) Wait() {
+	if h.Cmd == nil {
+		return
+	}
+	_ = h.Cmd.Wait()
+}
+
 func NewCommand(cmd Command, args ...string) CmdHolder {
 	if len(cmd) < 1 {
 		return CmdHolder{}
@@ -76,6 +83,15 @@ func CommandRun(cmd Command, args ...string) error {
 		return nil
 	}
 	return c.Run()
+}
+
+func CommandStartInBackground(cmd Command, args ...string) (c CmdHolder, err error) {
+	if len(cmd) < 1 {
+		return
+	}
+	c = NewCommand(cmd, args...)
+	err = c.Start()
+	return
 }
 
 func CommandStartInBackgroundWithWriter(writer io.Writer, cmd Command, args ...string) (c CmdHolder, err error) {
