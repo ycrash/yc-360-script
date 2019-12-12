@@ -57,11 +57,7 @@ func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {
 	return c.CombinedOutput()
 }
 
-func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file *os.File, err error) {
-	file, err = os.Create(name)
-	if err != nil {
-		return
-	}
+func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, args ...string) (err error) {
 	c := NewCommand(cmd, args...)
 	if c.Cmd == nil {
 		return
@@ -73,7 +69,16 @@ func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file
 		}
 		return
 	}
-	_, err = file.Write(output)
+	_, err = writer.Write(output)
+	return
+}
+
+func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file *os.File, err error) {
+	file, err = os.Create(name)
+	if err != nil {
+		return
+	}
+	err = CommandCombinedOutputToWriter(file, cmd, args...)
 	return
 }
 
@@ -94,7 +99,7 @@ func CommandStartInBackground(cmd Command, args ...string) (c CmdHolder, err err
 	return
 }
 
-func CommandStartInBackgroundWithWriter(writer io.Writer, cmd Command, args ...string) (c CmdHolder, err error) {
+func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...string) (c CmdHolder, err error) {
 	if len(cmd) < 1 {
 		return
 	}
@@ -128,6 +133,6 @@ func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (f
 	if err != nil {
 		return
 	}
-	c, err = CommandStartInBackgroundWithWriter(file, cmd, args...)
+	c, err = CommandStartInBackgroundToWriter(file, cmd, args...)
 	return
 }

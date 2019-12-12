@@ -247,12 +247,7 @@ func main() {
 	}
 	defer netstat.Close()
 	netstat.WriteString(fmt.Sprintf("%s\n", NowString()))
-	cmd := shell.NewCommand(shell.NetState)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return
-	}
-	_, err = netstat.Write(output)
+	err = shell.CommandCombinedOutputToWriter(netstat, shell.NetState)
 	if err != nil {
 		return
 	}
@@ -264,7 +259,7 @@ func main() {
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of top data...")
 	top.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
-	topCmd, err := shell.CommandStartInBackgroundWithWriter(top, shell.Top,
+	topCmd, err := shell.CommandStartInBackgroundToWriter(top, shell.Top,
 		"-d", strconv.Itoa(TOP_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL+1))
 	if err != nil {
@@ -279,7 +274,7 @@ func main() {
 	logger.Log("Starting collection of top dash H data...")
 	topdash.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
 	topdash.WriteString(fmt.Sprintf("Collected against PID %d\n\n", Pid))
-	topHCmd, err := shell.CommandStartInBackgroundWithWriter(topdash, shell.TopH,
+	topHCmd, err := shell.CommandStartInBackgroundToWriter(topdash, shell.TopH,
 		"-d", strconv.Itoa(TOP_DASH_H_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_DASH_H_INTERVAL+1),
 		"-p", strconv.Itoa(Pid))
@@ -295,7 +290,7 @@ func main() {
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of vmstat data...")
 	vmstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	vmstatCmd, err := shell.CommandStartInBackgroundWithWriter(vmstat, shell.VMState,
+	vmstatCmd, err := shell.CommandStartInBackgroundToWriter(vmstat, shell.VMState,
 		strconv.Itoa(VMSTAT_INTERVAL),
 		strconv.Itoa(SCRIPT_SPAN/VMSTAT_INTERVAL+1))
 	if err != nil {
@@ -312,12 +307,7 @@ func main() {
 		// Collect a ps snapshot: date at the top, data, and then a blank line
 		logger.Log("Collecting a ps snapshot...")
 		ps.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-		cmd := shell.NewCommand(shell.PS)
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return
-		}
-		_, err = ps.Write(output)
+		err = shell.CommandCombinedOutputToWriter(ps, shell.PS)
 		if err != nil {
 			return
 		}
@@ -350,12 +340,7 @@ func main() {
 	// ------------------------------------------------------------------------------
 	logger.Log("Collecting the final netstat snapshot...")
 	netstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	cmd = shell.NewCommand(shell.NetState)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return
-	}
-	_, err = netstat.Write(output)
+	err = shell.CommandCombinedOutputToWriter(netstat, shell.NetState)
 	if err != nil {
 		return
 	}
@@ -373,20 +358,11 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  				Capture Disk Usage
 	// ------------------------------------------------------------------------------
-	df, err := os.Create("disk.out")
+	df, err := shell.CommandCombinedOutputToFile("disk.out", shell.Disk)
 	if err != nil {
 		return
 	}
 	defer df.Close()
-	cmd = shell.NewCommand(shell.Disk)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return
-	}
-	_, err = df.Write(output)
-	if err != nil {
-		return
-	}
 
 	logger.Log("Collected other data.")
 
