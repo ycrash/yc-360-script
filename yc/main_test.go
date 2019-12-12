@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"shell"
 )
@@ -67,4 +70,75 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be garbage-collection.log")
 	}
 
+}
+
+func TestPostData(t *testing.T) {
+	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", "https://test.gceasy.io", ApiKey, parameters)
+
+	vmstat, err := os.Open("testdata/vmstat.out")
+	if err != nil {
+		return
+	}
+	defer vmstat.Close()
+	ps, err := os.Open("testdata/ps.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ps.Close()
+	top, err := os.Open("testdata/top.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer top.Close()
+	df, err := os.Open("testdata/disk.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer df.Close()
+	netstat, err := os.Open("testdata/netstat.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer netstat.Close()
+	gc, err := os.Open("testdata/gc.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gc.Close()
+	td, err := os.Open("testdata/threaddump.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer td.Close()
+
+	msg, ok := PostData(endpoint, "top", top)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "df", df)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "ns", netstat)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "ps", ps)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "vmstat", vmstat)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "gc", gc)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
+	msg, ok = PostData(endpoint, "td", td)
+	if !ok {
+		t.Fatal("post data failed", msg)
+	}
 }

@@ -1,0 +1,33 @@
+
+Tue Dec 10 07:28:37 UTC 2019 
+
+top - 07:28:37 up  2:53,  0 users,  load average: 0.00, 0.01, 0.00
+Tasks:   8 total,   1 running,   7 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 30.9 us, 34.5 sy,  0.0 ni, 34.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5185.0 free,    322.7 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5412.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3484 root      20   0 4175624  37308  25592 S 137.5   0.6   0:00.23 /usr/lib/+
+ 3498 root      20   0 4109060  33508  24876 S  93.8   0.5   0:00.15 /usr/lib/+
+ 3477 root      20   0  107008   4472   3832 S   6.2   0.1   0:00.02 ./cmd/cmd+
+    1 root      20   0    3996   3272   2724 S   0.0   0.1   0:00.18 /bin/bash
+ 3460 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.14 java MyCl+
+ 3487 root      20   0    7860   2992   2644 R   0.0   0.0   0:00.00 top -bc -+
+ 3493 root      20   0    7860   3020   2668 S   0.0   0.0   0:00.00 top -bH -+
+ 3494 root      20   0    6920   1220   1032 S   0.0   0.0   0:00.00 vmstat 5 +
+
+top - 07:29:37 up  2:54,  0 users,  load average: 0.04, 0.02, 0.00
+Tasks:   7 total,   1 running,   5 sleeping,   0 stopped,   1 zombie
+%Cpu(s):  0.7 us,  0.4 sy,  0.0 ni, 99.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.5 free,    302.3 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.4 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3484 root      20   0       0      0      0 Z   1.7   0.0   0:01.23 [jstat] <+
+ 3460 root      20   0 4241816  31856  23896 S   0.3   0.5   0:00.34 java MyCl+
+ 3477 root      20   0  107008   4472   3832 S   0.1   0.1   0:00.07 ./cmd/cmd+
+ 3493 root      20   0    7860   3020   2668 S   0.0   0.0   0:00.01 top -bH -+
+    1 root      20   0    3996   3272   2724 S   0.0   0.1   0:00.18 /bin/bash
+ 3487 root      20   0    7860   2992   2644 R   0.0   0.0   0:00.00 top -bc -+
+ 3494 root      20   0    6920   1220   1032 S   0.0   0.0   0:00.00 vmstat 5 +

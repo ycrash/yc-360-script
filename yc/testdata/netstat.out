@@ -1,0 +1,16 @@
+Tue Dec 10 07:28:37 UTC 2019 
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 127.0.0.11:42613        0.0.0.0:*               LISTEN      -                   
+udp        0      0 127.0.0.11:43101        0.0.0.0:*                           -                   
+Active UNIX domain sockets (servers and established)
+Proto RefCnt Flags       Type       State         I-Node   PID/Program name     Path
+
+Tue Dec 10 07:30:08 UTC 2019 
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 127.0.0.11:42613        0.0.0.0:*               LISTEN      -                   
+udp        0      0 127.0.0.11:43101        0.0.0.0:*                           -                   
+Active UNIX domain sockets (servers and established)
+Proto RefCnt Flags       Type       State         I-Node   PID/Program name     Path
+unix  2      [ ACC ]     STREAM     LISTENING     27529    3460/java            /tmp/.java_pid3460.tmp

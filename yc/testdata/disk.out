@@ -1,0 +1,7 @@
+Filesystem     1K-blocks      Used Available Use% Mounted on
+overlay         61255492   7929508  50184660  14% /
+tmpfs              65536         0     65536   0% /dev
+tmpfs            3050216         0   3050216   0% /sys/fs/cgroup
+osxfs          125034836 107242896  17791940  86% /code
+/dev/sda1       61255492   7929508  50184660  14% /etc/hosts
+shm                65536         0     65536   0% /dev/shm

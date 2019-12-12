@@ -1,0 +1,917 @@
+2019-12-10 07:28:37
+Full thread dump OpenJDK 64-Bit Server VM (11.0.5+10-post-Debian-1deb10u1 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007fb5780029c0, length=10, elements={
+0x00007fb5bc013800, 0x00007fb5bc0e6000, 0x00007fb5bc0e8000, 0x00007fb5bc0ec800,
+0x00007fb5bc0ee800, 0x00007fb5bc0f1000, 0x00007fb5bc0f3000, 0x00007fb5bc129800,
+0x00007fb5bc12e800, 0x00007fb578001000
+}
+
+"main" #1 prio=5 os_prio=0 cpu=75.83ms elapsed=9.33s tid=0x00007fb5bc013800 nid=0xd85 waiting on condition  [0x00007fb5c3021000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleep(java.base@11.0.5/Native Method)
+	at MyClass.main(MyClass.java:7)
+
+   Locked ownable synchronizers:
+	- None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 cpu=0.25ms elapsed=9.31s tid=0x00007fb5bc0e6000 nid=0xd8c waiting on condition  [0x00007fb59c6d8000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@11.0.5/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@11.0.5/Reference.java:241)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@11.0.5/Reference.java:213)
+
+   Locked ownable synchronizers:
+	- None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 cpu=0.46ms elapsed=9.31s tid=0x00007fb5bc0e8000 nid=0xd8d in Object.wait()  [0x00007fb59c5d7000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:176)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@11.0.5/Finalizer.java:170)
+
+   Locked ownable synchronizers:
+	- None
+
+"Signal Dispatcher" #4 daemon prio=9 os_prio=0 cpu=0.51ms elapsed=9.30s tid=0x00007fb5bc0ec800 nid=0xd8e runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"C2 CompilerThread0" #5 daemon prio=9 os_prio=0 cpu=7.86ms elapsed=9.30s tid=0x00007fb5bc0ee800 nid=0xd8f waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"C1 CompilerThread0" #7 daemon prio=9 os_prio=0 cpu=16.76ms elapsed=9.30s tid=0x00007fb5bc0f1000 nid=0xd90 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"Sweeper thread" #8 daemon prio=9 os_prio=0 cpu=0.77ms elapsed=9.29s tid=0x00007fb5bc0f3000 nid=0xd91 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 cpu=0.09ms elapsed=9.26s tid=0x00007fb5bc129800 nid=0xd92 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Common-Cleaner" #10 daemon prio=8 os_prio=0 cpu=0.31ms elapsed=9.25s tid=0x00007fb5bc12e800 nid=0xd94 in Object.wait()  [0x00007fb56fdfb000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@11.0.5/CleanerImpl.java:148)
+	at java.lang.Thread.run(java.base@11.0.5/Thread.java:834)
+	at jdk.internal.misc.InnocuousThread.run(java.base@11.0.5/InnocuousThread.java:134)
+
+   Locked ownable synchronizers:
+	- None
+
+"Attach Listener" #11 daemon prio=9 os_prio=0 cpu=0.49ms elapsed=0.11s tid=0x00007fb578001000 nid=0xdc8 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"VM Thread" os_prio=0 cpu=2.60ms elapsed=9.32s tid=0x00007fb5bc0e3000 nid=0xd8b runnable  
+
+"GC Thread#0" os_prio=0 cpu=0.27ms elapsed=9.33s tid=0x00007fb5bc02c000 nid=0xd86 runnable  
+
+"G1 Main Marker" os_prio=0 cpu=1.54ms elapsed=9.33s tid=0x00007fb5bc052800 nid=0xd87 runnable  
+
+"G1 Conc#0" os_prio=0 cpu=0.09ms elapsed=9.33s tid=0x00007fb5bc054000 nid=0xd88 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=0.96ms elapsed=9.33s tid=0x00007fb5bc0b2800 nid=0xd89 runnable  
+
+"G1 Young RemSet Sampling" os_prio=0 cpu=4.61ms elapsed=9.33s tid=0x00007fb5bc0b4800 nid=0xd8a runnable  
+"VM Periodic Task Thread" os_prio=0 cpu=27.70ms elapsed=9.26s tid=0x00007fb5bc12c800 nid=0xd93 waiting on condition  
+
+JNI global refs: 5, weak refs: 0
+
+2019-12-10 07:29:07
+Full thread dump OpenJDK 64-Bit Server VM (11.0.5+10-post-Debian-1deb10u1 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007fb5780029c0, length=10, elements={
+0x00007fb5bc013800, 0x00007fb5bc0e6000, 0x00007fb5bc0e8000, 0x00007fb5bc0ec800,
+0x00007fb5bc0ee800, 0x00007fb5bc0f1000, 0x00007fb5bc0f3000, 0x00007fb5bc129800,
+0x00007fb5bc12e800, 0x00007fb578001000
+}
+
+"main" #1 prio=5 os_prio=0 cpu=75.83ms elapsed=39.66s tid=0x00007fb5bc013800 nid=0xd85 waiting on condition  [0x00007fb5c3021000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleep(java.base@11.0.5/Native Method)
+	at MyClass.main(MyClass.java:7)
+
+   Locked ownable synchronizers:
+	- None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 cpu=0.25ms elapsed=39.64s tid=0x00007fb5bc0e6000 nid=0xd8c waiting on condition  [0x00007fb59c6d8000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@11.0.5/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@11.0.5/Reference.java:241)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@11.0.5/Reference.java:213)
+
+   Locked ownable synchronizers:
+	- None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 cpu=0.46ms elapsed=39.64s tid=0x00007fb5bc0e8000 nid=0xd8d in Object.wait()  [0x00007fb59c5d7000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:176)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@11.0.5/Finalizer.java:170)
+
+   Locked ownable synchronizers:
+	- None
+
+"Signal Dispatcher" #4 daemon prio=9 os_prio=0 cpu=0.51ms elapsed=39.62s tid=0x00007fb5bc0ec800 nid=0xd8e runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"C2 CompilerThread0" #5 daemon prio=9 os_prio=0 cpu=8.42ms elapsed=39.62s tid=0x00007fb5bc0ee800 nid=0xd8f waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"C1 CompilerThread0" #7 daemon prio=9 os_prio=0 cpu=17.14ms elapsed=39.62s tid=0x00007fb5bc0f1000 nid=0xd90 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"Sweeper thread" #8 daemon prio=9 os_prio=0 cpu=0.77ms elapsed=39.62s tid=0x00007fb5bc0f3000 nid=0xd91 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 cpu=0.09ms elapsed=39.59s tid=0x00007fb5bc129800 nid=0xd92 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Common-Cleaner" #10 daemon prio=8 os_prio=0 cpu=0.31ms elapsed=39.58s tid=0x00007fb5bc12e800 nid=0xd94 in Object.wait()  [0x00007fb56fdfb000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@11.0.5/CleanerImpl.java:148)
+	at java.lang.Thread.run(java.base@11.0.5/Thread.java:834)
+	at jdk.internal.misc.InnocuousThread.run(java.base@11.0.5/InnocuousThread.java:134)
+
+   Locked ownable synchronizers:
+	- None
+
+"Attach Listener" #11 daemon prio=9 os_prio=0 cpu=0.71ms elapsed=30.43s tid=0x00007fb578001000 nid=0xdc8 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"VM Thread" os_prio=0 cpu=7.25ms elapsed=39.64s tid=0x00007fb5bc0e3000 nid=0xd8b runnable  
+
+"GC Thread#0" os_prio=0 cpu=0.31ms elapsed=39.65s tid=0x00007fb5bc02c000 nid=0xd86 runnable  
+
+"G1 Main Marker" os_prio=0 cpu=1.54ms elapsed=39.65s tid=0x00007fb5bc052800 nid=0xd87 runnable  
+
+"G1 Conc#0" os_prio=0 cpu=0.09ms elapsed=39.65s tid=0x00007fb5bc054000 nid=0xd88 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=0.96ms elapsed=39.65s tid=0x00007fb5bc0b2800 nid=0xd89 runnable  
+
+"G1 Young RemSet Sampling" os_prio=0 cpu=16.76ms elapsed=39.65s tid=0x00007fb5bc0b4800 nid=0xd8a runnable  
+"VM Periodic Task Thread" os_prio=0 cpu=111.85ms elapsed=39.59s tid=0x00007fb5bc12c800 nid=0xd93 waiting on condition  
+
+JNI global refs: 5, weak refs: 0
+
+2019-12-10 07:29:38
+Full thread dump OpenJDK 64-Bit Server VM (11.0.5+10-post-Debian-1deb10u1 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007fb5780029c0, length=10, elements={
+0x00007fb5bc013800, 0x00007fb5bc0e6000, 0x00007fb5bc0e8000, 0x00007fb5bc0ec800,
+0x00007fb5bc0ee800, 0x00007fb5bc0f1000, 0x00007fb5bc0f3000, 0x00007fb5bc129800,
+0x00007fb5bc12e800, 0x00007fb578001000
+}
+
+"main" #1 prio=5 os_prio=0 cpu=75.83ms elapsed=69.97s tid=0x00007fb5bc013800 nid=0xd85 waiting on condition  [0x00007fb5c3021000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleep(java.base@11.0.5/Native Method)
+	at MyClass.main(MyClass.java:7)
+
+   Locked ownable synchronizers:
+	- None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 cpu=0.25ms elapsed=69.95s tid=0x00007fb5bc0e6000 nid=0xd8c waiting on condition  [0x00007fb59c6d8000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@11.0.5/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@11.0.5/Reference.java:241)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@11.0.5/Reference.java:213)
+
+   Locked ownable synchronizers:
+	- None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 cpu=0.46ms elapsed=69.95s tid=0x00007fb5bc0e8000 nid=0xd8d in Object.wait()  [0x00007fb59c5d7000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:176)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@11.0.5/Finalizer.java:170)
+
+   Locked ownable synchronizers:
+	- None
+
+"Signal Dispatcher" #4 daemon prio=9 os_prio=0 cpu=0.51ms elapsed=69.94s tid=0x00007fb5bc0ec800 nid=0xd8e runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"C2 CompilerThread0" #5 daemon prio=9 os_prio=0 cpu=8.72ms elapsed=69.94s tid=0x00007fb5bc0ee800 nid=0xd8f waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"C1 CompilerThread0" #7 daemon prio=9 os_prio=0 cpu=17.91ms elapsed=69.93s tid=0x00007fb5bc0f1000 nid=0xd90 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"Sweeper thread" #8 daemon prio=9 os_prio=0 cpu=0.77ms elapsed=69.93s tid=0x00007fb5bc0f3000 nid=0xd91 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 cpu=0.09ms elapsed=69.90s tid=0x00007fb5bc129800 nid=0xd92 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Common-Cleaner" #10 daemon prio=8 os_prio=0 cpu=0.43ms elapsed=69.89s tid=0x00007fb5bc12e800 nid=0xd94 in Object.wait()  [0x00007fb56fdfb000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@11.0.5/CleanerImpl.java:148)
+	at java.lang.Thread.run(java.base@11.0.5/Thread.java:834)
+	at jdk.internal.misc.InnocuousThread.run(java.base@11.0.5/InnocuousThread.java:134)
+
+   Locked ownable synchronizers:
+	- None
+
+"Attach Listener" #11 daemon prio=9 os_prio=0 cpu=0.96ms elapsed=60.74s tid=0x00007fb578001000 nid=0xdc8 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"VM Thread" os_prio=0 cpu=11.86ms elapsed=69.95s tid=0x00007fb5bc0e3000 nid=0xd8b runnable  
+
+"GC Thread#0" os_prio=0 cpu=0.34ms elapsed=69.97s tid=0x00007fb5bc02c000 nid=0xd86 runnable  
+
+"G1 Main Marker" os_prio=0 cpu=1.54ms elapsed=69.97s tid=0x00007fb5bc052800 nid=0xd87 runnable  
+
+"G1 Conc#0" os_prio=0 cpu=0.09ms elapsed=69.97s tid=0x00007fb5bc054000 nid=0xd88 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=0.96ms elapsed=69.96s tid=0x00007fb5bc0b2800 nid=0xd89 runnable  
+
+"G1 Young RemSet Sampling" os_prio=0 cpu=28.54ms elapsed=69.96s tid=0x00007fb5bc0b4800 nid=0xd8a runnable  
+"VM Periodic Task Thread" os_prio=0 cpu=195.08ms elapsed=69.90s tid=0x00007fb5bc12c800 nid=0xd93 waiting on condition  
+
+JNI global refs: 5, weak refs: 0
+
+2019-12-10 07:30:08
+Full thread dump OpenJDK 64-Bit Server VM (11.0.5+10-post-Debian-1deb10u1 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007fb5780029c0, length=10, elements={
+0x00007fb5bc013800, 0x00007fb5bc0e6000, 0x00007fb5bc0e8000, 0x00007fb5bc0ec800,
+0x00007fb5bc0ee800, 0x00007fb5bc0f1000, 0x00007fb5bc0f3000, 0x00007fb5bc129800,
+0x00007fb5bc12e800, 0x00007fb578001000
+}
+
+"main" #1 prio=5 os_prio=0 cpu=75.83ms elapsed=100.29s tid=0x00007fb5bc013800 nid=0xd85 waiting on condition  [0x00007fb5c3021000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleep(java.base@11.0.5/Native Method)
+	at MyClass.main(MyClass.java:7)
+
+   Locked ownable synchronizers:
+	- None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 cpu=0.25ms elapsed=100.27s tid=0x00007fb5bc0e6000 nid=0xd8c waiting on condition  [0x00007fb59c6d8000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@11.0.5/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@11.0.5/Reference.java:241)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@11.0.5/Reference.java:213)
+
+   Locked ownable synchronizers:
+	- None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 cpu=0.46ms elapsed=100.27s tid=0x00007fb5bc0e8000 nid=0xd8d in Object.wait()  [0x00007fb59c5d7000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:176)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@11.0.5/Finalizer.java:170)
+
+   Locked ownable synchronizers:
+	- None
+
+"Signal Dispatcher" #4 daemon prio=9 os_prio=0 cpu=0.51ms elapsed=100.26s tid=0x00007fb5bc0ec800 nid=0xd8e runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"C2 CompilerThread0" #5 daemon prio=9 os_prio=0 cpu=9.22ms elapsed=100.26s tid=0x00007fb5bc0ee800 nid=0xd8f waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"C1 CompilerThread0" #7 daemon prio=9 os_prio=0 cpu=18.50ms elapsed=100.25s tid=0x00007fb5bc0f1000 nid=0xd90 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"Sweeper thread" #8 daemon prio=9 os_prio=0 cpu=0.77ms elapsed=100.25s tid=0x00007fb5bc0f3000 nid=0xd91 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 cpu=0.09ms elapsed=100.22s tid=0x00007fb5bc129800 nid=0xd92 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Common-Cleaner" #10 daemon prio=8 os_prio=0 cpu=0.43ms elapsed=100.21s tid=0x00007fb5bc12e800 nid=0xd94 in Object.wait()  [0x00007fb56fdfb000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8be71e8> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@11.0.5/CleanerImpl.java:148)
+	at java.lang.Thread.run(java.base@11.0.5/Thread.java:834)
+	at jdk.internal.misc.InnocuousThread.run(java.base@11.0.5/InnocuousThread.java:134)
+
+   Locked ownable synchronizers:
+	- None
+
+"Attach Listener" #11 daemon prio=9 os_prio=0 cpu=1.15ms elapsed=91.06s tid=0x00007fb578001000 nid=0xdc8 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"VM Thread" os_prio=0 cpu=16.40ms elapsed=100.28s tid=0x00007fb5bc0e3000 nid=0xd8b runnable  
+
+"GC Thread#0" os_prio=0 cpu=0.37ms elapsed=100.29s tid=0x00007fb5bc02c000 nid=0xd86 runnable  
+
+"G1 Main Marker" os_prio=0 cpu=1.54ms elapsed=100.29s tid=0x00007fb5bc052800 nid=0xd87 runnable  
+
+"G1 Conc#0" os_prio=0 cpu=0.09ms elapsed=100.29s tid=0x00007fb5bc054000 nid=0xd88 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=0.96ms elapsed=100.28s tid=0x00007fb5bc0b2800 nid=0xd89 runnable  
+
+"G1 Young RemSet Sampling" os_prio=0 cpu=41.46ms elapsed=100.28s tid=0x00007fb5bc0b4800 nid=0xd8a runnable  
+"VM Periodic Task Thread" os_prio=0 cpu=289.72ms elapsed=100.22s tid=0x00007fb5bc12c800 nid=0xd93 waiting on condition  
+
+JNI global refs: 5, weak refs: 0
+
+
+Tue Dec 10 07:28:37 UTC 2019 
+
+Collected against PID 3460
+
+top - 07:28:37 up  2:53,  0 users,  load average: 0.00, 0.01, 0.00
+Threads:  17 total,   0 running,  17 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 32.1 us, 32.1 sy,  0.0 ni, 35.8 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5184.7 free,    323.0 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5412.5 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3460 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 G1 Young +
+ 3467 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3475 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.02 VM Period+
+ 3476 root      20   0 4175252  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+
+top - 07:28:42 up  2:53,  0 users,  load average: 0.00, 0.01, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  3.9 us,  1.8 sy,  0.0 ni, 94.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.2 free,    326.6 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.1 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.04 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:28:47 up  2:54,  0 users,  load average: 0.00, 0.01, 0.00
+Threads:  18 total,   1 running,  17 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.0 us,  0.1 sy,  0.0 ni, 99.9 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5180.7 free,    327.2 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5408.6 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 R   0.2   0.5   0:00.05 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:28:52 up  2:54,  0 users,  load average: 0.08, 0.03, 0.01
+Threads:  18 total,   1 running,  17 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.3 us,  0.1 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5180.8 free,    327.0 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5408.7 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 R   0.4   0.5   0:00.07 VM Period+
+ 3466 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.01 G1 Young +
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:28:57 up  2:54,  0 users,  load average: 0.07, 0.03, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.2 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.3 free,    326.5 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.2 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.08 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:02 up  2:54,  0 users,  load average: 0.07, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.6 us,  0.2 sy,  0.0 ni, 99.2 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5182.1 free,    325.8 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.9 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.09 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:07 up  2:54,  0 users,  load average: 0.06, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.1 us,  0.2 sy,  0.0 ni, 99.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5182.1 free,    325.8 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5410.0 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.11 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:12 up  2:54,  0 users,  load average: 0.06, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  2.4 us,  0.9 sy,  0.0 ni, 96.7 id,  0.1 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.8 free,    326.0 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.7 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.12 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:17 up  2:54,  0 users,  load average: 0.05, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.1 us,  0.2 sy,  0.0 ni, 99.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.8 free,    326.0 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.7 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3466 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.02 G1 Young +
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.13 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:22 up  2:54,  0 users,  load average: 0.05, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.1 sy,  0.0 ni, 99.8 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.8 free,    325.9 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.15 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.02 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:27 up  2:54,  0 users,  load average: 0.04, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.4 sy,  0.0 ni, 99.4 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.8 free,    325.9 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.16 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.02 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:32 up  2:54,  0 users,  load average: 0.04, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.2 sy,  0.0 ni, 99.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5181.7 free,    326.1 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5409.7 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3467 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.01 VM Thread
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.17 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.02 G1 Young +
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:37 up  2:54,  0 users,  load average: 0.04, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.1 us,  0.3 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.5 free,    302.3 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.4 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.19 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.02 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:42 up  2:54,  0 users,  load average: 0.03, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  1.8 us,  1.6 sy,  0.0 ni, 96.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.6 free,    302.2 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.5 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3466 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.03 G1 Young +
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.20 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:47 up  2:55,  0 users,  load average: 0.03, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.2 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.6 free,    302.2 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.6 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.22 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.03 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:52 up  2:55,  0 users,  load average: 0.03, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.2 us,  0.3 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.8 free,    302.0 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.7 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.23 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.03 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:29:57 up  2:55,  0 users,  load average: 0.02, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.1 us,  0.1 sy,  0.0 ni, 99.8 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.9 free,    301.9 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.25 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.03 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:30:02 up  2:55,  0 users,  load average: 0.02, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.1 us,  0.4 sy,  0.0 ni, 99.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.9 free,    301.9 used,    449.6 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3475 root      20   0 4241816  31856  23896 S   0.4   0.5   0:00.27 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3466 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.03 G1 Young +
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
+
+top - 07:30:07 up  2:55,  0 users,  load average: 0.02, 0.02, 0.00
+Threads:  18 total,   0 running,  18 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.0 us,  0.3 sy,  0.0 ni, 99.6 id,  0.1 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5205.9 free,    301.9 used,    449.7 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5433.8 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 3466 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.04 G1 Young +
+ 3475 root      20   0 4241816  31856  23896 S   0.2   0.5   0:00.28 VM Period+
+ 3460 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 java
+ 3461 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.07 java
+ 3462 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 GC Thread+
+ 3463 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Main M+
+ 3464 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Conc#0
+ 3465 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 G1 Refine+
+ 3467 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 VM Thread
+ 3468 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Reference+
+ 3469 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Finalizer
+ 3470 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Signal Di+
+ 3471 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 C2 Compil+
+ 3472 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.01 C1 Compil+
+ 3473 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Sweeper t+
+ 3474 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Service T+
+ 3476 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Common-Cl+
+ 3528 root      20   0 4241816  31856  23896 S   0.0   0.5   0:00.00 Attach Li+
