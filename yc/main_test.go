@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -140,5 +141,64 @@ func TestPostData(t *testing.T) {
 	msg, ok = PostData(endpoint, "td", td)
 	if !ok {
 		t.Fatal("post data failed", msg)
+	}
+}
+
+func init() {
+	logger = Logger{writer: os.Stdout}
+}
+
+func TestHeapDump(t *testing.T) {
+	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
+	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", "https://test.gceasy.io", "tier1app@12312-12233-1442134-112", parameters)
+	err = os.Chdir("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdResultChan, err := captureHeapDump(endpoint, noGC.Process.Pid, "/usr/lib/jvm/java-11-openjdk-amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := <-hdResultChan
+	if !r.ok {
+		t.Fatal(r)
+	}
+	t.Log(r)
+}
+
+func TestWriteMetaInfo(t *testing.T) {
+	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", "https://test.gceasy.io", "tier1app@12312-12233-1442134-112", parameters)
+	msg, ok, err := writeMetaInfo(11111, "test", endpoint)
+	if err != nil || !ok {
+		t.Fatal(err, msg)
+	}
+	t.Log(msg, ok)
+}
+
+func TestProcessLogFile(t *testing.T) {
+	err := os.Chdir("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gc, err := processGCLogFile("ogc.log", "tgc.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gc.Seek(0, 0)
+	all, err := ioutil.ReadAll(gc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(all)
+	if s != fmt.Sprintf("test\ntest") {
+		t.Fatal(s)
 	}
 }

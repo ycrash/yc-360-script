@@ -7,6 +7,9 @@ package main
 //                      Changed minor changes to messages printed on the screen
 
 import (
+	"archive/zip"
+	"bufio"
+	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -17,6 +20,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -60,6 +64,9 @@ var (
 	AppName       string
 	GcLogFilePath string
 	javaHome      string
+	heapDump      bool
+
+	logger Logger
 )
 
 func init() {
@@ -69,6 +76,7 @@ func init() {
 	flag.StringVar(&AppName, "a", "", "APP Name")
 	flag.StringVar(&GcLogFilePath, "gc", "", "GC log file path")
 	flag.StringVar(&javaHome, "j", "", "JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64")
+	flag.BoolVar(&heapDump, "hd", false, "capture heap dumps")
 }
 
 func main() {
@@ -132,6 +140,7 @@ func main() {
 	//  Create output files
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
 	dname := "yc-" + timestamp
 	err = os.Mkdir(dname, 0777)
 	if err != nil {
@@ -153,7 +162,7 @@ func main() {
 
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
-	logger := Logger{writer: mwriter}
+	logger = Logger{writer: mwriter}
 	logger.Log("yc script starting...")
 	logger.Log("Script version: %s", SCRIPT_VERSION)
 
@@ -169,25 +178,29 @@ func main() {
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	if len(GcLogFilePath) > 0 {
-		gc, err = os.Open(GcLogFilePath)
-		if err != nil {
-			logger.Log("gc log file open failed %s", err.Error())
-			GcLogFilePath = ""
-		} else {
-			defer gc.Close()
-		}
+	gc, err = processGCLogFile(GcLogFilePath, "gc.log")
+	if err != nil {
+		logger.Log("process log file failed %s", GcLogFilePath)
 	}
 	var jstat shell.CmdHolder
-	if len(GcLogFilePath) < 1 {
+	if gc == nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(javaHome, "/bin/jstat"), "-gc", "-t", strconv.Itoa(Pid), "2000", "30"})
 		if err != nil {
 			return
 		}
-		defer gc.Close()
 		GcLogFilePath = "gc.log"
 		logger.Log("gc log set to %s", GcLogFilePath)
+	}
+	defer gc.Close()
+
+	var hdResultChan chan captureResult
+	if heapDump {
+		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
+		hdResultChan, err = captureHeapDump(ep, Pid, javaHome)
+		if err != nil {
+			return
+		}
 	}
 
 	// Collect the user currently executing the script
@@ -366,10 +379,6 @@ func main() {
 
 	logger.Log("Collected other data.")
 
-	// -------------------------------
-	// Compute transmitting parameters
-	// -------------------------------
-	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
 	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", YcServer, ApiKey, parameters)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", YcServer, ApiKey, parameters)
 	var ok bool
@@ -492,6 +501,31 @@ Resp: %s
 `, ok, msg)
 
 	// -------------------------------
+	//     Transmit MetaInfo
+	// -------------------------------
+	msg, ok, err = writeMetaInfo(Pid, AppName, endpoint)
+	if err != nil {
+		logger.Log("writeMetaInfo failed %s", err.Error())
+	}
+	fmt.Printf(
+		`META INFO DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
+	// -------------------------------
+	//     Transmit Heap dump result
+	// -------------------------------
+	hdResult := <-hdResultChan
+	fmt.Printf(
+		`HEAP DUMP DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, hdResult.ok, hdResult.msg)
+	// -------------------------------
 	//     Conclusion
 	// -------------------------------
 	ou := strings.SplitN(ApiKey, "@", 2)[0]
@@ -606,5 +640,162 @@ func GetGCLogFile(pid int) (result string, err error) {
 		return
 	}
 	result = strings.TrimSpace(string(fp))
+	return
+}
+
+func processGCLogFile(log string, out string) (gc *os.File, err error) {
+	if len(log) <= 0 {
+		return
+	}
+	gc, err = os.Open(log)
+	if err == nil {
+		return
+	}
+	logger.Log("gc log file open failed %s", err.Error())
+	if !os.IsNotExist(err) {
+		return
+	}
+	d := filepath.Dir(log)
+	open, err := os.Open(d)
+	if err != nil {
+		return nil, err
+	}
+	defer open.Close()
+	fs, err := open.Readdirnames(0)
+	if err != nil {
+		return nil, err
+	}
+	re := regexp.MustCompile(log + "\\.([0-9])\\.current")
+	for _, f := range fs {
+		rf := re.FindStringSubmatch(f)
+		if len(rf) > 1 {
+			err = func() error {
+				ogc, err := os.Open(rf[0])
+				if err != nil {
+					return err
+				}
+				defer ogc.Close()
+				p, err := strconv.Atoi(rf[1])
+				if err != nil {
+					return err
+				}
+				if p-1 >= 0 {
+					p = p - 1
+				} else {
+					err = fmt.Errorf("invalid gc log index %d", p)
+					return err
+				}
+				opgc, err := os.Open(log + "." + strconv.Itoa(p))
+				if err != nil {
+					return err
+				}
+				defer opgc.Close()
+				gc, err = os.Create(out)
+				if err != nil {
+					return err
+				}
+				// combine previous gc log to new gc log
+				_, err = io.Copy(gc, opgc)
+				if err != nil {
+					return err
+				}
+				_, err = io.Copy(gc, ogc)
+				if err != nil {
+					return err
+				}
+				return nil
+			}()
+			if err != nil {
+				return nil, err
+			}
+			return gc, nil
+		}
+	}
+	return
+}
+
+const metaInfoTemplate = `hostName=%s
+processId=%d
+appName=%s`
+
+func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool, err error) {
+	file, err := os.Create("meta-info.txt")
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	hostname, err := os.Hostname()
+	if err != nil {
+		return
+	}
+	_, err = io.Copy(file, bytes.NewBufferString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName)))
+	if err != nil {
+		return
+	}
+	msg, ok = PostData(endpoint, "meta", file)
+	return
+}
+
+type captureResult struct {
+	msg string
+	ok  bool
+}
+
+func captureHeapDump(endpoint string, pid int, javaHome string) (c chan captureResult, err error) {
+	logger.Log("capturing heap dump...")
+	dir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	hd, err := shell.CommandStartInBackground(shell.Command{path.Join(javaHome, "/bin/jcmd"), strconv.Itoa(pid), "GC.heap_dump", filepath.Join(dir, "/heap_dump.out")})
+	if err != nil {
+		return
+	}
+	c = make(chan captureResult)
+	// compress and post
+	go func() {
+		hd.Wait()
+		result := captureResult{}
+		var err error
+		defer func() {
+			if err != nil {
+				result.msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
+			}
+			c <- result
+			close(c)
+		}()
+		logger.Log("captured heap dump.")
+		zipfile, err := os.Create("heap_dump.zip")
+		if err != nil {
+			logger.Log("failed to create zip file")
+			return
+		}
+		defer zipfile.Close()
+		writer := zip.NewWriter(bufio.NewWriter(zipfile))
+		out, err := writer.Create("heap_dump.out")
+		if err != nil {
+			logger.Log("failed to create zip file")
+			return
+		}
+		hdout, err := os.Open("heap_dump.out")
+		if err != nil {
+			logger.Log("failed to open heap dump file")
+			return
+		}
+		defer hdout.Close()
+		_, err = io.Copy(out, hdout)
+		if err != nil {
+			logger.Log("failed to zip heap dump file")
+			return
+		}
+		err = writer.Close()
+		if err != nil {
+			logger.Log("failed to finish zipping heap dump file")
+			return
+		}
+
+		logger.Log("zipped heap dump.")
+		result.msg, result.ok = PostData(endpoint, "hd&Content-Encoding=zip", zipfile)
+	}()
 	return
 }
