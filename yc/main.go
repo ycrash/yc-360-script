@@ -27,34 +27,6 @@ import (
 	"shell/capture"
 )
 
-// ------------------------------------------------------------------------------
-//  Customer specific Properties
-// ------------------------------------------------------------------------------
-
-// Specify your JDK installation directory.
-// var JAVA_HOME = "/usr/lib/jvm/java-11-openjdk-amd64"
-
-// ------------------------------------------------------------------------------
-//  Generic Properties
-// ------------------------------------------------------------------------------
-var (
-	SCRIPT_VERSION      = "2019_07_04"
-	SCRIPT_SPAN         = 120 // How long the whole script should take. Default=240
-	JAVACORE_INTERVAL   = 30  // How often javacores should be taken. Default=30
-	TOP_INTERVAL        = 60  // How often top data should be taken. Default=60
-	TOP_DASH_H_INTERVAL = 5   // How often top dash H data should be taken. Default=5
-	VMSTAT_INTERVAL     = 5   // How often vmstat data should be taken. Default=5
-)
-
-// ------------------------------------------------------------------------------
-//  * All values are in seconds.
-//  * All the 'INTERVAL' values should divide into the 'SCRIPT_SPAN' by a whole
-//    integer to obtain expected results.
-//  * Setting any 'INTERVAL' too low (especially JAVACORE) can result in data
-//    that may not be useful towards resolving the issue.  This becomes a problem
-//    when the process of collecting data obscures the real issue.
-// ------------------------------------------------------------------------------
-
 var (
 	Pid           int
 	YcServer      string
@@ -165,17 +137,17 @@ func main() {
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
 	logger = Logger{writer: mwriter}
 	logger.Log("yc script starting...")
-	logger.Log("Script version: %s", SCRIPT_VERSION)
+	logger.Log("Script version: %s", shell.SCRIPT_VERSION)
 
 	// Display the PIDs which have been input to the script
 	logger.Log("PROBLEMATIC_PID is: %d", Pid)
 
 	// Display the being used in this script
-	logger.Log("SCRIPT_SPAN = %d", SCRIPT_SPAN)
-	logger.Log("JAVACORE_INTERVAL = %d", JAVACORE_INTERVAL)
-	logger.Log("TOP_INTERVAL = %d", TOP_INTERVAL)
-	logger.Log("TOP_DASH_H_INTERVAL = %d", TOP_DASH_H_INTERVAL)
-	logger.Log("VMSTAT_INTERVAL = %d", VMSTAT_INTERVAL)
+	logger.Log("SCRIPT_SPAN = %d", shell.SCRIPT_SPAN)
+	logger.Log("JAVACORE_INTERVAL = %d", shell.JAVACORE_INTERVAL)
+	logger.Log("TOP_INTERVAL = %d", shell.TOP_INTERVAL)
+	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
+	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
 	// check if it can find gc log from ps
 	var gc *os.File
@@ -261,7 +233,7 @@ func main() {
 	//   				Capture thread dumps and ps
 	// ------------------------------------------------------------------------------
 	//  Initialize some loop variables
-	m := SCRIPT_SPAN / JAVACORE_INTERVAL
+	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
 	capPS := capture.NewPS()
 	ps := goCapture(endpoint, capture.WrapRun(capPS))
 	capJStack := capture.NewJStack(javaHome, Pid)
@@ -284,8 +256,8 @@ func main() {
 			break
 		}
 		// Pause for JAVACORE_INTERVAL seconds.
-		logger.Log("sleeping for %d seconds...", JAVACORE_INTERVAL)
-		time.Sleep(time.Second * time.Duration(JAVACORE_INTERVAL))
+		logger.Log("sleeping for %d seconds...", shell.JAVACORE_INTERVAL)
+		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
 	}
 	logger.Log("Collected ps snapshot and thread dump.")
 
@@ -318,7 +290,7 @@ func main() {
 	if err != nil {
 		return
 	}
-	err = capTopH.Cmd.KillAndWait()
+	err = capTopH.Cmd.Process.Kill()
 	if err != nil {
 		return
 	}
