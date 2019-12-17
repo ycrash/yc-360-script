@@ -10,13 +10,10 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
-	"net/http"
 	"os"
 	"os/user"
 	"path"
@@ -27,6 +24,7 @@ import (
 	"time"
 
 	"shell"
+	"shell/capture"
 )
 
 // ------------------------------------------------------------------------------
@@ -116,7 +114,7 @@ func main() {
 
 	// can be ignored
 	if len(GcLogFilePath) < 1 {
-		output, err := GetGCLogFile(Pid)
+		output, err := getGCLogFile(Pid)
 		if err == nil && len(output) > 0 {
 			GcLogFilePath = output
 		}
@@ -140,7 +138,10 @@ func main() {
 	//  Create output files
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", YcServer, ApiKey, parameters)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", YcServer, ApiKey, parameters)
+
 	dname := "yc-" + timestamp
 	err = os.Mkdir(dname, 0777)
 	if err != nil {
@@ -158,7 +159,7 @@ func main() {
 		return
 	}
 	defer fscreen.Close()
-	fscreen.WriteString(fmt.Sprintf("\n%s\n", NowString()))
+	fscreen.WriteString(fmt.Sprintf("\n%s\n", nowString()))
 
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
@@ -194,13 +195,10 @@ func main() {
 	}
 	defer gc.Close()
 
-	var hdResultChan chan captureResult
+	var hdResultChan chan CaptureResult
 	if heapDump {
 		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
-		hdResultChan, err = captureHeapDump(ep, Pid, javaHome)
-		if err != nil {
-			return
-		}
+		hdResultChan = captureHeapDump(ep, Pid, javaHome)
 	}
 
 	// Collect the user currently executing the script
@@ -212,7 +210,7 @@ func main() {
 	}
 	defer fwhoami.Close()
 
-	fwhoami.WriteString(fmt.Sprintf("%s\n", NowString()))
+	fwhoami.WriteString(fmt.Sprintf("%s\n", nowString()))
 	current, err := user.Current()
 	if err != nil {
 		return
@@ -221,49 +219,13 @@ func main() {
 
 	logger.Log("Collection of user authority data complete.")
 
-	// Create some of the output files with a blank line at top
-	logger.Log("Creating output files...")
-	vmstat, err := os.Create("vmstat.out")
-	if err != nil {
-		return
-	}
-	defer vmstat.Close()
-	ps, err := os.Create("ps.out")
-	if err != nil {
-		return
-	}
-	defer ps.Close()
-	top, err := os.Create("top.out")
-	if err != nil {
-		return
-	}
-	defer top.Close()
-	topdash, err := os.Create(fmt.Sprintf("topdashH.%d.out", Pid))
-	if err != nil {
-		return
-	}
-	defer topdash.Close()
-	logger.Log(`Output files created:
-     vmstat.out
-     ps.out
-     top.out
-     topdashH.%d.out`, Pid)
-
 	// ------------------------------------------------------------------------------
 	//                   Capture netstat x2
 	// ------------------------------------------------------------------------------
 	//  Collect the first netstat: date at the top, data, and then a blank line
 	logger.Log("Collecting the first netstat snapshot...")
-	netstat, err := os.Create("netstat.out")
-	if err != nil {
-		return
-	}
-	defer netstat.Close()
-	netstat.WriteString(fmt.Sprintf("%s\n", NowString()))
-	err = shell.CommandCombinedOutputToWriter(netstat, shell.NetState)
-	if err != nil {
-		return
-	}
+	capNetStat := &capture.NetStat{}
+	netStat := goCapture(endpoint, capture.WrapRun(capNetStat))
 	logger.Log("First netstat snapshot complete.")
 
 	// ------------------------------------------------------------------------------
@@ -271,13 +233,8 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of top data...")
-	top.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
-	topCmd, err := shell.CommandStartInBackgroundToWriter(top, shell.Top,
-		"-d", strconv.Itoa(TOP_INTERVAL),
-		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL+1))
-	if err != nil {
-		return
-	}
+	capTop := &capture.Top{}
+	top := goCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
 
 	// ------------------------------------------------------------------------------
@@ -285,16 +242,10 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of top dash H data...")
-	topdash.WriteString(fmt.Sprintf("\n%s\n\n", NowString()))
-	topdash.WriteString(fmt.Sprintf("Collected against PID %d\n\n", Pid))
-	topHCmd, err := shell.CommandStartInBackgroundToWriter(topdash, shell.TopH,
-		"-d", strconv.Itoa(TOP_DASH_H_INTERVAL),
-		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_DASH_H_INTERVAL+1),
-		"-p", strconv.Itoa(Pid))
-	if err != nil {
-		return
+	capTopH := &capture.TopH{
+		Pid: Pid,
 	}
-
+	goCapture(endpoint, capture.WrapRun(capTopH))
 	logger.Log("Collection of top dash H data started for PID %d.", Pid)
 
 	// ------------------------------------------------------------------------------
@@ -302,13 +253,8 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  It runs in the background so that other tasks can be completed while this runs.
 	logger.Log("Starting collection of vmstat data...")
-	vmstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	vmstatCmd, err := shell.CommandStartInBackgroundToWriter(vmstat, shell.VMState,
-		strconv.Itoa(VMSTAT_INTERVAL),
-		strconv.Itoa(SCRIPT_SPAN/VMSTAT_INTERVAL+1))
-	if err != nil {
-		return
-	}
+	capVMStat := &capture.VMStat{}
+	vmstat := goCapture(endpoint, capture.WrapRun(capVMStat))
 	logger.Log("Collection of vmstat data started.")
 
 	// ------------------------------------------------------------------------------
@@ -316,29 +262,23 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  Initialize some loop variables
 	m := SCRIPT_SPAN / JAVACORE_INTERVAL
+	capPS := capture.NewPS()
+	ps := goCapture(endpoint, capture.WrapRun(capPS))
+	capJStack := capture.NewJStack(javaHome, Pid)
+	go func() {
+		_, err := capJStack.Run()
+		if err != nil {
+			logger.Log("jstack error %s", err.Error())
+		}
+	}()
+	logger.Log("Collecting ps snapshot and thread dump...")
 	for n := 1; n <= m; n++ {
 		// Collect a ps snapshot: date at the top, data, and then a blank line
-		logger.Log("Collecting a ps snapshot...")
-		ps.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-		err = shell.CommandCombinedOutputToWriter(ps, shell.PS)
-		if err != nil {
-			return
-		}
-		logger.Log("Collected a ps snapshot.")
+		capPS.Continue()
 
 		//  Collect a javacore against the problematic pid (passed in by the user)
 		//  Javacores are output to the working directory of the JVM; in most cases this is the <profile_root>
-		func() {
-			logger.Log("Collecting thread dump...")
-			jstack, err := shell.CommandCombinedOutputToFile(fmt.Sprintf("javacore.%d.out", n),
-				shell.Command{path.Join(javaHome, "bin/jstack"), "-l", strconv.Itoa(Pid)})
-			if err != nil {
-				logger.Log("jstack error %s", err.Error())
-				return
-			}
-			defer jstack.Close()
-			logger.Log("Collected a thread dump for PID %d.", Pid)
-		}()
+		capJStack.Continue()
 
 		if n == m {
 			break
@@ -347,122 +287,112 @@ func main() {
 		logger.Log("sleeping for %d seconds...", JAVACORE_INTERVAL)
 		time.Sleep(time.Second * time.Duration(JAVACORE_INTERVAL))
 	}
+	logger.Log("Collected ps snapshot and thread dump.")
 
 	// ------------------------------------------------------------------------------
 	//                Capture final netstat
 	// ------------------------------------------------------------------------------
 	logger.Log("Collecting the final netstat snapshot...")
-	netstat.WriteString(fmt.Sprintf("\n%s\n", NowString()))
-	err = shell.CommandCombinedOutputToWriter(netstat, shell.NetState)
-	if err != nil {
-		return
-	}
+	capNetStat.Done()
 	logger.Log("Final netstat snapshot complete.")
 
 	// ------------------------------------------------------------------------------
 	//  				Capture dmesg
 	// ------------------------------------------------------------------------------
 	logger.Log("Collecting other data.  This may take a few moments...")
-	dmesg, err := shell.CommandCombinedOutputToFile("dmesg.out", shell.DMesg)
-	if err != nil {
-		return
-	}
-	defer dmesg.Close()
+	// There is no endpoint for this now.
+	// dmesg := goCapture(endpoint, captureDMesg)
 	// ------------------------------------------------------------------------------
 	//  				Capture Disk Usage
 	// ------------------------------------------------------------------------------
-	df, err := shell.CommandCombinedOutputToFile("disk.out", shell.Disk)
-	if err != nil {
-		return
-	}
-	defer df.Close()
+	disk := goCapture(endpoint, capture.WrapRun(&capture.Disk{}))
 
 	logger.Log("Collected other data.")
 
-	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", YcServer, ApiKey, parameters)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", YcServer, ApiKey, parameters)
 	var ok bool
 	var msg string
 
 	jstat.Wait()
 	// stop started tasks
-	err = topCmd.KillAndWait()
+	err = capTop.Cmd.Process.Kill()
 	if err != nil {
 		return
 	}
-	err = topHCmd.KillAndWait()
+	err = capTopH.Cmd.KillAndWait()
 	if err != nil {
 		return
 	}
-	err = vmstatCmd.KillAndWait()
+	err = capVMStat.Cmd.Process.Kill()
 	if err != nil {
 		return
 	}
+	capPS.Kill()
+	capJStack.Kill()
 
 	// -------------------------------
 	//     Transmit Top data
 	// -------------------------------
-	msg, ok = PostData(endpoint, "top", top)
+	result := <-top
 	fmt.Printf(
 		`TOP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit DF data
 	// -------------------------------
-	msg, ok = PostData(endpoint, "df", df)
+	result = <-disk
 	fmt.Printf(
 		`DISK USAGE DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit netstat data
 	// -------------------------------
-	msg, ok = PostData(endpoint, "ns", netstat)
+	result = <-netStat
 	fmt.Printf(
 		`NETSTAT DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit ps data
 	// -------------------------------
-	msg, ok = PostData(endpoint, "ps", ps)
+	result = <-ps
 	fmt.Printf(
 		`PROCESS STATUS DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit VMstat data
 	// -------------------------------
-	msg, ok = PostData(endpoint, "vmstat", vmstat)
+	result = <-vmstat
 	fmt.Printf(
 		`VMstat DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok = PostData(endpoint, "gc", gc)
+	msg, ok = postData(endpoint, "gc", gc)
 	fmt.Printf(
 		`GC LOG DATA
 %s
@@ -475,30 +405,17 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
-	// 1: concatenate individual thread dumps
-	err = shell.CommandRun(shell.AppendJavaCoreFiles)
-	if err != nil {
-		return
+	capThreadDump := &capture.ThreadDump{
+		Pid: Pid,
 	}
-	// 2: Append top -H output file.
-	err = shell.CommandRun(shell.AppendTopH, fmt.Sprintf("cat topdashH.%d.out >> ./threaddump.out", Pid))
-	if err != nil {
-		return
-	}
-	// 3: Transmit Thread dump
-	td, err := os.Open("threaddump.out")
-	if err != nil {
-		return
-	}
-	defer td.Close()
-	msg, ok = PostData(endpoint, "td", td)
+	result = <-goCapture(endpoint, capture.WrapRun(capThreadDump))
 	fmt.Printf(
 		`THREAD DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 
 	// -------------------------------
 	//     Transmit MetaInfo
@@ -517,14 +434,16 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	hdResult := <-hdResultChan
-	fmt.Printf(
-		`HEAP DUMP DATA
+	if hdResultChan != nil {
+		hdResult := <-hdResultChan
+		fmt.Printf(
+			`HEAP DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, hdResult.ok, hdResult.msg)
+`, hdResult.Ok, hdResult.Msg)
+	}
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
@@ -536,50 +455,10 @@ See the report: %s
 `, reportEndpoint)
 }
 
-func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
-	stat, err := file.Stat()
-	if err != nil {
-		panic(fmt.Errorf("file stat err %w", err))
-	}
-	fileName := stat.Name()
-	if stat.Size() < 1 {
-		msg = fmt.Sprintf("skipped empty file %s", fileName)
-		return
-	}
+var postData = shell.PostData
+var nowString = shell.NowString
 
-	url := fmt.Sprintf("%s&dt=%s", endpoint, dt)
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-	}
-	_, err = file.Seek(0, 0)
-	if err != nil {
-		panic(fmt.Errorf("file %s seek err %w", fileName, err))
-	}
-	resp, err := httpClient.Post(url, "Content-Type:text", file)
-	if err != nil {
-		msg = fmt.Sprintf("PostData post err %s", err.Error())
-		return
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
-		return
-	}
-	msg = fmt.Sprintf("%s\nstatus code %d\n%s", url, resp.StatusCode, body)
-
-	if resp.StatusCode == http.StatusOK {
-		ok = true
-	}
-	return
-}
-
-func GetOutboundIP() net.IP {
+func getOutboundIP() net.IP {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		panic(err)
@@ -596,7 +475,7 @@ type Logger struct {
 }
 
 func (logger *Logger) Log(format string, values ...interface{}) {
-	stamp := NowString()
+	stamp := nowString()
 	if len(values) == 0 {
 		logger.writer.WriteString(stamp + format + "\n")
 		return
@@ -604,11 +483,7 @@ func (logger *Logger) Log(format string, values ...interface{}) {
 	logger.writer.WriteString(stamp + fmt.Sprintf(format, values...) + "\n")
 }
 
-func NowString() string {
-	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
-}
-
-func GetGCLogFile(pid int) (result string, err error) {
+func getGCLogFile(pid int) (result string, err error) {
 	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid))
 	if err != nil {
 		return
@@ -732,38 +607,36 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	if err != nil {
 		return
 	}
-	msg, ok = PostData(endpoint, "meta", file)
+	msg, ok = postData(endpoint, "meta", file)
 	return
 }
 
-type captureResult struct {
-	msg string
-	ok  bool
-}
+type CaptureResult = capture.Result
 
-func captureHeapDump(endpoint string, pid int, javaHome string) (c chan captureResult, err error) {
-	logger.Log("capturing heap dump...")
-	dir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	hd, err := shell.CommandStartInBackground(shell.Command{path.Join(javaHome, "/bin/jcmd"), strconv.Itoa(pid), "GC.heap_dump", filepath.Join(dir, "/heap_dump.out")})
-	if err != nil {
-		return
-	}
-	c = make(chan captureResult)
-	// compress and post
+func captureHeapDump(endpoint string, pid int, javaHome string) (c chan CaptureResult) {
+	c = make(chan CaptureResult)
 	go func() {
-		hd.Wait()
-		result := captureResult{}
 		var err error
+		result := CaptureResult{}
 		defer func() {
 			if err != nil {
-				result.msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
+				result.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
 			}
 			c <- result
 			close(c)
 		}()
+		logger.Log("capturing heap dump...")
+		dir, err := os.Getwd()
+		if err != nil {
+			return
+		}
+		output, err := shell.CommandCombinedOutput(shell.Command{path.Join(javaHome, "/bin/jcmd"), strconv.Itoa(pid), "GC.heap_dump", filepath.Join(dir, "/heap_dump.out")})
+		if err != nil {
+			if len(output) > 1 {
+				err = fmt.Errorf("%w because %s", err, output)
+			}
+			return
+		}
 		logger.Log("captured heap dump.")
 		zipfile, err := os.Create("heap_dump.zip")
 		if err != nil {
@@ -795,7 +668,32 @@ func captureHeapDump(endpoint string, pid int, javaHome string) (c chan captureR
 		}
 
 		logger.Log("zipped heap dump.")
-		result.msg, result.ok = PostData(endpoint, "hd&Content-Encoding=zip", zipfile)
+		result.Msg, result.Ok = postData(endpoint, "hd&Content-Encoding=zip", zipfile)
 	}()
+	return
+}
+
+func goCapture(endpoint string, fn func(endpoint string, c chan CaptureResult)) (c chan CaptureResult) {
+	c = make(chan CaptureResult)
+	go fn(endpoint, c)
+	return
+}
+
+func captureDMesg(endpoint string, c chan CaptureResult) {
+	var err error
+	result := CaptureResult{}
+	defer func() {
+		if err != nil {
+			result.Msg = fmt.Sprintf("capture failed: %s", err.Error())
+		}
+		c <- result
+		close(c)
+	}()
+	dmesg, err := shell.CommandCombinedOutputToFile("dmesg.out", shell.DMesg)
+	if err != nil {
+		return
+	}
+	defer dmesg.Close()
+	result.Msg, result.Ok = postData(endpoint, "dmesg", dmesg)
 	return
 }

@@ -10,6 +10,11 @@ import (
 	"shell"
 )
 
+const (
+	api  = "tier1app@12312-12233-1442134-112"
+	host = "https://test.gceasy.io"
+)
+
 func TestFindGCLog(t *testing.T) {
 	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
 	if err != nil {
@@ -35,7 +40,7 @@ func TestFindGCLog(t *testing.T) {
 	}
 	defer xloggc.KillAndWait()
 
-	f, err := GetGCLogFile(noGC.Process.Pid)
+	f, err := getGCLogFile(noGC.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +49,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be empty")
 	}
 
-	f, err = GetGCLogFile(xlog.Process.Pid)
+	f, err = getGCLogFile(xlog.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +58,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be gctrace.txt")
 	}
 
-	f, err = GetGCLogFile(xlog2.Process.Pid)
+	f, err = getGCLogFile(xlog2.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +67,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be gctrace.log")
 	}
 
-	f, err = GetGCLogFile(xloggc.Process.Pid)
+	f, err = getGCLogFile(xloggc.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +80,8 @@ func TestFindGCLog(t *testing.T) {
 
 func TestPostData(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", "https://test.gceasy.io", ApiKey, parameters)
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 
 	vmstat, err := os.Open("testdata/vmstat.out")
 	if err != nil {
@@ -114,31 +119,31 @@ func TestPostData(t *testing.T) {
 	}
 	defer td.Close()
 
-	msg, ok := PostData(endpoint, "top", top)
+	msg, ok := postData(endpoint, "top", top)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "df", df)
+	msg, ok = postData(endpoint, "df", df)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "ns", netstat)
+	msg, ok = postData(endpoint, "ns", netstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "ps", ps)
+	msg, ok = postData(endpoint, "ps", ps)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "vmstat", vmstat)
+	msg, ok = postData(endpoint, "vmstat", vmstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "gc", gc)
+	msg, ok = postData(endpoint, "gc", gc)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = PostData(endpoint, "td", td)
+	msg, ok = postData(endpoint, "td", td)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
@@ -155,27 +160,41 @@ func TestHeapDump(t *testing.T) {
 	}
 	defer noGC.KillAndWait()
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", "https://test.gceasy.io", "tier1app@12312-12233-1442134-112", parameters)
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", host, api, parameters)
 	err = os.Chdir("testdata")
 	if err != nil {
 		t.Fatal(err)
 	}
-	hdResultChan, err := captureHeapDump(endpoint, noGC.Process.Pid, "/usr/lib/jvm/java-11-openjdk-amd64")
+	hdResultChan := captureHeapDump(endpoint, noGC.Process.Pid, "/usr/lib/jvm/java-11-openjdk-amd64")
+	r := <-hdResultChan
+	if !r.Ok {
+		t.Fatal(r)
+	} else {
+		t.Log(r)
+	}
+}
+
+func TestHeapDumpWithInvalidPid(t *testing.T) {
+	var err error
+	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", host, api, parameters)
+	err = os.Chdir("testdata")
 	if err != nil {
 		t.Fatal(err)
 	}
+	hdResultChan := captureHeapDump(endpoint, 65535, "/usr/lib/jvm/java-11-openjdk-amd64")
 	r := <-hdResultChan
-	if !r.ok {
+	if r.Ok {
 		t.Fatal(r)
 	}
-	t.Log(r)
 }
 
 func TestWriteMetaInfo(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", "https://test.gceasy.io", "tier1app@12312-12233-1442134-112", parameters)
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 	msg, ok, err := writeMetaInfo(11111, "test", endpoint)
 	if err != nil || !ok {
 		t.Fatal(err, msg)
