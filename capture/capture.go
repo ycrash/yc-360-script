@@ -16,6 +16,10 @@ type Capture struct {
 	endpoint string
 }
 
+func (cap *Capture) Kill() error {
+	return cap.Cmd.Kill()
+}
+
 func (cap *Capture) Endpoint() string {
 	return cap.endpoint
 }
@@ -27,6 +31,7 @@ func (cap *Capture) SetEndpoint(endpoint string) {
 type Task interface {
 	SetEndpoint(endpoint string)
 	Run() (result Result, err error)
+	Kill() error
 }
 
 func WrapRun(task Task) func(endpoint string, c chan Result) {

@@ -286,15 +286,15 @@ func main() {
 
 	jstat.Wait()
 	// stop started tasks
-	err = capTop.Cmd.Process.Kill()
+	err = capTop.Kill()
 	if err != nil {
 		return
 	}
-	err = capTopH.Cmd.Process.Kill()
+	err = capTopH.Kill()
 	if err != nil {
 		return
 	}
-	err = capVMStat.Cmd.Process.Kill()
+	err = capVMStat.Kill()
 	if err != nil {
 		return
 	}

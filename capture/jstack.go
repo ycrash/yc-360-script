@@ -44,6 +44,7 @@ func (t *JStack) Continue() (ok bool) {
 	return
 }
 
-func (t *JStack) Kill() {
+func (t *JStack) Kill() (err error) {
 	close(t.c)
+	return
 }

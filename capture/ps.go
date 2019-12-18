@@ -47,6 +47,7 @@ func (t *PS) Continue() (ok bool) {
 	return
 }
 
-func (t *PS) Kill() {
+func (t *PS) Kill() (err error) {
 	close(t.c)
+	return
 }

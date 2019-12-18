@@ -36,6 +36,14 @@ func (h *CmdHolder) Wait() {
 	_ = h.Cmd.Wait()
 }
 
+func (h *CmdHolder) Kill() (err error) {
+	if h.Cmd == nil {
+		return
+	}
+	err = h.Cmd.Process.Kill()
+	return
+}
+
 func NewCommand(cmd Command, args ...string) CmdHolder {
 	if len(cmd) < 1 {
 		return CmdHolder{}
