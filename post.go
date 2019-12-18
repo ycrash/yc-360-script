@@ -4,11 +4,28 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 )
 
+func GetOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP
+}
+
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
+	err := file.Sync()
+	if err != nil {
+		panic(fmt.Errorf("file sync err %w", err))
+	}
 	stat, err := file.Stat()
 	if err != nil {
 		panic(fmt.Errorf("file stat err %w", err))

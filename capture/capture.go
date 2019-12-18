@@ -55,3 +55,9 @@ func WrapRun(task Task) func(endpoint string, c chan Result) {
 func (cap *Capture) Run() (result Result, err error) {
 	return
 }
+
+func GoCapture(endpoint string, fn func(endpoint string, c chan Result)) (c chan Result) {
+	c = make(chan Result)
+	go fn(endpoint, c)
+	return
+}

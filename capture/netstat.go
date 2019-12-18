@@ -13,6 +13,12 @@ type NetStat struct {
 	sync.WaitGroup
 }
 
+func NewNetStat() *NetStat {
+	n := &NetStat{}
+	n.Add(1)
+	return n
+}
+
 func (t *NetStat) Run() (result Result, err error) {
 	netstat, err := os.Create("netstat.out")
 	if err != nil {
@@ -24,7 +30,6 @@ func (t *NetStat) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
-	t.Add(1)
 	t.Wait()
 	netstat.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
 	err = shell.CommandCombinedOutputToWriter(netstat, shell.NetState)

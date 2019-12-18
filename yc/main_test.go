@@ -153,44 +153,6 @@ func init() {
 	logger = Logger{writer: os.Stdout}
 }
 
-func TestHeapDump(t *testing.T) {
-	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer noGC.KillAndWait()
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", host, api, parameters)
-	err = os.Chdir("testdata")
-	if err != nil {
-		t.Fatal(err)
-	}
-	hdResultChan := captureHeapDump(endpoint, noGC.Process.Pid, "/usr/lib/jvm/java-11-openjdk-amd64")
-	r := <-hdResultChan
-	if !r.Ok {
-		t.Fatal(r)
-	} else {
-		t.Log(r)
-	}
-}
-
-func TestHeapDumpWithInvalidPid(t *testing.T) {
-	var err error
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver-heap?apiKey=%s&%s", host, api, parameters)
-	err = os.Chdir("testdata")
-	if err != nil {
-		t.Fatal(err)
-	}
-	hdResultChan := captureHeapDump(endpoint, 65535, "/usr/lib/jvm/java-11-openjdk-amd64")
-	r := <-hdResultChan
-	if r.Ok {
-		t.Fatal(r)
-	}
-}
-
 func TestWriteMetaInfo(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)

@@ -123,12 +123,15 @@ func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...str
 	go func() {
 		defer func() {
 			if err != nil {
-				fmt.Printf("Unexpected Error %s\n", err)
+				fmt.Printf("Unexpected Error %+v\n", err)
 			}
 		}()
 		reader := io.MultiReader(stdout, stderr)
 		_, err = io.Copy(writer, reader)
 		if err != nil {
+			if err == os.ErrClosed {
+				err = nil
+			}
 			return
 		}
 	}()

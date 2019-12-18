@@ -7,13 +7,10 @@ package main
 //                      Changed minor changes to messages printed on the screen
 
 import (
-	"archive/zip"
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/user"
 	"path"
@@ -167,12 +164,6 @@ func main() {
 	}
 	defer gc.Close()
 
-	var hdResultChan chan CaptureResult
-	if heapDump {
-		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
-		hdResultChan = captureHeapDump(ep, Pid, javaHome)
-	}
-
 	// Collect the user currently executing the script
 	logger.Log("Collecting user authority data...")
 
@@ -196,7 +187,7 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//  Collect the first netstat: date at the top, data, and then a blank line
 	logger.Log("Collecting the first netstat snapshot...")
-	capNetStat := &capture.NetStat{}
+	capNetStat := capture.NewNetStat()
 	netStat := goCapture(endpoint, capture.WrapRun(capNetStat))
 	logger.Log("First netstat snapshot complete.")
 
@@ -406,8 +397,17 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	if hdResultChan != nil {
-		hdResult := <-hdResultChan
+	if heapDump {
+		logger.Log("capturing heap dump...")
+		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
+		capHeapDump := capture.NewHeapDump(javaHome, Pid)
+		capHeapDump.SetEndpoint(ep)
+		hdResult, err := capHeapDump.Run()
+		if err != nil {
+			logger.Log("heap dump err %s", err.Error())
+		} else {
+			logger.Log("captured heap dump.")
+		}
 		fmt.Printf(
 			`HEAP DUMP DATA
 Is transmission completed: %t
@@ -429,18 +429,8 @@ See the report: %s
 
 var postData = shell.PostData
 var nowString = shell.NowString
-
-func getOutboundIP() net.IP {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-
-	return localAddr.IP
-}
+var getOutboundIP = shell.GetOutboundIP
+var goCapture = capture.GoCapture
 
 type Logger struct {
 	writer io.StringWriter
@@ -584,72 +574,6 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 }
 
 type CaptureResult = capture.Result
-
-func captureHeapDump(endpoint string, pid int, javaHome string) (c chan CaptureResult) {
-	c = make(chan CaptureResult)
-	go func() {
-		var err error
-		result := CaptureResult{}
-		defer func() {
-			if err != nil {
-				result.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
-			}
-			c <- result
-			close(c)
-		}()
-		logger.Log("capturing heap dump...")
-		dir, err := os.Getwd()
-		if err != nil {
-			return
-		}
-		output, err := shell.CommandCombinedOutput(shell.Command{path.Join(javaHome, "/bin/jcmd"), strconv.Itoa(pid), "GC.heap_dump", filepath.Join(dir, "/heap_dump.out")})
-		if err != nil {
-			if len(output) > 1 {
-				err = fmt.Errorf("%w because %s", err, output)
-			}
-			return
-		}
-		logger.Log("captured heap dump.")
-		zipfile, err := os.Create("heap_dump.zip")
-		if err != nil {
-			logger.Log("failed to create zip file")
-			return
-		}
-		defer zipfile.Close()
-		writer := zip.NewWriter(bufio.NewWriter(zipfile))
-		out, err := writer.Create("heap_dump.out")
-		if err != nil {
-			logger.Log("failed to create zip file")
-			return
-		}
-		hdout, err := os.Open("heap_dump.out")
-		if err != nil {
-			logger.Log("failed to open heap dump file")
-			return
-		}
-		defer hdout.Close()
-		_, err = io.Copy(out, hdout)
-		if err != nil {
-			logger.Log("failed to zip heap dump file")
-			return
-		}
-		err = writer.Close()
-		if err != nil {
-			logger.Log("failed to finish zipping heap dump file")
-			return
-		}
-
-		logger.Log("zipped heap dump.")
-		result.Msg, result.Ok = postData(endpoint, "hd&Content-Encoding=zip", zipfile)
-	}()
-	return
-}
-
-func goCapture(endpoint string, fn func(endpoint string, c chan CaptureResult)) (c chan CaptureResult) {
-	c = make(chan CaptureResult)
-	go fn(endpoint, c)
-	return
-}
 
 func captureDMesg(endpoint string, c chan CaptureResult) {
 	var err error

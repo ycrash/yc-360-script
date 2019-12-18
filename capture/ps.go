@@ -13,7 +13,8 @@ type PS struct {
 }
 
 func NewPS() *PS {
-	return &PS{c: make(chan struct{})}
+	p := &PS{c: make(chan struct{})}
+	return p
 }
 
 func (t *PS) Run() (result Result, err error) {
@@ -28,7 +29,10 @@ func (t *PS) Run() (result Result, err error) {
 		if !ok {
 			break
 		}
-		ps.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
+		_, err = ps.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
+		if err != nil {
+			return
+		}
 		err = shell.CommandCombinedOutputToWriter(ps, shell.PS)
 		if err != nil {
 			return
