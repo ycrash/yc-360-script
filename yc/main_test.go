@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -151,6 +152,10 @@ func TestPostData(t *testing.T) {
 
 func init() {
 	logger = Logger{writer: os.Stdout}
+	err := os.Chdir("testdata")
+	if err != nil {
+		panic(err)
+	}
 }
 
 func TestWriteMetaInfo(t *testing.T) {
@@ -165,21 +170,39 @@ func TestWriteMetaInfo(t *testing.T) {
 }
 
 func TestProcessLogFile(t *testing.T) {
-	err := os.Chdir("testdata")
-	if err != nil {
-		t.Fatal(err)
+	test := func(t *testing.T, dir string, fname string) {
+		gc, err := processGCLogFile(filepath.Join(dir, fname), filepath.Join(dir, fname))
+		if err != nil {
+			t.Fatal(err)
+		}
+		gc.Seek(0, 0)
+		all, err := ioutil.ReadAll(gc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(all)
+		if s != fmt.Sprintf("test\ntest") {
+			t.Fatal(s)
+		}
 	}
-	gc, err := processGCLogFile("ogc.log", "tgc.log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gc.Seek(0, 0)
-	all, err := ioutil.ReadAll(gc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(all)
-	if s != fmt.Sprintf("test\ntest") {
-		t.Fatal(s)
-	}
+	t.Run("0-current-1", func(t *testing.T) {
+		dir := "gc-rotation-logs/0-current/1"
+		test(t, dir, "gc.log")
+	})
+	t.Run("0-current-2", func(t *testing.T) {
+		dir := "gc-rotation-logs/0-current/2"
+		test(t, dir, "gc.log")
+	})
+	t.Run("0-current-3", func(t *testing.T) {
+		dir := "gc-rotation-logs/0-current/3"
+		test(t, dir, "gc.log")
+	})
+	t.Run("1-current", func(t *testing.T) {
+		dir := "gc-rotation-logs/1-current"
+		test(t, dir, "gc.log")
+	})
+	t.Run("2-current", func(t *testing.T) {
+		dir := "gc-rotation-logs/2-current"
+		test(t, dir, "gc.log")
+	})
 }

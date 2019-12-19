@@ -9,7 +9,7 @@ func TestVMStat(t *testing.T) {
 	v := &VMStat{}
 	v.SetEndpoint(endpoint)
 	go func() {
-		time.Sleep(time.Second)
+		time.Sleep(3*time.Second)
 		v.Kill()
 	}()
 	result, err := v.Run()

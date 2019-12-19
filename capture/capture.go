@@ -16,6 +16,10 @@ type Capture struct {
 	endpoint string
 }
 
+func (cap *Capture) Interrupt() error {
+	return cap.Cmd.Interrupt()
+}
+
 func (cap *Capture) Kill() error {
 	return cap.Cmd.Kill()
 }

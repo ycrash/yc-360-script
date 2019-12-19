@@ -6,12 +6,51 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type Command []string
 
 var NopCommand Command = nil
 var SkippedNopCommandError = errors.New("skipped nop command")
+
+var DynamicArg = "<DynamicArg>"
+
+func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
+	if cmd == &NopCommand {
+		return NopCommand, nil
+	}
+	if cmd == nil {
+		err = errors.New("invalid nil Command, please use NopCommand instead")
+		return
+	}
+	n := 0
+	for _, c := range *cmd {
+		if c == DynamicArg {
+			n++
+		}
+	}
+	if n != len(args) {
+		err = errors.New("invalid num of args")
+		return
+	}
+	result = make(Command, 3)
+	copy(result, shell)
+	i := 0
+	var command strings.Builder
+	for _, c := range *cmd {
+		if c == DynamicArg {
+			command.WriteString(args[i])
+			command.WriteByte(' ')
+			i++
+		} else {
+			command.WriteString(c)
+			command.WriteByte(' ')
+		}
+	}
+	result[2] = command.String()
+	return
+}
 
 type CmdHolder struct {
 	*exec.Cmd
@@ -34,6 +73,14 @@ func (h *CmdHolder) Wait() {
 		return
 	}
 	_ = h.Cmd.Wait()
+}
+
+func (h *CmdHolder) Interrupt() (err error) {
+	if h.Cmd == nil {
+		return
+	}
+	err = h.Cmd.Process.Signal(os.Interrupt)
+	return
 }
 
 func (h *CmdHolder) Kill() (err error) {
@@ -112,29 +159,8 @@ func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...str
 		return
 	}
 	c = NewCommand(cmd, args...)
-	stdout, err := c.StdoutPipe()
-	if err != nil {
-		return
-	}
-	stderr, err := c.StderrPipe()
-	if err != nil {
-		return
-	}
-	go func() {
-		defer func() {
-			if err != nil {
-				fmt.Printf("Unexpected Error %+v\n", err)
-			}
-		}()
-		reader := io.MultiReader(stdout, stderr)
-		_, err = io.Copy(writer, reader)
-		if err != nil {
-			if err == os.ErrClosed {
-				err = nil
-			}
-			return
-		}
-	}()
+	c.Stdout = writer
+	c.Stderr = writer
 	err = c.Start()
 	return
 }

@@ -2,6 +2,7 @@ package capture
 
 import (
 	"testing"
+	"time"
 
 	"shell"
 )
@@ -14,6 +15,7 @@ func TestJStack(t *testing.T) {
 	defer noGC.KillAndWait()
 	capJStack := NewJStack(javaHome, noGC.Process.Pid)
 	go func() {
+		time.Sleep(time.Second)
 		capJStack.Continue()
 		capJStack.Kill()
 	}()

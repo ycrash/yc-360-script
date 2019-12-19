@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -488,11 +490,12 @@ func processGCLogFile(log string, out string) (gc *os.File, err error) {
 	if err == nil {
 		return
 	}
-	logger.Log("gc log file open failed %s", err.Error())
+	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
 	if !os.IsNotExist(err) {
 		return
 	}
 	d := filepath.Dir(log)
+	logName := filepath.Base(log)
 	open, err := os.Open(d)
 	if err != nil {
 		return nil, err
@@ -502,52 +505,89 @@ func processGCLogFile(log string, out string) (gc *os.File, err error) {
 	if err != nil {
 		return nil, err
 	}
-	re := regexp.MustCompile(log + "\\.([0-9])\\.current")
+	re := regexp.MustCompile(logName + "\\.([0-9]+?)\\.current")
+	reo := regexp.MustCompile(logName + "\\.([0-9]+)")
+	var rf []string
+	files := make([]int, 0, len(fs))
 	for _, f := range fs {
-		rf := re.FindStringSubmatch(f)
-		if len(rf) > 1 {
-			err = func() error {
-				ogc, err := os.Open(rf[0])
-				if err != nil {
-					return err
-				}
-				defer ogc.Close()
-				p, err := strconv.Atoi(rf[1])
-				if err != nil {
-					return err
-				}
-				if p-1 >= 0 {
-					p = p - 1
-				} else {
-					err = fmt.Errorf("invalid gc log index %d", p)
-					return err
-				}
-				opgc, err := os.Open(log + "." + strconv.Itoa(p))
-				if err != nil {
-					return err
-				}
-				defer opgc.Close()
-				gc, err = os.Create(out)
-				if err != nil {
-					return err
-				}
-				// combine previous gc log to new gc log
-				_, err = io.Copy(gc, opgc)
-				if err != nil {
-					return err
-				}
-				_, err = io.Copy(gc, ogc)
-				if err != nil {
-					return err
-				}
-				return nil
-			}()
+		r := re.FindStringSubmatch(f)
+		if len(r) > 1 {
+			rf = r
+			continue
+		}
+		r = reo.FindStringSubmatch(f)
+		if len(r) > 1 {
+			p, err := strconv.Atoi(r[1])
 			if err != nil {
-				return nil, err
+				logger.Log("skipped file %s because can not parse its index", f)
+				continue
 			}
-			return gc, nil
+			files = append(files, p)
 		}
 	}
+	if len(rf) < 2 {
+		err = errors.New("can not find the current log file")
+		return
+	}
+	p, err := strconv.Atoi(rf[1])
+	if err != nil {
+		return
+	}
+	gc, err = os.Create(out)
+	if err != nil {
+		return
+	}
+	// try to find previous log
+	var preLog string
+	if len(files) == 1 {
+		preLog = log + "." + strconv.Itoa(files[0])
+	} else if len(files) > 1 {
+		files = append(files, p)
+		sort.Ints(files)
+		index := -1
+		for i, file := range files {
+			if file == p {
+				index = i
+				break
+			}
+		}
+		if index >= 0 {
+			if index-1 >= 0 {
+				preLog = log + "." + strconv.Itoa(files[index-1])
+			} else {
+				preLog = log + "." + strconv.Itoa(files[len(files)-1])
+			}
+		}
+	}
+	if len(preLog) > 0 {
+		logger.Log("collecting previous gc log %s", preLog)
+		err = copyFile(gc, preLog)
+		if err != nil {
+			logger.Log("failed to collect previous gc log %s", err.Error())
+		} else {
+			logger.Log("collected previous gc log %s", preLog)
+		}
+	}
+
+	curLog := filepath.Join(d, rf[0])
+	logger.Log("collecting previous gc log %s", curLog)
+	err = copyFile(gc, curLog)
+	if err != nil {
+		logger.Log("failed to collect previous gc log %s", err.Error())
+	} else {
+		logger.Log("collected previous gc log %s", curLog)
+	}
+	return
+}
+
+// combine previous gc log to new gc log
+func copyFile(gc *os.File, file string) (err error) {
+	log, err := os.Open(file)
+	if err != nil {
+		return
+	}
+	defer log.Close()
+	_, err = io.Copy(gc, log)
 	return
 }
 
