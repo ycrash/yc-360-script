@@ -42,27 +42,36 @@ func init() {
 }
 
 func TestHeapDump(t *testing.T) {
-	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer noGC.KillAndWait()
-	capHeapDump := NewHeapDump(javaHome, noGC.Process.Pid)
-	capHeapDump.SetEndpoint(heapEndpoint)
-	r, err := capHeapDump.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !r.Ok {
-		t.Fatal(r)
-	} else {
-		t.Log(r)
+	t.Run("with-pid", testHeapDump(""))
+	t.Run("with-invalid-pid", testHeapDumpWithInvalidPid)
+	t.Run("with-hdPath", testHeapDump("threaddump.out"))
+	t.Run("with-invalid-hdPath", testHeapDump("threaddump-non.out"))
+}
+
+func testHeapDump(hdPath string) func(t *testing.T) {
+	return func(t *testing.T) {
+		noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer noGC.KillAndWait()
+		capHeapDump := NewHeapDump(javaHome, noGC.Process.Pid, hdPath)
+		capHeapDump.SetEndpoint(heapEndpoint)
+		r, err := capHeapDump.Run()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !r.Ok {
+			t.Fatal(r)
+		} else {
+			t.Log(r)
+		}
 	}
 }
 
-func TestHeapDumpWithInvalidPid(t *testing.T) {
+func testHeapDumpWithInvalidPid(t *testing.T) {
 	var err error
-	capHeapDump := NewHeapDump(javaHome, 65535)
+	capHeapDump := NewHeapDump(javaHome, 65535, "")
 	capHeapDump.SetEndpoint(heapEndpoint)
 	r, err := capHeapDump.Run()
 	if err == nil || r.Ok {

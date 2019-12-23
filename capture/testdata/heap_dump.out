@@ -1,0 +1,129 @@
+2019-12-18 03:00:55
+Full thread dump OpenJDK 64-Bit Server VM (11.0.5+10-post-Debian-1deb10u1 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007f7b2c0029c0, length=10, elements={
+0x00007f7b74013800, 0x00007f7b740e6000, 0x00007f7b740e8000, 0x00007f7b740ec800,
+0x00007f7b740ee800, 0x00007f7b740f1000, 0x00007f7b740f3000, 0x00007f7b74132000,
+0x00007f7b74136800, 0x00007f7b2c001000
+}
+
+"main" #1 prio=5 os_prio=0 cpu=53.33ms elapsed=0.37s tid=0x00007f7b74013800 nid=0xb6c waiting on condition  [0x00007f7b79120000]
+   java.lang.Thread.State: TIMED_WAITING (sleeping)
+	at java.lang.Thread.sleep(java.base@11.0.5/Native Method)
+	at MyClass.main(MyClass.java:7)
+
+   Locked ownable synchronizers:
+	- None
+
+"Reference Handler" #2 daemon prio=10 os_prio=0 cpu=0.18ms elapsed=0.36s tid=0x00007f7b740e6000 nid=0xb7a waiting on condition  [0x00007f7b547eb000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@11.0.5/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@11.0.5/Reference.java:241)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@11.0.5/Reference.java:213)
+
+   Locked ownable synchronizers:
+	- None
+
+"Finalizer" #3 daemon prio=8 os_prio=0 cpu=0.37ms elapsed=0.35s tid=0x00007f7b740e8000 nid=0xb7c in Object.wait()  [0x00007f7b546ea000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8b024f8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:176)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@11.0.5/Finalizer.java:170)
+
+   Locked ownable synchronizers:
+	- None
+
+"Signal Dispatcher" #4 daemon prio=9 os_prio=0 cpu=0.50ms elapsed=0.35s tid=0x00007f7b740ec800 nid=0xb7f runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"C2 CompilerThread0" #5 daemon prio=9 os_prio=0 cpu=9.06ms elapsed=0.35s tid=0x00007f7b740ee800 nid=0xb81 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"C1 CompilerThread0" #7 daemon prio=9 os_prio=0 cpu=24.04ms elapsed=0.35s tid=0x00007f7b740f1000 nid=0xb82 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+   Locked ownable synchronizers:
+	- None
+
+"Sweeper thread" #8 daemon prio=9 os_prio=0 cpu=0.78ms elapsed=0.35s tid=0x00007f7b740f3000 nid=0xb83 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Service Thread" #9 daemon prio=9 os_prio=0 cpu=0.12ms elapsed=0.31s tid=0x00007f7b74132000 nid=0xb85 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"Common-Cleaner" #10 daemon prio=8 os_prio=0 cpu=0.28ms elapsed=0.30s tid=0x00007f7b74136800 nid=0xb87 in Object.wait()  [0x00007f7b4defc000]
+   java.lang.Thread.State: TIMED_WAITING (on object monitor)
+	at java.lang.Object.wait(java.base@11.0.5/Native Method)
+	- waiting on <0x00000000a8be74d8> (a java.lang.ref.ReferenceQueue$Lock)
+	at java.lang.ref.ReferenceQueue.remove(java.base@11.0.5/ReferenceQueue.java:155)
+	- waiting to re-lock in wait() <0x00000000a8be74d8> (a java.lang.ref.ReferenceQueue$Lock)
+	at jdk.internal.ref.CleanerImpl.run(java.base@11.0.5/CleanerImpl.java:148)
+	at java.lang.Thread.run(java.base@11.0.5/Thread.java:834)
+	at jdk.internal.misc.InnocuousThread.run(java.base@11.0.5/InnocuousThread.java:134)
+
+   Locked ownable synchronizers:
+	- None
+
+"Attach Listener" #11 daemon prio=9 os_prio=0 cpu=0.38ms elapsed=0.10s tid=0x00007f7b2c001000 nid=0xb8d waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+   Locked ownable synchronizers:
+	- None
+
+"VM Thread" os_prio=0 cpu=0.98ms elapsed=0.36s tid=0x00007f7b740e3000 nid=0xb78 runnable  
+
+"GC Thread#0" os_prio=0 cpu=0.21ms elapsed=0.36s tid=0x00007f7b7402c000 nid=0xb6d runnable  
+
+"G1 Main Marker" os_prio=0 cpu=0.24ms elapsed=0.36s tid=0x00007f7b74052800 nid=0xb6f runnable  
+
+"G1 Conc#0" os_prio=0 cpu=0.13ms elapsed=0.36s tid=0x00007f7b74054000 nid=0xb71 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=0.21ms elapsed=0.36s tid=0x00007f7b740b2800 nid=0xb75 runnable  
+
+"G1 Young RemSet Sampling" os_prio=0 cpu=0.36ms elapsed=0.36s tid=0x00007f7b740b4800 nid=0xb76 runnable  
+"VM Periodic Task Thread" os_prio=0 cpu=0.33ms elapsed=0.31s tid=0x00007f7b74134800 nid=0xb86 waiting on condition  
+
+JNI global refs: 5, weak refs: 0
+
+top - 03:35:52 up  2:30,  0 users,  load average: 0.00, 0.02, 0.00
+Threads:  17 total,   0 running,  17 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  7.3 us,  3.6 sy,  0.0 ni, 89.1 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   5957.5 total,   5174.5 free,    316.6 used,    466.4 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.   5418.3 avail Mem 
+
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+ 4087 root      20   0 4175252  31752  23824 S  26.7   0.5   0:00.04 java
+ 4098 root      20   0 4175252  31752  23824 S   6.7   0.5   0:00.01 C1 Compil+
+ 4085 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 java
+ 4088 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 GC Thread+
+ 4089 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 G1 Main M+
+ 4090 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 G1 Conc#0
+ 4091 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 G1 Refine+
+ 4092 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 G1 Young +
+ 4093 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 VM Thread
+ 4094 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Reference+
+ 4095 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Finalizer
+ 4096 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Signal Di+
+ 4097 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 C2 Compil+
+ 4099 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Sweeper t+
+ 4100 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Service T+
+ 4101 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 VM Period+
+ 4102 root      20   0 4175252  31752  23824 S   0.0   0.5   0:00.00 Common-Cl+

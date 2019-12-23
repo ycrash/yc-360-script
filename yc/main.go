@@ -8,7 +8,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,18 +23,19 @@ import (
 
 	"shell"
 	"shell/capture"
+	"shell/logger"
 )
 
 var (
-	Pid           int
-	YcServer      string
-	ApiKey        string
-	AppName       string
-	GcLogFilePath string
-	javaHome      string
-	heapDump      bool
-
-	logger Logger
+	Pid      int
+	YcServer string
+	ApiKey   string
+	AppName  string
+	gcPath   string
+	tdPath   string
+	hdPath   string
+	javaHome string
+	heapDump bool
 )
 
 func init() {
@@ -43,7 +43,9 @@ func init() {
 	flag.StringVar(&YcServer, "s", "", "YCrash Server URL, for example: https://ycrash.companyname.com")
 	flag.StringVar(&ApiKey, "k", "", "API Key, for example: tier1app@12312-12233-1442134-112")
 	flag.StringVar(&AppName, "a", "", "APP Name")
-	flag.StringVar(&GcLogFilePath, "gc", "", "GC log file path")
+	flag.StringVar(&gcPath, "gcPath", "", "GC log file path")
+	flag.StringVar(&tdPath, "tdPath", "", "Thread dump log file path")
+	flag.StringVar(&hdPath, "hdPath", "", "Heap dump log file path")
 	flag.StringVar(&javaHome, "j", "", "JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64")
 	flag.BoolVar(&heapDump, "hd", false, "capture heap dumps")
 }
@@ -83,11 +85,11 @@ func main() {
 		return
 	}
 
-	// can be ignored
-	if len(GcLogFilePath) < 1 {
+	// find gc log path in from command line arguments of ps result
+	if len(gcPath) < 1 {
 		output, err := getGCLogFile(Pid)
 		if err == nil && len(output) > 0 {
-			GcLogFilePath = output
+			gcPath = output
 		}
 	}
 
@@ -96,7 +98,7 @@ func main() {
 	fmt.Printf("API_KEY is %s\n", ApiKey)
 	fmt.Printf("APP_NAME is %s\n", AppName)
 	fmt.Printf("JAVA_HOME is %s\n", javaHome)
-	fmt.Printf("GC_LOG is %s\n\n", GcLogFilePath)
+	fmt.Printf("GC_LOG is %s\n\n", gcPath)
 
 	var err error
 	defer func() {
@@ -134,7 +136,7 @@ func main() {
 
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
-	logger = Logger{writer: mwriter}
+	logger.SetStringWriter(mwriter)
 	logger.Log("yc script starting...")
 	logger.Log("Script version: %s", shell.SCRIPT_VERSION)
 
@@ -150,9 +152,9 @@ func main() {
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	gc, err = processGCLogFile(GcLogFilePath, "gc.log")
+	gc, err = processGCLogFile(gcPath, "gc.log")
 	if err != nil {
-		logger.Log("process log file failed %s", GcLogFilePath)
+		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
 	}
 	var jstat shell.CmdHolder
 	if gc == nil {
@@ -161,8 +163,8 @@ func main() {
 		if err != nil {
 			return
 		}
-		GcLogFilePath = "gc.log"
-		logger.Log("gc log set to %s", GcLogFilePath)
+		gcPath = "gc.log"
+		logger.Log("gc log set to %s", gcPath)
 	}
 	defer gc.Close()
 
@@ -365,13 +367,14 @@ Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, GcLogFilePath, ok, msg)
+`, gcPath, ok, msg)
 
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid: Pid,
+		Pid:    Pid,
+		TdPath: tdPath,
 	}
 	result = <-goCapture(endpoint, capture.WrapRun(capThreadDump))
 	fmt.Printf(
@@ -402,7 +405,7 @@ Resp: %s
 	if heapDump {
 		logger.Log("capturing heap dump...")
 		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
-		capHeapDump := capture.NewHeapDump(javaHome, Pid)
+		capHeapDump := capture.NewHeapDump(javaHome, Pid, hdPath)
 		capHeapDump.SetEndpoint(ep)
 		hdResult, err := capHeapDump.Run()
 		if err != nil {
@@ -433,19 +436,6 @@ var postData = shell.PostData
 var nowString = shell.NowString
 var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
-
-type Logger struct {
-	writer io.StringWriter
-}
-
-func (logger *Logger) Log(format string, values ...interface{}) {
-	stamp := nowString()
-	if len(values) == 0 {
-		logger.writer.WriteString(stamp + format + "\n")
-		return
-	}
-	logger.writer.WriteString(stamp + fmt.Sprintf(format, values...) + "\n")
-}
 
 func getGCLogFile(pid int) (result string, err error) {
 	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid))
@@ -482,20 +472,30 @@ func getGCLogFile(pid int) (result string, err error) {
 	return
 }
 
-func processGCLogFile(log string, out string) (gc *os.File, err error) {
-	if len(log) <= 0 {
+func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
+	if len(gcPath) <= 0 {
 		return
 	}
-	gc, err = os.Open(log)
+	gcf, err := os.Open(gcPath)
+	// gcPath exists, cp it
 	if err == nil {
+		defer gcf.Close()
+		gc, err = os.Create(out)
+		if err != nil {
+			return
+		}
+		_, err = io.Copy(gc, gcf)
 		return
 	}
 	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
+	// err is other than not exists
 	if !os.IsNotExist(err) {
 		return
 	}
-	d := filepath.Dir(log)
-	logName := filepath.Base(log)
+
+	// gcPath is not exists, maybe using -XX:+UseGCLogFileRotation
+	d := filepath.Dir(gcPath)
+	logName := filepath.Base(gcPath)
 	open, err := os.Open(d)
 	if err != nil {
 		return nil, err
@@ -526,7 +526,7 @@ func processGCLogFile(log string, out string) (gc *os.File, err error) {
 		}
 	}
 	if len(rf) < 2 {
-		err = errors.New("can not find the current log file")
+		err = fmt.Errorf("can not find the current log file, %w", os.ErrNotExist)
 		return
 	}
 	p, err := strconv.Atoi(rf[1])
@@ -540,7 +540,7 @@ func processGCLogFile(log string, out string) (gc *os.File, err error) {
 	// try to find previous log
 	var preLog string
 	if len(files) == 1 {
-		preLog = log + "." + strconv.Itoa(files[0])
+		preLog = gcPath + "." + strconv.Itoa(files[0])
 	} else if len(files) > 1 {
 		files = append(files, p)
 		sort.Ints(files)
@@ -553,9 +553,9 @@ func processGCLogFile(log string, out string) (gc *os.File, err error) {
 		}
 		if index >= 0 {
 			if index-1 >= 0 {
-				preLog = log + "." + strconv.Itoa(files[index-1])
+				preLog = gcPath + "." + strconv.Itoa(files[index-1])
 			} else {
-				preLog = log + "." + strconv.Itoa(files[len(files)-1])
+				preLog = gcPath + "." + strconv.Itoa(files[len(files)-1])
 			}
 		}
 	}
