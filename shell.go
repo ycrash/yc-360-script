@@ -17,9 +17,10 @@ var SkippedNopCommandError = errors.New("skipped nop command")
 var DynamicArg = "<DynamicArg>"
 
 func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
-	if cmd == &NopCommand {
+	if *cmd == nil {
 		return NopCommand, nil
 	}
+
 	if cmd == nil {
 		err = errors.New("invalid nil Command, please use NopCommand instead")
 		return
@@ -66,6 +67,13 @@ func (h *CmdHolder) KillAndWait() (err error) {
 	}
 	_ = h.Cmd.Wait()
 	return
+}
+
+func (h *CmdHolder) IsSkipped() bool {
+	if h.Cmd == nil {
+		return true
+	}
+	return false
 }
 
 func (h *CmdHolder) Wait() {

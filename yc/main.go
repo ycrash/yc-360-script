@@ -205,17 +205,6 @@ func main() {
 	logger.Log("Collection of top data started.")
 
 	// ------------------------------------------------------------------------------
-	//                   Capture top -H
-	// ------------------------------------------------------------------------------
-	//  It runs in the background so that other tasks can be completed while this runs.
-	logger.Log("Starting collection of top dash H data...")
-	capTopH := &capture.TopH{
-		Pid: Pid,
-	}
-	goCapture(endpoint, capture.WrapRun(capTopH))
-	logger.Log("Collection of top dash H data started for PID %d.", Pid)
-
-	// ------------------------------------------------------------------------------
 	//                   Capture vmstat
 	// ------------------------------------------------------------------------------
 	//  It runs in the background so that other tasks can be completed while this runs.
@@ -227,25 +216,20 @@ func main() {
 	// ------------------------------------------------------------------------------
 	//   				Capture thread dumps and ps
 	// ------------------------------------------------------------------------------
+	capThreadDump := &capture.ThreadDump{
+		Pid:      Pid,
+		TdPath:   tdPath,
+		JavaHome: javaHome,
+	}
+	threadDump := goCapture(endpoint, capture.WrapRun(capThreadDump))
 	//  Initialize some loop variables
 	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
 	capPS := capture.NewPS()
 	ps := goCapture(endpoint, capture.WrapRun(capPS))
-	capJStack := capture.NewJStack(javaHome, Pid)
-	go func() {
-		_, err := capJStack.Run()
-		if err != nil {
-			logger.Log("jstack error %s", err.Error())
-		}
-	}()
-	logger.Log("Collecting ps snapshot and thread dump...")
+	logger.Log("Collecting ps snapshot...")
 	for n := 1; n <= m; n++ {
 		// Collect a ps snapshot: date at the top, data, and then a blank line
 		capPS.Continue()
-
-		//  Collect a javacore against the problematic pid (passed in by the user)
-		//  Javacores are output to the working directory of the JVM; in most cases this is the <profile_root>
-		capJStack.Continue()
 
 		if n == m {
 			break
@@ -254,7 +238,7 @@ func main() {
 		logger.Log("sleeping for %d seconds...", shell.JAVACORE_INTERVAL)
 		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
 	}
-	logger.Log("Collected ps snapshot and thread dump.")
+	logger.Log("Collected ps snapshot.")
 
 	// ------------------------------------------------------------------------------
 	//                Capture final netstat
@@ -285,16 +269,11 @@ func main() {
 	if err != nil {
 		return
 	}
-	err = capTopH.Kill()
-	if err != nil {
-		return
-	}
 	err = capVMStat.Kill()
 	if err != nil {
 		return
 	}
 	capPS.Kill()
-	capJStack.Kill()
 
 	// -------------------------------
 	//     Transmit Top data
@@ -372,11 +351,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
-	capThreadDump := &capture.ThreadDump{
-		Pid:    Pid,
-		TdPath: tdPath,
-	}
-	result = <-goCapture(endpoint, capture.WrapRun(capThreadDump))
+	result = <-threadDump
 	fmt.Printf(
 		`THREAD DUMP DATA
 Is transmission completed: %t

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"shell"
+	"shell/logger"
 )
 
 type Result struct {
@@ -44,8 +45,7 @@ func WrapRun(task Task) func(endpoint string, c chan Result) {
 		var result Result
 		defer func() {
 			if err != nil {
-				log := fmt.Sprintf("capture failed: %+v", err)
-				fmt.Println(log)
+				logger.Log("capture failed: %+v", err)
 				result.Msg = fmt.Sprintf("capture failed: %s", err.Error())
 			}
 			c <- result

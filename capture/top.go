@@ -24,6 +24,11 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
+	if t.Cmd.IsSkipped() {
+		result.Msg = "skipped capturing Top"
+		result.Ok = true
+		return
+	}
 	t.Cmd.Wait()
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
@@ -44,6 +49,11 @@ func (t *TopH) Run() (result Result, err error) {
 		"-d", strconv.Itoa(shell.TOP_DASH_H_INTERVAL),
 		"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_DASH_H_INTERVAL+1),
 		"-p", strconv.Itoa(t.Pid))
+	if t.Cmd.IsSkipped() {
+		result.Msg = "skipped capturing TopH"
+		result.Ok = true
+		return
+	}
 	t.Cmd.Wait()
 	return
 }
