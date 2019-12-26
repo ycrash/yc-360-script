@@ -377,25 +377,20 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	if heapDump {
-		logger.Log("capturing heap dump...")
-		ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
-		capHeapDump := capture.NewHeapDump(javaHome, Pid, hdPath)
-		capHeapDump.SetEndpoint(ep)
-		hdResult, err := capHeapDump.Run()
-		if err != nil {
-			logger.Log("heap dump err %s", err.Error())
-		} else {
-			logger.Log("captured heap dump.")
-		}
-		fmt.Printf(
-			`HEAP DUMP DATA
+	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
+	capHeapDump := capture.NewHeapDump(javaHome, Pid, hdPath, heapDump)
+	capHeapDump.SetEndpoint(ep)
+	hdResult, err := capHeapDump.Run()
+	if err != nil {
+		logger.Log("heap dump err %s", err.Error())
+	}
+	fmt.Printf(
+		`HEAP DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, hdResult.Ok, hdResult.Msg)
-	}
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------

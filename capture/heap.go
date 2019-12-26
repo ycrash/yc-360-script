@@ -3,6 +3,7 @@ package capture
 import (
 	"archive/zip"
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,10 +22,11 @@ type HeapDump struct {
 	JavaHome string
 	Pid      int
 	hdPath   string
+	dump     bool
 }
 
-func NewHeapDump(javaHome string, pid int, hdPath string) *HeapDump {
-	return &HeapDump{JavaHome: javaHome, Pid: pid, hdPath: hdPath}
+func NewHeapDump(javaHome string, pid int, hdPath string, dump bool) *HeapDump {
+	return &HeapDump{JavaHome: javaHome, Pid: pid, hdPath: hdPath, dump: dump}
 }
 
 func (t *HeapDump) Run() (result Result, err error) {
@@ -35,6 +37,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		if err != nil {
 			logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
 		} else {
+			logger.Log("copying heap dump data %s", t.hdPath)
 			defer hdf.Close()
 			hd, err = os.Create(hdOut)
 			if err != nil {
@@ -49,9 +52,11 @@ func (t *HeapDump) Run() (result Result, err error) {
 			if err != nil {
 				return
 			}
+			logger.Log("copied heap dump data %s", t.hdPath)
 		}
 	}
-	if hd == nil {
+	if hd == nil && t.dump {
+		logger.Log("capturing heap dump data")
 		var dir string
 		dir, err = os.Getwd()
 		if err != nil {
@@ -71,6 +76,14 @@ func (t *HeapDump) Run() (result Result, err error) {
 			return
 		}
 		defer hd.Close()
+		logger.Log("captured heap dump data")
+	}
+	if hd == nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		result.Msg = "skipped heap dump"
+		return
 	}
 	zipfile, err := os.Create("heap_dump.zip")
 	if err != nil {
