@@ -11,6 +11,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/user"
 	"path"
@@ -36,6 +38,7 @@ var (
 	hdPath   string
 	javaHome string
 	heapDump bool
+	version  bool
 )
 
 func init() {
@@ -48,6 +51,7 @@ func init() {
 	flag.StringVar(&hdPath, "hdPath", "", "Heap dump log file path")
 	flag.StringVar(&javaHome, "j", "", "JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64")
 	flag.BoolVar(&heapDump, "hd", false, "capture heap dumps")
+	flag.BoolVar(&version, "version", false, "show version")
 }
 
 func main() {
@@ -58,6 +62,10 @@ func main() {
 	}
 
 	flag.Parse()
+	if version {
+		fmt.Println("yc agent version: " + shell.SCRIPT_VERSION)
+		os.Exit(0)
+	}
 
 	// must passed
 	if Pid <= 0 {
@@ -132,11 +140,11 @@ func main() {
 		return
 	}
 	defer fscreen.Close()
-	fscreen.WriteString(fmt.Sprintf("\n%s\n", nowString()))
 
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
 	logger.SetStringWriter(mwriter)
+	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 	logger.Log("Script version: %s", shell.SCRIPT_VERSION)
 
@@ -394,12 +402,36 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
+	requestFin(YcServer, ApiKey, parameters)
+
 	ou := strings.SplitN(ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", YcServer, ou, parameters)
 	fmt.Printf(`
 See the report: %s
 --------------------------------
 `, reportEndpoint)
+}
+
+func requestFin(server, apiKey, parameters string) (err error) {
+	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", server, apiKey, parameters)
+	post, err := http.Post(finEp, "text", nil)
+	if err == nil {
+		defer post.Body.Close()
+		var r []byte
+		r, err = ioutil.ReadAll(post.Body)
+		if err == nil {
+			fmt.Printf(
+				`yc-fin endpoint: %s
+Resp: %s
+
+--------------------------------
+`, finEp, r)
+		}
+	}
+	if err != nil {
+		logger.Log("post yc-fin err %s", err.Error())
+	}
+	return
 }
 
 var postData = shell.PostData

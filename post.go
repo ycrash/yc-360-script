@@ -44,7 +44,7 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	if err != nil {
 		panic(fmt.Errorf("file %s seek err %w", fileName, err))
 	}
-	resp, err := httpClient.Post(url, "Content-Type:text", file)
+	resp, err := httpClient.Post(url, "text", file)
 	if err != nil {
 		msg = fmt.Sprintf("PostData post err %s", err.Error())
 		return

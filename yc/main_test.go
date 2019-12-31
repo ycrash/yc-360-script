@@ -86,6 +86,13 @@ func TestPostData(t *testing.T) {
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 
+	t.Run("requestFin", func(t *testing.T) {
+		err := requestFin(host, api, parameters)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	vmstat, err := os.Open("testdata/vmstat.out")
 	if err != nil {
 		return
