@@ -45,7 +45,7 @@ func WrapRun(task Task) func(endpoint string, c chan Result) {
 		var result Result
 		defer func() {
 			if err != nil {
-				logger.Log("capture failed: %+v", err)
+				logger.Log("capture %#v failed: %+v", task, err)
 				result.Msg = fmt.Sprintf("capture failed: %s", err.Error())
 			}
 			c <- result

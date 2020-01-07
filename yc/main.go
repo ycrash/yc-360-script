@@ -158,6 +158,10 @@ func main() {
 	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
+	if !shell.IsProcessExists(Pid) {
+		logger.Log("WARNING: Process %d doesn't exist.", Pid)
+	}
+
 	// check if it can find gc log from ps
 	var gc *os.File
 	gc, err = processGCLogFile(gcPath, "gc.log")

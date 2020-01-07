@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"shell"
+	"shell/logger"
 )
 
 type Top struct {
@@ -40,6 +41,7 @@ type TopH struct {
 }
 
 func (t *TopH) Run() (result Result, err error) {
+	logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
 	topdash, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.Pid))
 	if err != nil {
 		return

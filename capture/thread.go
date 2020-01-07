@@ -44,6 +44,11 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		}
 	}
 	if td == nil {
+		if !shell.IsProcessExists(t.Pid) {
+			err = fmt.Errorf("process %d does not exist", t.Pid)
+			return
+		}
+
 		// ------------------------------------------------------------------------------
 		//                   Capture top -H
 		// ------------------------------------------------------------------------------
@@ -52,9 +57,7 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			Pid: t.Pid,
 		}
 		go func() {
-			logger.Log("Starting collection of top dash H data...")
 			_, err := capTopH.Run()
-			logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
 			if err != nil {
 				logger.Log("Collecting top dash H data failed %s", err.Error())
 			}
@@ -65,8 +68,9 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		_, err = capJStack.Run()
 		if err != nil {
 			logger.Log("jstack error %s", err.Error())
+		} else {
+			logger.Log("Collected thread dump...")
 		}
-		logger.Log("Collected thread dump...")
 		err = capTopH.Kill()
 		if err != nil {
 			return
