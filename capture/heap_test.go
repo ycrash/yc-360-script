@@ -46,8 +46,8 @@ func TestHeapDump(t *testing.T) {
 	t.Run("with-pid", testHeapDump("", true))
 	t.Run("with-invalid-pid", testHeapDumpWithInvalidPid)
 	t.Run("with-hdPath", testHeapDump("threaddump-usr.out", false))
-	t.Run("with-invalid-hdPath", testHeapDump("threaddump-non.out", false))
-	t.Run("with-invalid-hdPath-with-dump", testHeapDump("threaddump-non.out", true))
+	t.Run("with-invalid-hdPath", testHeapDump("heap_dump-non.out", false))
+	t.Run("with-invalid-hdPath-with-dump", testHeapDump("heap_dump-non.out", true))
 }
 
 func testHeapDump(hdPath string, dump bool) func(t *testing.T) {

@@ -8,7 +8,6 @@ package main
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -25,88 +24,70 @@ import (
 
 	"shell"
 	"shell/capture"
+	"shell/config"
 	"shell/logger"
 )
 
-var (
-	Pid      int
-	YcServer string
-	ApiKey   string
-	AppName  string
-	gcPath   string
-	tdPath   string
-	hdPath   string
-	javaHome string
-	heapDump bool
-	version  bool
-)
-
 func init() {
-	flag.IntVar(&Pid, "p", 0, "Process Id, for example: 3121")
-	flag.StringVar(&YcServer, "s", "", "YCrash Server URL, for example: https://ycrash.companyname.com")
-	flag.StringVar(&ApiKey, "k", "", "API Key, for example: tier1app@12312-12233-1442134-112")
-	flag.StringVar(&AppName, "a", "", "APP Name")
-	flag.StringVar(&gcPath, "gcPath", "", "GC log file path")
-	flag.StringVar(&tdPath, "tdPath", "", "Thread dump log file path")
-	flag.StringVar(&hdPath, "hdPath", "", "Heap dump log file path")
-	flag.StringVar(&javaHome, "j", "", "JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64")
-	flag.BoolVar(&heapDump, "hd", false, "capture heap dumps")
-	flag.BoolVar(&version, "version", false, "show version")
+	err := config.ParseFlags(os.Args)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
 }
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("No arguments are passed.")
-		flag.Usage()
+		config.ShowUsage()
 		return
 	}
 
-	flag.Parse()
-	if version {
+	if config.GlobalConfig.ShowVersion {
 		fmt.Println("yc agent version: " + shell.SCRIPT_VERSION)
 		os.Exit(0)
 	}
 
 	// must passed
-	if Pid <= 0 {
+	if config.GlobalConfig.Pid <= 0 {
 		fmt.Println("Process id is not passed.")
-		flag.Usage()
+		config.ShowUsage()
 		return
 	}
 
-	if len(YcServer) < 1 {
-		fmt.Println("YCrash Server URL is not passed")
-		flag.Usage()
+	if len(config.GlobalConfig.Server) < 1 {
+		fmt.Println("YCrash config.GlobalConfig.Server URL is not passed")
+		config.ShowUsage()
 		return
 	}
-	if len(ApiKey) < 1 {
+	if len(config.GlobalConfig.ApiKey) < 1 {
 		fmt.Println("APIKey is not passed.")
-		flag.Usage()
+		config.ShowUsage()
 		return
 	}
-	if len(javaHome) < 1 {
-		javaHome = os.Getenv("JAVA_HOME")
+	if len(config.GlobalConfig.JavaHomePath) < 1 {
+		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
-	if len(javaHome) < 1 {
+	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		fmt.Println("JAVA_HOME path is not passed")
-		flag.Usage()
+		config.ShowUsage()
 		return
 	}
 
 	// find gc log path in from command line arguments of ps result
-	if len(gcPath) < 1 {
-		output, err := getGCLogFile(Pid)
+	if len(config.GlobalConfig.GCPath) < 1 {
+		output, err := getGCLogFile(config.GlobalConfig.Pid)
 		if err == nil && len(output) > 0 {
-			gcPath = output
+			config.GlobalConfig.GCPath = output
 		}
 	}
 
-	fmt.Printf("PID is %d\n", Pid)
-	fmt.Printf("YC_SERVER is %s\n", YcServer)
-	fmt.Printf("API_KEY is %s\n", ApiKey)
-	fmt.Printf("APP_NAME is %s\n", AppName)
-	fmt.Printf("JAVA_HOME is %s\n", javaHome)
-	fmt.Printf("GC_LOG is %s\n\n", gcPath)
+	fmt.Printf("PID is %d\n", config.GlobalConfig.Pid)
+	fmt.Printf("YC_SERVER is %s\n", config.GlobalConfig.Server)
+	fmt.Printf("API_KEY is %s\n", config.GlobalConfig.ApiKey)
+	fmt.Printf("APP_NAME is %s\n", config.GlobalConfig.AppName)
+	fmt.Printf("JAVA_HOME is %s\n", config.GlobalConfig.JavaHomePath)
+	fmt.Printf("GC_LOG is %s\n\n", config.GlobalConfig.GCPath)
 
 	var err error
 	defer func() {
@@ -114,14 +95,17 @@ func main() {
 			fmt.Printf("Unexpected Error %s\n", err)
 			panic(err)
 		}
+		if e := recover(); e != nil {
+			panic(e)
+		}
 	}()
 	// -------------------------------------------------------------------
 	//  Create output files
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", YcServer, ApiKey, parameters)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", YcServer, ApiKey, parameters)
+	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 
 	dname := "yc-" + timestamp
 	err = os.Mkdir(dname, 0777)
@@ -149,7 +133,7 @@ func main() {
 	logger.Log("Script version: %s", shell.SCRIPT_VERSION)
 
 	// Display the PIDs which have been input to the script
-	logger.Log("PROBLEMATIC_PID is: %d", Pid)
+	logger.Log("PROBLEMATIC_PID is: %d", config.GlobalConfig.Pid)
 
 	// Display the being used in this script
 	logger.Log("SCRIPT_SPAN = %d", shell.SCRIPT_SPAN)
@@ -158,25 +142,25 @@ func main() {
 	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
-	if !shell.IsProcessExists(Pid) {
-		logger.Log("WARNING: Process %d doesn't exist.", Pid)
+	if !shell.IsProcessExists(config.GlobalConfig.Pid) {
+		logger.Log("WARNING: Process %d doesn't exist.", config.GlobalConfig.Pid)
 	}
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	gc, err = processGCLogFile(gcPath, "gc.log")
+	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log")
 	if err != nil {
-		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
+		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
 	var jstat shell.CmdHolder
 	if gc == nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-			shell.Command{path.Join(javaHome, "/bin/jstat"), "-gc", "-t", strconv.Itoa(Pid), "2000", "30"})
+			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(config.GlobalConfig.Pid), "2000", "30"})
 		if err != nil {
 			return
 		}
-		gcPath = "gc.log"
-		logger.Log("gc log set to %s", gcPath)
+		config.GlobalConfig.GCPath = "gc.log"
+		logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
 	}
 	defer gc.Close()
 
@@ -229,9 +213,9 @@ func main() {
 	//   				Capture thread dumps and ps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:      Pid,
-		TdPath:   tdPath,
-		JavaHome: javaHome,
+		Pid:      config.GlobalConfig.Pid,
+		TdPath:   config.GlobalConfig.ThreadDumpPath,
+		JavaHome: config.GlobalConfig.JavaHomePath,
 	}
 	threadDump := goCapture(endpoint, capture.WrapRun(capThreadDump))
 	//  Initialize some loop variables
@@ -247,7 +231,7 @@ func main() {
 			break
 		}
 		// Pause for JAVACORE_INTERVAL seconds.
-		logger.Log("sleeping for %d seconds...", shell.JAVACORE_INTERVAL)
+		logger.Log("sleeping for %d seconds for next capture of ps...", shell.JAVACORE_INTERVAL)
 		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
 	}
 	logger.Log("Collected ps snapshot.")
@@ -277,14 +261,8 @@ func main() {
 
 	jstat.Wait()
 	// stop started tasks
-	err = capTop.Kill()
-	if err != nil {
-		return
-	}
-	err = capVMStat.Kill()
-	if err != nil {
-		return
-	}
+	capTop.Kill()
+	capVMStat.Kill()
 	capPS.Kill()
 
 	// -------------------------------
@@ -358,7 +336,7 @@ Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, gcPath, ok, msg)
+`, config.GlobalConfig.GCPath, ok, msg)
 
 	// -------------------------------
 	//     Transmit Thread dump
@@ -375,7 +353,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit MetaInfo
 	// -------------------------------
-	msg, ok, err = writeMetaInfo(Pid, AppName, endpoint)
+	msg, ok, err = writeMetaInfo(config.GlobalConfig.Pid, config.GlobalConfig.AppName, endpoint)
 	if err != nil {
 		logger.Log("writeMetaInfo failed %s", err.Error())
 	}
@@ -389,8 +367,8 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", YcServer, ApiKey, parameters)
-	capHeapDump := capture.NewHeapDump(javaHome, Pid, hdPath, heapDump)
+	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, config.GlobalConfig.Pid, config.GlobalConfig.HeapDumpPath, config.GlobalConfig.HeapDump)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {
@@ -406,10 +384,10 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	requestFin(YcServer, ApiKey, parameters)
+	requestFin(config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 
-	ou := strings.SplitN(ApiKey, "@", 2)[0]
-	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", YcServer, ou, parameters)
+	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
+	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
 	fmt.Printf(`
 See the report: %s
 --------------------------------
@@ -483,7 +461,7 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 		return
 	}
 	gcf, err := os.Open(gcPath)
-	// gcPath exists, cp it
+	// config.GlobalConfig.GCPath exists, cp it
 	if err == nil {
 		defer gcf.Close()
 		gc, err = os.Create(out)
@@ -499,7 +477,7 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 		return
 	}
 
-	// gcPath is not exists, maybe using -XX:+UseGCLogFileRotation
+	// config.GlobalConfig.GCPath is not exists, maybe using -XX:+UseGCLogFileRotation
 	d := filepath.Dir(gcPath)
 	logName := filepath.Base(gcPath)
 	open, err := os.Open(d)

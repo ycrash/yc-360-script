@@ -36,7 +36,7 @@ func (t *JStack) Run() (result Result, err error) {
 			break
 		}
 		// Pause for JAVACORE_INTERVAL seconds.
-		logger.Log("sleeping for %d seconds...", shell.JAVACORE_INTERVAL)
+		logger.Log("sleeping for %d seconds for next capture of jstack...", shell.JAVACORE_INTERVAL)
 		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
 	}
 	return
