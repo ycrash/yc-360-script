@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"shell"
@@ -210,12 +211,25 @@ func main() {
 	logger.Log("Collection of vmstat data started.")
 
 	// ------------------------------------------------------------------------------
+	//                   Capture top -H
+	// ------------------------------------------------------------------------------
+	//  It runs in the background so that other tasks can be completed while this runs.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	capTopH := &capture.TopH{
+		Pid:       config.GlobalConfig.Pid,
+		WaitGroup: &wg,
+	}
+	topH := goCapture(endpoint, capture.WrapRun(capTopH))
+
+	// ------------------------------------------------------------------------------
 	//   				Capture thread dumps and ps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:      config.GlobalConfig.Pid,
-		TdPath:   config.GlobalConfig.ThreadDumpPath,
-		JavaHome: config.GlobalConfig.JavaHomePath,
+		Pid:       config.GlobalConfig.Pid,
+		TdPath:    config.GlobalConfig.ThreadDumpPath,
+		JavaHome:  config.GlobalConfig.JavaHomePath,
+		WaitGroup: &wg,
 	}
 	threadDump := goCapture(endpoint, capture.WrapRun(capThreadDump))
 	//  Initialize some loop variables
@@ -262,6 +276,7 @@ func main() {
 	jstat.Wait()
 	// stop started tasks
 	capTop.Kill()
+	capTopH.Kill()
 	capVMStat.Kill()
 	capPS.Kill()
 
@@ -271,6 +286,18 @@ func main() {
 	result := <-top
 	fmt.Printf(
 		`TOP DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+
+	// -------------------------------
+	//     Transmit Top H data
+	// -------------------------------
+	result = <-topH
+	fmt.Printf(
+		`TOP H DATA
 Is transmission completed: %t
 Resp: %s
 

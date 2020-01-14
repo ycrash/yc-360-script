@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"shell"
 	"shell/logger"
@@ -13,9 +14,10 @@ const tdOut = "threaddump.out"
 
 type ThreadDump struct {
 	Capture
-	Pid      int
-	TdPath   string
-	JavaHome string
+	Pid       int
+	TdPath    string
+	JavaHome  string
+	WaitGroup *sync.WaitGroup
 }
 
 func (t *ThreadDump) Run() (result Result, err error) {
@@ -49,20 +51,6 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			return
 		}
 
-		// ------------------------------------------------------------------------------
-		//                   Capture top -H
-		// ------------------------------------------------------------------------------
-		//  It runs in the background so that other tasks can be completed while this runs.
-		capTopH := &TopH{
-			Pid: t.Pid,
-		}
-		go func() {
-			_, err := capTopH.Run()
-			if err != nil {
-				logger.Log("Collecting top dash H data failed %s", err.Error())
-			}
-		}()
-
 		logger.Log("Collecting thread dump...")
 		capJStack := NewJStack(t.JavaHome, t.Pid)
 		_, err = capJStack.Run()
@@ -71,28 +59,19 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		} else {
 			logger.Log("Collected thread dump...")
 		}
-		err = capTopH.Kill()
-		if err != nil {
-			return
-		}
-
 		// 1: concatenate individual thread dumps
 		err = shell.CommandRun(shell.AppendJavaCoreFiles)
 		if err != nil {
 			return
 		}
-		// 2: Append top -H output file.
-		err = shell.CommandRun(shell.AppendTopH, fmt.Sprintf("cat topdashH.%d.out >> ./threaddump.out", t.Pid))
-		if err != nil {
-			return
-		}
-		// 3: Transmit Thread dump
+
 		td, err = os.Open(tdOut)
 		if err != nil {
 			return
 		}
 		defer td.Close()
 	}
+	t.WaitGroup.Wait()
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
 	return
 }
