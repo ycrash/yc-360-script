@@ -131,7 +131,6 @@ func main() {
 	logger.SetStringWriter(mwriter)
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
-	logger.Log("Script version: %s", shell.SCRIPT_VERSION)
 
 	// Display the PIDs which have been input to the script
 	logger.Log("PROBLEMATIC_PID is: %d", config.GlobalConfig.Pid)
@@ -144,7 +143,10 @@ func main() {
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
 	if !shell.IsProcessExists(config.GlobalConfig.Pid) {
-		logger.Log("WARNING: Process %d doesn't exist.", config.GlobalConfig.Pid)
+		defer func() {
+			logger.Log("WARNING: Process %d doesn't exist.", config.GlobalConfig.Pid)
+			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
+		}()
 	}
 
 	// check if it can find gc log from ps
@@ -382,7 +384,8 @@ Resp: %s
 	// -------------------------------
 	msg, ok, err = writeMetaInfo(config.GlobalConfig.Pid, config.GlobalConfig.AppName, endpoint)
 	if err != nil {
-		logger.Log("writeMetaInfo failed %s", err.Error())
+		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
+		err = nil
 	}
 	fmt.Printf(
 		`META INFO DATA
@@ -399,7 +402,8 @@ Resp: %s
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {
-		logger.Log("heap dump err %s", err.Error())
+		hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
+		err = nil
 	}
 	fmt.Printf(
 		`HEAP DUMP DATA
