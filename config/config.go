@@ -25,7 +25,7 @@ type Options struct {
 	GCPath         string `yaml:"gcPath" usage:"GC log file path"`
 	JavaHomePath   string `yaml:"j" usage:"JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
 	ShowVersion    bool   `yaml:"version" usage:"Show version"`
-	Properties     string `yaml:"properties" usage:"Properties file path"`
+	ConfigPath     string `yaml:"c" usage:"Config file path"`
 }
 
 var GlobalConfig Config
@@ -40,19 +40,19 @@ func ParseFlags(args []string) error {
 	op := Options{}
 	copyFlagsValue(&op, result)
 
-	if op.Properties == "" {
+	if op.ConfigPath == "" {
 		GlobalConfig.Options = op
 		return nil
 	}
 
-	file, err := os.Open(op.Properties)
+	file, err := os.Open(op.ConfigPath)
 	if err != nil {
-		return fmt.Errorf("read properties path %s failed: %w", op.Properties, err)
+		return fmt.Errorf("read config file path %s failed: %w", op.ConfigPath, err)
 	}
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
 	if err != nil {
-		return fmt.Errorf("decode properties path %s failed: %w", op.Properties, err)
+		return fmt.Errorf("decode config file path %s failed: %w", op.ConfigPath, err)
 	}
 
 	copyFlagsValue(&GlobalConfig.Options, result)
