@@ -142,6 +142,9 @@ func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file
 		return
 	}
 	err = CommandCombinedOutputToWriter(file, cmd, args...)
+	if err != nil {
+		file.Close()
+	}
 	return
 }
 
@@ -179,5 +182,8 @@ func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (f
 		return
 	}
 	c, err = CommandStartInBackgroundToWriter(file, cmd, args...)
+	if err != nil {
+		file.Close()
+	}
 	return
 }
