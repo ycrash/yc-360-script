@@ -22,9 +22,14 @@ func GetOutboundIP() net.IP {
 }
 
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
+	if file == nil {
+		msg = "file is not captured"
+		return
+	}
 	stat, err := file.Stat()
 	if err != nil {
-		panic(fmt.Errorf("file stat err %w", err))
+		msg = fmt.Sprintf("file stat err %s", err.Error())
+		return
 	}
 	fileName := stat.Name()
 	if stat.Size() < 1 {

@@ -96,9 +96,6 @@ func main() {
 			fmt.Printf("Unexpected Error %s\n", err)
 			panic(err)
 		}
-		if e := recover(); e != nil {
-			panic(e)
-		}
 	}()
 	// -------------------------------------------------------------------
 	//  Create output files
@@ -159,13 +156,18 @@ func main() {
 	if gc == nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(config.GlobalConfig.Pid), "2000", "30"})
-		if err != nil {
-			return
+		if err == nil {
+			config.GlobalConfig.GCPath = "gc.log"
+			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
+		} else {
+			defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 		}
-		config.GlobalConfig.GCPath = "gc.log"
-		logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
 	}
-	defer gc.Close()
+	defer func() {
+		if gc != nil {
+			gc.Close()
+		}
+	}()
 
 	// Collect the user currently executing the script
 	logger.Log("Collecting user authority data...")
@@ -385,7 +387,6 @@ Resp: %s
 	msg, ok, err = writeMetaInfo(config.GlobalConfig.Pid, config.GlobalConfig.AppName, endpoint)
 	if err != nil {
 		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
-		err = nil
 	}
 	fmt.Printf(
 		`META INFO DATA
@@ -425,7 +426,7 @@ See the report: %s
 `, reportEndpoint)
 }
 
-func requestFin(server, apiKey, parameters string) (err error) {
+func requestFin(server, apiKey, parameters string) {
 	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", server, apiKey, parameters)
 	post, err := http.Post(finEp, "text", nil)
 	if err == nil {
