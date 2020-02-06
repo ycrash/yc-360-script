@@ -26,6 +26,7 @@ type Options struct {
 	JavaHomePath   string `yaml:"j" usage:"JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
 	ShowVersion    bool   `yaml:"version" usage:"Show version"`
 	ConfigPath     string `yaml:"c" usage:"Config file path"`
+	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder after complete successfully"`
 }
 
 var GlobalConfig Config

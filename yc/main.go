@@ -93,8 +93,19 @@ func main() {
 	var err error
 	defer func() {
 		if err != nil {
-			fmt.Printf("Unexpected Error %s\n", err)
+			logger.Log("Unexpected Error %s", err)
 			panic(err)
+		} else {
+			if config.GlobalConfig.DeferDelete {
+				dir, err := os.Getwd()
+				if err != nil {
+					logger.Log("WARNING: Can not get the path of the current directory: %s", err)
+				}
+				err = os.RemoveAll(dir)
+				if err != nil {
+					logger.Log("WARNING: Can not remove the current directory: %s", err)
+				}
+			}
 		}
 	}()
 	// -------------------------------------------------------------------
