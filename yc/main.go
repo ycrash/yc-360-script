@@ -100,10 +100,18 @@ func main() {
 				dir, err := os.Getwd()
 				if err != nil {
 					logger.Log("WARNING: Can not get the path of the current directory: %s", err)
+					return
+				}
+				parent := path.Dir(dir)
+				err = os.Chdir(parent)
+				if err != nil {
+					logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
+					return
 				}
 				err = os.RemoveAll(dir)
 				if err != nil {
 					logger.Log("WARNING: Can not remove the current directory: %s", err)
+					return
 				}
 			}
 		}
