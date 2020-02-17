@@ -27,6 +27,8 @@ import (
 	"shell/capture"
 	"shell/config"
 	"shell/logger"
+
+	"github.com/gentlemanautomaton/cmdline"
 )
 
 func init() {
@@ -432,6 +434,33 @@ Resp: %s
 
 --------------------------------
 `, hdResult.Ok, hdResult.Msg)
+
+	// ------------------------------------------------------------------------------
+	//  				Execute custom commands
+	// ------------------------------------------------------------------------------
+	logger.Log("Executing custom commands")
+	for i, command := range config.GlobalConfig.Commands {
+		customCmd := capture.Custom{
+			Index:     i,
+			UrlParams: string(command.UrlParams),
+			Command:   cmdline.Split(string(command.Cmd)),
+		}
+		customCmd.SetEndpoint(endpoint)
+		result, err := customCmd.Run()
+		if err != nil {
+			logger.Log("WARNING: Failed to execute custom command %d:%s, cause: %s", i, command.Cmd, err.Error())
+			continue
+		}
+		fmt.Printf(
+			`CUSTOM CMD %d: %s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, i, command.Cmd, result.Ok, result.Msg)
+	}
+	logger.Log("Executed custom commands")
+
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------

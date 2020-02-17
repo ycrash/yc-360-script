@@ -27,6 +27,42 @@ type Options struct {
 	ShowVersion    bool   `yaml:"version" usage:"Show version"`
 	ConfigPath     string `yaml:"c" usage:"Config file path"`
 	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder after complete successfully"`
+
+	Commands []Command `yaml:"cmds" usage:"Custom commands to be executed"`
+}
+
+type Command struct {
+	UrlParams UrlParams `yaml:"urlParams" usage:"Params to be added at the end of url, should be used with -cmd together"`
+	Cmd       Cmd       `yaml:"cmd" usage:"Command to be executed, should be used with -urlParams together"`
+}
+
+type UrlParams string
+type UrlParamsSlice []UrlParams
+
+func (u *UrlParamsSlice) String() string {
+	return fmt.Sprintf("%v", *u)
+}
+
+func (u *UrlParamsSlice) Set(p string) error {
+	*u = append(*u, UrlParams(p))
+	return nil
+}
+
+type Cmd string
+type CmdSlice []Cmd
+
+func (c *CmdSlice) String() string {
+	return fmt.Sprintf("%v", *c)
+}
+
+func (c *CmdSlice) Set(cmd string) error {
+	*c = append(*c, Cmd(cmd))
+	return nil
+}
+
+type CommandsFlagSetPair struct {
+	UrlParamsSlice
+	CmdSlice
 }
 
 var GlobalConfig Config
@@ -64,7 +100,23 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 	value := reflect.ValueOf(dst).Elem()
 	numField := value.NumField()
 	for i := 0; i < numField; i++ {
-		x := reflect.ValueOf(src[i]).Elem()
+		s := src[i]
+		if x, ok := s.(*CommandsFlagSetPair); ok {
+			if len(x.UrlParamsSlice) != len(x.CmdSlice) {
+				panic("num of urlParams should be same as num of cmd")
+			}
+			cmds := make([]Command, len(x.UrlParamsSlice))
+			for i, params := range x.UrlParamsSlice {
+				cmds[i] = Command{
+					UrlParams: params,
+					Cmd:       x.CmdSlice[i],
+				}
+			}
+			fieldValue := value.Field(i)
+			fieldValue.Set(reflect.ValueOf(cmds))
+			continue
+		}
+		x := reflect.ValueOf(s).Elem()
 		if x.IsZero() {
 			continue
 		}
@@ -92,6 +144,27 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			result[i] = flagSet.String(name, "", usage)
 		case reflect.Bool:
 			result[i] = flagSet.Bool(name, false, usage)
+		case reflect.Slice:
+			if fieldType.Type.AssignableTo(reflect.TypeOf([]Command{})) {
+				tp := reflect.TypeOf(Command{})
+				pair := &CommandsFlagSetPair{}
+				ft := tp.Field(0)
+				name, ok := ft.Tag.Lookup("yaml")
+				if !ok {
+					panic(fmt.Sprintf("failed to lookup tag 'yaml' for %s in %s", tp.Field(0).Type, tp))
+				}
+				usage := ft.Tag.Get("usage")
+				flagSet.Var(&pair.UrlParamsSlice, name, usage)
+				ft = tp.Field(1)
+				name, ok = ft.Tag.Lookup("yaml")
+				if !ok {
+					panic(fmt.Sprintf("failed to lookup tag 'yaml' for %s in %s", tp.Field(1).Type, tp))
+				}
+				usage = ft.Tag.Get("usage")
+				flagSet.Var(&pair.CmdSlice, name, usage)
+
+				result[i] = pair
+			}
 		default:
 			panic(fmt.Sprintf("not supported type %s of field %s", fieldType.Type.Kind().String(), fieldType.Name))
 		}

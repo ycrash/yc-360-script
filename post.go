@@ -22,6 +22,10 @@ func GetOutboundIP() net.IP {
 }
 
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
+	return PostCustomData(endpoint, "dt="+dt, file)
+}
+
+func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool) {
 	if file == nil {
 		msg = "file is not captured"
 		return
@@ -37,7 +41,7 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 		return
 	}
 
-	url := fmt.Sprintf("%s&dt=%s", endpoint, dt)
+	url := fmt.Sprintf("%s&%s", endpoint, params)
 	transport := http.DefaultTransport.(*http.Transport)
 	transport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
