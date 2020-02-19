@@ -15,25 +15,26 @@ type Config struct {
 }
 
 type Options struct {
-	Pid            int    `yaml:"p" usage:"Process Id, for example: 3121"`
-	ApiKey         string `yaml:"k" usage:"API Key, for example: tier1app@12312-12233-1442134-112"`
-	Server         string `yaml:"s" usage:"YCrash Server URL, for example: https://ycrash.companyname.com"`
-	AppName        string `yaml:"a" usage:"APP Name"`
-	HeapDump       bool   `yaml:"hd" usage:"Capture heap dumps"`
-	HeapDumpPath   string `yaml:"hdPath" usage:"Heap dump log file path"`
-	ThreadDumpPath string `yaml:"tdPath" usage:"Thread dump log file path"`
-	GCPath         string `yaml:"gcPath" usage:"GC log file path"`
-	JavaHomePath   string `yaml:"j" usage:"JAVA_HOME path, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
-	ShowVersion    bool   `yaml:"version" usage:"Show version"`
-	ConfigPath     string `yaml:"c" usage:"Config file path"`
-	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder after complete successfully"`
+	Pid            int    `yaml:"p" usage:"The process Id of the target, for example: 3121"`
+	ApiKey         string `yaml:"k" usage:"The API Key that will be used to make API requests, for example: tier1app@12312-12233-1442134-112"`
+	Server         string `yaml:"s" usage:"The server url that will be used to upload data, for example: https://ycrash.companyname.com"`
+	AppName        string `yaml:"a" usage:"The APP Name of the target"`
+	HeapDump       bool   `yaml:"hd" usage:"Capture heap dump, default is false"`
+	HeapDumpPath   string `yaml:"hdPath" usage:"The heap dump file to be uploaded while it exists"`
+	ThreadDumpPath string `yaml:"tdPath" usage:"The thread dump file to be uploaded while it exists"`
+	GCPath         string `yaml:"gcPath" usage:"The gc log file to be uploaded while it exists"`
+	JavaHomePath   string `yaml:"j" usage:"The java home path to be used. Default will try to use os env 'JAVA_HOME' if 'JAVA_HOME' is not empty, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
+	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder created during analyse, default is false"`
+
+	ShowVersion bool   `arg:"version" yaml:"-" usage:"Show the version of this program"`
+	ConfigPath  string `arg:"c" yaml:"-" usage:"The config file path to load"`
 
 	Commands []Command `yaml:"cmds" usage:"Custom commands to be executed"`
 }
 
 type Command struct {
-	UrlParams UrlParams `yaml:"urlParams" usage:"Params to be added at the end of url, should be used with -cmd together"`
-	Cmd       Cmd       `yaml:"cmd" usage:"Command to be executed, should be used with -urlParams together"`
+	UrlParams UrlParams `yaml:"urlParams" usage:"The params to be added at the end of upload request url, should be paired with '-cmd' together"`
+	Cmd       Cmd       `yaml:"cmd" usage:"The command to be executed, should be paired with '-urlParams' together"`
 }
 
 type UrlParams string
@@ -133,8 +134,11 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 	for i := 0; i < typ.NumField(); i++ {
 		fieldType := typ.Field(i)
 		name, ok := fieldType.Tag.Lookup("yaml")
-		if !ok {
-			continue
+		if !ok || name == "-" {
+			name, ok = fieldType.Tag.Lookup("arg")
+			if !ok {
+				continue
+			}
 		}
 		usage := fieldType.Tag.Get("usage")
 		switch fieldType.Type.Kind() {
