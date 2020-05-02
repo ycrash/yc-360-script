@@ -45,7 +45,7 @@ func (t *ThreadDump) Run() (result Result, err error) {
 
 		}
 	}
-	if td == nil {
+	if t.Pid > 0 && td == nil {
 		if !shell.IsProcessExists(t.Pid) {
 			err = fmt.Errorf("process %d does not exist", t.Pid)
 			return
@@ -71,7 +71,9 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		}
 		defer td.Close()
 	}
-	t.WaitGroup.Wait()
+	if t.WaitGroup != nil {
+		t.WaitGroup.Wait()
+	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
 	return
 }

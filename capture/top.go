@@ -39,7 +39,7 @@ func (t *Top) Run() (result Result, err error) {
 type TopH struct {
 	Capture
 	Pid       int
-	WaitGroup *sync.WaitGroup
+	WaitGroup sync.WaitGroup
 }
 
 func (t *TopH) Run() (result Result, err error) {

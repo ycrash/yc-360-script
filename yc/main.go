@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"shell"
@@ -39,6 +38,8 @@ func init() {
 	}
 }
 
+var pidPassed = true
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("No arguments are passed.")
@@ -53,9 +54,7 @@ func main() {
 
 	// must passed
 	if config.GlobalConfig.Pid <= 0 {
-		fmt.Println("Process id is not passed.")
-		config.ShowUsage()
-		return
+		pidPassed = false
 	}
 
 	if len(config.GlobalConfig.Server) < 1 {
@@ -78,7 +77,7 @@ func main() {
 	}
 
 	// find gc log path in from command line arguments of ps result
-	if len(config.GlobalConfig.GCPath) < 1 {
+	if pidPassed && len(config.GlobalConfig.GCPath) < 1 {
 		output, err := getGCLogFile(config.GlobalConfig.Pid)
 		if err == nil && len(output) > 0 {
 			config.GlobalConfig.GCPath = output
@@ -160,7 +159,7 @@ func main() {
 	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
-	if !shell.IsProcessExists(config.GlobalConfig.Pid) {
+	if pidPassed && !shell.IsProcessExists(config.GlobalConfig.Pid) {
 		defer func() {
 			logger.Log("WARNING: Process %d doesn't exist.", config.GlobalConfig.Pid)
 			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
@@ -174,7 +173,7 @@ func main() {
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
 	var jstat shell.CmdHolder
-	if gc == nil {
+	if pidPassed && gc == nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(config.GlobalConfig.Pid), "2000", "30"})
 		if err == nil {
@@ -235,28 +234,33 @@ func main() {
 	vmstat := goCapture(endpoint, capture.WrapRun(capVMStat))
 	logger.Log("Collection of vmstat data started.")
 
-	// ------------------------------------------------------------------------------
-	//                   Capture top -H
-	// ------------------------------------------------------------------------------
-	//  It runs in the background so that other tasks can be completed while this runs.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	capTopH := &capture.TopH{
-		Pid:       config.GlobalConfig.Pid,
-		WaitGroup: &wg,
+	var topH, threadDump chan capture.Result
+	var capTopH *capture.TopH
+	if pidPassed {
+		// ------------------------------------------------------------------------------
+		//                   Capture top -H
+		// ------------------------------------------------------------------------------
+		//  It runs in the background so that other tasks can be completed while this runs.
+		capTopH = &capture.TopH{
+			Pid: config.GlobalConfig.Pid,
+		}
+		capTopH.WaitGroup.Add(1)
+		topH = goCapture(endpoint, capture.WrapRun(capTopH))
 	}
-	topH := goCapture(endpoint, capture.WrapRun(capTopH))
 
 	// ------------------------------------------------------------------------------
 	//   				Capture thread dumps and ps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:       config.GlobalConfig.Pid,
-		TdPath:    config.GlobalConfig.ThreadDumpPath,
-		JavaHome:  config.GlobalConfig.JavaHomePath,
-		WaitGroup: &wg,
+		Pid:      config.GlobalConfig.Pid,
+		TdPath:   config.GlobalConfig.ThreadDumpPath,
+		JavaHome: config.GlobalConfig.JavaHomePath,
 	}
-	threadDump := goCapture(endpoint, capture.WrapRun(capThreadDump))
+	if capTopH != nil {
+		capThreadDump.WaitGroup = &capTopH.WaitGroup
+	}
+	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+
 	//  Initialize some loop variables
 	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
 	capPS := capture.NewPS()
@@ -301,7 +305,9 @@ func main() {
 	jstat.Wait()
 	// stop started tasks
 	capTop.Kill()
-	capTopH.Kill()
+	if capTopH != nil {
+		capTopH.Kill()
+	}
 	capVMStat.Kill()
 	capPS.Kill()
 
@@ -320,14 +326,16 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Top H data
 	// -------------------------------
-	result = <-topH
-	fmt.Printf(
-		`TOP H DATA
+	if topH != nil {
+		result = <-topH
+		fmt.Printf(
+			`TOP H DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit DF data
@@ -381,6 +389,10 @@ Resp: %s
 	//     Transmit GC Log
 	// -------------------------------
 	msg, ok = postData(endpoint, "gc", gc)
+	absGCPath, err := filepath.Abs(config.GlobalConfig.GCPath)
+	if err != nil {
+		absGCPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.GCPath, err.Error())
+	}
 	fmt.Printf(
 		`GC LOG DATA
 %s
@@ -388,19 +400,21 @@ Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, config.GlobalConfig.GCPath, ok, msg)
+`, absGCPath, ok, msg)
 
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
-	result = <-threadDump
-	fmt.Printf(
-		`THREAD DUMP DATA
+	if threadDump != nil {
+		result = <-threadDump
+		fmt.Printf(
+			`THREAD DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit MetaInfo

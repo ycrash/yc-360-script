@@ -55,7 +55,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 			logger.Log("copied heap dump data %s", t.hdPath)
 		}
 	}
-	if hd == nil && t.dump {
+	if t.Pid > 0 && hd == nil && t.dump {
 		logger.Log("capturing heap dump data")
 		var dir string
 		dir, err = os.Getwd()
