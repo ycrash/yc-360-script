@@ -207,36 +207,46 @@ func main() {
 
 	logger.Log("Collection of user authority data complete.")
 
-	// ------------------------------------------------------------------------------
-	//                   Capture netstat x2
-	// ------------------------------------------------------------------------------
-	//  Collect the first netstat: date at the top, data, and then a blank line
-	logger.Log("Collecting the first netstat snapshot...")
-	capNetStat := capture.NewNetStat()
-	netStat := goCapture(endpoint, capture.WrapRun(capNetStat))
-	logger.Log("First netstat snapshot complete.")
-
-	// ------------------------------------------------------------------------------
-	//                   Capture top
-	// ------------------------------------------------------------------------------
-	//  It runs in the background so that other tasks can be completed while this runs.
-	logger.Log("Starting collection of top data...")
-	capTop := &capture.Top{}
-	top := goCapture(endpoint, capture.WrapRun(capTop))
-	logger.Log("Collection of top data started.")
-
-	// ------------------------------------------------------------------------------
-	//                   Capture vmstat
-	// ------------------------------------------------------------------------------
-	//  It runs in the background so that other tasks can be completed while this runs.
-	logger.Log("Starting collection of vmstat data...")
-	capVMStat := &capture.VMStat{}
-	vmstat := goCapture(endpoint, capture.WrapRun(capVMStat))
-	logger.Log("Collection of vmstat data started.")
-
-	var topH, threadDump chan capture.Result
+	var capNetStat *capture.NetStat
+	var netStat chan capture.Result
+	var capTop *capture.Top
+	var top chan capture.Result
+	var capVMStat *capture.VMStat
+	var vmstat chan capture.Result
 	var capTopH *capture.TopH
+	var topH chan capture.Result
+	var threadDump chan capture.Result
+	var capPS *capture.PS
+	var ps chan capture.Result
+	var disk chan capture.Result
 	if pidPassed {
+		// ------------------------------------------------------------------------------
+		//                   Capture netstat x2
+		// ------------------------------------------------------------------------------
+		//  Collect the first netstat: date at the top, data, and then a blank line
+		logger.Log("Collecting the first netstat snapshot...")
+		capNetStat = capture.NewNetStat()
+		netStat = goCapture(endpoint, capture.WrapRun(capNetStat))
+		logger.Log("First netstat snapshot complete.")
+
+		// ------------------------------------------------------------------------------
+		//                   Capture top
+		// ------------------------------------------------------------------------------
+		//  It runs in the background so that other tasks can be completed while this runs.
+		logger.Log("Starting collection of top data...")
+		capTop = &capture.Top{}
+		top = goCapture(endpoint, capture.WrapRun(capTop))
+		logger.Log("Collection of top data started.")
+
+		// ------------------------------------------------------------------------------
+		//                   Capture vmstat
+		// ------------------------------------------------------------------------------
+		//  It runs in the background so that other tasks can be completed while this runs.
+		logger.Log("Starting collection of vmstat data...")
+		capVMStat = &capture.VMStat{}
+		vmstat = goCapture(endpoint, capture.WrapRun(capVMStat))
+		logger.Log("Collection of vmstat data started.")
+
 		// ------------------------------------------------------------------------------
 		//                   Capture top -H
 		// ------------------------------------------------------------------------------
@@ -246,10 +256,41 @@ func main() {
 		}
 		capTopH.WaitGroup.Add(1)
 		topH = goCapture(endpoint, capture.WrapRun(capTopH))
+
+		//  Initialize some loop variables
+		m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
+		capPS = capture.NewPS()
+		ps = goCapture(endpoint, capture.WrapRun(capPS))
+		logger.Log("Collecting ps snapshot...")
+		for n := 1; n <= m; n++ {
+			// Collect a ps snapshot: date at the top, data, and then a blank line
+			capPS.Continue()
+
+			if n == m {
+				break
+			}
+			// Pause for JAVACORE_INTERVAL seconds.
+			logger.Log("sleeping for %d seconds for next capture of ps...", shell.JAVACORE_INTERVAL)
+			time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
+		}
+		logger.Log("Collected ps snapshot.")
+
+		// ------------------------------------------------------------------------------
+		//  				Capture dmesg
+		// ------------------------------------------------------------------------------
+		logger.Log("Collecting other data.  This may take a few moments...")
+		// There is no endpoint for this now.
+		// dmesg := goCapture(endpoint, captureDMesg)
+		// ------------------------------------------------------------------------------
+		//  				Capture Disk Usage
+		// ------------------------------------------------------------------------------
+		disk = goCapture(endpoint, capture.WrapRun(&capture.Disk{}))
+
+		logger.Log("Collected other data.")
 	}
 
 	// ------------------------------------------------------------------------------
-	//   				Capture thread dumps and ps
+	//   				Capture thread dumps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
 		Pid:      config.GlobalConfig.Pid,
@@ -261,73 +302,52 @@ func main() {
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
-	//  Initialize some loop variables
-	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
-	capPS := capture.NewPS()
-	ps := goCapture(endpoint, capture.WrapRun(capPS))
-	logger.Log("Collecting ps snapshot...")
-	for n := 1; n <= m; n++ {
-		// Collect a ps snapshot: date at the top, data, and then a blank line
-		capPS.Continue()
-
-		if n == m {
-			break
-		}
-		// Pause for JAVACORE_INTERVAL seconds.
-		logger.Log("sleeping for %d seconds for next capture of ps...", shell.JAVACORE_INTERVAL)
-		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
-	}
-	logger.Log("Collected ps snapshot.")
-
 	// ------------------------------------------------------------------------------
 	//                Capture final netstat
 	// ------------------------------------------------------------------------------
-	logger.Log("Collecting the final netstat snapshot...")
-	capNetStat.Done()
-	logger.Log("Final netstat snapshot complete.")
-
-	// ------------------------------------------------------------------------------
-	//  				Capture dmesg
-	// ------------------------------------------------------------------------------
-	logger.Log("Collecting other data.  This may take a few moments...")
-	// There is no endpoint for this now.
-	// dmesg := goCapture(endpoint, captureDMesg)
-	// ------------------------------------------------------------------------------
-	//  				Capture Disk Usage
-	// ------------------------------------------------------------------------------
-	disk := goCapture(endpoint, capture.WrapRun(&capture.Disk{}))
-
-	logger.Log("Collected other data.")
+	if capNetStat != nil {
+		logger.Log("Collecting the final netstat snapshot...")
+		capNetStat.Done()
+		logger.Log("Final netstat snapshot complete.")
+	}
 
 	var ok bool
 	var msg string
 
 	jstat.Wait()
 	// stop started tasks
-	capTop.Kill()
+	if capTop != nil {
+		capTop.Kill()
+	}
 	if capTopH != nil {
 		capTopH.Kill()
 	}
-	capVMStat.Kill()
-	capPS.Kill()
+	if capVMStat != nil {
+		capVMStat.Kill()
+	}
+	if capPS != nil {
+		capPS.Kill()
+	}
 
 	// -------------------------------
 	//     Transmit Top data
 	// -------------------------------
-	result := <-top
-	fmt.Printf(
-		`TOP DATA
+	if top != nil {
+		result := <-top
+		fmt.Printf(
+			`TOP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit Top H data
 	// -------------------------------
 	if topH != nil {
-		result = <-topH
+		result := <-topH
 		fmt.Printf(
 			`TOP H DATA
 Is transmission completed: %t
@@ -340,50 +360,58 @@ Resp: %s
 	// -------------------------------
 	//     Transmit DF data
 	// -------------------------------
-	result = <-disk
-	fmt.Printf(
-		`DISK USAGE DATA
+	if disk != nil {
+		result := <-disk
+		fmt.Printf(
+			`DISK USAGE DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit netstat data
 	// -------------------------------
-	result = <-netStat
-	fmt.Printf(
-		`NETSTAT DATA
+	if netStat != nil {
+		result := <-netStat
+		fmt.Printf(
+			`NETSTAT DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit ps data
 	// -------------------------------
-	result = <-ps
-	fmt.Printf(
-		`PROCESS STATUS DATA
+	if ps != nil {
+		result := <-ps
+		fmt.Printf(
+			`PROCESS STATUS DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit VMstat data
 	// -------------------------------
-	result = <-vmstat
-	fmt.Printf(
-		`VMstat DATA
+	if vmstat != nil {
+		result := <-vmstat
+		fmt.Printf(
+			`VMstat DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit GC Log
@@ -406,7 +434,7 @@ Resp: %s
 	//     Transmit Thread dump
 	// -------------------------------
 	if threadDump != nil {
-		result = <-threadDump
+		result := <-threadDump
 		fmt.Printf(
 			`THREAD DUMP DATA
 Is transmission completed: %t
