@@ -15,7 +15,7 @@ type Logger struct {
 }
 
 func init() {
-	logger.writer = os.Stdout
+	logger.writer = os.Stderr
 }
 
 func (logger *Logger) Log(format string, values ...interface{}) {

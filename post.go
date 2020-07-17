@@ -2,11 +2,14 @@ package shell
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+
+	"shell/config"
 )
 
 func GetOutboundIP() net.IP {
@@ -44,7 +47,18 @@ func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool
 	url := fmt.Sprintf("%s&%s", endpoint, params)
 	transport := http.DefaultTransport.(*http.Transport)
 	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+	}
+	path := config.GlobalConfig.CACertPath
+	if len(path) > 0 {
+		pool := x509.NewCertPool()
+		ca, err := ioutil.ReadFile(path)
+		if err != nil {
+			msg = err.Error()
+			return
+		}
+		pool.AppendCertsFromPEM(ca)
+		transport.TLSClientConfig.RootCAs = pool
 	}
 	httpClient := &http.Client{
 		Transport: transport,

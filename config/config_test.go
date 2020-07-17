@@ -77,4 +77,16 @@ func TestConfig(t *testing.T) {
 			t.Fatalf("expect %s == 'vmstat'", command.Cmd)
 		}
 	})
+
+	t.Run("Parse verifySSL flag", func(t *testing.T) {
+		args := []string{"yc", "-verifySSL=false"}
+		err := ParseFlags(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if GlobalConfig.VerifySSL {
+			t.Fail()
+		}
+		t.Log(GlobalConfig)
+	})
 }

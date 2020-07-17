@@ -30,6 +30,9 @@ type Options struct {
 	ConfigPath  string `arg:"c" yaml:"-" usage:"The config file path to load"`
 
 	Commands []Command `yaml:"cmds" usage:"Custom commands to be executed"`
+
+	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate, default is true"`
+	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
 }
 
 type Command struct {
@@ -66,7 +69,9 @@ type CommandsFlagSetPair struct {
 	CmdSlice
 }
 
-var GlobalConfig Config
+var GlobalConfig = Config{
+	Options: Options{VerifySSL: true},
+}
 
 func ParseFlags(args []string) error {
 	if len(args) < 2 {
@@ -75,22 +80,20 @@ func ParseFlags(args []string) error {
 	flagSet, result := registerFlags(args[0])
 	flagSet.Parse(args[1:])
 
-	op := Options{}
-	copyFlagsValue(&op, result)
+	copyFlagsValue(&GlobalConfig.Options, result)
 
-	if op.ConfigPath == "" {
-		GlobalConfig.Options = op
+	if GlobalConfig.Options.ConfigPath == "" {
 		return nil
 	}
 
-	file, err := os.Open(op.ConfigPath)
+	file, err := os.Open(GlobalConfig.Options.ConfigPath)
 	if err != nil {
-		return fmt.Errorf("read config file path %s failed: %w", op.ConfigPath, err)
+		return fmt.Errorf("read config file path %s failed: %w", GlobalConfig.Options.ConfigPath, err)
 	}
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
 	if err != nil {
-		return fmt.Errorf("decode config file path %s failed: %w", op.ConfigPath, err)
+		return fmt.Errorf("decode config file path %s failed: %w", GlobalConfig.Options.ConfigPath, err)
 	}
 
 	copyFlagsValue(&GlobalConfig.Options, result)
@@ -118,10 +121,10 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 			continue
 		}
 		x := reflect.ValueOf(s).Elem()
-		if x.IsZero() {
+		fieldValue := value.Field(i)
+		if reflect.DeepEqual(x.Interface(), fieldValue.Interface()) {
 			continue
 		}
-		fieldValue := value.Field(i)
 		fieldValue.Set(x)
 	}
 }

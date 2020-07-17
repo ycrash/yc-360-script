@@ -8,7 +8,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -25,6 +24,7 @@ import (
 	"shell"
 	"shell/capture"
 	"shell/config"
+	"shell/fmt"
 	"shell/logger"
 
 	"github.com/gentlemanautomaton/cmdline"
@@ -144,7 +144,7 @@ func main() {
 	defer fscreen.Close()
 
 	// Starting up
-	mwriter := io.MultiWriter(fscreen, os.Stdout).(io.StringWriter)
+	mwriter := io.MultiWriter(fscreen, os.Stderr).(io.StringWriter)
 	logger.SetStringWriter(mwriter)
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
@@ -510,7 +510,7 @@ Resp: %s
 
 	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
-	fmt.Printf(`
+	fmt.Printfx(`
 See the report: %s
 --------------------------------
 `, reportEndpoint)
@@ -524,7 +524,7 @@ func requestFin(server, apiKey, parameters string) {
 		var r []byte
 		r, err = ioutil.ReadAll(post.Body)
 		if err == nil {
-			fmt.Printf(
+			fmt.Printfx(
 				`yc-fin endpoint: %s
 Resp: %s
 
