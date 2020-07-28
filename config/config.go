@@ -104,7 +104,10 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 	value := reflect.ValueOf(dst).Elem()
 	numField := value.NumField()
 	for i := 0; i < numField; i++ {
-		s := src[i]
+		s, ok := src[i]
+		if !ok {
+			continue
+		}
 		if x, ok := s.(*CommandsFlagSetPair); ok {
 			if len(x.UrlParamsSlice) != len(x.CmdSlice) {
 				panic("num of urlParams should be same as num of cmd")
@@ -123,6 +126,7 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 		x := reflect.ValueOf(s).Elem()
 		fieldValue := value.Field(i)
 		if reflect.DeepEqual(x.Interface(), fieldValue.Interface()) {
+			delete(src, i)
 			continue
 		}
 		fieldValue.Set(x)
@@ -132,9 +136,11 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 	flagSet := flag.NewFlagSet(flagSetName, flag.ExitOnError)
 
-	typ := reflect.TypeOf(GlobalConfig.Options)
 	result := make(map[int]interface{})
+	value := reflect.ValueOf(&GlobalConfig.Options).Elem()
+	typ := value.Type()
 	for i := 0; i < typ.NumField(); i++ {
+		field := value.Field(i)
 		fieldType := typ.Field(i)
 		name, ok := fieldType.Tag.Lookup("yaml")
 		if !ok || name == "-" {
@@ -146,11 +152,11 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		usage := fieldType.Tag.Get("usage")
 		switch fieldType.Type.Kind() {
 		case reflect.Int:
-			result[i] = flagSet.Int(name, 0, usage)
+			result[i] = flagSet.Int(name, int(field.Int()), usage)
 		case reflect.String:
-			result[i] = flagSet.String(name, "", usage)
+			result[i] = flagSet.String(name, field.String(), usage)
 		case reflect.Bool:
-			result[i] = flagSet.Bool(name, false, usage)
+			result[i] = flagSet.Bool(name, field.Bool(), usage)
 		case reflect.Slice:
 			if fieldType.Type.AssignableTo(reflect.TypeOf([]Command{})) {
 				tp := reflect.TypeOf(Command{})
