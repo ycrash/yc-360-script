@@ -1,0 +1,16 @@
+HOW TO BUILD FOR WINDOWS?
+--------------------------
+go build
+
+
+HOW TO BUILD FOR LINUX?
+--------------------------
+set GOOS=aix 
+go build
+
+
+HOW TO BUILD FOR AIX?
+--------------------------
+set GOOS=aix 
+set GOARCH=ppc64 
+go build
