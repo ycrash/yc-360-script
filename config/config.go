@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
@@ -80,7 +82,10 @@ func ParseFlags(args []string) error {
 	flagSet, result := registerFlags(args[0])
 	flagSet.Parse(args[1:])
 
-	copyFlagsValue(&GlobalConfig.Options, result)
+	err := copyFlagsValue(&GlobalConfig.Options, result)
+	if err != nil {
+		return err
+	}
 
 	if GlobalConfig.Options.ConfigPath == "" {
 		return nil
@@ -96,12 +101,12 @@ func ParseFlags(args []string) error {
 		return fmt.Errorf("decode config file path %s failed: %w", GlobalConfig.Options.ConfigPath, err)
 	}
 
-	copyFlagsValue(&GlobalConfig.Options, result)
-	return nil
+	return copyFlagsValue(&GlobalConfig.Options, result)
 }
 
-func copyFlagsValue(dst interface{}, src map[int]interface{}) {
+func copyFlagsValue(dst interface{}, src map[int]interface{}) (err error) {
 	value := reflect.ValueOf(dst).Elem()
+	typ := value.Type()
 	numField := value.NumField()
 	for i := 0; i < numField; i++ {
 		s, ok := src[i]
@@ -123,14 +128,26 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) {
 			fieldValue.Set(reflect.ValueOf(cmds))
 			continue
 		}
-		x := reflect.ValueOf(s).Elem()
+		var x reflect.Value
 		fieldValue := value.Field(i)
+		name := typ.Field(i).Name
+		if name == "VerifySSL" {
+			bs := *(s).(*string)
+			b, err := strconv.ParseBool(strings.ToLower(bs))
+			if err != nil {
+				return fmt.Errorf("-verifySSL should be true or false, not %s", bs)
+			}
+			x = reflect.ValueOf(b)
+		} else {
+			x = reflect.ValueOf(s).Elem()
+		}
 		if reflect.DeepEqual(x.Interface(), fieldValue.Interface()) {
 			delete(src, i)
 			continue
 		}
 		fieldValue.Set(x)
 	}
+	return
 }
 
 func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
@@ -150,6 +167,10 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			}
 		}
 		usage := fieldType.Tag.Get("usage")
+		if fieldType.Name == "VerifySSL" {
+			result[i] = flagSet.String(name, strconv.FormatBool(field.Bool()), usage)
+			continue
+		}
 		switch fieldType.Type.Kind() {
 		case reflect.Int:
 			result[i] = flagSet.Int(name, int(field.Int()), usage)

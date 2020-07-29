@@ -79,7 +79,7 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("Parse verifySSL flag", func(t *testing.T) {
-		args := []string{"yc", "-verifySSL=false"}
+		args := []string{"yc", "-verifySSL", "false"}
 		err := ParseFlags(args)
 		if err != nil {
 			t.Fatal(err)
