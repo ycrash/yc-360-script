@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	sfmt "fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -510,7 +511,7 @@ Resp: %s
 
 	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
-	fmt.Printfx(`
+	sfmt.Printf(`
 See the report: %s
 --------------------------------
 `, reportEndpoint)
@@ -524,7 +525,7 @@ func requestFin(server, apiKey, parameters string) {
 		var r []byte
 		r, err = ioutil.ReadAll(post.Body)
 		if err == nil {
-			fmt.Printfx(
+			sfmt.Printf(
 				`yc-fin endpoint: %s
 Resp: %s
 
