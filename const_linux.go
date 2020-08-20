@@ -10,7 +10,6 @@ var (
 	DMesg               = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
-	AppendTopH          = Command{"/bin/sh", "-c"}
 
 	shell = Command{"/bin/sh", "-c"}
 )

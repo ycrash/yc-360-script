@@ -3,6 +3,7 @@ package capture
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 
@@ -20,9 +21,14 @@ func (t *Top) Run() (result Result, err error) {
 		return
 	}
 	defer top.Close()
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top,
-		"-d", strconv.Itoa(shell.TOP_INTERVAL),
-		"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_INTERVAL+1))
+	switch runtime.GOOS {
+	case "linux":
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top,
+			"-d", strconv.Itoa(shell.TOP_INTERVAL),
+			"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_INTERVAL+1))
+	case "aix":
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
+	}
 	if err != nil {
 		return
 	}
@@ -55,10 +61,17 @@ func (t *TopH) Run() (result Result, err error) {
 		return
 	}
 	defer topdash.Close()
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH,
-		"-d", strconv.Itoa(shell.TOP_DASH_H_INTERVAL),
-		"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_DASH_H_INTERVAL+1),
-		"-p", strconv.Itoa(t.Pid))
+
+	switch runtime.GOOS {
+	case "linux":
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH,
+			"-d", strconv.Itoa(shell.TOP_DASH_H_INTERVAL),
+			"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_DASH_H_INTERVAL+1),
+			"-p", strconv.Itoa(t.Pid))
+	case "aix":
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH)
+	}
+
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = true

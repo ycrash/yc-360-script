@@ -89,4 +89,21 @@ func TestConfig(t *testing.T) {
 		}
 		t.Log(GlobalConfig)
 	})
+
+	t.Run("ParseArgs", func(t *testing.T) {
+		args := []string{"yc", "-c", "testdata/bug.yaml", "-verifySSL", "false"}
+		err := ParseFlags(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if GlobalConfig.VerifySSL {
+			t.Fail()
+		}
+		if GlobalConfig.ApiKey != "buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc" {
+			t.Fatalf("expect %s == buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc", GlobalConfig.ApiKey)
+		}
+		if GlobalConfig.Server != "http://localhost:8080/" {
+			t.Fatalf("expect %s == http://localhost:8080/", GlobalConfig.Server)
+		}
+	})
 }

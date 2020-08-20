@@ -1,16 +1,15 @@
 package shell
 
 var (
-	NetState            = Command{"netstat", "-pan"}
-	PS                  = Command{"ps", "-eLf"}
-	Disk                = Command{"df", "-hk"}
-	Top                 = Command{"top", "-bc"}
-	TopH                = Command{"top", "-bH"}
-	VMState             = Command{"vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
+	NetState            = Command{"netstat", "-a"}
+	PS                  = Command{"ps", "-ef"}
+	Disk                = Command{"df"}
+	Top                 = Command{"topas", "-P"}
+	TopH                = Command{"topas", "-P"}
+	VMState             = Command{"vmstat", DynamicArg, DynamicArg}
 	DMesg               = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
-	AppendTopH          = Command{"/bin/sh", "-c"}
 
 	shell = Command{"/bin/sh", "-c"}
 )
