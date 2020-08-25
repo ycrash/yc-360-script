@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/signal"
 	"os/user"
 	"path"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"shell"
@@ -42,6 +44,17 @@ func init() {
 var pidPassed = true
 
 func main() {
+	osSig := make(chan os.Signal, 1)
+	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+
+	go mainLoop()
+
+	select {
+	case <-osSig:
+	}
+}
+
+func mainLoop() {
 	if len(os.Args) < 2 {
 		fmt.Println("No arguments are passed.")
 		config.ShowUsage()
@@ -53,7 +66,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// must passed
 	if config.GlobalConfig.Pid <= 0 {
 		pidPassed = false
 	}
@@ -76,16 +88,153 @@ func main() {
 		config.ShowUsage()
 		return
 	}
+	if config.GlobalConfig.AutoPilot {
+		for {
+			time.Sleep(config.GlobalConfig.ApFrequency)
 
+			timestamp := time.Now().Format("2006-01-02T15-04-05")
+			parameters := fmt.Sprintf("de=%s&ts=%s&m3=true", getOutboundIP().String(), timestamp)
+			endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+			err := process(timestamp, endpoint)
+			if err != nil {
+				logger.Log("WARNING: %s", err)
+				continue
+			}
+
+			resp, err := requestFin(config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+			if err == nil && len(resp) > 0 {
+				pids, err := shell.ParseJsonResp(resp)
+				if err != nil {
+					logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
+					continue
+				}
+				for _, pid := range pids {
+					fullProcess(pid)
+				}
+			}
+		}
+	} else {
+		fullProcess(config.GlobalConfig.Pid)
+	}
+}
+
+func process(timestamp string, endpoint string) (err error) {
+	dname := "yc-" + timestamp
+	err = os.Mkdir(dname, 0777)
+	if err != nil {
+		return
+	}
+
+	err = os.Chdir(dname)
+	if err != nil {
+		return
+	}
+	defer func() {
+		dir, err := os.Getwd()
+		if err != nil {
+			logger.Log("WARNING: Can not get the path of the current directory: %s", err)
+			return
+		}
+		parent := path.Dir(dir)
+		err = os.Chdir(parent)
+		if err != nil {
+			logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
+			return
+		}
+		err = os.RemoveAll(dir)
+		if err != nil {
+			logger.Log("WARNING: Can not remove the current directory: %s", err)
+			return
+		}
+	}()
+
+	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
+	logger.Log("yc script starting...")
+
+	pids, err := shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
+	if err == nil {
+		for _, pid := range pids {
+			uploadGCLog(endpoint, pid)
+		}
+	} else {
+		logger.Log("WARNING: Get PID from ProcessTokens failed, %s", err)
+	}
+
+	logger.Log("Starting collection of top data...")
+	capTop := &capture.Top4AP{}
+	top := goCapture(endpoint, capture.WrapRun(capTop))
+	logger.Log("Collection of top data started.")
+	if top != nil {
+		result := <-top
+		fmt.Printf(
+			`TOP DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+	return
+}
+
+func uploadGCLog(endpoint string, pid int) {
+	var gcp string
+	output, err := getGCLogFile(pid)
+	if err == nil && len(output) > 0 {
+		gcp = output
+	}
+	var gc *os.File
+	fn := fmt.Sprintf("gc.%d.log", pid)
+	gc, err = processGCLogFile(gcp, fn)
+	if err != nil {
+		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
+	}
+	var jstat shell.CmdHolder
+	if pidPassed && gc == nil {
+		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
+			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
+		if err == nil {
+			gcp = fn
+			logger.Log("gc log set to %s", gcp)
+		} else {
+			defer logger.Log("WARNING: failed to capture gc log: %s", err.Error())
+		}
+	}
+	defer func() {
+		if gc != nil {
+			gc.Close()
+		}
+	}()
+	jstat.Wait()
+
+	// -------------------------------
+	//     Transmit GC Log
+	// -------------------------------
+	msg, ok := postData(endpoint, fmt.Sprintf("gc&m3=true&pid=%d", pid), gc)
+	absGCPath, err := filepath.Abs(gcp)
+	if err != nil {
+		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
+	}
+	fmt.Printf(
+		`GC LOG DATA
+%s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, absGCPath, ok, msg)
+}
+
+func fullProcess(pid int) {
 	// find gc log path in from command line arguments of ps result
 	if pidPassed && len(config.GlobalConfig.GCPath) < 1 {
-		output, err := getGCLogFile(config.GlobalConfig.Pid)
+		output, err := getGCLogFile(pid)
 		if err == nil && len(output) > 0 {
 			config.GlobalConfig.GCPath = output
 		}
 	}
 
-	fmt.Printf("PID is %d\n", config.GlobalConfig.Pid)
+	fmt.Printf("PID is %d\n", pid)
 	fmt.Printf("YC_SERVER is %s\n", config.GlobalConfig.Server)
 	fmt.Printf("API_KEY is %s\n", config.GlobalConfig.ApiKey)
 	fmt.Printf("APP_NAME is %s\n", config.GlobalConfig.AppName)
@@ -96,26 +245,6 @@ func main() {
 	defer func() {
 		if err != nil {
 			logger.Log("Unexpected Error %s", err)
-			panic(err)
-		} else {
-			if config.GlobalConfig.DeferDelete {
-				dir, err := os.Getwd()
-				if err != nil {
-					logger.Log("WARNING: Can not get the path of the current directory: %s", err)
-					return
-				}
-				parent := path.Dir(dir)
-				err = os.Chdir(parent)
-				if err != nil {
-					logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
-					return
-				}
-				err = os.RemoveAll(dir)
-				if err != nil {
-					logger.Log("WARNING: Can not remove the current directory: %s", err)
-					return
-				}
-			}
 		}
 	}()
 	// -------------------------------------------------------------------
@@ -123,7 +252,6 @@ func main() {
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	// endpoint := fmt.Sprintf("%s/data-in?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 
 	dname := "yc-" + timestamp
@@ -136,6 +264,26 @@ func main() {
 	if err != nil {
 		return
 	}
+	defer func() {
+		dir, err := os.Getwd()
+		if err != nil {
+			logger.Log("WARNING: Can not get the path of the current directory: %s", err)
+			return
+		}
+		parent := path.Dir(dir)
+		err = os.Chdir(parent)
+		if err != nil {
+			logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
+			return
+		}
+		if config.GlobalConfig.DeferDelete {
+			err = os.RemoveAll(dir)
+			if err != nil {
+				logger.Log("WARNING: Can not remove the current directory: %s", err)
+				return
+			}
+		}
+	}()
 
 	// Create the screen.out and put the current date in it.
 	fscreen, err := os.Create("screen.out")
@@ -151,7 +299,7 @@ func main() {
 	logger.Log("yc script starting...")
 
 	// Display the PIDs which have been input to the script
-	logger.Log("PROBLEMATIC_PID is: %d", config.GlobalConfig.Pid)
+	logger.Log("PROBLEMATIC_PID is: %d", pid)
 
 	// Display the being used in this script
 	logger.Log("SCRIPT_SPAN = %d", shell.SCRIPT_SPAN)
@@ -160,9 +308,9 @@ func main() {
 	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
-	if pidPassed && !shell.IsProcessExists(config.GlobalConfig.Pid) {
+	if pidPassed && !shell.IsProcessExists(pid) {
 		defer func() {
-			logger.Log("WARNING: Process %d doesn't exist.", config.GlobalConfig.Pid)
+			logger.Log("WARNING: Process %d doesn't exist.", pid)
 			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
 		}()
 	}
@@ -176,7 +324,7 @@ func main() {
 	var jstat shell.CmdHolder
 	if pidPassed && gc == nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(config.GlobalConfig.Pid), "2000", "30"})
+			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {
 			config.GlobalConfig.GCPath = "gc.log"
 			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
@@ -253,7 +401,7 @@ func main() {
 		// ------------------------------------------------------------------------------
 		//  It runs in the background so that other tasks can be completed while this runs.
 		capTopH = &capture.TopH{
-			Pid: config.GlobalConfig.Pid,
+			Pid: pid,
 		}
 		capTopH.WaitGroup.Add(1)
 		topH = goCapture(endpoint, capture.WrapRun(capTopH))
@@ -294,7 +442,7 @@ func main() {
 	//   				Capture thread dumps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:      config.GlobalConfig.Pid,
+		Pid:      pid,
 		TdPath:   config.GlobalConfig.ThreadDumpPath,
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}
@@ -448,7 +596,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit MetaInfo
 	// -------------------------------
-	msg, ok, err = writeMetaInfo(config.GlobalConfig.Pid, config.GlobalConfig.AppName, endpoint)
+	msg, ok, err = writeMetaInfo(pid, config.GlobalConfig.AppName, endpoint)
 	if err != nil {
 		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
 	}
@@ -463,7 +611,7 @@ Resp: %s
 	//     Transmit Heap dump result
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, config.GlobalConfig.Pid, config.GlobalConfig.HeapDumpPath, config.GlobalConfig.HeapDump)
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, config.GlobalConfig.HeapDump)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {
@@ -517,7 +665,7 @@ See the report: %s
 `, reportEndpoint)
 }
 
-func requestFin(server, apiKey, parameters string) {
+func requestFin(server, apiKey, parameters string) (resp []byte, err error) {
 	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", server, apiKey, parameters)
 	post, err := http.Post(finEp, "text", nil)
 	if err == nil {

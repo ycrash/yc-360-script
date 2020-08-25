@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"shell"
 	"shell/logger"
@@ -79,5 +80,39 @@ func (t *TopH) Run() (result Result, err error) {
 	}
 	t.Cmd.Wait()
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "toph", topdash)
+	return
+}
+
+type Top4AP struct {
+	Capture
+}
+
+func (t *Top4AP) Run() (result Result, err error) {
+	top, err := os.Create("top.out")
+	if err != nil {
+		return
+	}
+	defer top.Close()
+
+	for i := 0; i < 3; i++ {
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
+		if err != nil {
+			return
+		}
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing Top"
+			result.Ok = true
+			return
+		}
+		time.Sleep(time.Second)
+		t.Kill()
+		t.Cmd.Wait()
+		top.WriteString("\n\n\n")
+		if i == 2 {
+			break
+		}
+		time.Sleep(10 * time.Second)
+	}
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top&m3=true", top)
 	return
 }

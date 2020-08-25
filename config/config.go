@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -35,6 +36,10 @@ type Options struct {
 
 	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate, default is true"`
 	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
+
+	AutoPilot     bool          `arg:"autoPilot" usage:"Run in auto-pilot mode, default is false"`
+	ApFrequency   time.Duration `yaml:"apFrequency" usage:"Frequency of auto-pilot mode, default is 3m(3 minutes)"`
+	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of auto-pilot mode"`
 }
 
 type Command struct {
@@ -71,8 +76,23 @@ type CommandsFlagSetPair struct {
 	CmdSlice
 }
 
+type ProcessToken string
+type ProcessTokens []ProcessToken
+
+func (p *ProcessTokens) String() string {
+	return fmt.Sprintf("%v", *p)
+}
+
+func (p *ProcessTokens) Set(s string) error {
+	*p = append(*p, ProcessToken(s))
+	return nil
+}
+
 var GlobalConfig = Config{
-	Options: Options{VerifySSL: true},
+	Options: Options{
+		VerifySSL:   true,
+		ApFrequency: 3 * time.Minute,
+	},
 }
 
 func ParseFlags(args []string) error {
@@ -169,6 +189,16 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		usage := fieldType.Tag.Get("usage")
 		if fieldType.Name == "VerifySSL" {
 			result[i] = flagSet.String(name, strconv.FormatBool(field.Bool()), usage)
+			continue
+		}
+		switch v := field.Interface().(type) {
+		case ProcessTokens:
+			tokens := &ProcessTokens{}
+			flagSet.Var(tokens, name, usage)
+			result[i] = tokens
+			continue
+		case time.Duration:
+			result[i] = flagSet.Duration(name, v, usage)
 			continue
 		}
 		switch fieldType.Type.Kind() {

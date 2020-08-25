@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -104,6 +105,23 @@ func TestConfig(t *testing.T) {
 		}
 		if GlobalConfig.Server != "http://localhost:8080/" {
 			t.Fatalf("expect %s == http://localhost:8080/", GlobalConfig.Server)
+		}
+	})
+
+	t.Run("ParseAPArgs", func(t *testing.T) {
+		args := []string{"yc", "-apFrequency", "5m", "-processTokens", "abc", "-processTokens", "cba", "-autoPilot"}
+		err := ParseFlags(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !GlobalConfig.AutoPilot {
+			t.Fail()
+		}
+		if len(GlobalConfig.ProcessTokens) != 2 {
+			t.Fail()
+		}
+		if GlobalConfig.ApFrequency != 5*time.Minute {
+			t.Fail()
 		}
 	})
 }
