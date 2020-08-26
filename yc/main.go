@@ -152,12 +152,19 @@ func process(timestamp string, endpoint string) (err error) {
 	logger.Log("yc script starting...")
 
 	pids, err := shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
-	if err == nil {
-		for _, pid := range pids {
+	if err == nil && len(pids) > 0 {
+		set := make(map[int]struct{}, len(pids))
+		for i := 0; i < len(pids); i++ {
+			pid := pids[i]
+			if _, ok := set[pid]; ok {
+				continue
+			}
+			set[pid] = struct{}{}
+			logger.Log("uploading gc log for pid %d", pid)
 			uploadGCLog(endpoint, pid)
 		}
 	} else {
-		logger.Log("WARNING: Get PID from ProcessTokens failed, %s", err)
+		logger.Log("WARNING: No PID has ProcessTokens or failed by error %s", err)
 	}
 
 	logger.Log("Starting collection of top data...")
@@ -190,7 +197,7 @@ func uploadGCLog(endpoint string, pid int) {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
 	var jstat shell.CmdHolder
-	if pidPassed && gc == nil {
+	if gc == nil || err != nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {
@@ -322,7 +329,7 @@ func fullProcess(pid int) {
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
 	var jstat shell.CmdHolder
-	if pidPassed && gc == nil {
+	if pidPassed && (err != nil || gc == nil) {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {

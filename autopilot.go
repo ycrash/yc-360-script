@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"os"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ func GetProcessIds(tokens config.ProcessTokens) (pids []int, err error) {
 		return
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
+	cpid := os.Getpid()
 Next:
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -37,6 +39,9 @@ Next:
 					id := col[1]
 					pid, err := strconv.Atoi(id)
 					if err != nil {
+						continue Next
+					}
+					if pid == cpid {
 						continue Next
 					}
 					pids = append(pids, pid)
