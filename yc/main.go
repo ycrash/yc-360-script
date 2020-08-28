@@ -88,27 +88,33 @@ func mainLoop() {
 		config.ShowUsage()
 		return
 	}
-	if config.GlobalConfig.AutoPilot {
+	if config.GlobalConfig.M3 {
 		for {
-			time.Sleep(config.GlobalConfig.ApFrequency)
+			time.Sleep(config.GlobalConfig.M3Frequency)
 
 			timestamp := time.Now().Format("2006-01-02T15-04-05")
-			parameters := fmt.Sprintf("de=%s&ts=%s&m3=true", getOutboundIP().String(), timestamp)
-			endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+			parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+			endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 			err := process(timestamp, endpoint)
 			if err != nil {
 				logger.Log("WARNING: %s", err)
 				continue
 			}
 
-			resp, err := requestFin(config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+			finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+			resp, err := requestFin(finEp)
 			if err == nil && len(resp) > 0 {
 				pids, err := shell.ParseJsonResp(resp)
 				if err != nil {
 					logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 					continue
 				}
+				set := make(map[int]struct{}, len(pids))
 				for _, pid := range pids {
+					if _, ok := set[pid]; ok {
+						continue
+					}
+					set[pid] = struct{}{}
 					fullProcess(pid)
 				}
 			}
@@ -204,7 +210,7 @@ func uploadGCLog(endpoint string, pid int) {
 			gcp = fn
 			logger.Log("gc log set to %s", gcp)
 		} else {
-			defer logger.Log("WARNING: failed to capture gc log: %s", err.Error())
+			logger.Log("WARNING: failed to capture gc log: %s", err.Error())
 		}
 	}
 	defer func() {
@@ -217,7 +223,7 @@ func uploadGCLog(endpoint string, pid int) {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := postData(endpoint, fmt.Sprintf("gc&m3=true&pid=%d", pid), gc)
+	msg, ok := postData(endpoint, fmt.Sprintf("gc&pid=%d", pid), gc)
 	absGCPath, err := filepath.Abs(gcp)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
@@ -662,7 +668,8 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	requestFin(config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	requestFin(finEp)
 
 	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
@@ -672,9 +679,8 @@ See the report: %s
 `, reportEndpoint)
 }
 
-func requestFin(server, apiKey, parameters string) (resp []byte, err error) {
-	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", server, apiKey, parameters)
-	post, err := http.Post(finEp, "text", nil)
+func requestFin(endpoint string) (resp []byte, err error) {
+	post, err := http.Post(endpoint, "text", nil)
 	if err == nil {
 		defer post.Body.Close()
 		var r []byte
@@ -685,7 +691,7 @@ func requestFin(server, apiKey, parameters string) (resp []byte, err error) {
 Resp: %s
 
 --------------------------------
-`, finEp, r)
+`, endpoint, r)
 		}
 	}
 	if err != nil {

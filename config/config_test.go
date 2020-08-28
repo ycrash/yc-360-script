@@ -109,18 +109,18 @@ func TestConfig(t *testing.T) {
 	})
 
 	t.Run("ParseAPArgs", func(t *testing.T) {
-		args := []string{"yc", "-apFrequency", "5m", "-processTokens", "abc", "-processTokens", "cba", "-autoPilot"}
+		args := []string{"yc", "-m3Frequency", "5m", "-processTokens", "abc", "-processTokens", "cba", "-m3"}
 		err := ParseFlags(args)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !GlobalConfig.AutoPilot {
+		if !GlobalConfig.M3 {
 			t.Fail()
 		}
 		if len(GlobalConfig.ProcessTokens) != 2 {
 			t.Fail()
 		}
-		if GlobalConfig.ApFrequency != 5*time.Minute {
+		if GlobalConfig.M3Frequency != 5*time.Minute {
 			t.Fail()
 		}
 	})

@@ -113,6 +113,6 @@ func (t *Top4AP) Run() (result Result, err error) {
 		}
 		time.Sleep(10 * time.Second)
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top&m3=true", top)
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
 }

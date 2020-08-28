@@ -37,9 +37,9 @@ type Options struct {
 	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate, default is true"`
 	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
 
-	AutoPilot     bool          `arg:"autoPilot" usage:"Run in auto-pilot mode, default is false"`
-	ApFrequency   time.Duration `yaml:"apFrequency" usage:"Frequency of auto-pilot mode, default is 3m(3 minutes)"`
-	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of auto-pilot mode"`
+	M3            bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
+	M3Frequency   time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3m(3 minutes)"`
+	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of m3 mode"`
 }
 
 type Command struct {
@@ -91,7 +91,7 @@ func (p *ProcessTokens) Set(s string) error {
 var GlobalConfig = Config{
 	Options: Options{
 		VerifySSL:   true,
-		ApFrequency: 3 * time.Minute,
+		M3Frequency: 3 * time.Minute,
 	},
 }
 
