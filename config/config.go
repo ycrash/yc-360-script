@@ -40,6 +40,8 @@ type Options struct {
 	M3            bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
 	M3Frequency   time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3m(3 minutes)"`
 	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of m3 mode"`
+
+	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
 }
 
 type Command struct {

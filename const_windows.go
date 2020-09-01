@@ -11,5 +11,5 @@ var (
 	GC                  = NopCommand
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 
-	shell = NopCommand
+	SHELL = Command{"cmd.exe", "/c"}
 )

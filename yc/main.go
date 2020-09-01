@@ -33,17 +33,15 @@ import (
 	"github.com/gentlemanautomaton/cmdline"
 )
 
-func init() {
+var pidPassed = true
+
+func main() {
 	err := config.ParseFlags(os.Args)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
-}
 
-var pidPassed = true
-
-func main() {
 	osSig := make(chan os.Signal, 1)
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
@@ -115,13 +113,26 @@ func mainLoop() {
 						continue
 					}
 					set[pid] = struct{}{}
-					fullProcess(pid)
+					if len(config.GlobalConfig.CaptureCmd) > 0 {
+						err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+						if err != nil {
+							logger.Log("WARNING: %s", err)
+							continue
+						}
+					} else {
+						fullProcess(pid)
+					}
 				}
 			}
 		}
 	} else {
 		fullProcess(config.GlobalConfig.Pid)
 	}
+}
+
+func runCaptureCmd(pid int, cmd string) error {
+	shell.Env = []string{fmt.Sprintf("pid=%d", pid)}
+	return shell.CommandCombinedOutputToWriter(logger.GetWriter(), shell.SHELL, cmd)
 }
 
 func process(timestamp string, endpoint string) (err error) {
@@ -306,8 +317,8 @@ func fullProcess(pid int) {
 	defer fscreen.Close()
 
 	// Starting up
-	mwriter := io.MultiWriter(fscreen, os.Stderr).(io.StringWriter)
-	logger.SetStringWriter(mwriter)
+	mwriter := io.MultiWriter(fscreen, os.Stderr).(logger.Writer)
+	logger.SetWriter(mwriter)
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 

@@ -54,7 +54,7 @@ Next:
 }
 
 type APResp struct {
-	Action []string
+	Actions []string
 }
 
 func ParseJsonResp(resp []byte) (pids []int, err error) {
@@ -63,7 +63,7 @@ func ParseJsonResp(resp []byte) (pids []int, err error) {
 	if err != nil {
 		return
 	}
-	for _, s := range r.Action {
+	for _, s := range r.Actions {
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")
 			if len(ss) == 2 {

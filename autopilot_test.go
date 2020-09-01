@@ -15,19 +15,19 @@ func TestGetProcessIds(t *testing.T) {
 }
 
 func TestParseJsonResp(t *testing.T) {
-	ids, err := ParseJsonResp([]byte(`{"action":[ "capture 12321", "capture 2341", "capture 45321"] }`))
+	ids, err := ParseJsonResp([]byte(`{"actions":[ "capture 12321", "capture 2341", "capture 45321"] }`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log(ids)
 
-	ids, err = ParseJsonResp([]byte(`{"action":[ "capture 12321"] }`))
+	ids, err = ParseJsonResp([]byte(`{"actions":[ "capture 12321"] }`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log(ids)
 
-	ids, err = ParseJsonResp([]byte(`{ "action": [] }`))
+	ids, err = ParseJsonResp([]byte(`{ "actions": [] }`))
 	if err != nil {
 		t.Fatal(err)
 	}

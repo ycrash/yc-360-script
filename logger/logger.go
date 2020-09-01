@@ -10,8 +10,13 @@ import (
 
 var logger Logger
 
+type Writer interface {
+	io.StringWriter
+	io.Writer
+}
+
 type Logger struct {
-	writer io.StringWriter
+	writer Writer
 }
 
 func init() {
@@ -31,6 +36,10 @@ func Log(format string, values ...interface{}) {
 	logger.Log(format, values...)
 }
 
-func SetStringWriter(writer io.StringWriter) {
+func SetWriter(writer Writer) {
 	logger.writer = writer
+}
+
+func GetWriter() (writer io.Writer) {
+	return logger.writer
 }

@@ -36,7 +36,7 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 		return
 	}
 	result = make(Command, 3)
-	copy(result, shell)
+	copy(result, SHELL)
 	i := 0
 	var command strings.Builder
 	for _, c := range *cmd {
@@ -52,6 +52,8 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 	result[2] = command.String()
 	return
 }
+
+var Env []string
 
 type CmdHolder struct {
 	*exec.Cmd
@@ -106,10 +108,16 @@ func NewCommand(cmd Command, args ...string) CmdHolder {
 	if len(args) > 0 {
 		cmd = append(cmd, args...)
 	}
+	var command *exec.Cmd
 	if len(cmd) == 1 {
-		return CmdHolder{exec.Command(cmd[0])}
+		command = exec.Command(cmd[0])
+	} else {
+		command = exec.Command(cmd[0], cmd[1:]...)
 	}
-	return CmdHolder{exec.Command(cmd[0], cmd[1:]...)}
+	if len(Env) > 0 {
+		command.Env = Env
+	}
+	return CmdHolder{command}
 }
 
 func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {

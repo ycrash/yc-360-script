@@ -239,3 +239,10 @@ func TestProcessLogFile(t *testing.T) {
 		}
 	})
 }
+
+func TestCaptureCmd(t *testing.T) {
+	err := runCaptureCmd(123, "echo $pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
