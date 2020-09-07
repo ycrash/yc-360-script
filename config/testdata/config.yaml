@@ -7,3 +7,6 @@ options:
       cmd: vmstat
     - urlParams: pidstat
       cmd: pidstat
+  processTokens:
+    - uploadDir
+    - buggyApp

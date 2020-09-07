@@ -56,7 +56,7 @@ func mainLoop() {
 	if len(os.Args) < 2 {
 		fmt.Println("No arguments are passed.")
 		config.ShowUsage()
-		return
+		os.Exit(1)
 	}
 
 	if config.GlobalConfig.ShowVersion {
@@ -69,22 +69,22 @@ func mainLoop() {
 	}
 
 	if len(config.GlobalConfig.Server) < 1 {
-		fmt.Println("YCrash config.GlobalConfig.Server URL is not passed")
+		fmt.Println("'-s' yCrash server URL argument not passed.")
 		config.ShowUsage()
-		return
+		os.Exit(1)
 	}
 	if len(config.GlobalConfig.ApiKey) < 1 {
-		fmt.Println("APIKey is not passed.")
+		fmt.Println("'-k' yCrash API Key argument not passed.")
 		config.ShowUsage()
-		return
+		os.Exit(1)
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		fmt.Println("JAVA_HOME path is not passed")
+		fmt.Println("'-j' yCrash JAVA_HOME argument not passed.")
 		config.ShowUsage()
-		return
+		os.Exit(1)
 	}
 	if config.GlobalConfig.M3 {
 		for {
@@ -101,7 +101,11 @@ func mainLoop() {
 
 			finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 			resp, err := requestFin(finEp)
-			if err == nil && len(resp) > 0 {
+			if err != nil {
+				logger.Log("WARNING: Request M3 Fin failed, %s", err)
+				continue
+			}
+			if len(resp) > 0 {
 				pids, err := shell.ParseJsonResp(resp)
 				if err != nil {
 					logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
@@ -181,7 +185,7 @@ func process(timestamp string, endpoint string) (err error) {
 			uploadGCLog(endpoint, pid)
 		}
 	} else {
-		logger.Log("WARNING: No PID has ProcessTokens or failed by error %s", err)
+		logger.Log("WARNING: No PID has ProcessTokens or failed by error %v", err)
 	}
 
 	logger.Log("Starting collection of top data...")

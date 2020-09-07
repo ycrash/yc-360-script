@@ -53,6 +53,9 @@ func TestConfig(t *testing.T) {
 		if GlobalConfig.Server != "https://test.gceasy.io" {
 			t.Fatalf("expect %s == https://test.gceasy.io", GlobalConfig.Server)
 		}
+		if len(GlobalConfig.ProcessTokens) != 2 || GlobalConfig.ProcessTokens[0] != "uploadDir" || GlobalConfig.ProcessTokens[1] != "buggyApp" {
+			t.Fatal("valid processTokens")
+		}
 	})
 
 	t.Run("Parse Cmd Args", func(t *testing.T) {

@@ -90,12 +90,16 @@ func (p *ProcessTokens) Set(s string) error {
 	return nil
 }
 
-var GlobalConfig = Config{
-	Options: Options{
-		VerifySSL:   true,
-		M3Frequency: 3 * time.Minute,
-	},
+func defaultConfig() Config {
+	return Config{
+		Options: Options{
+			VerifySSL:   true,
+			M3Frequency: 3 * time.Minute,
+		},
+	}
 }
+
+var GlobalConfig = defaultConfig()
 
 func ParseFlags(args []string) error {
 	if len(args) < 2 {
@@ -195,9 +199,9 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		}
 		switch v := field.Interface().(type) {
 		case ProcessTokens:
-			tokens := &ProcessTokens{}
-			flagSet.Var(tokens, name, usage)
-			result[i] = tokens
+			var tokens ProcessTokens
+			flagSet.Var(&tokens, name, usage)
+			result[i] = &tokens
 			continue
 		case time.Duration:
 			result[i] = flagSet.Duration(name, v, usage)

@@ -21,7 +21,7 @@ func TestParseJsonResp(t *testing.T) {
 	}
 	t.Log(ids)
 
-	ids, err = ParseJsonResp([]byte(`{"actions":[ "capture 12321"] }`))
+	ids, err = ParseJsonResp([]byte(`{"actions":["capture 2116"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
