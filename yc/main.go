@@ -95,7 +95,7 @@ func mainLoop() {
 			endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 			err := process(timestamp, endpoint)
 			if err != nil {
-				logger.Log("WARNING: %s", err)
+				logger.Log("WARNING: process failed, %s", err)
 				continue
 			}
 
@@ -105,33 +105,48 @@ func mainLoop() {
 				logger.Log("WARNING: Request M3 Fin failed, %s", err)
 				continue
 			}
-			if len(resp) > 0 {
-				pids, err := shell.ParseJsonResp(resp)
-				if err != nil {
-					logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
-					continue
-				}
-				set := make(map[int]struct{}, len(pids))
-				for _, pid := range pids {
-					if _, ok := set[pid]; ok {
-						continue
-					}
-					set[pid] = struct{}{}
-					if len(config.GlobalConfig.CaptureCmd) > 0 {
-						err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
-						if err != nil {
-							logger.Log("WARNING: %s", err)
-							continue
-						}
-					} else {
-						fullProcess(pid)
-					}
-				}
+			if len(resp) <= 0 {
+				logger.Log("WARNING: skip empty resp")
+				continue
+			}
+			err = processResp(resp)
+			if err != nil {
+				logger.Log("WARNING: processResp failed, %s", err)
+				continue
 			}
 		}
 	} else {
 		fullProcess(config.GlobalConfig.Pid)
 	}
+}
+
+func processResp(resp []byte) (err error) {
+	pids, err := shell.ParseJsonResp(resp)
+	if err != nil {
+		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
+		return
+	}
+	if len(pids) <= 0 {
+		logger.Log("No action needed.")
+		return
+	}
+	set := make(map[int]struct{}, len(pids))
+	for _, pid := range pids {
+		if _, ok := set[pid]; ok {
+			continue
+		}
+		set[pid] = struct{}{}
+		if len(config.GlobalConfig.CaptureCmd) > 0 {
+			err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+			if err != nil {
+				logger.Log("WARNING: runCaptureCmd failed %s", err)
+				continue
+			}
+		} else {
+			fullProcess(pid)
+		}
+	}
+	return
 }
 
 func runCaptureCmd(pid int, cmd string) error {
@@ -698,15 +713,14 @@ func requestFin(endpoint string) (resp []byte, err error) {
 	post, err := http.Post(endpoint, "text", nil)
 	if err == nil {
 		defer post.Body.Close()
-		var r []byte
-		r, err = ioutil.ReadAll(post.Body)
+		resp, err = ioutil.ReadAll(post.Body)
 		if err == nil {
 			sfmt.Printf(
 				`yc-fin endpoint: %s
 Resp: %s
 
 --------------------------------
-`, endpoint, r)
+`, endpoint, resp)
 		}
 	}
 	if err != nil {

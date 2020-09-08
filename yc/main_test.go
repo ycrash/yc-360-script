@@ -246,3 +246,10 @@ func TestCaptureCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProcessResp(t *testing.T) {
+	err := processResp([]byte(`{"actions":["capture 2116"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
