@@ -41,6 +41,8 @@ func TestConfig(t *testing.T) {
 		t.Log(string(out))
 	})
 
+	// https://tier1app.atlassian.net/browse/GCEA-1781
+	// https://tier1app.atlassian.net/browse/GCEA-1782
 	t.Run("ParseArgs", func(t *testing.T) {
 		args := []string{"yc", "-c", "testdata/config.yaml", "-s", "https://test.gceasy.io"}
 		err := ParseFlags(args)

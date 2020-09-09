@@ -33,8 +33,6 @@ import (
 	"github.com/gentlemanautomaton/cmdline"
 )
 
-var pidPassed = true
-
 func main() {
 	err := config.ParseFlags(os.Args)
 	if err != nil {
@@ -62,10 +60,6 @@ func mainLoop() {
 	if config.GlobalConfig.ShowVersion {
 		fmt.Println("yc agent version: " + shell.SCRIPT_VERSION)
 		os.Exit(0)
-	}
-
-	if config.GlobalConfig.Pid <= 0 {
-		pidPassed = false
 	}
 
 	if len(config.GlobalConfig.Server) < 1 {
@@ -117,6 +111,7 @@ func mainLoop() {
 		}
 	} else {
 		fullProcess(config.GlobalConfig.Pid)
+		os.Exit(0)
 	}
 }
 
@@ -269,6 +264,11 @@ Resp: %s
 }
 
 func fullProcess(pid int) {
+	pidPassed := true
+	if pid <= 0 {
+		pidPassed = false
+	}
+
 	// find gc log path in from command line arguments of ps result
 	if pidPassed && len(config.GlobalConfig.GCPath) < 1 {
 		output, err := getGCLogFile(pid)
@@ -654,7 +654,8 @@ Resp: %s
 	//     Transmit Heap dump result
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, config.GlobalConfig.HeapDump)
+	hd := config.GlobalConfig.M3 || config.GlobalConfig.HeapDump
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, hd)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {
