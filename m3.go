@@ -53,12 +53,12 @@ Next:
 	return
 }
 
-type APResp struct {
+type M3Resp struct {
 	Actions []string
 }
 
 func ParseJsonResp(resp []byte) (pids []int, err error) {
-	r := &APResp{}
+	r := &M3Resp{}
 	err = json.Unmarshal(resp, r)
 	if err != nil {
 		return

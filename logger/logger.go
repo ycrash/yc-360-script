@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"shell"
+	"time"
 )
 
 var logger Logger
@@ -24,7 +23,7 @@ func init() {
 }
 
 func (logger *Logger) Log(format string, values ...interface{}) {
-	stamp := shell.NowString()
+	stamp := NowString()
 	if len(values) == 0 {
 		logger.writer.WriteString(stamp + format + "\n")
 		return
@@ -42,4 +41,8 @@ func SetWriter(writer Writer) {
 
 func GetWriter() (writer io.Writer) {
 	return logger.writer
+}
+
+func NowString() string {
+	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
 }

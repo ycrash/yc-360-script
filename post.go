@@ -86,3 +86,42 @@ func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool
 	}
 	return
 }
+
+func GetData(endpoint string) (msg string, ok bool) {
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+	}
+	path := config.GlobalConfig.CACertPath
+	if len(path) > 0 {
+		pool := x509.NewCertPool()
+		ca, err := ioutil.ReadFile(path)
+		if err != nil {
+			msg = err.Error()
+			return
+		}
+		pool.AppendCertsFromPEM(ca)
+		transport.TLSClientConfig.RootCAs = pool
+	}
+	httpClient := &http.Client{
+		Transport: transport,
+	}
+	resp, err := httpClient.Get(endpoint)
+	if err != nil {
+		msg = fmt.Sprintf("PostData post err %s", err.Error())
+		return
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
+		return
+	}
+	msg = fmt.Sprintf("%s\nstatus code %d\n%s", endpoint, resp.StatusCode, body)
+
+	if resp.StatusCode == http.StatusOK {
+		ok = true
+	}
+	return
+}

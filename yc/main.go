@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -80,38 +81,65 @@ func mainLoop() {
 		config.ShowUsage()
 		os.Exit(1)
 	}
+
+	if config.GlobalConfig.Port > 0 {
+		go func() {
+			s := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+			s.ProcessPids = processPids
+			err := s.ListenAndServe()
+			if err != nil {
+				logger.Log("WARNING: %s", err)
+			}
+		}()
+	}
+
 	if config.GlobalConfig.M3 {
-		for {
-			time.Sleep(config.GlobalConfig.M3Frequency)
+		go func() {
+			for {
+				time.Sleep(config.GlobalConfig.M3Frequency)
 
-			timestamp := time.Now().Format("2006-01-02T15-04-05")
-			parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-			endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-			err := process(timestamp, endpoint)
-			if err != nil {
-				logger.Log("WARNING: process failed, %s", err)
-				continue
-			}
+				timestamp := time.Now().Format("2006-01-02T15-04-05")
+				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+				endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+				err := process(timestamp, endpoint)
+				if err != nil {
+					logger.Log("WARNING: process failed, %s", err)
+					continue
+				}
 
-			finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-			resp, err := requestFin(finEp)
-			if err != nil {
-				logger.Log("WARNING: Request M3 Fin failed, %s", err)
-				continue
+				finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+				resp, err := requestFin(finEp)
+				if err != nil {
+					logger.Log("WARNING: Request M3 Fin failed, %s", err)
+					continue
+				}
+				if len(resp) <= 0 {
+					logger.Log("WARNING: skip empty resp")
+					continue
+				}
+				err = processResp(resp)
+				if err != nil {
+					logger.Log("WARNING: processResp failed, %s", err)
+					continue
+				}
 			}
-			if len(resp) <= 0 {
-				logger.Log("WARNING: skip empty resp")
-				continue
-			}
-			err = processResp(resp)
-			if err != nil {
-				logger.Log("WARNING: processResp failed, %s", err)
-				continue
-			}
-		}
-	} else {
+		}()
+	} else if config.GlobalConfig.Pid > 0 {
 		fullProcess(config.GlobalConfig.Pid)
 		os.Exit(0)
+	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
+		logger.Log("WARNING: nothing can be done")
+		os.Exit(1)
+	}
+	for {
+		msg, ok := shell.Attend()
+		fmt.Printf(
+			`attendance task
+Is completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
 	}
 }
 
@@ -121,6 +149,16 @@ func processResp(resp []byte) (err error) {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
 	}
+	return processPids(pids)
+}
+
+// only one thread can run capture process
+var one sync.Mutex
+
+func processPids(pids []int) (err error) {
+	one.Lock()
+	defer one.Unlock()
+
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
@@ -150,6 +188,9 @@ func runCaptureCmd(pid int, cmd string) error {
 }
 
 func process(timestamp string, endpoint string) (err error) {
+	one.Lock()
+	defer one.Unlock()
+
 	dname := "yc-" + timestamp
 	err = os.Mkdir(dname, 0777)
 	if err != nil {

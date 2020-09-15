@@ -42,6 +42,9 @@ type Options struct {
 	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of m3 mode"`
 
 	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
+
+	Address string `yaml:"address" usage:"Address to serve API service"`
+	Port    int    `yaml:"port" usage:"Port to serve API service"`
 }
 
 type Command struct {
@@ -95,6 +98,8 @@ func defaultConfig() Config {
 		Options: Options{
 			VerifySSL:   true,
 			M3Frequency: 3 * time.Minute,
+			Address:     "localhost",
+			Port:        8085,
 		},
 	}
 }
