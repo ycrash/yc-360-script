@@ -2,6 +2,7 @@ package shell
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -79,6 +80,15 @@ func parseActions(actions []string) (pids []int, err error) {
 				}
 				pids = append(pids, pid)
 			}
+		} else if s == "attendance" {
+			msg, ok := attend()
+			fmt.Printf(
+				`attendance task
+Is completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
 		}
 	}
 	return
