@@ -44,15 +44,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	k := config.GlobalConfig.ApiKey
-	ks := strings.Split(k, "@")
-	if len(ks) != 2 {
-		resp.Code = -1
-		resp.Msg = "invalid api key is using"
-		return
-	}
-
-	if ks[1] != req.Key {
+	if config.GlobalConfig.ApiKey != req.Key {
 		resp.Code = -1
 		resp.Msg = "invalid key passed"
 		return
@@ -75,15 +67,22 @@ func parseActions(actions []string) (pids []int, err error) {
 			if len(ss) == 2 {
 				id := ss[1]
 				pid, err := strconv.Atoi(id)
+				// "actions": ["capture buggyApp.jar"]
 				if err != nil {
-					continue
+					pids, err := GetProcessIds(config.ProcessTokens{config.ProcessToken(id)})
+					if err != nil {
+						continue
+					}
+					if len(pids) > 0 {
+						pid = pids[0]
+					}
 				}
 				pids = append(pids, pid)
 			}
 		} else if s == "attendance" {
-			msg, ok := attend()
+			msg, ok := attend("api")
 			fmt.Printf(
-				`attendance task
+				`api attendance task
 Is completed: %t
 Resp: %s
 

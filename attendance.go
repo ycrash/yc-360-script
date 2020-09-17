@@ -37,17 +37,17 @@ func calDuration4Distribution(ip net.IP) time.Duration {
 	var sum byte
 	for _, b := range bs {
 		sum += b
-		logger.Log("%d %d", sum, b)
 	}
 	m := sum % 10
 	d := time.Duration(m) * time.Minute
 	return d
 }
 
-func attend() (string, bool) {
+func attend(typ string) (string, bool) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/yc-attendance?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&apiKey=%s&%s",
+		config.GlobalConfig.Server, typ, config.GlobalConfig.ApiKey, parameters)
 	return GetData(endpoint)
 }
 
@@ -56,5 +56,9 @@ func Attend() (string, bool) {
 
 	sleep4Distribution()
 
-	return attend()
+	return attend("daily")
+}
+
+func StartupAttend() (string, bool) {
+	return attend("startup")
 }

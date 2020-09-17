@@ -81,6 +81,14 @@ func mainLoop() {
 		config.ShowUsage()
 		os.Exit(1)
 	}
+	msg, ok := shell.StartupAttend()
+	fmt.Printf(
+		`startup attendance task
+Is completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
 
 	if config.GlobalConfig.Port > 0 {
 		go func() {
@@ -134,7 +142,7 @@ func mainLoop() {
 	for {
 		msg, ok := shell.Attend()
 		fmt.Printf(
-			`attendance task
+			`daily attendance task
 Is completed: %t
 Resp: %s
 

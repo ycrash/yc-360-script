@@ -29,7 +29,7 @@ func TestServer(t *testing.T) {
 	go func() {
 		defer s.Close()
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture 45321"] }`)
+		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
 		resp, err := http.Post("http://localhost:8085/action", "text", buf)
 		if err != nil {
 			t.Fatal(err)
@@ -43,7 +43,7 @@ func TestServer(t *testing.T) {
 			all = bytes.TrimSpace(all)
 			t.Logf("%s", all)
 			if string(all) != `{"Code":0,"Msg":""}` {
-				t.Fatal(all)
+				t.Fatal(string(all), all)
 			}
 		}
 	}()
@@ -76,7 +76,7 @@ func TestAttendanceAPI(t *testing.T) {
 		defer s.Close()
 		config.GlobalConfig.Server = "https://test.gceasy.io"
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "attendance"] }`)
+		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "attendance"] }`)
 		resp, err := http.Post("http://localhost:8085/action", "text", buf)
 		if err != nil {
 			t.Fatal(err)
