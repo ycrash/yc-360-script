@@ -99,7 +99,7 @@ func defaultConfig() Config {
 			VerifySSL:   true,
 			M3Frequency: 3 * time.Minute,
 			Address:     "localhost",
-			Port:        8085,
+			Port:        -1,
 		},
 	}
 }
