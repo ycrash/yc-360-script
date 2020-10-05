@@ -45,6 +45,10 @@ type Options struct {
 
 	Address string `yaml:"address" usage:"Address to serve API service"`
 	Port    int    `yaml:"port" usage:"Port to serve API service"`
+
+	GCCaptureCmd string `yaml:"gcCaptureCmd" usage:"GC log capture command line to be executed"`
+	TDCaptureCmd string `yaml:"tdCaptureCmd" usage:"Thread dump capture command line to be executed"`
+	HDCaptureCmd string `yaml:"hdCaptureCmd" usage:"Heap dump capture command line to be executed"`
 }
 
 type Command struct {

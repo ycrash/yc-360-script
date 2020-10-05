@@ -178,7 +178,7 @@ func processPids(pids []int) (err error) {
 		}
 		set[pid] = struct{}{}
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
-			err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+			_, err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
 				logger.Log("WARNING: runCaptureCmd failed %s", err)
 				continue
@@ -188,11 +188,6 @@ func processPids(pids []int) (err error) {
 		}
 	}
 	return
-}
-
-func runCaptureCmd(pid int, cmd string) error {
-	shell.Env = []string{fmt.Sprintf("pid=%d", pid)}
-	return shell.CommandCombinedOutputToWriter(logger.GetWriter(), shell.SHELL, cmd)
 }
 
 func process(timestamp string, endpoint string) (err error) {
@@ -266,9 +261,14 @@ Resp: %s
 
 func uploadGCLog(endpoint string, pid int) {
 	var gcp string
-	output, err := getGCLogFile(pid)
-	if err == nil && len(output) > 0 {
-		gcp = output
+	bs, err := runGCCaptureCmd(pid)
+	if err == nil && len(bs) > 0 {
+		gcp = string(bs)
+	} else {
+		output, err := getGCLogFile(pid)
+		if err == nil && len(output) > 0 {
+			gcp = output
+		}
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
@@ -313,6 +313,7 @@ Resp: %s
 }
 
 func fullProcess(pid int) {
+	updatePaths(pid)
 	pidPassed := true
 	if pid <= 0 {
 		pidPassed = false
