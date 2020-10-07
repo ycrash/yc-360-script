@@ -34,6 +34,8 @@ import (
 	"github.com/gentlemanautomaton/cmdline"
 )
 
+var wg sync.WaitGroup
+
 func main() {
 	err := config.ParseFlags(os.Args)
 	if err != nil {
@@ -48,6 +50,8 @@ func main() {
 
 	select {
 	case <-osSig:
+		fmt.Println("Waiting...")
+		wg.Wait()
 	}
 }
 
@@ -199,29 +203,24 @@ func process(timestamp string, endpoint string) (err error) {
 	if err != nil {
 		return
 	}
-
-	err = os.Chdir(dname)
-	if err != nil {
-		return
-	}
+	wg.Add(1)
 	defer func() {
-		dir, err := os.Getwd()
-		if err != nil {
-			logger.Log("WARNING: Can not get the path of the current directory: %s", err)
-			return
-		}
-		parent := path.Dir(dir)
-		err = os.Chdir(parent)
-		if err != nil {
-			logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
-			return
-		}
-		err = os.RemoveAll(dir)
+		defer wg.Done()
+		err := os.RemoveAll(dname)
 		if err != nil {
 			logger.Log("WARNING: Can not remove the current directory: %s", err)
 			return
 		}
 	}()
+	dir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	defer os.Chdir(dir)
+	err = os.Chdir(dname)
+	if err != nil {
+		return
+	}
 
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
@@ -352,31 +351,26 @@ func fullProcess(pid int) {
 	if err != nil {
 		return
 	}
-
-	err = os.Chdir(dname)
-	if err != nil {
-		return
-	}
-	defer func() {
-		dir, err := os.Getwd()
-		if err != nil {
-			logger.Log("WARNING: Can not get the path of the current directory: %s", err)
-			return
-		}
-		parent := path.Dir(dir)
-		err = os.Chdir(parent)
-		if err != nil {
-			logger.Log("WARNING: Can not change the current working directory to %s: %s", parent, err)
-			return
-		}
-		if config.GlobalConfig.DeferDelete {
-			err = os.RemoveAll(dir)
+	if config.GlobalConfig.DeferDelete {
+		wg.Add(1)
+		defer func() {
+			defer wg.Done()
+			err := os.RemoveAll(dname)
 			if err != nil {
 				logger.Log("WARNING: Can not remove the current directory: %s", err)
 				return
 			}
-		}
-	}()
+		}()
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	defer os.Chdir(dir)
+	err = os.Chdir(dname)
+	if err != nil {
+		return
+	}
 
 	// Create the screen.out and put the current date in it.
 	fscreen, err := os.Create("screen.out")
