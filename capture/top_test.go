@@ -30,13 +30,21 @@ func TestTopH(t *testing.T) {
 	}
 	defer noGC.KillAndWait()
 	top := &TopH{
-		Pid: noGC.Process.Pid,
+		Pid: noGC.GetPid(),
 	}
 	go func() {
 		time.Sleep(time.Second)
 		top.Kill()
 	}()
 	_, err = top.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTop4M3(t *testing.T) {
+	top := &Top4M3{}
+	_, err := top.Run()
 	if err != nil {
 		t.Fatal(err)
 	}

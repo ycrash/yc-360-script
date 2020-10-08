@@ -14,7 +14,7 @@ func TestCheckProcessExists(t *testing.T) {
 	}
 	defer noGC.KillAndWait()
 
-	e = IsProcessExists(noGC.Process.Pid)
+	e = IsProcessExists(noGC.GetPid())
 	if !e {
 		t.Fatal("process should be exists")
 	}

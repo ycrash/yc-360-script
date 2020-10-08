@@ -14,7 +14,8 @@ type Command []string
 var NopCommand Command = nil
 var SkippedNopCommandError = errors.New("skipped nop command")
 
-var DynamicArg = "<DynamicArg>"
+const DynamicArg = "<DynamicArg>"
+const WaitCommand = "<WaitCommand>"
 
 func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 	if *cmd == nil {
@@ -55,55 +56,13 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 
 var Env []string
 
-type CmdHolder struct {
-	*exec.Cmd
-}
-
-func (h *CmdHolder) KillAndWait() (err error) {
-	if h.Cmd == nil {
-		return
-	}
-	err = h.Cmd.Process.Kill()
-	if err != nil {
-		return
-	}
-	_ = h.Cmd.Wait()
-	return
-}
-
-func (h *CmdHolder) IsSkipped() bool {
-	if h.Cmd == nil {
-		return true
-	}
-	return false
-}
-
-func (h *CmdHolder) Wait() {
-	if h.Cmd == nil {
-		return
-	}
-	_ = h.Cmd.Wait()
-}
-
-func (h *CmdHolder) Interrupt() (err error) {
-	if h.Cmd == nil {
-		return
-	}
-	err = h.Cmd.Process.Signal(os.Interrupt)
-	return
-}
-
-func (h *CmdHolder) Kill() (err error) {
-	if h.Cmd == nil {
-		return
-	}
-	err = h.Cmd.Process.Kill()
-	return
-}
-
-func NewCommand(cmd Command, args ...string) CmdHolder {
+func NewCommand(cmd Command, args ...string) CmdManager {
 	if len(cmd) < 1 {
-		return CmdHolder{}
+		return nil
+	}
+	wait := cmd[0] == WaitCommand
+	if wait {
+		cmd = cmd[1:]
 	}
 	if len(args) > 0 {
 		cmd = append(cmd, args...)
@@ -117,12 +76,15 @@ func NewCommand(cmd Command, args ...string) CmdHolder {
 	if len(Env) > 0 {
 		command.Env = Env
 	}
-	return CmdHolder{command}
+	if wait {
+		return &WaitCmd{command}
+	}
+	return &Cmd{WaitCmd{command}}
 }
 
 func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {
 	c := NewCommand(cmd, args...)
-	if c.Cmd == nil {
+	if c == nil {
 		return nil, SkippedNopCommandError
 	}
 	return c.CombinedOutput()
@@ -130,7 +92,7 @@ func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {
 
 func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, args ...string) (err error) {
 	c := NewCommand(cmd, args...)
-	if c.Cmd == nil {
+	if c == nil {
 		return
 	}
 	output, err := c.CombinedOutput()
@@ -159,13 +121,13 @@ func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file
 
 func CommandRun(cmd Command, args ...string) error {
 	c := NewCommand(cmd, args...)
-	if c.Cmd == nil {
+	if c == nil {
 		return nil
 	}
 	return c.Run()
 }
 
-func CommandStartInBackground(cmd Command, args ...string) (c CmdHolder, err error) {
+func CommandStartInBackground(cmd Command, args ...string) (c CmdManager, err error) {
 	if len(cmd) < 1 {
 		return
 	}
@@ -174,18 +136,17 @@ func CommandStartInBackground(cmd Command, args ...string) (c CmdHolder, err err
 	return
 }
 
-func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...string) (c CmdHolder, err error) {
+func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...string) (c CmdManager, err error) {
 	if len(cmd) < 1 {
 		return
 	}
 	c = NewCommand(cmd, args...)
-	c.Stdout = writer
-	c.Stderr = writer
+	c.SetStdoutAndStderr(writer)
 	err = c.Start()
 	return
 }
 
-func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (file *os.File, c CmdHolder, err error) {
+func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (file *os.File, c CmdManager, err error) {
 	file, err = os.Create(name)
 	if err != nil {
 		return

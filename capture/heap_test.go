@@ -57,7 +57,7 @@ func testHeapDump(hdPath string, dump bool) func(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer noGC.KillAndWait()
-		capHeapDump := NewHeapDump(javaHome, noGC.Process.Pid, hdPath, dump)
+		capHeapDump := NewHeapDump(javaHome, noGC.GetPid(), hdPath, dump)
 		capHeapDump.SetEndpoint(heapEndpoint)
 		r, err := capHeapDump.Run()
 		if err != nil {

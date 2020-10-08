@@ -3,8 +3,6 @@ package capture
 import (
 	"fmt"
 	"os"
-	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -22,14 +20,7 @@ func (t *Top) Run() (result Result, err error) {
 		return
 	}
 	defer top.Close()
-	switch runtime.GOOS {
-	case "linux":
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top,
-			"-d", strconv.Itoa(shell.TOP_INTERVAL),
-			"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_INTERVAL+1))
-	case "aix":
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
-	}
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
 	if err != nil {
 		return
 	}
@@ -63,16 +54,10 @@ func (t *TopH) Run() (result Result, err error) {
 	}
 	defer topdash.Close()
 
-	switch runtime.GOOS {
-	case "linux":
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH,
-			"-d", strconv.Itoa(shell.TOP_DASH_H_INTERVAL),
-			"-n", strconv.Itoa(shell.SCRIPT_SPAN/shell.TOP_DASH_H_INTERVAL+1),
-			"-p", strconv.Itoa(t.Pid))
-	case "aix":
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH)
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH)
+	if err != nil {
+		return
 	}
-
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = true
@@ -83,12 +68,12 @@ func (t *TopH) Run() (result Result, err error) {
 	return
 }
 
-type Top4AP struct {
+type Top4M3 struct {
 	Capture
 }
 
-func (t *Top4AP) Run() (result Result, err error) {
-	top, err := os.Create("top.out")
+func (t *Top4M3) Run() (result Result, err error) {
+	top, err := os.Create("top4m3.out")
 	if err != nil {
 		return
 	}

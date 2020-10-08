@@ -242,7 +242,7 @@ func process(timestamp string, endpoint string) (err error) {
 	}
 
 	logger.Log("Starting collection of top data...")
-	capTop := &capture.Top4AP{}
+	capTop := &capture.Top4M3{}
 	top := goCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
 	if top != nil {
@@ -275,7 +275,7 @@ func uploadGCLog(endpoint string, pid int) {
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
-	var jstat shell.CmdHolder
+	var jstat shell.CmdManager
 	if gc == nil || err != nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
@@ -408,7 +408,7 @@ func fullProcess(pid int) {
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
-	var jstat shell.CmdHolder
+	var jstat shell.CmdManager
 	if pidPassed && (err != nil || gc == nil) {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})

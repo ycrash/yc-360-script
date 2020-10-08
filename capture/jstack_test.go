@@ -13,7 +13,7 @@ func TestJStack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
-	capJStack := NewJStack(javaHome, noGC.Process.Pid)
+	capJStack := NewJStack(javaHome, noGC.GetPid())
 	_, err = capJStack.Run()
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestJStackF_Run(t *testing.T) {
 	j := JStackF{
 		jstack:   file,
 		javaHome: javaHome,
-		pid:      noGC.Process.Pid,
+		pid:      noGC.GetPid(),
 	}
 	_, err = j.Run()
 	if err != nil {

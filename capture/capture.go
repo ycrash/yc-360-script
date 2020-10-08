@@ -13,7 +13,7 @@ type Result struct {
 }
 
 type Capture struct {
-	Cmd      shell.CmdHolder
+	Cmd      shell.CmdManager
 	endpoint string
 }
 

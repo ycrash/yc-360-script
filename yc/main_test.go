@@ -43,7 +43,7 @@ func TestFindGCLog(t *testing.T) {
 	}
 	defer xloggc.KillAndWait()
 
-	f, err := getGCLogFile(noGC.Process.Pid)
+	f, err := getGCLogFile(noGC.GetPid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be empty")
 	}
 
-	f, err = getGCLogFile(xlog.Process.Pid)
+	f, err = getGCLogFile(xlog.GetPid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be gctrace.txt")
 	}
 
-	f, err = getGCLogFile(xlog2.Process.Pid)
+	f, err = getGCLogFile(xlog2.GetPid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestFindGCLog(t *testing.T) {
 		t.Fatal("gc log file should be gctrace.log")
 	}
 
-	f, err = getGCLogFile(xloggc.Process.Pid)
+	f, err = getGCLogFile(xloggc.GetPid())
 	if err != nil {
 		t.Fatal(err)
 	}
