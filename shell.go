@@ -18,13 +18,12 @@ const DynamicArg = "<DynamicArg>"
 const WaitCommand = "<WaitCommand>"
 
 func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
-	if *cmd == nil {
-		return NopCommand, nil
-	}
-
 	if cmd == nil {
 		err = errors.New("invalid nil Command, please use NopCommand instead")
 		return
+	}
+	if *cmd == nil {
+		return NopCommand, nil
 	}
 	n := 0
 	for _, c := range *cmd {
@@ -33,8 +32,7 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 		}
 	}
 	if n != len(args) {
-		err = errors.New("invalid num of args")
-		return
+		return *cmd, nil
 	}
 	result = make(Command, 3)
 	copy(result, SHELL)

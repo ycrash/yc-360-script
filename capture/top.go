@@ -3,6 +3,7 @@ package capture
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -54,7 +55,11 @@ func (t *TopH) Run() (result Result, err error) {
 	}
 	defer topdash.Close()
 
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, shell.TopH)
+	command, err := shell.TopH.AddDynamicArg(strconv.Itoa(t.Pid))
+	if err != nil {
+		return
+	}
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, command)
 	if err != nil {
 		return
 	}
