@@ -550,7 +550,9 @@ func fullProcess(pid int) {
 	var ok bool
 	var msg string
 
-	jstat.Wait()
+	if jstat != nil {
+		jstat.Wait()
+	}
 	// stop started tasks
 	if capTop != nil {
 		capTop.Kill()
