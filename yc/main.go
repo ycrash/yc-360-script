@@ -291,7 +291,9 @@ func uploadGCLog(endpoint string, pid int) {
 			gc.Close()
 		}
 	}()
-	jstat.Wait()
+	if jstat != nil {
+		jstat.Wait()
+	}
 
 	// -------------------------------
 	//     Transmit GC Log
