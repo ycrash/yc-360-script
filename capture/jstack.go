@@ -12,6 +12,9 @@ import (
 	"shell/logger"
 )
 
+const count = 3
+const timeToSleep = 10 * time.Second
+
 type JStack struct {
 	Capture
 	javaHome string
@@ -23,8 +26,7 @@ func NewJStack(javaHome string, pid int) *JStack {
 }
 
 func (t *JStack) Run() (result Result, err error) {
-	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
-	for n := 1; n <= m; n++ {
+	for n := 1; n <= count; n++ {
 		//  Collect a javacore against the problematic pid (passed in by the user)
 		//  Javacores are output to the working directory of the JVM; in most cases this is the <profile_root>
 		err = func() error {
@@ -45,13 +47,17 @@ func (t *JStack) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
+		topH := TopH{Pid: t.pid, N: n}
+		result, err = topH.Run()
+		if err != nil {
+			return
+		}
 
-		if n == m {
+		if n == count {
 			break
 		}
-		// Pause for JAVACORE_INTERVAL seconds.
-		logger.Log("sleeping for %d seconds for next capture of jstack...", shell.JAVACORE_INTERVAL)
-		time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
+		logger.Log("sleeping for %v for next capture of jstack...", timeToSleep)
+		time.Sleep(timeToSleep)
 	}
 	return
 }

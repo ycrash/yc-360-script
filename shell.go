@@ -34,21 +34,30 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 	if n != len(args) {
 		return *cmd, nil
 	}
-	result = make(Command, 3)
-	copy(result, SHELL)
+	if (*cmd)[0] == WaitCommand {
+		result = make(Command, 4)
+		result[0] = WaitCommand
+		copy(result[1:], SHELL)
+	} else {
+		result = make(Command, 3)
+		copy(result, SHELL)
+	}
 	i := 0
 	var command strings.Builder
 	for _, c := range *cmd {
-		if c == DynamicArg {
+		switch c {
+		case WaitCommand:
+			continue
+		case DynamicArg:
 			command.WriteString(args[i])
 			command.WriteByte(' ')
 			i++
-		} else {
+		default:
 			command.WriteString(c)
 			command.WriteByte(' ')
 		}
 	}
-	result[2] = command.String()
+	result[len(result)-1] = command.String()
 	return
 }
 

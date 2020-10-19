@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"shell"
@@ -37,19 +36,17 @@ func (t *Top) Run() (result Result, err error) {
 
 type TopH struct {
 	Capture
-	Pid       int
-	WaitGroup sync.WaitGroup
+	Pid int
+	N   int
 }
 
 func (t *TopH) Run() (result Result, err error) {
-	defer t.WaitGroup.Done()
-
 	if !shell.IsProcessExists(t.Pid) {
 		err = fmt.Errorf("process %d does not exist", t.Pid)
 		return
 	}
 	logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
-	topdash, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.Pid))
+	topdash, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.N))
 	if err != nil {
 		return
 	}
@@ -69,7 +66,6 @@ func (t *TopH) Run() (result Result, err error) {
 		return
 	}
 	t.Cmd.Wait()
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "toph", topdash)
 	return
 }
 

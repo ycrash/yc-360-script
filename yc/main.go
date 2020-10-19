@@ -451,8 +451,6 @@ func fullProcess(pid int) {
 	var top chan capture.Result
 	var capVMStat *capture.VMStat
 	var vmstat chan capture.Result
-	var capTopH *capture.TopH
-	var topH chan capture.Result
 	var threadDump chan capture.Result
 	var capPS *capture.PS
 	var ps chan capture.Result
@@ -484,16 +482,6 @@ func fullProcess(pid int) {
 		capVMStat = &capture.VMStat{}
 		vmstat = goCapture(endpoint, capture.WrapRun(capVMStat))
 		logger.Log("Collection of vmstat data started.")
-
-		// ------------------------------------------------------------------------------
-		//                   Capture top -H
-		// ------------------------------------------------------------------------------
-		//  It runs in the background so that other tasks can be completed while this runs.
-		capTopH = &capture.TopH{
-			Pid: pid,
-		}
-		capTopH.WaitGroup.Add(1)
-		topH = goCapture(endpoint, capture.WrapRun(capTopH))
 
 		//  Initialize some loop variables
 		m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
@@ -535,9 +523,6 @@ func fullProcess(pid int) {
 		TdPath:   config.GlobalConfig.ThreadDumpPath,
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}
-	if capTopH != nil {
-		capThreadDump.WaitGroup = &capTopH.WaitGroup
-	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
 	// ------------------------------------------------------------------------------
@@ -559,9 +544,6 @@ func fullProcess(pid int) {
 	if capTop != nil {
 		capTop.Kill()
 	}
-	if capTopH != nil {
-		capTopH.Kill()
-	}
 	if capVMStat != nil {
 		capVMStat.Kill()
 	}
@@ -576,20 +558,6 @@ func fullProcess(pid int) {
 		result := <-top
 		fmt.Printf(
 			`TOP DATA
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, result.Ok, result.Msg)
-	}
-
-	// -------------------------------
-	//     Transmit Top H data
-	// -------------------------------
-	if topH != nil {
-		result := <-topH
-		fmt.Printf(
-			`TOP H DATA
 Is transmission completed: %t
 Resp: %s
 

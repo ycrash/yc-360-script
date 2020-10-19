@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 
 	"shell"
 	"shell/logger"
@@ -14,10 +13,9 @@ const tdOut = "threaddump.out"
 
 type ThreadDump struct {
 	Capture
-	Pid       int
-	TdPath    string
-	JavaHome  string
-	WaitGroup *sync.WaitGroup
+	Pid      int
+	TdPath   string
+	JavaHome string
 }
 
 func (t *ThreadDump) Run() (result Result, err error) {
@@ -59,8 +57,11 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		} else {
 			logger.Log("Collected thread dump...")
 		}
-		// 1: concatenate individual thread dumps
 		err = shell.CommandRun(shell.AppendJavaCoreFiles)
+		if err != nil {
+			return
+		}
+		err = shell.CommandRun(shell.AppendTopHFiles)
 		if err != nil {
 			return
 		}
@@ -70,9 +71,6 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			return
 		}
 		defer td.Close()
-	}
-	if t.WaitGroup != nil {
-		t.WaitGroup.Wait()
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
 	return

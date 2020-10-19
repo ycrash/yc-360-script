@@ -10,6 +10,7 @@ var (
 	DMesg               = NopCommand
 	GC                  = NopCommand
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
+	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
 
 	SHELL = Command{"cmd.exe", "/c"}
 )
