@@ -489,15 +489,7 @@ func fullProcess(pid int) {
 		ps = goCapture(endpoint, capture.WrapRun(capPS))
 		logger.Log("Collecting ps snapshot...")
 		for n := 1; n <= m; n++ {
-			// Collect a ps snapshot: date at the top, data, and then a blank line
 			capPS.Continue()
-
-			if n == m {
-				break
-			}
-			// Pause for JAVACORE_INTERVAL seconds.
-			logger.Log("sleeping for %d seconds for next capture of ps...", shell.JAVACORE_INTERVAL)
-			time.Sleep(time.Second * time.Duration(shell.JAVACORE_INTERVAL))
 		}
 		logger.Log("Collected ps snapshot.")
 
