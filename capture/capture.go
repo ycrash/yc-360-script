@@ -18,10 +18,16 @@ type Capture struct {
 }
 
 func (cap *Capture) Interrupt() error {
+	if cap.Cmd == nil {
+		return nil
+	}
 	return cap.Cmd.Interrupt()
 }
 
 func (cap *Capture) Kill() error {
+	if cap.Cmd == nil {
+		return nil
+	}
 	return cap.Cmd.Kill()
 }
 
