@@ -24,12 +24,18 @@ type WaitCmd struct {
 }
 
 func (c *WaitCmd) SetStdoutAndStderr(writer io.Writer) {
-	c.Stdout = writer
-	c.Stderr = writer
+	if c.Cmd == nil {
+		return
+	}
+	c.Cmd.Stdout = writer
+	c.Cmd.Stderr = writer
 }
 
 func (c *WaitCmd) GetPid() int {
-	return c.GetPid()
+	if c.Cmd == nil {
+		return -1
+	}
+	return c.Cmd.Process.Pid
 }
 
 func (c *WaitCmd) KillAndWait() (err error) {

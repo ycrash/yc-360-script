@@ -65,7 +65,7 @@ var Env []string
 
 func NewCommand(cmd Command, args ...string) CmdManager {
 	if len(cmd) < 1 {
-		return nil
+		return &WaitCmd{}
 	}
 	wait := cmd[0] == WaitCommand
 	if wait {
@@ -135,6 +135,7 @@ func CommandRun(cmd Command, args ...string) error {
 }
 
 func CommandStartInBackground(cmd Command, args ...string) (c CmdManager, err error) {
+	c = &WaitCmd{}
 	if len(cmd) < 1 {
 		return
 	}
@@ -144,6 +145,7 @@ func CommandStartInBackground(cmd Command, args ...string) (c CmdManager, err er
 }
 
 func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...string) (c CmdManager, err error) {
+	c = &WaitCmd{}
 	if len(cmd) < 1 {
 		return
 	}
@@ -154,6 +156,7 @@ func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...str
 }
 
 func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (file *os.File, c CmdManager, err error) {
+	c = &WaitCmd{}
 	file, err = os.Create(name)
 	if err != nil {
 		return
