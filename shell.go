@@ -91,7 +91,7 @@ func NewCommand(cmd Command, args ...string) CmdManager {
 
 func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {
 	c := NewCommand(cmd, args...)
-	if c == nil {
+	if c.IsSkipped() {
 		return nil, SkippedNopCommandError
 	}
 	return c.CombinedOutput()
@@ -99,7 +99,7 @@ func CommandCombinedOutput(cmd Command, args ...string) ([]byte, error) {
 
 func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, args ...string) (err error) {
 	c := NewCommand(cmd, args...)
-	if c == nil {
+	if c.IsSkipped() {
 		return
 	}
 	output, err := c.CombinedOutput()
@@ -128,7 +128,7 @@ func CommandCombinedOutputToFile(name string, cmd Command, args ...string) (file
 
 func CommandRun(cmd Command, args ...string) error {
 	c := NewCommand(cmd, args...)
-	if c == nil {
+	if c.IsSkipped() {
 		return nil
 	}
 	return c.Run()
@@ -140,6 +140,9 @@ func CommandStartInBackground(cmd Command, args ...string) (c CmdManager, err er
 		return
 	}
 	c = NewCommand(cmd, args...)
+	if c.IsSkipped() {
+		return
+	}
 	err = c.Start()
 	return
 }
@@ -150,6 +153,9 @@ func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, args ...str
 		return
 	}
 	c = NewCommand(cmd, args...)
+	if c.IsSkipped() {
+		return
+	}
 	c.SetStdoutAndStderr(writer)
 	err = c.Start()
 	return
@@ -162,7 +168,7 @@ func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (f
 		return
 	}
 	c, err = CommandStartInBackgroundToWriter(file, cmd, args...)
-	if err != nil {
+	if err != nil || c.IsSkipped() {
 		file.Close()
 		file = nil
 	}

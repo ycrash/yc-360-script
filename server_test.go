@@ -3,6 +3,7 @@ package shell
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"testing"
@@ -11,7 +12,10 @@ import (
 )
 
 func TestServer(t *testing.T) {
-	s := NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+	s, err := NewServer("localhost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.ProcessPids = func(pids []int) (err error) {
 		t.Log(pids)
 		return
@@ -19,7 +23,7 @@ func TestServer(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		err := s.ListenAndServe()
+		err := s.Serve()
 		if !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -30,7 +34,7 @@ func TestServer(t *testing.T) {
 		defer s.Close()
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
-		resp, err := http.Post("http://localhost:8085/action", "text", buf)
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +45,6 @@ func TestServer(t *testing.T) {
 				t.Fatal(err)
 			}
 			all = bytes.TrimSpace(all)
-			t.Logf("%s", all)
 			if string(all) != `{"Code":0,"Msg":""}` {
 				t.Fatal(string(all), all)
 			}
@@ -57,7 +60,10 @@ func TestServer(t *testing.T) {
 }
 
 func TestAttendanceAPI(t *testing.T) {
-	s := NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+	s, err := NewServer("localhost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.ProcessPids = func(pids []int) (err error) {
 		t.Log(pids)
 		return
@@ -65,7 +71,7 @@ func TestAttendanceAPI(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		err := s.ListenAndServe()
+		err := s.Serve()
 		if !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -77,7 +83,7 @@ func TestAttendanceAPI(t *testing.T) {
 		config.GlobalConfig.Server = "https://test.gceasy.io"
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "attendance"] }`)
-		resp, err := http.Post("http://localhost:8085/action", "text", buf)
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +94,6 @@ func TestAttendanceAPI(t *testing.T) {
 				t.Fatal(err)
 			}
 			all = bytes.TrimSpace(all)
-			t.Logf("%s", all)
 			if string(all) != `{"Code":0,"Msg":""}` {
 				t.Fatal(all)
 			}

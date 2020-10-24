@@ -2,14 +2,12 @@ package capture
 
 import (
 	"testing"
-	"time"
 )
 
 func TestPS(t *testing.T) {
 	ps := NewPS()
 	ps.SetEndpoint(endpoint)
 	go func() {
-		time.Sleep(time.Second)
 		ps.Continue()
 		ps.Kill()
 	}()

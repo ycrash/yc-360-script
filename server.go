@@ -15,6 +15,7 @@ import (
 type Server struct {
 	*http.Server
 	ProcessPids func(pids []int) (err error)
+	ln          net.Listener
 }
 
 type Req struct {
@@ -93,14 +94,29 @@ Resp: %s
 	return
 }
 
-func NewServer(address string, port int) *Server {
-	s := &Server{
+func NewServer(address string, port int) (s *Server, err error) {
+	addr := net.JoinHostPort(address, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return
+	}
+	mux := http.NewServeMux()
+	s = &Server{
 		Server: &http.Server{
-			Addr:         net.JoinHostPort(address, strconv.Itoa(port)),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
+			Handler:      mux,
 		},
+		ln: ln,
 	}
-	http.HandleFunc("/action", s.Action)
-	return s
+	mux.HandleFunc("/action", s.Action)
+	return
+}
+
+func (s *Server) Serve() error {
+	return s.Server.Serve(s.ln)
+}
+
+func (s *Server) Addr() net.Addr {
+	return s.ln.Addr()
 }

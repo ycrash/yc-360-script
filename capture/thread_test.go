@@ -2,12 +2,19 @@ package capture
 
 import (
 	"testing"
+
+	"shell"
 )
 
 func TestThread(t *testing.T) {
+	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
 	t.Run("without-tdPath", func(t *testing.T) {
 		td := &ThreadDump{
-			Pid: 4085,
+			Pid: noGC.GetPid(),
 		}
 		td.SetEndpoint(endpoint)
 		result, err := td.Run()
@@ -20,7 +27,7 @@ func TestThread(t *testing.T) {
 	})
 	t.Run("with-tdPath", func(t *testing.T) {
 		td := &ThreadDump{
-			Pid:    4085,
+			Pid:    noGC.GetPid(),
 			TdPath: "threaddump-usr.out",
 		}
 		td.SetEndpoint(endpoint)
@@ -34,7 +41,7 @@ func TestThread(t *testing.T) {
 	})
 	t.Run("with-invalid-tdPath", func(t *testing.T) {
 		td := &ThreadDump{
-			Pid:    4085,
+			Pid:    noGC.GetPid(),
 			TdPath: "threaddump-non.out",
 		}
 		td.SetEndpoint(endpoint)

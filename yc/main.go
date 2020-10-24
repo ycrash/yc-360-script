@@ -96,9 +96,13 @@ Resp: %s
 
 	if config.GlobalConfig.Port > 0 {
 		go func() {
-			s := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+			s, err := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+			if err != nil {
+				logger.Log("WARNING: %s", err)
+				return
+			}
 			s.ProcessPids = processPids
-			err := s.ListenAndServe()
+			err = s.Serve()
 			if err != nil {
 				logger.Log("WARNING: %s", err)
 			}

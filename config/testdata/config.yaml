@@ -1,6 +1,6 @@
 version: "1"
 options:
-  k: buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc
+  k: buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc
   s: http://test.abc.io
   cmds:
     - urlParams: vmstat
