@@ -302,7 +302,7 @@ func uploadGCLog(endpoint string, pid int) {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := postData(endpoint, fmt.Sprintf("gc&pid=%d", pid), gc)
+	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcp)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
@@ -620,7 +620,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok = postData(endpoint, "gc", gc)
+	msg, ok = shell.PostData(endpoint, "gc", gc)
 	absGCPath, err := filepath.Abs(config.GlobalConfig.GCPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.GCPath, err.Error())
@@ -742,7 +742,6 @@ Resp: %s
 	return
 }
 
-var postData = shell.PostData
 var nowString = shell.NowString
 var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
@@ -919,7 +918,7 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	if err != nil {
 		return
 	}
-	msg, ok = postData(endpoint, "meta", file)
+	msg, ok = shell.PostData(endpoint, "meta", file)
 	return
 }
 
@@ -940,6 +939,6 @@ func captureDMesg(endpoint string, c chan CaptureResult) {
 		return
 	}
 	defer dmesg.Close()
-	result.Msg, result.Ok = postData(endpoint, "dmesg", dmesg)
+	result.Msg, result.Ok = shell.PostData(endpoint, "dmesg", dmesg)
 	return
 }
