@@ -26,6 +26,6 @@ func TestLastNLines(t *testing.T) {
     - uploadDir
     - buggyApp`
 	if string(bytes) != result {
-		t.Fatalf("invalid result '%s' != '%s'", bytes, result)
+		t.Fatalf("invalid result '%x' != '%x'", bytes, result)
 	}
 }

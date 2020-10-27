@@ -55,21 +55,21 @@ func PositionLast5000Lines(file *os.File) (err error) {
 		if err != nil {
 			return
 		}
-		if cursor != -1 && (char[0] == 10 || char[0] == 13) {
-			lines--
+		if cursor != -1 {
+			switch char[0] {
+			case '\r':
+			case '\n':
+				lines--
+			}
 			if lines == 0 {
-				break
+				return
 			}
 		}
 		if cursor == -size {
 			_, err = file.Seek(0, io.SeekStart)
-			if err != nil {
-				return
-			}
-			break
+			return
 		}
 	}
-	return
 }
 
 func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool) {

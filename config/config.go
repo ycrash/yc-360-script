@@ -128,7 +128,8 @@ func ParseFlags(args []string) error {
 
 	file, err := os.Open(GlobalConfig.Options.ConfigPath)
 	if err != nil {
-		return fmt.Errorf("read config file path %s failed: %w", GlobalConfig.Options.ConfigPath, err)
+		dir, _ := os.Getwd()
+		return fmt.Errorf("workdir %s read config file path %s failed: %w", dir, GlobalConfig.Options.ConfigPath, err)
 	}
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
