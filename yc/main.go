@@ -302,7 +302,7 @@ func uploadGCLog(endpoint string, pid int) {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
+	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcp)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
