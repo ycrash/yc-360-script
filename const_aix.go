@@ -3,6 +3,7 @@ package shell
 var (
 	NetState            = Command{"netstat", "-a"}
 	PS                  = Command{"ps", "-ef"}
+	M3PS                = Command{"ps", "-ef"}
 	Disk                = Command{"df"}
 	Top                 = Command{"topas", "-P"}
 	TopH                = Command{"topas", "-P"}

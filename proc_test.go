@@ -8,7 +8,7 @@ func TestCheckProcessExists(t *testing.T) {
 		t.Fatal("process 65535 should not exists")
 	}
 
-	noGC, err := CommandStartInBackground(Command{"java", "MyClass"})
+	noGC, err := CommandStartInBackground(Command{"java", "-cp", "./capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

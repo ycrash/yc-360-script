@@ -3,6 +3,7 @@ package shell
 var (
 	NetState            = Command{"netstat", "-pan"}
 	PS                  = Command{"ps", "-ef"}
+	M3PS                = Command{"ps", "-ef"}
 	Disk                = Command{"df", "-hk"}
 	Top                 = Command{"top", "-bc"}
 	TopH                = Command{WaitCommand, "top", "-l", "1", "-pid", DynamicArg}

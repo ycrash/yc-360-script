@@ -7,6 +7,7 @@ import (
 var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
+	M3PS     = Command{"ps", "-eLf"}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{"top", "-bc",
 		"-d", strconv.Itoa(TOP_INTERVAL),

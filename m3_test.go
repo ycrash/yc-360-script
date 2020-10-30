@@ -7,11 +7,19 @@ import (
 )
 
 func TestGetProcessIds(t *testing.T) {
-	ids, err := GetProcessIds(config.ProcessTokens{"sharingd", "nsurlstoraged"})
+	noGC, err := CommandStartInBackground(Command{"java", "-cp", "./capture/testdata/", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
+	ids, err := GetProcessIds(config.ProcessTokens{"MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log(ids)
+	if len(ids) < 1 {
+		t.Fatal("can not get pid of java process")
+	}
 }
 
 func TestParseJsonResp(t *testing.T) {
