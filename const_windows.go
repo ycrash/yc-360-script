@@ -12,6 +12,8 @@ var (
 	GC                  = NopCommand
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
+	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc CPU}"}
+	ProcessTopMEM       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc PM}"}
 
 	SHELL = Command{"cmd.exe", "/c"}
 )

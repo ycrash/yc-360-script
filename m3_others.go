@@ -37,7 +37,7 @@ Next:
 					}
 				}
 				if len(col) > 2 {
-					id := col[1]
+					id := strings.TrimSpace(col[1])
 					pid, err := strconv.Atoi(id)
 					if err != nil {
 						continue Next

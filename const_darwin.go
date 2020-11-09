@@ -12,6 +12,8 @@ var (
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
+	ProcessTopCPU       = Command{"ps", "-eo", "pid,command,%cpu", "-r"}
+	ProcessTopMEM       = Command{"ps", "-eo", "pid,command,%mem", "-m"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )

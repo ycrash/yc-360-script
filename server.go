@@ -66,19 +66,52 @@ func parseActions(actions []string) (pids []int, err error) {
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")
 			if len(ss) == 2 {
-				id := ss[1]
-				pid, err := strconv.Atoi(id)
-				// "actions": ["capture buggyApp.jar"]
-				if err != nil {
-					pids, err := GetProcessIds(config.ProcessTokens{config.ProcessToken(id)})
+				id := strings.TrimSpace(ss[1])
+				var pid int
+				switch id {
+				case "PROCESS_HIGH_CPU":
+					pid, err = GetTopCpu()
 					if err != nil {
+						return
+					}
+				case "PROCESS_HIGH_MEMORY":
+					pid, err = GetTopMem()
+					if err != nil {
+						return
+					}
+				case "PROCESS_UNKNOWN":
+					pid, err = GetTopCpu()
+					if err != nil {
+						return
+					}
+					if pid > 0 {
+						pids = append(pids, pid)
+					}
+					pid, err = GetTopMem()
+					if err != nil {
+						return
+					}
+				default:
+					var e error
+					pid, e = strconv.Atoi(id)
+					// "actions": ["capture buggyApp.jar"]
+					if e != nil {
+						var ids []int
+						ids, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)})
+						if e != nil {
+							continue
+						}
+						for _, pid := range ids {
+							if pid > 0 {
+								pids = append(pids, pid)
+							}
+						}
 						continue
 					}
-					if len(pids) > 0 {
-						pid = pids[0]
-					}
 				}
-				pids = append(pids, pid)
+				if pid > 0 {
+					pids = append(pids, pid)
+				}
 			}
 		} else if s == "attendance" {
 			msg, ok := attend("api")

@@ -1,6 +1,8 @@
 package shell
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestCheckProcessExists(t *testing.T) {
 	e := IsProcessExists(65535)
@@ -18,4 +20,32 @@ func TestCheckProcessExists(t *testing.T) {
 	if !e {
 		t.Fatal("process should be exists")
 	}
+}
+
+func TestGetTopProcess(t *testing.T) {
+	noGC, err := CommandStartInBackground(Command{"java", "-cp", "./capture/testdata/", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
+	t.Run("cpu", func(t *testing.T) {
+		id, err := GetTopCpu()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log(id)
+		if id < 1 {
+			t.Fatal("can not get pid of java process")
+		}
+	})
+	t.Run("mem", func(t *testing.T) {
+		id, err := GetTopMem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log(id)
+		if id < 1 {
+			t.Fatal("can not get pid of java process")
+		}
+	})
 }
