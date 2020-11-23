@@ -10,10 +10,6 @@ import (
 func TestTop(t *testing.T) {
 	top := &Top{}
 	top.SetEndpoint(endpoint)
-	go func() {
-		time.Sleep(time.Second)
-		top.Kill()
-	}()
 	result, err := top.Run()
 	if err != nil {
 		t.Fatal(err)

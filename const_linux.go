@@ -9,13 +9,13 @@ var (
 	PS       = Command{"ps", "-eLf"}
 	M3PS     = Command{"ps", "-eLf"}
 	Disk     = Command{"df", "-hk"}
-	Top      = Command{"top", "-bc",
+	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", strconv.Itoa(TOP_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL + 1)}
 	TopH = Command{WaitCommand, "top", "-bH",
 		"-n", "1",
 		"-p", DynamicArg}
-	VMState             = Command{"vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
+	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
 	DMesg               = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}

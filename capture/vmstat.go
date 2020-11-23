@@ -19,7 +19,7 @@ func (t *VMStat) Run() (result Result, err error) {
 	defer vmstat.Close()
 	cmd, err := shell.VMState.AddDynamicArg(
 		strconv.Itoa(shell.VMSTAT_INTERVAL),
-		strconv.Itoa(shell.SCRIPT_SPAN/shell.VMSTAT_INTERVAL+1))
+		"5")
 	if err != nil {
 		return
 	}
