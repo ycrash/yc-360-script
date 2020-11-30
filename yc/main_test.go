@@ -127,31 +127,31 @@ func TestPostData(t *testing.T) {
 	}
 	defer td.Close()
 
-	msg, ok := postData(endpoint, "top", top)
+	msg, ok := shell.PostData(endpoint, "top", top)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "df", df)
+	msg, ok = shell.PostData(endpoint, "df", df)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "ns", netstat)
+	msg, ok = shell.PostData(endpoint, "ns", netstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "ps", ps)
+	msg, ok = shell.PostData(endpoint, "ps", ps)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "vmstat", vmstat)
+	msg, ok = shell.PostData(endpoint, "vmstat", vmstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "gc", gc)
+	msg, ok = shell.PostData(endpoint, "gc", gc)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = postData(endpoint, "td", td)
+	msg, ok = shell.PostData(endpoint, "td", td)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}

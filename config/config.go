@@ -49,6 +49,8 @@ type Options struct {
 	GCCaptureCmd string `yaml:"gcCaptureCmd" usage:"GC log capture command line to be executed"`
 	TDCaptureCmd string `yaml:"tdCaptureCmd" usage:"Thread dump capture command line to be executed"`
 	HDCaptureCmd string `yaml:"hdCaptureCmd" usage:"Heap dump capture command line to be executed"`
+
+	OnlyCapture bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
 }
 
 type Command struct {

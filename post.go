@@ -77,6 +77,10 @@ func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool
 }
 
 func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, position func(file *os.File) error) (msg string, ok bool) {
+	if config.GlobalConfig.OnlyCapture {
+		msg = "in only capture mode"
+		return
+	}
 	if file == nil {
 		msg = "file is not captured"
 		return
@@ -137,6 +141,10 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 }
 
 func GetData(endpoint string) (msg string, ok bool) {
+	if config.GlobalConfig.OnlyCapture {
+		msg = "in only capture mode"
+		return
+	}
 	transport := http.DefaultTransport.(*http.Transport)
 	transport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,

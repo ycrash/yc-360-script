@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	sfmt "fmt"
 	"io"
 	"io/ioutil"
@@ -84,6 +85,10 @@ func mainLoop() {
 		fmt.Println("'-j' yCrash JAVA_HOME argument not passed.")
 		config.ShowUsage()
 		os.Exit(1)
+	}
+	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
+		logger.Log("WARNING: -onlyCapture will be ignored in m3 mode.")
+		config.GlobalConfig.OnlyCapture = false
 	}
 	msg, ok := shell.StartupAttend()
 	fmt.Printf(
@@ -372,7 +377,20 @@ func fullProcess(pid int) {
 	if err != nil {
 		return
 	}
-	defer os.Chdir(dir)
+	defer func() {
+		err := os.Chdir(dir)
+		if err != nil {
+			logger.Log("WARNING: Can not chdir: %s", err)
+			return
+		}
+		if config.GlobalConfig.OnlyCapture {
+			err := zipFolder(dname)
+			if err != nil {
+				logger.Log("WARNING: Can not zip folder: %s", err)
+				return
+			}
+		}
+	}()
 	err = os.Chdir(dname)
 	if err != nil {
 		return
@@ -723,6 +741,10 @@ See the report: %s
 }
 
 func requestFin(endpoint string) (resp []byte, err error) {
+	if config.GlobalConfig.OnlyCapture {
+		err = errors.New("in only capture mode")
+		return
+	}
 	post, err := http.Post(endpoint, "text", nil)
 	if err == nil {
 		defer post.Body.Close()
