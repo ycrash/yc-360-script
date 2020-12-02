@@ -384,11 +384,12 @@ func fullProcess(pid int) {
 			return
 		}
 		if config.GlobalConfig.OnlyCapture {
-			err := zipFolder(dname)
+			name, err := zipFolder(dname)
 			if err != nil {
 				logger.Log("WARNING: Can not zip folder: %s", err)
 				return
 			}
+			logger.Log("All dumps can be found in %s", name)
 		}
 	}()
 	err = os.Chdir(dname)
@@ -732,6 +733,9 @@ Resp: %s
 	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 	requestFin(finEp)
 
+	if config.GlobalConfig.OnlyCapture {
+		return
+	}
 	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
 	sfmt.Printf(`

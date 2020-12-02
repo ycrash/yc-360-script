@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 )
 
-func zipFolder(folder string) (err error) {
-	file, err := os.Create(fmt.Sprintf("%s.zip", filepath.Base(folder)))
+func zipFolder(folder string) (name string, err error) {
+	name = fmt.Sprintf("%s.zip", filepath.Base(folder))
+	file, err := os.Create(name)
 	if err != nil {
 		return
 	}
