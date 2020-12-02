@@ -389,7 +389,7 @@ func fullProcess(pid int) {
 				logger.Log("WARNING: Can not zip folder: %s", err)
 				return
 			}
-			logger.Log("All dumps can be found in %s", name)
+			sfmt.Printf("All dumps can be found in %s\n", name)
 		}
 	}()
 	err = os.Chdir(dname)
@@ -402,7 +402,10 @@ func fullProcess(pid int) {
 	if err != nil {
 		return
 	}
-	defer fscreen.Close()
+	defer func() {
+		logger.SetWriter(os.Stderr)
+		fscreen.Close()
+	}()
 
 	// Starting up
 	mwriter := io.MultiWriter(fscreen, os.Stderr).(logger.Writer)
@@ -727,15 +730,15 @@ Resp: %s
 	}
 	logger.Log("Executed custom commands")
 
+	if config.GlobalConfig.OnlyCapture {
+		return
+	}
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
 	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 	requestFin(finEp)
 
-	if config.GlobalConfig.OnlyCapture {
-		return
-	}
 	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
 	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
 	sfmt.Printf(`
