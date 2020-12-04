@@ -122,12 +122,22 @@ Resp: %s
 				timestamp := time.Now().Format("2006-01-02T15-04-05")
 				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 				endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-				err := process(timestamp, endpoint)
+				pids, err := process(timestamp, endpoint)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
 				}
 
+				if len(pids) > 0 {
+					var ps strings.Builder
+					i := 0
+					for ; i < len(pids)-1; i++ {
+						ps.WriteString(strconv.Itoa(pids[i]))
+						ps.WriteString("-")
+					}
+					ps.WriteString(strconv.Itoa(pids[i]))
+					parameters += "&pids=" + ps.String()
+				}
 				finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
 				resp, err := requestFin(finEp)
 				if err != nil {
@@ -203,7 +213,7 @@ func processPids(pids []int) (err error) {
 	return
 }
 
-func process(timestamp string, endpoint string) (err error) {
+func process(timestamp string, endpoint string) (pidSlice []int, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -243,6 +253,7 @@ func process(timestamp string, endpoint string) (err error) {
 				continue
 			}
 			set[pid] = struct{}{}
+			pidSlice = append(pidSlice, pid)
 			logger.Log("uploading gc log for pid %d", pid)
 			uploadGCLog(endpoint, pid)
 		}
