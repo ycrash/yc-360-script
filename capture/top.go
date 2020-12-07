@@ -81,7 +81,7 @@ func (t *Top4M3) Run() (result Result, err error) {
 	defer top.Close()
 
 	for i := 0; i < 3; i++ {
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top4M3)
 		if err != nil {
 			return
 		}
@@ -90,8 +90,6 @@ func (t *Top4M3) Run() (result Result, err error) {
 			result.Ok = true
 			return
 		}
-		time.Sleep(time.Second)
-		t.Kill()
 		t.Cmd.Wait()
 		top.WriteString("\n\n\n")
 		if i == 2 {

@@ -15,6 +15,7 @@ var (
 	TopH = Command{WaitCommand, "top", "-bH",
 		"-n", "1",
 		"-p", DynamicArg}
+	Top4M3              = Command{WaitCommand, "top", "-bc", "-n", "1"}
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
 	DMesg               = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}

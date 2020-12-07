@@ -7,6 +7,7 @@ var (
 	Disk                = Command{"df"}
 	Top                 = Command{"topas", "-P"}
 	TopH                = Command{"topas", "-P"}
+	Top4M3              = Command{"topas", "-P"}
 	VMState             = Command{"vmstat", DynamicArg, DynamicArg}
 	DMesg               = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}

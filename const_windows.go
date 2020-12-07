@@ -7,6 +7,7 @@ var (
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc cpu | select -first 30}"}
 	TopH                = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc cpu | select -first 30}"}
+	Top4M3              = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc cpu | select -first 30}"}
 	VMState             = NopCommand
 	DMesg               = NopCommand
 	GC                  = NopCommand
