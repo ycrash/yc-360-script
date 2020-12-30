@@ -334,6 +334,7 @@ Resp: %s
 }
 
 func fullProcess(pid int) {
+	startTime := time.Now()
 	updatePaths(pid)
 	pidPassed := true
 	if pid <= 0 {
@@ -748,14 +749,12 @@ Resp: %s
 	//     Conclusion
 	// -------------------------------
 	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-	requestFin(finEp)
+	resp, err := requestFin(finEp)
 
-	ou := strings.SplitN(config.GlobalConfig.ApiKey, "@", 2)[0]
-	reportEndpoint := fmt.Sprintf("%s/yc-report.jsp?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
+	endTime := time.Now()
 	sfmt.Printf(`
-See the report: %s
---------------------------------
-`, reportEndpoint)
+%s
+`, printResult(true, endTime.Sub(startTime).String(), resp))
 }
 
 func requestFin(endpoint string) (resp []byte, err error) {

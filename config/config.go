@@ -119,6 +119,12 @@ func ParseFlags(args []string) error {
 	flagSet, result := registerFlags(args[0])
 	flagSet.Parse(args[1:])
 
+	defer func() {
+		for len(GlobalConfig.Server) > 2 && strings.HasSuffix(GlobalConfig.Server, "/") {
+			GlobalConfig.Server = GlobalConfig.Server[:len(GlobalConfig.Server)-1]
+		}
+	}()
+
 	err := copyFlagsValue(&GlobalConfig.Options, result)
 	if err != nil {
 		return err
