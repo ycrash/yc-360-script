@@ -700,7 +700,7 @@ Resp: %s
 	//     Transmit Heap dump result
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
-	hd := config.GlobalConfig.M3 || config.GlobalConfig.HeapDump
+	hd := config.GlobalConfig.HeapDump
 	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, hd)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
