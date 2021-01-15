@@ -9,7 +9,7 @@ package main
 import (
 	"bytes"
 	"errors"
-	sfmt "fmt"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -29,7 +29,6 @@ import (
 	"shell"
 	"shell/capture"
 	"shell/config"
-	"shell/fmt"
 	"shell/logger"
 
 	"github.com/gentlemanautomaton/cmdline"
@@ -40,7 +39,13 @@ var wg sync.WaitGroup
 func main() {
 	err := config.ParseFlags(os.Args)
 	if err != nil {
-		fmt.Println(err.Error())
+		logger.Log(err.Error())
+		os.Exit(1)
+	}
+	err = logger.Init(config.GlobalConfig.LogFilePath, config.GlobalConfig.LogFileMaxCount,
+		config.GlobalConfig.LogFileMaxSize, config.GlobalConfig.LogLevel)
+	if err != nil {
+		logger.Log(err.Error())
 		os.Exit(1)
 	}
 
@@ -51,30 +56,30 @@ func main() {
 
 	select {
 	case <-osSig:
-		fmt.Println("Waiting...")
+		logger.Log("Waiting...")
 		wg.Wait()
 	}
 }
 
 func mainLoop() {
 	if len(os.Args) < 2 {
-		fmt.Println("No arguments are passed.")
+		logger.Log("No arguments are passed.")
 		config.ShowUsage()
 		os.Exit(1)
 	}
 
 	if config.GlobalConfig.ShowVersion {
-		fmt.Println("yc agent version: " + shell.SCRIPT_VERSION)
+		logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 		os.Exit(0)
 	}
 
 	if len(config.GlobalConfig.Server) < 1 {
-		fmt.Println("'-s' yCrash server URL argument not passed.")
+		logger.Log("'-s' yCrash server URL argument not passed.")
 		config.ShowUsage()
 		os.Exit(1)
 	}
 	if len(config.GlobalConfig.ApiKey) < 1 {
-		fmt.Println("'-k' yCrash API Key argument not passed.")
+		logger.Log("'-k' yCrash API Key argument not passed.")
 		config.ShowUsage()
 		os.Exit(1)
 	}
@@ -82,7 +87,7 @@ func mainLoop() {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		fmt.Println("'-j' yCrash JAVA_HOME argument not passed.")
+		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
 		config.ShowUsage()
 		os.Exit(1)
 	}
@@ -90,8 +95,11 @@ func mainLoop() {
 		logger.Log("WARNING: -onlyCapture will be ignored in m3 mode.")
 		config.GlobalConfig.OnlyCapture = false
 	}
+	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
+	logger.Log("yc script starting...")
+
 	msg, ok := shell.StartupAttend()
-	fmt.Printf(
+	logger.Log(
 		`startup attendance task
 Is completed: %t
 Resp: %s
@@ -164,7 +172,7 @@ Resp: %s
 	}
 	for {
 		msg, ok := shell.Attend()
-		fmt.Printf(
+		logger.Log(
 			`daily attendance task
 Is completed: %t
 Resp: %s
@@ -267,7 +275,7 @@ func process(timestamp string, endpoint string) (pidSlice []int, err error) {
 	logger.Log("Collection of top data started.")
 	if top != nil {
 		result := <-top
-		fmt.Printf(
+		logger.Log(
 			`TOP DATA
 Is transmission completed: %t
 Resp: %s
@@ -323,7 +331,7 @@ func uploadGCLog(endpoint string, pid int) {
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
 	}
-	fmt.Printf(
+	logger.Log(
 		`GC LOG DATA
 %s
 Is transmission completed: %t
@@ -349,12 +357,12 @@ func fullProcess(pid int) {
 		}
 	}
 
-	fmt.Printf("PID is %d\n", pid)
-	fmt.Printf("YC_SERVER is %s\n", config.GlobalConfig.Server)
-	fmt.Printf("API_KEY is %s\n", config.GlobalConfig.ApiKey)
-	fmt.Printf("APP_NAME is %s\n", config.GlobalConfig.AppName)
-	fmt.Printf("JAVA_HOME is %s\n", config.GlobalConfig.JavaHomePath)
-	fmt.Printf("GC_LOG is %s\n\n", config.GlobalConfig.GCPath)
+	logger.Log("PID is %d", pid)
+	logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
+	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
+	logger.Log("APP_NAME is %s", config.GlobalConfig.AppName)
+	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
+	logger.Log("GC_LOG is %s", config.GlobalConfig.GCPath)
 
 	var err error
 	defer func() {
@@ -401,29 +409,13 @@ func fullProcess(pid int) {
 				logger.Log("WARNING: Can not zip folder: %s", err)
 				return
 			}
-			sfmt.Printf("All dumps can be found in %s\n", name)
+			logger.StdLog("All dumps can be found in %s", name)
 		}
 	}()
 	err = os.Chdir(dname)
 	if err != nil {
 		return
 	}
-
-	// Create the screen.out and put the current date in it.
-	fscreen, err := os.Create("screen.out")
-	if err != nil {
-		return
-	}
-	defer func() {
-		logger.SetWriter(os.Stderr)
-		fscreen.Close()
-	}()
-
-	// Starting up
-	mwriter := io.MultiWriter(fscreen, os.Stderr).(logger.Writer)
-	logger.SetWriter(mwriter)
-	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
-	logger.Log("yc script starting...")
 
 	// Display the PIDs which have been input to the script
 	logger.Log("PROBLEMATIC_PID is: %d", pid)
@@ -586,7 +578,7 @@ func fullProcess(pid int) {
 	// -------------------------------
 	if top != nil {
 		result := <-top
-		fmt.Printf(
+		logger.Log(
 			`TOP DATA
 Is transmission completed: %t
 Resp: %s
@@ -600,7 +592,7 @@ Resp: %s
 	// -------------------------------
 	if disk != nil {
 		result := <-disk
-		fmt.Printf(
+		logger.Log(
 			`DISK USAGE DATA
 Is transmission completed: %t
 Resp: %s
@@ -614,7 +606,7 @@ Resp: %s
 	// -------------------------------
 	if netStat != nil {
 		result := <-netStat
-		fmt.Printf(
+		logger.Log(
 			`NETSTAT DATA
 Is transmission completed: %t
 Resp: %s
@@ -628,7 +620,7 @@ Resp: %s
 	// -------------------------------
 	if ps != nil {
 		result := <-ps
-		fmt.Printf(
+		logger.Log(
 			`PROCESS STATUS DATA
 Is transmission completed: %t
 Resp: %s
@@ -642,7 +634,7 @@ Resp: %s
 	// -------------------------------
 	if vmstat != nil {
 		result := <-vmstat
-		fmt.Printf(
+		logger.Log(
 			`VMstat DATA
 Is transmission completed: %t
 Resp: %s
@@ -659,7 +651,7 @@ Resp: %s
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.GCPath, err.Error())
 	}
-	fmt.Printf(
+	logger.Log(
 		`GC LOG DATA
 %s
 Is transmission completed: %t
@@ -673,7 +665,7 @@ Resp: %s
 	// -------------------------------
 	if threadDump != nil {
 		result := <-threadDump
-		fmt.Printf(
+		logger.Log(
 			`THREAD DUMP DATA
 Is transmission completed: %t
 Resp: %s
@@ -689,7 +681,7 @@ Resp: %s
 	if err != nil {
 		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
 	}
-	fmt.Printf(
+	logger.Log(
 		`META INFO DATA
 Is transmission completed: %t
 Resp: %s
@@ -708,7 +700,7 @@ Resp: %s
 		hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
 		err = nil
 	}
-	fmt.Printf(
+	logger.Log(
 		`HEAP DUMP DATA
 Is transmission completed: %t
 Resp: %s
@@ -732,7 +724,7 @@ Resp: %s
 			logger.Log("WARNING: Failed to execute custom command %d:%s, cause: %s", i, command.Cmd, err.Error())
 			continue
 		}
-		fmt.Printf(
+		logger.Log(
 			`CUSTOM CMD %d: %s
 Is transmission completed: %t
 Resp: %s
@@ -752,7 +744,7 @@ Resp: %s
 	resp, err := requestFin(finEp)
 
 	endTime := time.Now()
-	sfmt.Printf(`
+	logger.StdLog(`
 %s
 `, printResult(true, endTime.Sub(startTime).String(), resp))
 }
@@ -767,7 +759,7 @@ func requestFin(endpoint string) (resp []byte, err error) {
 		defer post.Body.Close()
 		resp, err = ioutil.ReadAll(post.Body)
 		if err == nil {
-			sfmt.Printf(
+			logger.StdLog(
 				`yc-fin endpoint: %s
 Resp: %s
 

@@ -1,9 +1,8 @@
 package main
 
 import (
+	"fmt"
 	"testing"
-
-	"shell/fmt"
 )
 
 func TestPrintResult(t *testing.T) {

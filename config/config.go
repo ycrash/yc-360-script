@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v2"
 )
 
@@ -34,11 +35,11 @@ type Options struct {
 
 	Commands []Command `yaml:"cmds" usage:"Custom commands to be executed"`
 
-	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate, default is true"`
+	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate"`
 	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
 
 	M3            bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
-	M3Frequency   time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3m(3 minutes)"`
+	M3Frequency   time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3 minutes"`
 	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of m3 mode"`
 
 	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
@@ -51,6 +52,11 @@ type Options struct {
 	HDCaptureCmd string `yaml:"hdCaptureCmd" usage:"Heap dump capture command line to be executed"`
 
 	OnlyCapture bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
+
+	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
+	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`
+	LogFileMaxCount uint   `yaml:"logFileMaxCount" usage:"Max count of the log files"`
+	LogLevel        string `yaml:"logLevel" usage:"Log level: trace, debug, info, warn, error, fatal, panic, disable."`
 }
 
 type Command struct {
@@ -102,10 +108,14 @@ func (p *ProcessTokens) Set(s string) error {
 func defaultConfig() Config {
 	return Config{
 		Options: Options{
-			VerifySSL:   true,
-			M3Frequency: 3 * time.Minute,
-			Address:     "localhost",
-			Port:        -1,
+			VerifySSL:       true,
+			M3Frequency:     3 * time.Minute,
+			Address:         "localhost",
+			Port:            -1,
+			LogFilePath:     "yc.log",
+			LogFileMaxCount: 7,
+			LogFileMaxSize:  512 * 1024 * 1024,
+			LogLevel:        zerolog.InfoLevel.String(),
 		},
 	}
 }
@@ -226,8 +236,12 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			continue
 		}
 		switch fieldType.Type.Kind() {
+		case reflect.Uint:
+			result[i] = flagSet.Uint(name, uint(field.Uint()), usage)
 		case reflect.Int:
 			result[i] = flagSet.Int(name, int(field.Int()), usage)
+		case reflect.Int64:
+			result[i] = flagSet.Int64(name, field.Int(), usage)
 		case reflect.String:
 			result[i] = flagSet.String(name, field.String(), usage)
 		case reflect.Bool:

@@ -1,48 +1,46 @@
 package logger
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"time"
+
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
+	"github.com/rs/zerolog"
 )
 
-var logger Logger
+var logger zerolog.Logger
+var stdLogger zerolog.Logger
 
-type Writer interface {
-	io.StringWriter
-	io.Writer
-}
-
-type Logger struct {
-	writer Writer
-}
-
-func init() {
-	logger.writer = os.Stderr
-}
-
-func (logger *Logger) Log(format string, values ...interface{}) {
-	stamp := NowString()
-	if len(values) == 0 {
-		logger.writer.WriteString(stamp + format + "\n")
+func Init(path string, count uint, size int64, logLevel string) (err error) {
+	level, err := zerolog.ParseLevel(logLevel)
+	if err != nil {
 		return
 	}
-	logger.writer.WriteString(stamp + fmt.Sprintf(format, values...) + "\n")
+	var stderr io.Writer = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.UnixDate}
+	var stdout io.Writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}
+	if len(path) > 0 {
+		f, err := rotatelogs.New(
+			path+".%Y%m%d%H%M",
+			rotatelogs.WithLinkName(path),
+			rotatelogs.WithRotationCount(count),
+			rotatelogs.WithRotationSize(size),
+		)
+		if err != nil {
+			return err
+		}
+		stderr = io.MultiWriter(f, stderr)
+		stdout = io.MultiWriter(f, stdout)
+	}
+	logger = zerolog.New(stderr).With().Timestamp().Logger().Level(level)
+	stdLogger = zerolog.New(stdout).With().Timestamp().Logger().Level(level)
+	return
 }
 
 func Log(format string, values ...interface{}) {
-	logger.Log(format, values...)
+	logger.Info().Msgf(format, values...)
 }
 
-func SetWriter(writer Writer) {
-	logger.writer = writer
-}
-
-func GetWriter() (writer io.Writer) {
-	return logger.writer
-}
-
-func NowString() string {
-	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
+func StdLog(format string, values ...interface{}) {
+	stdLogger.Info().Msgf(format, values...)
 }
