@@ -427,6 +427,21 @@ func fullProcess(pid int) {
 	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
 	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
 
+	// -------------------------------
+	//     Transmit MetaInfo
+	// -------------------------------
+	msg, ok, err := writeMetaInfo(pid, config.GlobalConfig.AppName, endpoint)
+	if err != nil {
+		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
+	}
+	logger.Log(
+		`META INFO DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
+
 	if pidPassed && !shell.IsProcessExists(pid) {
 		defer func() {
 			logger.Log("WARNING: Process %d doesn't exist.", pid)
@@ -556,9 +571,6 @@ func fullProcess(pid int) {
 		logger.Log("Final netstat snapshot complete.")
 	}
 
-	var ok bool
-	var msg string
-
 	if jstat != nil {
 		jstat.Wait()
 	}
@@ -674,20 +686,6 @@ Resp: %s
 `, result.Ok, result.Msg)
 	}
 
-	// -------------------------------
-	//     Transmit MetaInfo
-	// -------------------------------
-	msg, ok, err = writeMetaInfo(pid, config.GlobalConfig.AppName, endpoint)
-	if err != nil {
-		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
-	}
-	logger.Log(
-		`META INFO DATA
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, ok, msg)
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
