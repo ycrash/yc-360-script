@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pterm/pterm"
 	"shell"
 	"shell/capture"
 	"shell/config"
@@ -410,6 +411,7 @@ func fullProcess(pid int) {
 				return
 			}
 			logger.StdLog("All dumps can be found in %s", name)
+			logger.Log("All dumps can be found in %s", name)
 		}
 	}()
 	err = os.Chdir(dname)
@@ -742,9 +744,13 @@ Resp: %s
 	resp, err := requestFin(finEp)
 
 	endTime := time.Now()
+	result := printResult(true, endTime.Sub(startTime).String(), resp)
 	logger.StdLog(`
 %s
-`, printResult(true, endTime.Sub(startTime).String(), resp))
+`, result)
+	logger.Log(`
+%s
+`, pterm.RemoveColorFromString(result))
 }
 
 func requestFin(endpoint string) (resp []byte, err error) {
@@ -757,7 +763,7 @@ func requestFin(endpoint string) (resp []byte, err error) {
 		defer post.Body.Close()
 		resp, err = ioutil.ReadAll(post.Body)
 		if err == nil {
-			logger.StdLog(
+			logger.Log(
 				`yc-fin endpoint: %s
 Resp: %s
 

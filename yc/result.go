@@ -61,7 +61,7 @@ func printResult(success bool, runtime string, resp []byte) string {
 	if err != nil {
 		return ""
 	}
-	return pterm.DefaultBox.WithRightPadding(1).WithBottomPadding(0).Sprintln(srender)
+	return pterm.DefaultBox.WithRightPadding(1).WithBottomPadding(0).Sprint(srender)
 }
 
 func format(width int, s string) (result []string) {

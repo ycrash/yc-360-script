@@ -17,7 +17,7 @@ func Init(path string, count uint, size int64, logLevel string) (err error) {
 	if err != nil {
 		return
 	}
-	var stderr io.Writer = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.UnixDate}
+	var logWriter io.Writer
 	var stdout io.Writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}
 	if len(path) > 0 {
 		f, err := rotatelogs.New(
@@ -29,10 +29,11 @@ func Init(path string, count uint, size int64, logLevel string) (err error) {
 		if err != nil {
 			return err
 		}
-		stderr = io.MultiWriter(f, stderr)
-		stdout = io.MultiWriter(f, stdout)
+		logWriter = zerolog.ConsoleWriter{Out: f, TimeFormat: time.UnixDate, NoColor: true}
+	} else {
+		logWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.UnixDate}
 	}
-	logger = zerolog.New(stderr).With().Timestamp().Logger().Level(level)
+	logger = zerolog.New(logWriter).With().Timestamp().Logger().Level(level)
 	stdLogger = zerolog.New(stdout).With().Timestamp().Logger().Level(level)
 	return
 }
