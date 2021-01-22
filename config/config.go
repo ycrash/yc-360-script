@@ -112,7 +112,6 @@ func defaultConfig() Config {
 			M3Frequency:     3 * time.Minute,
 			Address:         "localhost",
 			Port:            -1,
-			LogFilePath:     "yc.log",
 			LogFileMaxCount: 7,
 			LogFileMaxSize:  512 * 1024 * 1024,
 			LogLevel:        zerolog.InfoLevel.String(),

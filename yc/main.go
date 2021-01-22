@@ -411,7 +411,9 @@ func fullProcess(pid int) {
 				return
 			}
 			logger.StdLog("All dumps can be found in %s", name)
-			logger.Log("All dumps can be found in %s", name)
+			if logger.Log2File {
+				logger.Log("All dumps can be found in %s", name)
+			}
 		}
 	}()
 	err = os.Chdir(dname)
@@ -748,9 +750,11 @@ Resp: %s
 	logger.StdLog(`
 %s
 `, result)
-	logger.Log(`
+	if logger.Log2File {
+		logger.Log(`
 %s
 `, pterm.RemoveColorFromString(result))
+	}
 }
 
 func requestFin(endpoint string) (resp []byte, err error) {

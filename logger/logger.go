@@ -11,6 +11,7 @@ import (
 
 var logger zerolog.Logger
 var stdLogger zerolog.Logger
+var Log2File bool
 
 func Init(path string, count uint, size int64, logLevel string) (err error) {
 	level, err := zerolog.ParseLevel(logLevel)
@@ -20,9 +21,9 @@ func Init(path string, count uint, size int64, logLevel string) (err error) {
 	var logWriter io.Writer
 	var stdout io.Writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}
 	if len(path) > 0 {
+		Log2File = true
 		f, err := rotatelogs.New(
-			path+".%Y%m%d%H%M",
-			rotatelogs.WithLinkName(path),
+			path+".%Y%m%d",
 			rotatelogs.WithRotationCount(count),
 			rotatelogs.WithRotationSize(size),
 		)
