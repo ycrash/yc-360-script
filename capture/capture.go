@@ -2,6 +2,7 @@ package capture
 
 import (
 	"fmt"
+	"sync"
 
 	"shell"
 	"shell/logger"
@@ -15,6 +16,22 @@ type Result struct {
 type Capture struct {
 	Cmd      shell.CmdManager
 	endpoint string
+	wg       sync.WaitGroup
+}
+
+func (cap *Capture) DoneWaitGroup() {
+	cap.wg.Done()
+}
+
+func (cap *Capture) InitWaitGroup() {
+	cap.wg.Add(1)
+}
+
+func (cap *Capture) WaitWaitGroup() {
+	if cap.Cmd == nil {
+		return
+	}
+	cap.wg.Wait()
 }
 
 func (cap *Capture) Interrupt() error {
@@ -43,6 +60,9 @@ type Task interface {
 	SetEndpoint(endpoint string)
 	Run() (result Result, err error)
 	Kill() error
+	InitWaitGroup()
+	DoneWaitGroup()
+	WaitWaitGroup()
 }
 
 func WrapRun(task Task) func(endpoint string, c chan Result) {
@@ -56,8 +76,10 @@ func WrapRun(task Task) func(endpoint string, c chan Result) {
 			}
 			c <- result
 			close(c)
+			task.DoneWaitGroup()
 		}()
 		task.SetEndpoint(endpoint)
+		task.InitWaitGroup()
 		result, err = task.Run()
 	}
 }
@@ -66,8 +88,13 @@ func (cap *Capture) Run() (result Result, err error) {
 	return
 }
 
-func GoCapture(endpoint string, fn func(endpoint string, c chan Result)) (c chan Result) {
+func GoCapture(endpoint string, fn func(endpoint string, c chan Result), wait ...Task) (c chan Result) {
 	c = make(chan Result)
-	go fn(endpoint, c)
+	go func() {
+		for _, task := range wait {
+			task.WaitWaitGroup()
+		}
+		fn(endpoint, c)
+	}()
 	return
 }

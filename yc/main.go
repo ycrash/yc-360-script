@@ -500,6 +500,7 @@ Resp: %s
 	var top chan capture.Result
 	var capVMStat *capture.VMStat
 	var vmstat chan capture.Result
+	var dmesg chan capture.Result
 	var threadDump chan capture.Result
 	var capPS *capture.PS
 	var ps chan capture.Result
@@ -546,8 +547,7 @@ Resp: %s
 		//  				Capture dmesg
 		// ------------------------------------------------------------------------------
 		logger.Log("Collecting other data.  This may take a few moments...")
-		// There is no endpoint for this now.
-		// dmesg := goCapture(endpoint, captureDMesg)
+		dmesg = goCapture(endpoint, capture.WrapRun(&capture.DMesg{}), capVMStat)
 		// ------------------------------------------------------------------------------
 		//  				Capture Disk Usage
 		// ------------------------------------------------------------------------------
@@ -652,6 +652,20 @@ Resp: %s
 		result := <-vmstat
 		logger.Log(
 			`VMstat DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit DMesg data
+	// -------------------------------
+	if dmesg != nil {
+		result := <-dmesg
+		logger.Log(
+			`DMesg DATA
 Is transmission completed: %t
 Resp: %s
 
@@ -958,26 +972,5 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 		return
 	}
 	msg, ok = shell.PostData(endpoint, "meta", file)
-	return
-}
-
-type CaptureResult = capture.Result
-
-func captureDMesg(endpoint string, c chan CaptureResult) {
-	var err error
-	result := CaptureResult{}
-	defer func() {
-		if err != nil {
-			result.Msg = fmt.Sprintf("capture failed: %s", err.Error())
-		}
-		c <- result
-		close(c)
-	}()
-	dmesg, err := shell.CommandCombinedOutputToFile("dmesg.out", shell.DMesg)
-	if err != nil {
-		return
-	}
-	defer dmesg.Close()
-	result.Msg, result.Ok = shell.PostData(endpoint, "dmesg", dmesg)
 	return
 }
