@@ -74,15 +74,17 @@ func mainLoop() {
 		os.Exit(0)
 	}
 
-	if len(config.GlobalConfig.Server) < 1 {
-		logger.Log("'-s' yCrash server URL argument not passed.")
-		config.ShowUsage()
-		os.Exit(1)
-	}
-	if len(config.GlobalConfig.ApiKey) < 1 {
-		logger.Log("'-k' yCrash API Key argument not passed.")
-		config.ShowUsage()
-		os.Exit(1)
+	if !config.GlobalConfig.OnlyCapture {
+		if len(config.GlobalConfig.Server) < 1 {
+			logger.Log("'-s' yCrash server URL argument not passed.")
+			config.ShowUsage()
+			os.Exit(1)
+		}
+		if len(config.GlobalConfig.ApiKey) < 1 {
+			logger.Log("'-k' yCrash API Key argument not passed.")
+			config.ShowUsage()
+			os.Exit(1)
+		}
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
