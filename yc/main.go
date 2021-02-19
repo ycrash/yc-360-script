@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,14 +41,12 @@ var wg sync.WaitGroup
 func main() {
 	err := config.ParseFlags(os.Args)
 	if err != nil {
-		logger.Log(err.Error())
-		os.Exit(1)
+		log.Fatal(err.Error())
 	}
 	err = logger.Init(config.GlobalConfig.LogFilePath, config.GlobalConfig.LogFileMaxCount,
 		config.GlobalConfig.LogFileMaxSize, config.GlobalConfig.LogLevel)
 	if err != nil {
-		logger.Log(err.Error())
-		os.Exit(1)
+		log.Fatal(err.Error())
 	}
 
 	osSig := make(chan os.Signal, 1)
