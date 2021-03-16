@@ -15,6 +15,7 @@ var (
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{"ps", "-eo", "pid,cmd,%cpu", "--sort=-%cpu"}
 	ProcessTopMEM       = Command{"ps", "-eo", "pid,cmd,%mem", "--sort=-%mem"}
+	OSVersion           = Command{WaitCommand, "uname", "-a"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )

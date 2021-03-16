@@ -956,7 +956,9 @@ func copyFile(gc *os.File, file string) (err error) {
 
 const metaInfoTemplate = `hostName=%s
 processId=%d
-appName=%s`
+appName=%s
+javaVersion=%s
+osVersion=%s`
 
 func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool, err error) {
 	file, err := os.Create("meta-info.txt")
@@ -966,9 +968,24 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	defer file.Close()
 	hostname, err := os.Hostname()
 	if err != nil {
+		err = fmt.Errorf("hostname err: %v", err)
 		return
 	}
-	_, err = io.Copy(file, bytes.NewBufferString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName)))
+	javaVersion, err := shell.CommandCombinedOutput(shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+	if err != nil {
+		err = fmt.Errorf("javaVersion err: %v", err)
+		return
+	}
+	jv := strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
+	jv = strings.ReplaceAll(jv, "\n", ", ")
+	osVersion, err := shell.CommandCombinedOutput(shell.OSVersion)
+	if err != nil {
+		err = fmt.Errorf("osVersion err: %v", err)
+		return
+	}
+	ov := strings.ReplaceAll(string(osVersion), "\r\n", ", ")
+	ov = strings.ReplaceAll(ov, "\n", ", ")
+	_, err = io.Copy(file, bytes.NewBufferString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, jv, ov)))
 	if err != nil {
 		return
 	}
