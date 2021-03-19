@@ -24,6 +24,7 @@ var (
 	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc CPU}"}
 	ProcessTopMEM       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc PM}"}
 	OSVersion           = Command{WaitCommand, "PowerShell.exe", "-Command", "& {systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"}"}
+	KernelParam         = NopCommand
 
 	SHELL = Command{"cmd.exe", "/c"}
 )

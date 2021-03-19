@@ -558,6 +558,11 @@ Resp: %s
 	}
 
 	// ------------------------------------------------------------------------------
+	//   				Capture kernel params
+	// ------------------------------------------------------------------------------
+	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
+
+	// ------------------------------------------------------------------------------
 	//   				Capture thread dumps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
@@ -690,6 +695,20 @@ Resp: %s
 
 --------------------------------
 `, absGCPath, ok, msg)
+
+	// -------------------------------
+	//     Transmit kernel param dump
+	// -------------------------------
+	if kernel != nil {
+		result := <-kernel
+		logger.Log(
+			`KERNEL PARAMS DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit Thread dump
