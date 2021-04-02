@@ -239,6 +239,12 @@ func TestProcessLogFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	// https://tier1app.atlassian.net/browse/GCEA-2339
+	t.Run("gc%t", func(t *testing.T) {
+		dir := "gc%t"
+		test(t, dir, "gc%t.log", "gctt.log")
+	})
 }
 
 func TestCaptureCmd(t *testing.T) {

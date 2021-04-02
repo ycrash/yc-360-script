@@ -26,14 +26,24 @@ func NewJStack(javaHome string, pid int) *JStack {
 }
 
 func (t *JStack) Run() (result Result, err error) {
-	for n := 1; n <= count; n++ {
-		//  Collect a javacore against the problematic pid (passed in by the user)
-		//  Javacores are output to the working directory of the JVM; in most cases this is the <profile_root>
-		err = func() error {
+	b1 := make(chan int, 1)
+	b2 := make(chan int, 1)
+	e1 := make(chan error, 1)
+	e2 := make(chan error, 1)
+	defer func() {
+		close(b1)
+		close(b2)
+	}()
+	go func() {
+		for {
+			n, ok := <-b1
+			if !ok {
+				return
+			}
 			jstack, err := shell.CommandCombinedOutputToFile(fmt.Sprintf("javacore.%d.out", n),
 				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)})
 			if err != nil {
-				return err
+				e1 <- err
 			}
 			defer jstack.Close()
 
@@ -42,15 +52,32 @@ func (t *JStack) Run() (result Result, err error) {
 				javaHome: t.javaHome,
 				pid:      t.pid,
 			}.Run()
-			return err
-		}()
-		if err != nil {
-			return
+			e1 <- err
 		}
-		topH := TopH{Pid: t.pid, N: n}
-		result, err = topH.Run()
+	}()
+
+	go func() {
+		for {
+			n, ok := <-b2
+			if !ok {
+				return
+			}
+			topH := TopH{Pid: t.pid, N: n}
+			_, err = topH.Run()
+			e2 <- err
+		}
+	}()
+
+	for n := 1; n <= count; n++ {
+		b2 <- n
+		b1 <- n
+		err = <-e1
 		if err != nil {
-			return
+			break
+		}
+		err = <-e2
+		if err != nil {
+			break
 		}
 
 		if n == count {

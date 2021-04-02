@@ -558,6 +558,11 @@ Resp: %s
 	}
 
 	// ------------------------------------------------------------------------------
+	//   				Capture ping
+	// ------------------------------------------------------------------------------
+	ping := goCapture(endpoint, capture.WrapRun(&capture.Ping{Host: config.GlobalConfig.PingHost}))
+
+	// ------------------------------------------------------------------------------
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
 	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
@@ -695,6 +700,20 @@ Resp: %s
 
 --------------------------------
 `, absGCPath, ok, msg)
+
+	// -------------------------------
+	//     Transmit ping dump
+	// -------------------------------
+	if ping != nil {
+		result := <-ping
+		logger.Log(
+			`PING DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit kernel param dump
@@ -857,6 +876,36 @@ func getGCLogFile(pid int) (result string, err error) {
 func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
+	}
+	// -Xloggc:/app/boomi/gclogs/gc%t.log
+	if strings.Contains(gcPath, `%t`) {
+		d := filepath.Dir(gcPath)
+		open, err := os.Open(d)
+		if err != nil {
+			return nil, err
+		}
+		defer open.Close()
+		fs, err := open.Readdirnames(0)
+		if err != nil {
+			return nil, err
+		}
+
+		var t time.Time
+		var tf string
+		for _, f := range fs {
+			stat, err := os.Stat(filepath.Join(d, f))
+			if err != nil {
+				continue
+			}
+			mt := stat.ModTime()
+			if t.IsZero() || mt.After(t) {
+				t = mt
+				tf = f
+			}
+		}
+		if len(tf) > 0 {
+			gcPath = filepath.Join(d, tf)
+		}
 	}
 	gcf, err := os.Open(gcPath)
 	// config.GlobalConfig.GCPath exists, cp it

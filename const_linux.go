@@ -21,6 +21,7 @@ var (
 	ProcessTopMEM       = Command{"/bin/sh", "-c", "ps -o pid,%mem,cmd, ax | sort -b -k2 -r"}
 	OSVersion           = Command{WaitCommand, "uname", "-a"}
 	KernelParam         = Command{WaitCommand, "sysctl", "-a"}
+	Ping                = Command{WaitCommand, "ping", "-c", "3"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )

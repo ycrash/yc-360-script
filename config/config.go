@@ -53,6 +53,8 @@ type Options struct {
 
 	OnlyCapture bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
 
+	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
+
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`
 	LogFileMaxCount uint   `yaml:"logFileMaxCount" usage:"Max count of the log files"`
@@ -115,6 +117,7 @@ func defaultConfig() Config {
 			LogFileMaxCount: 7,
 			LogFileMaxSize:  512 * 1024 * 1024,
 			LogLevel:        zerolog.InfoLevel.String(),
+			PingHost:        "google.com",
 		},
 	}
 }
