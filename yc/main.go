@@ -732,15 +732,20 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
+	absTDPath, err := filepath.Abs(config.GlobalConfig.ThreadDumpPath)
+	if err != nil {
+		absTDPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.ThreadDumpPath, err.Error())
+	}
 	if threadDump != nil {
 		result := <-threadDump
 		logger.Log(
 			`THREAD DUMP DATA
+%s
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, result.Ok, result.Msg)
+`, absTDPath, result.Ok, result.Msg)
 	}
 
 	// -------------------------------

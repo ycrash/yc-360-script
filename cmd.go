@@ -32,7 +32,7 @@ func (c *WaitCmd) SetStdoutAndStderr(writer io.Writer) {
 }
 
 func (c *WaitCmd) GetPid() int {
-	if c.Cmd == nil {
+	if c.Cmd == nil || c.Cmd.Process == nil {
 		return -1
 	}
 	return c.Cmd.Process.Pid
@@ -69,7 +69,7 @@ type Cmd struct {
 }
 
 func (c *Cmd) KillAndWait() (err error) {
-	if c.Cmd == nil {
+	if c.Cmd == nil || c.Cmd.Process == nil {
 		return
 	}
 	err = c.Cmd.Process.Kill()
@@ -81,7 +81,7 @@ func (c *Cmd) KillAndWait() (err error) {
 }
 
 func (c *Cmd) Interrupt() (err error) {
-	if c.Cmd == nil {
+	if c.Cmd == nil || c.Cmd.Process == nil {
 		return
 	}
 	err = c.Cmd.Process.Signal(os.Interrupt)
@@ -89,7 +89,7 @@ func (c *Cmd) Interrupt() (err error) {
 }
 
 func (c *Cmd) Kill() (err error) {
-	if c.Cmd == nil {
+	if c.Cmd == nil || c.Cmd.Process == nil {
 		return
 	}
 	err = c.Cmd.Process.Kill()

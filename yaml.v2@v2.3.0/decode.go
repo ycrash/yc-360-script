@@ -267,7 +267,7 @@ func (d *decoder) terror(n *node, tag string, out reflect.Value) {
 	case time.Duration:
 		if !n.name.IsZero() {
 			d.terrors = append(d.terrors,
-				fmt.Sprintf("line %d: %s is not a valid value for '%s' argument. It should be in '1m30s' format.",
+				fmt.Sprintf("line %d: %s is not a valid value for '%s' argument. It should be in the format, Example: 1m30s.",
 					n.line+1, value, n.name.String()))
 			return
 		}
