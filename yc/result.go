@@ -16,11 +16,11 @@ var col1 = []string{
 	"RunTime",
 }
 
-func printResult(success bool, runtime string, resp []byte) string {
+func printResult(success bool, runtime string, resp []byte) (reportUrl string, result string) {
 	m := make(map[string]string)
 	err := json.Unmarshal(resp, &m)
 	if err != nil {
-		return ""
+		return
 	}
 	col2 := make([]string, len(col1))
 	col2[0] = strconv.Itoa(config.GlobalConfig.Port)
@@ -50,6 +50,7 @@ func printResult(success bool, runtime string, resp []byte) string {
 		if s != "dashboardReportURL" {
 			d = append(d, []string{s, c})
 		} else {
+			reportUrl = c
 			d = append(d, []string{pterm.LightGreen(s), c})
 		}
 	}
@@ -59,9 +60,10 @@ func printResult(success bool, runtime string, resp []byte) string {
 		Width:        pterm.GetTerminalWidth(),
 	}.Srender()
 	if err != nil {
-		return ""
+		return
 	}
-	return pterm.DefaultBox.WithRightPadding(1).WithBottomPadding(0).Sprint(srender)
+	result = pterm.DefaultBox.WithRightPadding(1).WithBottomPadding(0).Sprint(srender)
+	return
 }
 
 func format(width int, s string) (result []string) {

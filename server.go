@@ -14,18 +14,20 @@ import (
 
 type Server struct {
 	*http.Server
-	ProcessPids func(pids []int) (err error)
+	ProcessPids func(pids []int) (rUrls []string, err error)
 	ln          net.Listener
 }
 
 type Req struct {
 	Key     string
 	Actions []string
+	Synch   bool
 }
 
 type Resp struct {
-	Code int
-	Msg  string
+	Code                int
+	Msg                 string
+	DashboardReportURLs []string
 }
 
 func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
@@ -58,6 +60,16 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	if req.Synch {
+		rUrls, err := s.ProcessPids(pids)
+		if err != nil {
+			resp.Code = -1
+			resp.Msg = err.Error()
+			return
+		}
+		resp.DashboardReportURLs = rUrls
+		return
+	}
 	go s.ProcessPids(pids)
 }
 

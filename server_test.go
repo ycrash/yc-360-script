@@ -16,7 +16,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int) (err error) {
+	s.ProcessPids = func(pids []int) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -64,7 +64,7 @@ func TestAttendanceAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int) (err error) {
+	s.ProcessPids = func(pids []int) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}

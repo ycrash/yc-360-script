@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"shell/config"
+	"shell/logger"
 	"strconv"
 	"strings"
 	"testing"
@@ -293,4 +298,58 @@ func TestM3FinPids(t *testing.T) {
 		r := a([]int{1, 2, 3})
 		t.Log(r)
 	})
+}
+
+func TestServer(t *testing.T) {
+	logger.Init("", 0, 0, "debug")
+	config.GlobalConfig.Server = "https://gceasy.io"
+	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
+
+	s, err := shell.NewServer("localhost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ProcessPids = processPids
+
+	errCh := make(chan error, 1)
+	go func() {
+		err := s.Serve()
+		if !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	go func() {
+		defer s.Close()
+		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
+		buf := bytes.NewBufferString(fmt.Sprintf(`{"Synch": true, "key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture %d"] }`, noGC.GetPid()))
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if resp.Body != nil {
+			all, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all = bytes.TrimSpace(all)
+			log.Printf("%s", all)
+			if string(all) != `{"Code":0,"Msg":""}` {
+				t.Fatal(string(all), all)
+			}
+		}
+	}()
+
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			t.Fatal(err)
+		}
+	}
 }

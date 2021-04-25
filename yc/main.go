@@ -190,13 +190,14 @@ func processResp(resp []byte) (err error) {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
 	}
-	return processPids(pids)
+	_, err = processPids(pids)
+	return
 }
 
 // only one thread can run capture process
 var one sync.Mutex
 
-func processPids(pids []int) (err error) {
+func processPids(pids []int) (rUrls []string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -217,7 +218,10 @@ func processPids(pids []int) (err error) {
 				continue
 			}
 		} else {
-			fullProcess(pid)
+			url := fullProcess(pid)
+			if len(url) > 0 {
+				rUrls = append(rUrls, url)
+			}
 		}
 	}
 	return
@@ -343,7 +347,7 @@ Resp: %s
 `, absGCPath, ok, msg)
 }
 
-func fullProcess(pid int) {
+func fullProcess(pid int) (rUrl string) {
 	startTime := time.Now()
 	updatePaths(pid)
 	pidPassed := true
@@ -804,7 +808,8 @@ Resp: %s
 	resp, err := requestFin(finEp)
 
 	endTime := time.Now()
-	result := printResult(true, endTime.Sub(startTime).String(), resp)
+	var result string
+	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
 	logger.StdLog(`
 %s
 `, result)
@@ -813,6 +818,7 @@ Resp: %s
 %s
 `, pterm.RemoveColorFromString(result))
 	}
+	return
 }
 
 func requestFin(endpoint string) (resp []byte, err error) {
