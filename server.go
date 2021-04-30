@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"shell/config"
 	"strconv"
 	"strings"
-	"time"
-
-	"shell/config"
 )
 
 type Server struct {
@@ -21,13 +19,13 @@ type Server struct {
 type Req struct {
 	Key     string
 	Actions []string
-	Synch   bool
+	WaitFor bool
 }
 
 type Resp struct {
 	Code                int
 	Msg                 string
-	DashboardReportURLs []string
+	DashboardReportURLs []string `json:",omitempty"`
 }
 
 func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
@@ -60,7 +58,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	if req.Synch {
+	if req.WaitFor {
 		rUrls, err := s.ProcessPids(pids)
 		if err != nil {
 			resp.Code = -1
@@ -148,9 +146,7 @@ func NewServer(address string, port int) (s *Server, err error) {
 	mux := http.NewServeMux()
 	s = &Server{
 		Server: &http.Server{
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			Handler:      mux,
+			Handler: mux,
 		},
 		ln: ln,
 	}
