@@ -303,6 +303,8 @@ func TestM3FinPids(t *testing.T) {
 func TestServer(t *testing.T) {
 	logger.Init("", 0, 0, "debug")
 	config.GlobalConfig.Server = "https://gceasy.io"
+	config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
+	config.GlobalConfig.JavaHomePath = "/usr"
 	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
@@ -324,14 +326,16 @@ func TestServer(t *testing.T) {
 		close(errCh)
 	}()
 
+	t.Log(fmt.Sprintf("http://%s/action", s.Addr().String()))
+
 	go func() {
 		defer s.Close()
-		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(fmt.Sprintf(`{"Synch": true, "key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture %d"] }`, noGC.GetPid()))
+		buf := bytes.NewBufferString(fmt.Sprintf(`{"waitFor": true, "key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture %d"] }`, noGC.GetPid()))
 		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Log(resp.StatusCode)
 
 		if resp.Body != nil {
 			all, err := ioutil.ReadAll(resp.Body)
