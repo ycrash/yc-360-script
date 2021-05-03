@@ -812,11 +812,18 @@ Resp: %s
 	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
 	logger.StdLog(`
 %s
-`, result)
+`, resp)
+	logger.Log(`
+%s
+`, resp)
 	if logger.Log2File {
 		logger.Log(`
 %s
 `, pterm.RemoveColorFromString(result))
+	} else {
+		logger.Log(`
+%s
+`, result)
 	}
 	return
 }
