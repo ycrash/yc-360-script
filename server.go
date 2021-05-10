@@ -30,6 +30,7 @@ type Resp struct {
 
 func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
 	resp := &Resp{}
 
 	defer func() {
