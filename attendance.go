@@ -48,6 +48,9 @@ func attend(typ string) (string, bool) {
 	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&apiKey=%s&%s",
 		config.GlobalConfig.Server, typ, config.GlobalConfig.ApiKey, parameters)
+	if config.GlobalConfig.M3 {
+		endpoint += "&m3=true"
+	}
 	return GetData(endpoint)
 }
 

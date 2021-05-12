@@ -7,7 +7,6 @@ package main
 //                      Changed minor changes to messages printed on the screen
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -480,24 +479,6 @@ Resp: %s
 			gc.Close()
 		}
 	}()
-
-	// Collect the user currently executing the script
-	logger.Log("Collecting user authority data...")
-
-	fwhoami, err := os.Create("whoami.out")
-	if err != nil {
-		return
-	}
-	defer fwhoami.Close()
-
-	fwhoami.WriteString(fmt.Sprintf("%s\n", nowString()))
-	current, err := user.Current()
-	if err != nil {
-		return
-	}
-	fwhoami.WriteString(fmt.Sprintf("%s\n", current.Username))
-
-	logger.Log("Collection of user authority data complete.")
 
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
@@ -1043,6 +1024,7 @@ func copyFile(gc *os.File, file string) (err error) {
 const metaInfoTemplate = `hostName=%s
 processId=%d
 appName=%s
+whoami=%s
 javaVersion=%s
 osVersion=%s`
 
@@ -1071,7 +1053,11 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	}
 	ov := strings.ReplaceAll(string(osVersion), "\r\n", ", ")
 	ov = strings.ReplaceAll(ov, "\n", ", ")
-	_, err = io.Copy(file, bytes.NewBufferString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, jv, ov)))
+	current, err := user.Current()
+	if err != nil {
+		return
+	}
+	_, err = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, current.Username, jv, ov))
 	if err != nil {
 		return
 	}
