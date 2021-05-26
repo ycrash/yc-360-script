@@ -1034,31 +1034,36 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 		return
 	}
 	defer file.Close()
-	hostname, err := os.Hostname()
-	if err != nil {
-		err = fmt.Errorf("hostname err: %v", err)
-		return
+	hostname, e := os.Hostname()
+	if e != nil {
+		err = fmt.Errorf("hostname err: %v", e)
 	}
-	javaVersion, err := shell.CommandCombinedOutput(shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
-	if err != nil {
-		err = fmt.Errorf("javaVersion err: %v", err)
-		return
+	var jv string
+	javaVersion, e := shell.CommandCombinedOutput(shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+	if e != nil {
+		err = fmt.Errorf("javaVersion err: %v, previous err: %v", e, err)
+	} else {
+		jv = strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
+		jv = strings.ReplaceAll(jv, "\n", ", ")
 	}
-	jv := strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
-	jv = strings.ReplaceAll(jv, "\n", ", ")
-	osVersion, err := shell.CommandCombinedOutput(shell.OSVersion)
-	if err != nil {
-		err = fmt.Errorf("osVersion err: %v", err)
-		return
+	var ov string
+	osVersion, e := shell.CommandCombinedOutput(shell.OSVersion)
+	if e != nil {
+		err = fmt.Errorf("osVersion err: %v, previous err: %v", e, err)
+	} else {
+		ov = strings.ReplaceAll(string(osVersion), "\r\n", ", ")
+		ov = strings.ReplaceAll(ov, "\n", ", ")
 	}
-	ov := strings.ReplaceAll(string(osVersion), "\r\n", ", ")
-	ov = strings.ReplaceAll(ov, "\n", ", ")
-	current, err := user.Current()
-	if err != nil {
-		return
+	var un string
+	current, e := user.Current()
+	if e != nil {
+		err = fmt.Errorf("username err: %v, previous err: %v", e, err)
+	} else {
+		un = current.Username
 	}
-	_, err = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, current.Username, jv, ov))
-	if err != nil {
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov))
+	if e != nil {
+		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
 	}
 	msg, ok = shell.PostData(endpoint, "meta", file)
