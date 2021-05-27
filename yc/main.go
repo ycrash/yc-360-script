@@ -439,16 +439,14 @@ func fullProcess(pid int) (rUrl string) {
 	//     Transmit MetaInfo
 	// -------------------------------
 	msg, ok, err := writeMetaInfo(pid, config.GlobalConfig.AppName, endpoint)
-	if err != nil {
-		msg = fmt.Sprintf("capture meta info failed: %s", err.Error())
-	}
 	logger.Log(
 		`META INFO DATA
 Is transmission completed: %t
 Resp: %s
+Ignored errors: %v
 
 --------------------------------
-`, ok, msg)
+`, ok, msg, err)
 
 	if pidPassed && !shell.IsProcessExists(pid) {
 		defer func() {
