@@ -1024,7 +1024,8 @@ processId=%d
 appName=%s
 whoami=%s
 javaVersion=%s
-osVersion=%s`
+osVersion=%s
+tags=%s`
 
 func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool, err error) {
 	file, err := os.Create("meta-info.txt")
@@ -1059,7 +1060,7 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	} else {
 		un = current.Username
 	}
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov))
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov, config.GlobalConfig.Tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
