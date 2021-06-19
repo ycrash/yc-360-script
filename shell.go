@@ -119,7 +119,8 @@ func NewCommand(cmd Command, args ...string) CmdManager {
 		command = exec.Command(cmd[0], cmd[1:]...)
 	}
 	if len(Env) > 0 {
-		command.Env = Env
+		command.Env = os.Environ()
+		command.Env = append(command.Env, Env...)
 	}
 	if wait {
 		return &WaitCmd{command}

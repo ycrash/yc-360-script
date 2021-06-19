@@ -46,6 +46,7 @@ func (t *PS) Continue() (ok bool) {
 	select {
 	case t.c <- struct{}{}:
 		ok = true
+	default:
 	}
 	return
 }
