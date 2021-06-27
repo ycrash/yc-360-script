@@ -28,7 +28,7 @@ type Options struct {
 	ThreadDumpPath string `yaml:"tdPath" usage:"The thread dump file to be uploaded while it exists"`
 	GCPath         string `yaml:"gcPath" usage:"The gc log file to be uploaded while it exists"`
 	JavaHomePath   string `yaml:"j" usage:"The java home path to be used. Default will try to use os env 'JAVA_HOME' if 'JAVA_HOME' is not empty, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
-	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder created during analyse, default is false"`
+	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder created during analyse"`
 
 	ShowVersion bool   `arg:"version" yaml:"-" usage:"Show the version of this program"`
 	ConfigPath  string `arg:"c" yaml:"-" usage:"The config file path to load"`
@@ -119,6 +119,7 @@ func defaultConfig() Config {
 			LogFileMaxSize:  512 * 1024 * 1024,
 			LogLevel:        zerolog.InfoLevel.String(),
 			PingHost:        "google.com",
+			DeferDelete:     true,
 		},
 	}
 }
