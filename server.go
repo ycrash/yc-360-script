@@ -1,10 +1,13 @@
 package shell
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"shell/config"
 	"strconv"
 	"strings"
@@ -32,10 +35,45 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	resp := &Resp{}
-
 	defer func() {
 		encoder.Encode(resp)
 	}()
+
+	forward := request.Header.Get("ycrash-forward")
+	if len(forward) > 0 {
+		fr := request.Clone(context.Background())
+		url, err := url.Parse(forward)
+		if err != nil {
+			resp.Code = -1
+			resp.Msg = err.Error()
+			return
+		}
+		fr.RequestURI = ""
+		fr.URL = url
+		fr.Header.Del("ycrash-forward")
+		fr.Close = true
+		client := http.Client{}
+		r, err := client.Do(fr)
+		if err != nil {
+			resp.Code = -2
+			resp.Msg = err.Error()
+			return
+		}
+		defer r.Body.Close()
+		for key, v := range r.Header {
+			for _, value := range v {
+				writer.Header().Add(key, value)
+			}
+		}
+		writer.WriteHeader(r.StatusCode)
+		_, err = io.Copy(writer, r.Body)
+		if err != nil {
+			resp.Code = -1
+			resp.Msg = err.Error()
+			return
+		}
+		return
+	}
 
 	decoder := json.NewDecoder(request.Body)
 	req := &Req{}
