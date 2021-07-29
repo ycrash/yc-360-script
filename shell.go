@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"shell/logger"
 	"strings"
 )
 
@@ -212,5 +213,16 @@ func CommandStartInBackgroundToFile(name string, cmd Command, args ...string) (f
 		file.Close()
 		file = nil
 	}
+	return
+}
+
+func RunCaptureCmd(pid int, cmd string) (output []byte, err error) {
+	Env = []string{fmt.Sprintf("pid=%d", pid)}
+	output, err = CommandCombinedOutput(SHELL, cmd)
+	logger.Log(`run capture cmd: %s
+pid: %d
+result: %s
+err: %v
+`, cmd, pid, output, err)
 	return
 }

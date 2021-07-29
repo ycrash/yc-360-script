@@ -28,7 +28,8 @@ type Req struct {
 type Resp struct {
 	Code                int
 	Msg                 string
-	DashboardReportURLs []string `json:",omitempty"`
+	DashboardReportURLs []string   `json:",omitempty"`
+	Output              [][]string `json:",omitempty"`
 }
 
 func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
@@ -36,7 +37,10 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	encoder.SetEscapeHTML(false)
 	resp := &Resp{}
 	defer func() {
-		encoder.Encode(resp)
+		err := encoder.Encode(resp)
+		if err != nil {
+			panic(err)
+		}
 	}()
 
 	forward := request.Header.Get("ycrash-forward")
@@ -90,27 +94,65 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	pids, err := parseActions(req.Actions)
+	result, hasCmd, err := parseActions(req.Actions)
 	if err != nil {
 		resp.Code = -1
 		resp.Msg = err.Error()
 		return
 	}
 
-	if req.WaitFor {
-		rUrls, err := s.ProcessPids(pids)
-		if err != nil {
-			resp.Code = -1
-			resp.Msg = err.Error()
-			return
+	if req.WaitFor || hasCmd {
+		var rUrls []string
+		if !hasCmd {
+			var pids []int
+			for _, i := range result {
+				pids = append(pids, i.(int))
+			}
+			rUrls, err = s.ProcessPids(pids)
+			if err != nil {
+				resp.Code = -1
+				resp.Msg = err.Error()
+				return
+			}
+			resp.DashboardReportURLs = rUrls
+		} else {
+			var pid int
+			for _, i := range result {
+				var output []string
+				if p, ok := i.(int); ok {
+					pid = p
+					output = append(output, strconv.Itoa(p))
+					rUrls, err = s.ProcessPids([]int{p})
+					if err == nil {
+						resp.DashboardReportURLs = append(resp.DashboardReportURLs, rUrls...)
+						output = append(output, rUrls...)
+					} else {
+						output = append(output, err.Error())
+					}
+				} else if cmd, ok := i.(string); ok {
+					output = append(output, cmd)
+					out, err := RunCaptureCmd(pid, cmd)
+					if err == nil {
+						output = append(output, string(out))
+					} else {
+						output = append(output, err.Error())
+					}
+				}
+				resp.Output = append(resp.Output, output)
+			}
 		}
-		resp.DashboardReportURLs = rUrls
 		return
 	}
-	go s.ProcessPids(pids)
+	if !hasCmd {
+		var pids []int
+		for _, i := range result {
+			pids = append(pids, i.(int))
+		}
+		go s.ProcessPids(pids)
+	}
 }
 
-func parseActions(actions []string) (pids []int, err error) {
+func parseActions(actions []string) (result []interface{}, hasCmd bool, err error) {
 	for _, s := range actions {
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")
@@ -134,7 +176,7 @@ func parseActions(actions []string) (pids []int, err error) {
 						return
 					}
 					if pid > 0 {
-						pids = append(pids, pid)
+						result = append(result, pid)
 					}
 					pid, err = GetTopMem()
 					if err != nil {
@@ -152,14 +194,14 @@ func parseActions(actions []string) (pids []int, err error) {
 						}
 						for _, pid := range ids {
 							if pid > 0 {
-								pids = append(pids, pid)
+								result = append(result, pid)
 							}
 						}
 						continue
 					}
 				}
 				if pid > 0 {
-					pids = append(pids, pid)
+					result = append(result, pid)
 				}
 			}
 		} else if s == "attendance" {
@@ -171,6 +213,9 @@ Resp: %s
 
 --------------------------------
 `, ok, msg)
+		} else {
+			hasCmd = true
+			result = append(result, s)
 		}
 	}
 	return

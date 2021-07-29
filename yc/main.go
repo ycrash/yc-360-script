@@ -211,7 +211,7 @@ func processPids(pids []int) (rUrls []string, err error) {
 		}
 		set[pid] = struct{}{}
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
-			_, err := runCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+			_, err := shell.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
 				logger.Log("WARNING: runCaptureCmd failed %s", err)
 				continue
