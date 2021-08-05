@@ -10,6 +10,7 @@ var (
 	Top4M3              = Command{"topas", "-P"}
 	VMState             = Command{"vmstat", DynamicArg, DynamicArg}
 	DMesg               = Command{"dmesg"}
+	DMesg2              = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}

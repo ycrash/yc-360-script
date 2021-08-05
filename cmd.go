@@ -17,6 +17,7 @@ type CmdManager interface {
 	Start() error
 	SetStdoutAndStderr(io.Writer)
 	GetPid() int
+	ExitCode() (code int)
 }
 
 type WaitCmd struct {
@@ -54,6 +55,15 @@ func (c *WaitCmd) Wait() {
 		return
 	}
 	_ = c.Cmd.Wait()
+}
+
+func (c *WaitCmd) ExitCode() (code int) {
+	if c.Cmd == nil {
+		code = -1
+		return
+	}
+	code = c.Cmd.ProcessState.ExitCode()
+	return
 }
 
 func (c *WaitCmd) Interrupt() (err error) {

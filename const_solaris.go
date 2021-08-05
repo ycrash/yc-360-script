@@ -18,6 +18,7 @@ var (
 	Top4M3              = Command{WaitCommand, "top", "-bc", "-n", "1"}
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
 	DMesg               = Command{"dmesg"}
+	DMesg2              = Command{"dmesg"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}

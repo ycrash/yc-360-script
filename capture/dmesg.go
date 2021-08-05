@@ -26,6 +26,18 @@ func (t *DMesg) Run() (result Result, err error) {
 		return
 	}
 	t.Cmd.Wait()
+	if t.Cmd.ExitCode() != 0 {
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.DMesg2)
+		if err != nil {
+			return
+		}
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing DMesg"
+			result.Ok = true
+			return
+		}
+		t.Cmd.Wait()
+	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "dmesg", file)
 	return
 }

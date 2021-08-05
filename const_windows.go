@@ -18,6 +18,7 @@ var (
 	Top4M3              = NopCommand
 	VMState             = NopCommand
 	DMesg               = NopCommand
+	DMesg2              = NopCommand
 	GC                  = NopCommand
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
