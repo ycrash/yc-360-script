@@ -46,8 +46,8 @@ func calDuration4Distribution(ip net.IP) time.Duration {
 func attend(typ string) (string, bool) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&apiKey=%s&%s",
-		config.GlobalConfig.Server, typ, config.GlobalConfig.ApiKey, parameters)
+	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&%s",
+		config.GlobalConfig.Server, typ, parameters)
 	if config.GlobalConfig.M3 {
 		endpoint += "&m3=true"
 	}

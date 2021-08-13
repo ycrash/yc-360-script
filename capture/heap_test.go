@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	api  = "tier1app@12312-12233-1442134-112"
-	host = "https://test.gceasy.io"
+	host = "https://gceasy.io"
 )
 
 var (
@@ -38,8 +37,8 @@ func init() {
 	}
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", shell.GetOutboundIP().String(), timestamp)
-	heapEndpoint = fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", host, api, parameters)
-	endpoint = fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
+	heapEndpoint = fmt.Sprintf("%s/yc-receiver-heap?%s", host, parameters)
+	endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", host, parameters)
 }
 
 func TestHeapDump(t *testing.T) {

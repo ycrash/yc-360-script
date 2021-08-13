@@ -130,7 +130,7 @@ Resp: %s
 
 				timestamp := time.Now().Format("2006-01-02T15-04-05")
 				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-				endpoint := fmt.Sprintf("%s/m3-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+				endpoint := fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, parameters)
 				pids, err := process(timestamp, endpoint)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
@@ -147,7 +147,7 @@ Resp: %s
 					ps.WriteString(strconv.Itoa(pids[i]))
 					parameters += "&pids=" + ps.String()
 				}
-				finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+				finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 				resp, err := requestFin(finEp)
 				if err != nil {
 					logger.Log("WARNING: Request M3 Fin failed, %s", err)
@@ -380,7 +380,7 @@ func fullProcess(pid int) (rUrl string) {
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	endpoint := fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 
 	dname := "yc-" + timestamp
 	err = os.Mkdir(dname, 0777)
@@ -517,14 +517,9 @@ Ignored errors: %v
 		vmstat = goCapture(endpoint, capture.WrapRun(capVMStat))
 		logger.Log("Collection of vmstat data started.")
 
-		//  Initialize some loop variables
-		m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
+		logger.Log("Collecting ps snapshot...")
 		capPS = capture.NewPS()
 		ps = goCapture(endpoint, capture.WrapRun(capPS))
-		logger.Log("Collecting ps snapshot...")
-		for n := 1; n <= m; n++ {
-			capPS.Continue()
-		}
 		logger.Log("Collected ps snapshot.")
 
 		// ------------------------------------------------------------------------------
@@ -578,9 +573,6 @@ Ignored errors: %v
 	}
 	if capVMStat != nil {
 		capVMStat.Kill()
-	}
-	if capPS != nil {
-		capPS.Kill()
 	}
 
 	// -------------------------------
@@ -734,7 +726,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	ep := fmt.Sprintf("%s/yc-receiver-heap?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 	hd := config.GlobalConfig.HeapDump
 	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, hd)
 	capHeapDump.SetEndpoint(ep)
@@ -783,7 +775,7 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", config.GlobalConfig.Server, config.GlobalConfig.ApiKey, parameters)
+	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
 	resp, err := requestFin(finEp)
 
 	endTime := time.Now()

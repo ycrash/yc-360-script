@@ -3,17 +3,15 @@ package capture
 import (
 	"fmt"
 	"os"
-
 	"shell"
 )
 
 type PS struct {
 	Capture
-	c chan struct{}
 }
 
 func NewPS() *PS {
-	p := &PS{c: make(chan struct{})}
+	p := &PS{}
 	return p
 }
 
@@ -24,11 +22,8 @@ func (t *PS) Run() (result Result, err error) {
 	}
 	defer ps.Close()
 
-	for {
-		_, ok := <-t.c
-		if !ok {
-			break
-		}
+	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
+	for n := 1; n <= m; n++ {
 		_, err = ps.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
 		if err != nil {
 			return
@@ -39,19 +34,5 @@ func (t *PS) Run() (result Result, err error) {
 		}
 	}
 	result.Msg, result.Ok = shell.PostData(t.endpoint, "ps", ps)
-	return
-}
-
-func (t *PS) Continue() (ok bool) {
-	select {
-	case t.c <- struct{}{}:
-		ok = true
-	default:
-	}
-	return
-}
-
-func (t *PS) Kill() (err error) {
-	close(t.c)
 	return
 }

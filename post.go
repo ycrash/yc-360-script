@@ -117,10 +117,17 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 	}
 	err = position(file)
 	if err != nil {
-		msg = fmt.Sprintf("PostData post err %s", err.Error())
+		msg = fmt.Sprintf("PostData position err %s", err.Error())
 		return
 	}
-	resp, err := httpClient.Post(url, "text", file)
+	req, err := http.NewRequest("POST", url, file)
+	if err != nil {
+		msg = fmt.Sprintf("PostData new req err %s", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "text")
+	req.Header.Set("ApiKey", "config.GlobalConfig.ApiKey")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		msg = fmt.Sprintf("PostData post err %s", err.Error())
 		return
@@ -163,16 +170,22 @@ func GetData(endpoint string) (msg string, ok bool) {
 	httpClient := &http.Client{
 		Transport: transport,
 	}
-	resp, err := httpClient.Get(endpoint)
+	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
-		msg = fmt.Sprintf("PostData post err %s", err.Error())
+		msg = fmt.Sprintf("GetData new req err %s", err.Error())
+		return
+	}
+	req.Header.Set("apiKey", config.GlobalConfig.ApiKey)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		msg = fmt.Sprintf("GetData get err %s", err.Error())
 		return
 	}
 
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
+		msg = fmt.Sprintf("GetData get resp err %s", err.Error())
 		return
 	}
 	msg = fmt.Sprintf("%s\nstatus code %d\n%s", endpoint, resp.StatusCode, body)
