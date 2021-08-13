@@ -126,7 +126,7 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 		return
 	}
 	req.Header.Set("Content-Type", "text")
-	req.Header.Set("ApiKey", "config.GlobalConfig.ApiKey")
+	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		msg = fmt.Sprintf("PostData post err %s", err.Error())
@@ -175,7 +175,7 @@ func GetData(endpoint string) (msg string, ok bool) {
 		msg = fmt.Sprintf("GetData new req err %s", err.Error())
 		return
 	}
-	req.Header.Set("apiKey", config.GlobalConfig.ApiKey)
+	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		msg = fmt.Sprintf("GetData get err %s", err.Error())
