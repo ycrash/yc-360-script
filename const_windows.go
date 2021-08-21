@@ -11,7 +11,7 @@ var topScript []byte
 var (
 	NetState            = Command{"netstat", "-an"}
 	PS                  = Command{"tasklist"}
-	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId"}
+	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId,Commandline"}
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
 	TopH                = NopCommand

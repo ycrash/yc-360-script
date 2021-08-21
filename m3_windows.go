@@ -5,22 +5,15 @@ package shell
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"strconv"
 	"strings"
 
 	"shell/config"
 )
 
-func GetProcessIds(tokens config.ProcessTokens) (pids []int, err error) {
-	arg := "("
-	for i, token := range tokens {
-		arg += "Commandline like '%" + string(token) + "%' "
-		if i != len(tokens)-1 {
-			arg += "or "
-		}
-	}
-	arg += ") "
-	arg += "and Name != 'WMIC.exe'"
+func GetProcessIds(tokens config.ProcessTokens) (pids map[int]string, err error) {
+	arg := "Name != 'WMIC.exe'"
 	command, err := M3PS.addDynamicArg(arg)
 	if err != nil {
 		return
@@ -30,28 +23,57 @@ func GetProcessIds(tokens config.ProcessTokens) (pids []int, err error) {
 		return
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
+	pids = make(map[int]string)
+	if !scanner.Scan() {
+		err = errors.New("no line found in the commandline result")
+		return
+	}
+	header := scanner.Text()
+	header = strings.TrimSpace(header)
+	indexName := strings.Index(header, "Name")
+	if indexName < 0 {
+		err = errors.New("name in the header line")
+		return
+	}
+
 Next:
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
-		columns := strings.Split(line, " ")
-		var col []string
-		for _, column := range columns {
-			if len(column) > 0 {
-				col = append(col, column)
+		for _, t := range tokens {
+			token := string(t)
+			var appName string
+			index := strings.Index(token, "$")
+			if index >= 0 {
+				appName = token[index+1:]
+				token = token[:index]
+			}
+
+			p := strings.Index(line, token)
+			if p >= 0 {
+				line = line[indexName:]
+				columns := strings.Split(line, " ")
+				var col []string
+				for _, column := range columns {
+					if len(column) > 0 {
+						col = append(col, column)
+						if len(col) > 1 {
+							break
+						}
+					}
+				}
 				if len(col) > 1 {
-					break
+					id := strings.TrimSpace(col[1])
+					pid, err := strconv.Atoi(id)
+					if err != nil {
+						continue Next
+					}
+					if _, ok := pids[pid]; !ok {
+						pids[pid] = appName
+					}
+					continue Next
 				}
 			}
-		}
-		if len(col) > 1 {
-			id := strings.TrimSpace(col[1])
-			pid, err := strconv.Atoi(id)
-			if err != nil {
-				continue Next
-			}
-			pids = append(pids, pid)
-			continue Next
 		}
 	}
 	return

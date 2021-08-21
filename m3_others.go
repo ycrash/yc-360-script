@@ -12,19 +12,28 @@ import (
 	"shell/config"
 )
 
-func GetProcessIds(tokens config.ProcessTokens) (pids []int, err error) {
+func GetProcessIds(tokens config.ProcessTokens) (pids map[int]string, err error) {
 	output, err := CommandCombinedOutput(M3PS)
 	if err != nil {
 		return
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	cpid := os.Getpid()
+	pids = make(map[int]string)
 Next:
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
-		for _, token := range tokens {
-			p := strings.Index(line, string(token))
+		for _, t := range tokens {
+			token := string(t)
+			var appName string
+			index := strings.Index(token, "$")
+			if index >= 0 {
+				appName = token[index+1:]
+				token = token[:index]
+			}
+
+			p := strings.Index(line, token)
 			if p >= 0 {
 				columns := strings.Split(line, " ")
 				var col []string
@@ -45,7 +54,9 @@ Next:
 					if pid == cpid {
 						continue Next
 					}
-					pids = append(pids, pid)
+					if _, ok := pids[pid]; !ok {
+						pids[pid] = appName
+					}
 					continue Next
 				}
 			}

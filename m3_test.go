@@ -12,7 +12,7 @@ func TestGetProcessIds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
-	ids, err := GetProcessIds(config.ProcessTokens{"MyClass"})
+	ids, err := GetProcessIds(config.ProcessTokens{"MyClass$appNameTest"})
 	if err != nil {
 		t.Fatal(err)
 	}

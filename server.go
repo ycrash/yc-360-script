@@ -187,12 +187,12 @@ func parseActions(actions []string) (result []interface{}, hasCmd bool, err erro
 					pid, e = strconv.Atoi(id)
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
-						var ids []int
+						var ids map[int]string
 						ids, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)})
 						if e != nil {
 							continue
 						}
-						for _, pid := range ids {
+						for pid := range ids {
 							if pid > 0 {
 								result = append(result, pid)
 							}

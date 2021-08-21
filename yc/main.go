@@ -264,16 +264,10 @@ func process(timestamp string, endpoint string) (pidSlice []int, err error) {
 
 	pids, err := shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
 	if err == nil && len(pids) > 0 {
-		set := make(map[int]struct{}, len(pids))
-		for i := 0; i < len(pids); i++ {
-			pid := pids[i]
-			if _, ok := set[pid]; ok {
-				continue
-			}
-			set[pid] = struct{}{}
+		for pid, appName := range pids {
 			pidSlice = append(pidSlice, pid)
 			logger.Log("uploading gc log for pid %d", pid)
-			uploadGCLog(endpoint, pid)
+			uploadGCLog(endpoint, pid, appName)
 		}
 	} else {
 		logger.Log("WARNING: No PID has ProcessTokens or failed by error %v", err)
@@ -296,7 +290,7 @@ Resp: %s
 	return
 }
 
-func uploadGCLog(endpoint string, pid int) {
+func uploadGCLog(endpoint string, pid int, name string) {
 	var gcp string
 	bs, err := runGCCaptureCmd(pid)
 	if err == nil && len(bs) > 0 {
@@ -336,7 +330,7 @@ func uploadGCLog(endpoint string, pid int) {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
+	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d&app=%s", pid, name), gc, shell.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcp)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
