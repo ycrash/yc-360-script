@@ -83,11 +83,6 @@ func mainLoop() {
 			config.ShowUsage()
 			os.Exit(1)
 		}
-		if strings.Index(config.GlobalConfig.ApiKey, "@") < 0 {
-			logger.Log("'-k' yCrash API Key argument is invalid.")
-			config.ShowUsage()
-			os.Exit(1)
-		}
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
@@ -774,8 +769,7 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	ou := config.GlobalConfig.ApiKey[:strings.Index(config.GlobalConfig.ApiKey, "@")]
-	finEp := fmt.Sprintf("%s/yc-fin?ou=%s&%s", config.GlobalConfig.Server, ou, parameters)
+	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
 	resp, err := requestFin(finEp)
 
 	endTime := time.Now()
