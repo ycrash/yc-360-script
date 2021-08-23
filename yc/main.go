@@ -7,6 +7,8 @@ package main
 //                      Changed minor changes to messages printed on the screen
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -771,6 +773,10 @@ Resp: %s
 	// -------------------------------
 	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
 	resp, err := requestFin(finEp)
+	if err != nil {
+		logger.Log("post yc-fin err %s", err.Error())
+		err = nil
+	}
 
 	endTime := time.Now()
 	var result string
@@ -798,7 +804,31 @@ func requestFin(endpoint string) (resp []byte, err error) {
 		err = errors.New("in only capture mode")
 		return
 	}
-	post, err := http.Post(endpoint, "text", nil)
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+	}
+	path := config.GlobalConfig.CACertPath
+	if len(path) > 0 {
+		pool := x509.NewCertPool()
+		var ca []byte
+		ca, err = ioutil.ReadFile(path)
+		if err != nil {
+			return
+		}
+		pool.AppendCertsFromPEM(ca)
+		transport.TLSClientConfig.RootCAs = pool
+	}
+	httpClient := &http.Client{
+		Transport: transport,
+	}
+	req, err := http.NewRequest("POST", endpoint, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "text")
+	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
+	post, err := httpClient.Do(req)
 	if err == nil {
 		defer post.Body.Close()
 		resp, err = ioutil.ReadAll(post.Body)
@@ -810,9 +840,6 @@ Resp: %s
 --------------------------------
 `, endpoint, resp)
 		}
-	}
-	if err != nil {
-		logger.Log("post yc-fin err %s", err.Error())
 	}
 	return
 }
