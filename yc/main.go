@@ -140,14 +140,19 @@ Resp: %s
 				}
 
 				if len(pids) > 0 {
-					var ps strings.Builder
+					var ps, ns strings.Builder
 					i := 0
-					for ; i < len(pids)-1; i++ {
-						ps.WriteString(strconv.Itoa(pids[i]))
+					for pid, name := range pids {
+						ps.WriteString(strconv.Itoa(pid))
+						ns.WriteString(name)
+						i++
+						if i == len(pids) {
+							break
+						}
 						ps.WriteString("-")
+						ns.WriteString("-")
 					}
-					ps.WriteString(strconv.Itoa(pids[i]))
-					parameters += "&pids=" + ps.String()
+					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
 				finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 				resp, err := requestFin(finEp)
@@ -228,7 +233,7 @@ func processPids(pids []int) (rUrls []string, err error) {
 	return
 }
 
-func process(timestamp string, endpoint string) (pidSlice []int, err error) {
+func process(timestamp string, endpoint string) (pids map[int]string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -259,12 +264,11 @@ func process(timestamp string, endpoint string) (pidSlice []int, err error) {
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
-	pids, err := shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
+	pids, err = shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
 	if err == nil && len(pids) > 0 {
-		for pid, appName := range pids {
-			pidSlice = append(pidSlice, pid)
+		for pid := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
-			uploadGCLog(endpoint, pid, appName)
+			uploadGCLog(endpoint, pid)
 		}
 	} else {
 		logger.Log("WARNING: No PID has ProcessTokens or failed by error %v", err)
@@ -287,7 +291,7 @@ Resp: %s
 	return
 }
 
-func uploadGCLog(endpoint string, pid int, name string) {
+func uploadGCLog(endpoint string, pid int) {
 	var gcp string
 	bs, err := runGCCaptureCmd(pid)
 	if err == nil && len(bs) > 0 {
@@ -327,7 +331,7 @@ func uploadGCLog(endpoint string, pid int, name string) {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d&app=%s", pid, name), gc, shell.PositionLast5000Lines)
+	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcp)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
