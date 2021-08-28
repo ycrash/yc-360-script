@@ -7,6 +7,8 @@ package main
 //                      Changed minor changes to messages printed on the screen
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -294,6 +296,7 @@ Resp: %s
 func uploadGCLog(endpoint string, pid int) {
 	var gcp string
 	bs, err := runGCCaptureCmd(pid)
+	dockerID, _ := shell.GetDockerID(pid)
 	if err == nil && len(bs) > 0 {
 		gcp = string(bs)
 	} else {
@@ -304,7 +307,7 @@ func uploadGCLog(endpoint string, pid int) {
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = processGCLogFile(gcp, fn)
+	gc, err = processGCLogFile(gcp, fn, dockerID)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
@@ -354,12 +357,17 @@ func fullProcess(pid int) (rUrl string) {
 		pidPassed = false
 	}
 
-	// find gc log path in from command line arguments of ps result
-	if pidPassed && len(config.GlobalConfig.GCPath) < 1 {
-		output, err := getGCLogFile(pid)
-		if err == nil && len(output) > 0 {
-			config.GlobalConfig.GCPath = output
+	var dockerID string
+	if pidPassed {
+		// find gc log path in from command line arguments of ps result
+		if len(config.GlobalConfig.GCPath) < 1 {
+			output, err := getGCLogFile(pid)
+			if err == nil && len(output) > 0 {
+				config.GlobalConfig.GCPath = output
+			}
 		}
+
+		dockerID, _ = shell.GetDockerID(pid)
 	}
 
 	logger.Log("PID is %d", pid)
@@ -368,6 +376,9 @@ func fullProcess(pid int) (rUrl string) {
 	logger.Log("APP_NAME is %s", config.GlobalConfig.AppName)
 	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
 	logger.Log("GC_LOG is %s", config.GlobalConfig.GCPath)
+	if len(dockerID) > 0 {
+		logger.Log("DOCKER_ID is %s", dockerID)
+	}
 
 	var err error
 	defer func() {
@@ -457,7 +468,7 @@ Ignored errors: %v
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log")
+	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log", dockerID)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
@@ -862,7 +873,7 @@ func getGCLogFile(pid int) (result string, err error) {
 
 	var fp []byte
 	if len(loggc) > 1 {
-		fre := regexp.MustCompile("file=(.+?):")
+		fre := regexp.MustCompile("file=(.+?)[: ]")
 		submatch := fre.FindSubmatch(loggc)
 		if len(submatch) >= 2 {
 			fp = submatch[1]
@@ -887,7 +898,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	return
 }
 
-func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
+func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
 	}
@@ -921,16 +932,25 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 			gcPath = filepath.Join(d, tf)
 		}
 	}
-	gcf, err := os.Open(gcPath)
-	// config.GlobalConfig.GCPath exists, cp it
-	if err == nil {
-		defer gcf.Close()
-		gc, err = os.Create(out)
-		if err != nil {
+	if len(dockerID) > 0 {
+		err = shell.DockerCopy(out, dockerID+":"+gcPath)
+		if err == nil {
+			gc, err = os.Open(out)
 			return
 		}
-		_, err = io.Copy(gc, gcf)
-		return
+	} else {
+		var gcf *os.File
+		gcf, err = os.Open(gcPath)
+		// config.GlobalConfig.GCPath exists, cp it
+		if err == nil {
+			defer gcf.Close()
+			gc, err = os.Create(out)
+			if err != nil {
+				return
+			}
+			_, err = io.Copy(gc, gcf)
+			return
+		}
 	}
 	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
 	// err is other than not exists
@@ -941,14 +961,28 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 	// config.GlobalConfig.GCPath is not exists, maybe using -XX:+UseGCLogFileRotation
 	d := filepath.Dir(gcPath)
 	logName := filepath.Base(gcPath)
-	open, err := os.Open(d)
-	if err != nil {
-		return nil, err
-	}
-	defer open.Close()
-	fs, err := open.Readdirnames(0)
-	if err != nil {
-		return nil, err
+	var fs []string
+	if len(dockerID) > 0 {
+		output, err := shell.DockerExecute(dockerID, "ls", "-1", d)
+		if err != nil {
+			return nil, err
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(output))
+		for scanner.Scan() {
+			line := scanner.Text()
+			line = strings.TrimSpace(line)
+			fs = append(fs, line)
+		}
+	} else {
+		open, err := os.Open(d)
+		if err != nil {
+			return nil, err
+		}
+		defer open.Close()
+		fs, err = open.Readdirnames(0)
+		if err != nil {
+			return nil, err
+		}
 	}
 	re := regexp.MustCompile(logName + "\\.([0-9]+?)\\.current")
 	reo := regexp.MustCompile(logName + "\\.([0-9]+)")
@@ -978,10 +1012,6 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 	if err != nil {
 		return
 	}
-	gc, err = os.Create(out)
-	if err != nil {
-		return
-	}
 	// try to find previous log
 	var preLog string
 	if len(files) == 1 {
@@ -1004,9 +1034,21 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 			}
 		}
 	}
+	gc, err = os.Create(out)
+	if err != nil {
+		return
+	}
 	if len(preLog) > 0 {
 		logger.Log("collecting previous gc log %s", preLog)
-		err = copyFile(gc, preLog)
+		if len(dockerID) > 0 {
+			tmp := filepath.Join(os.TempDir(), out+".pre")
+			err = shell.DockerCopy(tmp, dockerID+":"+preLog)
+			if err == nil {
+				err = copyFile(gc, tmp)
+			}
+		} else {
+			err = copyFile(gc, preLog)
+		}
 		if err != nil {
 			logger.Log("failed to collect previous gc log %s", err.Error())
 		} else {
@@ -1016,7 +1058,15 @@ func processGCLogFile(gcPath string, out string) (gc *os.File, err error) {
 
 	curLog := filepath.Join(d, rf[0])
 	logger.Log("collecting previous gc log %s", curLog)
-	err = copyFile(gc, curLog)
+	if len(dockerID) > 0 {
+		tmp := filepath.Join(os.TempDir(), out+".cur")
+		err = shell.DockerCopy(tmp, dockerID+":"+curLog)
+		if err == nil {
+			err = copyFile(gc, tmp)
+		}
+	} else {
+		err = copyFile(gc, curLog)
+	}
 	if err != nil {
 		logger.Log("failed to collect previous gc log %s", err.Error())
 	} else {

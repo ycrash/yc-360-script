@@ -196,7 +196,7 @@ func TestProcessLogFile(t *testing.T) {
 		if len(out) < 1 {
 			out = fname
 		}
-		gc, err := processGCLogFile(filepath.Join(dir, fname), filepath.Join(dir, out))
+		gc, err := processGCLogFile(filepath.Join(dir, fname), filepath.Join(dir, out), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,7 +238,7 @@ func TestProcessLogFile(t *testing.T) {
 	})
 	t.Run("gcPath-not-exists", func(t *testing.T) {
 		_, err := processGCLogFile("gc-rotation-logs/0-current/1/gc.log.current",
-			"gc-rotation-logs/0-current/1/gc.log")
+			"gc-rotation-logs/0-current/1/gc.log", "")
 		if err != nil && errors.Is(err, os.ErrNotExist) && strings.Contains(err.Error(), "can not find the current log file,") {
 		} else {
 			t.Fatal(err)

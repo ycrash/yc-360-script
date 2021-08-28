@@ -25,4 +25,8 @@ var (
 	Ping                = Command{WaitCommand, "ping", "-c", "6"}
 
 	SHELL = Command{"/bin/sh", "-c"}
+
+	DockerInfo = Command{"/bin/sh", "-c", "docker ps -q | xargs docker inspect --format '{{.State.Pid}} {{.Id}}'"}
+	DockerCP   = Command{"docker", "cp"}
+	DockerExec = Command{"docker", "exec"}
 )

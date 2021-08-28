@@ -16,6 +16,7 @@ import (
 )
 
 const hdOut = "heap_dump.out"
+const hdZip = "heap_dump.zip"
 
 type HeapDump struct {
 	Capture
@@ -38,12 +39,26 @@ func (t *HeapDump) Run() (result Result, err error) {
 			logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
 		} else {
 			logger.Log("copying heap dump data %s", t.hdPath)
-			defer hdf.Close()
+			defer func() {
+				err := hdf.Close()
+				if err != nil {
+					logger.Log("failed to close hd file %s", t.hdPath)
+				}
+			}()
 			hd, err = os.Create(hdOut)
 			if err != nil {
 				return
 			}
-			defer hd.Close()
+			defer func() {
+				err := hd.Close()
+				if err != nil {
+					logger.Log("failed to close hd file %s", hdOut)
+				}
+				err = os.Remove(hdOut)
+				if err != nil {
+					logger.Log("failed to rm hd file %s", hdOut)
+				}
+			}()
 			_, err = io.Copy(hd, hdf)
 			if err != nil {
 				return
@@ -75,7 +90,16 @@ func (t *HeapDump) Run() (result Result, err error) {
 			err = fmt.Errorf("failed to open heap dump file: %w", err)
 			return
 		}
-		defer hd.Close()
+		defer func() {
+			err := hd.Close()
+			if err != nil {
+				logger.Log("failed to close hd file %s", hdOut)
+			}
+			err = os.Remove(hdOut)
+			if err != nil {
+				logger.Log("failed to rm hd file %s", hdOut)
+			}
+		}()
 		logger.Log("captured heap dump data")
 	}
 	if hd == nil {
@@ -85,12 +109,17 @@ func (t *HeapDump) Run() (result Result, err error) {
 		result.Msg = "skipped heap dump"
 		return
 	}
-	zipfile, err := os.Create("heap_dump.zip")
+	zipfile, err := os.Create(hdZip)
 	if err != nil {
 		err = fmt.Errorf("failed to create zip file: %w", err)
 		return
 	}
-	defer zipfile.Close()
+	defer func() {
+		err := zipfile.Close()
+		if err != nil {
+			logger.Log("failed to close hd zip file %s", hdZip)
+		}
+	}()
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
 	out, err := writer.Create(hdOut)
 	if err != nil {
