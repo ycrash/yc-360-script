@@ -12,7 +12,7 @@ func TestConfig(t *testing.T) {
 		c := &Config{
 			Version: "1",
 			Options: Options{
-				Pid:            0,
+				Pid:            "0",
 				ApiKey:         "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc",
 				Server:         "https://test.gceasy.io",
 				AppName:        "aps",

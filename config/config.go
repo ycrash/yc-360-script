@@ -19,7 +19,7 @@ type Config struct {
 }
 
 type Options struct {
-	Pid            int    `yaml:"p" usage:"The process Id of the target, for example: 3121"`
+	Pid            string `yaml:"p" usage:"The process ID or unique token of the target, for example: 3121, or 'buggyApp'"`
 	ApiKey         string `yaml:"k" usage:"The API Key that will be used to make API requests, for example: tier1app@12312-12233-1442134-112"`
 	Server         string `yaml:"s" usage:"The server url that will be used to upload data, for example: https://ycrash.companyname.com"`
 	AppName        string `yaml:"a" usage:"The APP Name of the target"`

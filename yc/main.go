@@ -173,8 +173,27 @@ Resp: %s
 				}
 			}
 		}()
-	} else if config.GlobalConfig.Pid > 0 {
-		fullProcess(config.GlobalConfig.Pid)
+	} else if len(config.GlobalConfig.Pid) > 0 {
+		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
+		if err != nil {
+			ids, err := shell.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)})
+			if err == nil {
+				if len(ids) > 0 {
+					for pid := range ids {
+						if pid < 1 {
+							continue
+						}
+						fullProcess(pid)
+					}
+				} else {
+					logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
+				}
+			} else {
+				logger.Log("unexpected error %s", err)
+			}
+		} else {
+			fullProcess(pid)
+		}
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
 		logger.Log("WARNING: nothing can be done")
