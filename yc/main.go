@@ -213,11 +213,18 @@ Resp: %s
 }
 
 func processResp(resp []byte) (err error) {
-	pids, err := shell.ParseJsonResp(resp)
+	pids, tags, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
 	}
+	t := strings.Join(tags, ",")
+	tmp := config.GlobalConfig.Tags
+	ts := strings.TrimRight(tmp, ",")
+	config.GlobalConfig.Tags = ts + "," + t
+	defer func() {
+		config.GlobalConfig.Tags = tmp
+	}()
 	_, err = processPids(pids)
 	return
 }
