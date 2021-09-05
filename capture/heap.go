@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 
 	"shell"
@@ -35,6 +36,10 @@ func (t *HeapDump) Run() (result Result, err error) {
 	if len(t.hdPath) > 0 {
 		var hdf *os.File
 		hdf, err = os.Open(t.hdPath)
+		if err != nil && runtime.GOOS == "linux" {
+			logger.Log("try to read in docker, because failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
+			hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
+		}
 		if err != nil {
 			logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
 		} else {
@@ -78,12 +83,18 @@ func (t *HeapDump) Run() (result Result, err error) {
 			return
 		}
 		var output []byte
-		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", filepath.Join(dir, hdOut)})
+		fp := filepath.Join(dir, hdOut)
+		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp})
 		if err != nil {
 			if len(output) > 1 {
 				err = fmt.Errorf("%w because %s", err, output)
 			}
-			return
+			var e2 error
+			output, e2 = shell.CommandCombinedOutput(shell.Command{"./jattach", strconv.Itoa(t.Pid), "dumpheap", fp})
+			if e2 != nil {
+				err = fmt.Errorf("%w, %v", e2, err)
+				return
+			}
 		}
 		hd, err = os.Open(hdOut)
 		if err != nil {

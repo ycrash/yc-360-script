@@ -40,10 +40,22 @@ func (t *JStack) Run() (result Result, err error) {
 			if !ok {
 				return
 			}
-			jstack, err := shell.CommandCombinedOutputToFile(fmt.Sprintf("javacore.%d.out", n),
+			fn := fmt.Sprintf("javacore.%d.out", n)
+			jstack, err := shell.CommandCombinedOutputToFile(fn,
 				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)})
 			if err != nil {
-				e1 <- err
+				logger.Log("trying jattach, because failed to run jstack with err %v", err)
+				if jstack != nil {
+					err = shell.CommandCombinedOutputToWriter(jstack,
+						shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+				} else {
+					jstack, err = shell.CommandCombinedOutputToFile(fn,
+						shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+				}
+				if err != nil {
+					e1 <- err
+					return
+				}
 			}
 			defer jstack.Close()
 
@@ -108,6 +120,10 @@ func (t JStackF) Run() (result Result, err error) {
 		t.jstack.Seek(0, 0)
 		err = shell.CommandCombinedOutputToWriter(t.jstack,
 			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)})
+		if err != nil {
+			err = shell.CommandCombinedOutputToWriter(t.jstack,
+				shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+		}
 	}
 	return
 }

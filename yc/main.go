@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -326,7 +327,7 @@ func uploadGCLog(endpoint string, pid int) {
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = processGCLogFile(gcp, fn, dockerID)
+	gc, err = processGCLogFile(gcp, fn, dockerID, pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
@@ -487,7 +488,7 @@ Ignored errors: %v
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log", dockerID)
+	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log", dockerID, pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
@@ -499,7 +500,19 @@ Ignored errors: %v
 			config.GlobalConfig.GCPath = "gc.log"
 			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
 		} else {
-			defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			if gc == nil {
+				gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
+					shell.Command{"./jattach", strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+			} else {
+				jstat, err = shell.CommandStartInBackgroundToWriter(gc,
+					shell.Command{"./jattach", strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+			}
+			if err == nil {
+				config.GlobalConfig.GCPath = "gc.log"
+				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+			} else {
+				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			}
 		}
 	}
 	defer func() {
@@ -917,7 +930,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	return
 }
 
-func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, err error) {
+func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
 	}
@@ -958,16 +971,12 @@ func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, 
 			return
 		}
 	} else {
-		var gcf *os.File
-		gcf, err = os.Open(gcPath)
-		// config.GlobalConfig.GCPath exists, cp it
+		gc, err = os.Create(out)
+		if err != nil {
+			return
+		}
+		err = copyFile(gc, gcPath, pid)
 		if err == nil {
-			defer gcf.Close()
-			gc, err = os.Create(out)
-			if err != nil {
-				return
-			}
-			_, err = io.Copy(gc, gcf)
 			return
 		}
 	}
@@ -1053,9 +1062,11 @@ func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, 
 			}
 		}
 	}
-	gc, err = os.Create(out)
-	if err != nil {
-		return
+	if gc == nil {
+		gc, err = os.Create(out)
+		if err != nil {
+			return
+		}
 	}
 	if len(preLog) > 0 {
 		logger.Log("collecting previous gc log %s", preLog)
@@ -1063,10 +1074,10 @@ func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, 
 			tmp := filepath.Join(os.TempDir(), out+".pre")
 			err = shell.DockerCopy(tmp, dockerID+":"+preLog)
 			if err == nil {
-				err = copyFile(gc, tmp)
+				err = copyFile(gc, tmp, pid)
 			}
 		} else {
-			err = copyFile(gc, preLog)
+			err = copyFile(gc, preLog, pid)
 		}
 		if err != nil {
 			logger.Log("failed to collect previous gc log %s", err.Error())
@@ -1081,10 +1092,10 @@ func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, 
 		tmp := filepath.Join(os.TempDir(), out+".cur")
 		err = shell.DockerCopy(tmp, dockerID+":"+curLog)
 		if err == nil {
-			err = copyFile(gc, tmp)
+			err = copyFile(gc, tmp, pid)
 		}
 	} else {
-		err = copyFile(gc, curLog)
+		err = copyFile(gc, curLog, pid)
 	}
 	if err != nil {
 		logger.Log("failed to collect previous gc log %s", err.Error())
@@ -1095,8 +1106,12 @@ func processGCLogFile(gcPath string, out string, dockerID string) (gc *os.File, 
 }
 
 // combine previous gc log to new gc log
-func copyFile(gc *os.File, file string) (err error) {
+func copyFile(gc *os.File, file string, pid int) (err error) {
 	log, err := os.Open(file)
+	if err != nil && runtime.GOOS == "linux" {
+		logger.Log("try to read file in docker, because failed to open %v", err)
+		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
+	}
 	if err != nil {
 		return
 	}
