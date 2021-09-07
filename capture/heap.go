@@ -90,13 +90,18 @@ func (t *HeapDump) Run() (result Result, err error) {
 				err = fmt.Errorf("%w because %s", err, output)
 			}
 			var e2 error
+			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d", hdOut, t.Pid))
 			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.JAttach, strconv.Itoa(t.Pid), "dumpheap", fp})
 			if e2 != nil {
 				err = fmt.Errorf("%w, %v", e2, err)
 				return
 			}
 		}
-		hd, err = os.Open(hdOut)
+		hd, err = os.Open(fp)
+		if err != nil && runtime.GOOS == "linux" {
+			logger.Log("try to open file in docker, because failed to open %v", err)
+			hd, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp))
+		}
 		if err != nil {
 			err = fmt.Errorf("failed to open heap dump file: %w", err)
 			return
