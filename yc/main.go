@@ -1116,7 +1116,7 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 func copyFile(gc *os.File, file string, pid int) (err error) {
 	log, err := os.Open(file)
 	if err != nil && runtime.GOOS == "linux" {
-		logger.Log("try to read file in docker, because failed to open %v", err)
+		logger.Log("try to open file in docker, because failed to %v", err)
 		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
 	}
 	if err != nil {

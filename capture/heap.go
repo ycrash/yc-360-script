@@ -99,7 +99,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		}
 		hd, err = os.Open(fp)
 		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("try to open file in docker, because failed to open %v", err)
+			logger.Log("try to open file in docker, because failed to %v", err)
 			fp = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp)
 			hd, err = os.Open(fp)
 		}
