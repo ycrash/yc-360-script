@@ -100,7 +100,8 @@ func (t *HeapDump) Run() (result Result, err error) {
 		hd, err = os.Open(fp)
 		if err != nil && runtime.GOOS == "linux" {
 			logger.Log("try to open file in docker, because failed to open %v", err)
-			hd, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp))
+			fp = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp)
+			hd, err = os.Open(fp)
 		}
 		if err != nil {
 			err = fmt.Errorf("failed to open heap dump file: %w", err)
@@ -109,11 +110,11 @@ func (t *HeapDump) Run() (result Result, err error) {
 		defer func() {
 			err := hd.Close()
 			if err != nil {
-				logger.Log("failed to close hd file %s", hdOut)
+				logger.Log("failed to close hd file %s", fp)
 			}
-			err = os.Remove(hdOut)
+			err = os.Remove(fp)
 			if err != nil {
-				logger.Log("failed to rm hd file %s", hdOut)
+				logger.Log("failed to rm hd file %s", fp)
 			}
 		}()
 		logger.Log("captured heap dump data")
