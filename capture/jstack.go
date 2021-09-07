@@ -47,10 +47,10 @@ func (t *JStack) Run() (result Result, err error) {
 				logger.Log("trying jattach, because failed to run jstack with err %v", err)
 				if jstack != nil {
 					err = shell.CommandCombinedOutputToWriter(jstack,
-						shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+						shell.Command{shell.JAttach, strconv.Itoa(t.pid), "threaddump"})
 				} else {
 					jstack, err = shell.CommandCombinedOutputToFile(fn,
-						shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+						shell.Command{shell.JAttach, strconv.Itoa(t.pid), "threaddump"})
 				}
 				if err != nil {
 					e1 <- err
@@ -122,7 +122,7 @@ func (t JStackF) Run() (result Result, err error) {
 			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)})
 		if err != nil {
 			err = shell.CommandCombinedOutputToWriter(t.jstack,
-				shell.Command{"./jattach", strconv.Itoa(t.pid), "threaddump"})
+				shell.Command{shell.JAttach, strconv.Itoa(t.pid), "threaddump"})
 		}
 	}
 	return

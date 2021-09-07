@@ -509,10 +509,10 @@ Ignored errors: %v
 		} else {
 			if gc == nil {
 				gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-					shell.Command{"./jattach", strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+					shell.Command{shell.JAttach, strconv.Itoa(pid), "jcmd", "GC.class_stats"})
 			} else {
 				jstat, err = shell.CommandStartInBackgroundToWriter(gc,
-					shell.Command{"./jattach", strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+					shell.Command{shell.JAttach, strconv.Itoa(pid), "jcmd", "GC.class_stats"})
 			}
 			if err == nil {
 				config.GlobalConfig.GCPath = "gc.log"

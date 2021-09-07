@@ -90,7 +90,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 				err = fmt.Errorf("%w because %s", err, output)
 			}
 			var e2 error
-			output, e2 = shell.CommandCombinedOutput(shell.Command{"./jattach", strconv.Itoa(t.Pid), "dumpheap", fp})
+			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.JAttach, strconv.Itoa(t.Pid), "dumpheap", fp})
 			if e2 != nil {
 				err = fmt.Errorf("%w, %v", e2, err)
 				return
