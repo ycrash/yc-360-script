@@ -54,7 +54,11 @@ type Options struct {
 	OnlyCapture bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
 
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
-	Tags     string `yaml:"tags" usage:"comma delimited strings as tags to transmit to server"`
+	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`
+
+	GCCaptureMode bool `yaml:"gcCaptureMode" usage:"Run in GC Capture mode"`
+	TDCaptureMode bool `yaml:"tdCaptureMode" usage:"Run in Thread Dump Capture mode"`
+	HDCaptureMode bool `yaml:"hdCaptureMode" usage:"Run in Heap Dump Capture mode"`
 
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`

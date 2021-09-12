@@ -1,6 +1,9 @@
 package shell
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 // ------------------------------------------------------------------------------
 //  Customer specific Properties
@@ -31,4 +34,10 @@ func NowString() string {
 	return time.Now().Format("Mon Jan 2 15:04:05 MST 2006 ")
 }
 
-const JAttach = "../jattach"
+func Executable() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "../yc"
+	}
+	return exe
+}

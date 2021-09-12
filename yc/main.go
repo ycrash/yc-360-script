@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	ycattach "shell/ycattach"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +52,38 @@ func main() {
 		config.GlobalConfig.LogFileMaxSize, config.GlobalConfig.LogLevel)
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+
+	if config.GlobalConfig.GCCaptureMode {
+		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
+		if err != nil {
+			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
+			os.Exit(1)
+		}
+		ret := ycattach.CaptureGCLog(pid)
+		os.Exit(ret)
+	}
+	if config.GlobalConfig.TDCaptureMode {
+		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
+		if err != nil {
+			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
+			os.Exit(1)
+		}
+		ret := ycattach.CaptureThreadDump(pid)
+		os.Exit(ret)
+	}
+	if config.GlobalConfig.HDCaptureMode {
+		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
+		if err != nil {
+			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
+			os.Exit(1)
+		}
+		if len(config.GlobalConfig.HeapDumpPath) <= 0 {
+			logger.Log("-hdPath can not be empty")
+			os.Exit(1)
+		}
+		ret := ycattach.CaptureHeapDump(pid, config.GlobalConfig.HeapDumpPath)
+		os.Exit(ret)
 	}
 
 	osSig := make(chan os.Signal, 1)
@@ -509,10 +542,10 @@ Ignored errors: %v
 		} else {
 			if gc == nil {
 				gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-					shell.Command{shell.JAttach, strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+					shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
 			} else {
 				jstat, err = shell.CommandStartInBackgroundToWriter(gc,
-					shell.Command{shell.JAttach, strconv.Itoa(pid), "jcmd", "GC.class_stats"})
+					shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
 			}
 			if err == nil {
 				config.GlobalConfig.GCPath = "gc.log"
@@ -1116,7 +1149,7 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 func copyFile(gc *os.File, file string, pid int) (err error) {
 	log, err := os.Open(file)
 	if err != nil && runtime.GOOS == "linux" {
-		logger.Log("try to open file in docker, because failed to %v", err)
+		logger.Log("Failed to %s. Trying to open in the Docker container...", err)
 		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
 	}
 	if err != nil {

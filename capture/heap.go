@@ -37,7 +37,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		var hdf *os.File
 		hdf, err = os.Open(t.hdPath)
 		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("try to read in docker, because failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
+			logger.Log("Failed to %s. Trying to open in the Docker container...", t.hdPath, err.Error())
 			hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
 		}
 		if err != nil {
@@ -47,7 +47,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 			defer func() {
 				err := hdf.Close()
 				if err != nil {
-					logger.Log("failed to close hd file %s", t.hdPath)
+					logger.Log("failed to close hd file %s cause err: %s", t.hdPath, err.Error())
 				}
 			}()
 			hd, err = os.Create(hdOut)
@@ -57,11 +57,11 @@ func (t *HeapDump) Run() (result Result, err error) {
 			defer func() {
 				err := hd.Close()
 				if err != nil {
-					logger.Log("failed to close hd file %s", hdOut)
+					logger.Log("failed to close hd file %s cause err: %s", hdOut, err.Error())
 				}
 				err = os.Remove(hdOut)
 				if err != nil {
-					logger.Log("failed to rm hd file %s", hdOut)
+					logger.Log("failed to rm hd file %s cause err: %s", hdOut, err.Error())
 				}
 			}()
 			_, err = io.Copy(hd, hdf)
@@ -91,15 +91,15 @@ func (t *HeapDump) Run() (result Result, err error) {
 			}
 			var e2 error
 			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d", hdOut, t.Pid))
-			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.JAttach, strconv.Itoa(t.Pid), "dumpheap", fp})
+			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"})
 			if e2 != nil {
-				err = fmt.Errorf("%w, %v", e2, err)
+				err = fmt.Errorf("%v, %v", e2, err)
 				return
 			}
 		}
 		hd, err = os.Open(fp)
 		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("try to open file in docker, because failed to %v", err)
+			logger.Log("Failed to %s. Trying to open in the Docker container...", err.Error())
 			fp = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp)
 			hd, err = os.Open(fp)
 		}
@@ -110,11 +110,11 @@ func (t *HeapDump) Run() (result Result, err error) {
 		defer func() {
 			err := hd.Close()
 			if err != nil {
-				logger.Log("failed to close hd file %s", fp)
+				logger.Log("failed to close hd file %s cause err: %s", fp, err.Error())
 			}
 			err = os.Remove(fp)
 			if err != nil {
-				logger.Log("failed to rm hd file %s", fp)
+				logger.Log("failed to rm hd file %s cause err: %s", fp, err.Error())
 			}
 		}()
 		logger.Log("captured heap dump data")
@@ -132,9 +132,13 @@ func (t *HeapDump) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		err := zipfile.Close()
+		err := zipfile.Sync()
 		if err != nil {
-			logger.Log("failed to close hd zip file %s", hdZip)
+			logger.Log("failed to sync hd zip file %s cause err: %s", hdZip, err.Error())
+		}
+		err = zipfile.Close()
+		if err != nil {
+			logger.Log("failed to close hd zip file %s cause err: %s", hdZip, err.Error())
 		}
 	}()
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
