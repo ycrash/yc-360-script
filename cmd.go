@@ -9,7 +9,7 @@ import (
 type CmdManager interface {
 	KillAndWait() (err error)
 	IsSkipped() bool
-	Wait()
+	Wait() (err error)
 	Interrupt() (err error)
 	Kill() (err error)
 	CombinedOutput() ([]byte, error)
@@ -50,11 +50,12 @@ func (c *WaitCmd) IsSkipped() bool {
 	return false
 }
 
-func (c *WaitCmd) Wait() {
+func (c *WaitCmd) Wait() (err error) {
 	if c.Cmd == nil {
 		return
 	}
-	_ = c.Cmd.Wait()
+	err = c.Cmd.Wait()
+	return
 }
 
 func (c *WaitCmd) ExitCode() (code int) {

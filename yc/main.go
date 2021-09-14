@@ -378,8 +378,26 @@ func uploadGCLog(endpoint string, pid int) {
 		if err == nil {
 			gcp = fn
 			logger.Log("gc log set to %s", gcp)
+			go func() {
+				err := jstat.Wait()
+				if err != nil {
+					gc, jstat, err = captureGC(pid, gc, fn)
+					if err == nil {
+						gcp = fn
+						logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+					} else {
+						defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+					}
+				}
+			}()
 		} else {
-			logger.Log("WARNING: failed to capture gc log: %s", err.Error())
+			gc, jstat, err = captureGC(pid, gc, fn)
+			if err == nil {
+				gcp = fn
+				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+			} else {
+				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			}
 		}
 	}
 	defer func() {
@@ -407,6 +425,18 @@ Resp: %s
 
 --------------------------------
 `, absGCPath, ok, msg)
+}
+
+func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdManager, err error) {
+	if gc != nil {
+		err = gc.Close()
+		if err != nil {
+			return
+		}
+	}
+	file, jstat, err = shell.CommandStartInBackgroundToFile(fn,
+		shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
+	return
 }
 
 func fullProcess(pid int) (rUrl string) {
@@ -539,14 +569,20 @@ Ignored errors: %v
 		if err == nil {
 			config.GlobalConfig.GCPath = "gc.log"
 			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
+			go func() {
+				err := jstat.Wait()
+				if err != nil {
+					gc, jstat, err = captureGC(pid, gc, "gc.log")
+					if err == nil {
+						config.GlobalConfig.GCPath = "gc.log"
+						logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+					} else {
+						defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+					}
+				}
+			}()
 		} else {
-			if gc == nil {
-				gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-					shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
-			} else {
-				jstat, err = shell.CommandStartInBackgroundToWriter(gc,
-					shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
-			}
+			gc, jstat, err = captureGC(pid, gc, "gc.log")
 			if err == nil {
 				config.GlobalConfig.GCPath = "gc.log"
 				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
