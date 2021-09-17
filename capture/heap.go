@@ -3,6 +3,7 @@ package capture
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -85,7 +86,8 @@ func (t *HeapDump) Run() (result Result, err error) {
 		var output []byte
 		fp := filepath.Join(dir, hdOut)
 		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp})
-		if err != nil {
+		logger.Log("Output from jcmd: %s", output)
+		if err != nil || bytes.Index(output, []byte("Permission denied")) >= 0 {
 			if len(output) > 1 {
 				err = fmt.Errorf("%w because %s", err, output)
 			}
