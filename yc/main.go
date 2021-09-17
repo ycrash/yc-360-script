@@ -433,6 +433,10 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 		if err != nil {
 			return
 		}
+		err = os.Remove(fn)
+		if err != nil {
+			return
+		}
 	}
 	file, jstat, err = shell.CommandStartInBackgroundToFile(fn,
 		shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})

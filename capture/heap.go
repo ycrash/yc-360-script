@@ -131,16 +131,6 @@ func (t *HeapDump) Run() (result Result, err error) {
 		err = fmt.Errorf("failed to create zip file: %w", err)
 		return
 	}
-	defer func() {
-		err := zipfile.Sync()
-		if err != nil {
-			logger.Log("failed to sync hd zip file %s cause err: %s", hdZip, err.Error())
-		}
-		err = zipfile.Close()
-		if err != nil {
-			logger.Log("failed to close hd zip file %s cause err: %s", hdZip, err.Error())
-		}
-	}()
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
 	out, err := writer.Create(hdOut)
 	if err != nil {
