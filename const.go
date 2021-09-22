@@ -13,7 +13,7 @@ import (
 //  Generic Properties
 // ------------------------------------------------------------------------------
 var (
-	SCRIPT_VERSION      = "2020_09_08"
+	SCRIPT_VERSION      = "yc_agent_0.80"
 	SCRIPT_SPAN         = 120 // How long the whole script should take. Default=240
 	JAVACORE_INTERVAL   = 30  // How often javacores should be taken. Default=30
 	TOP_INTERVAL        = 60  // How often top data should be taken. Default=60
