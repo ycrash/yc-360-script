@@ -372,25 +372,16 @@ func uploadGCLog(endpoint string, pid int) {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
 	var jstat shell.CmdManager
+	var triedJAttachGC bool
 	if gc == nil || err != nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {
 			gcp = fn
 			logger.Log("gc log set to %s", gcp)
-			go func() {
-				err := jstat.Wait()
-				if err != nil {
-					gc, jstat, err = captureGC(pid, gc, fn)
-					if err == nil {
-						gcp = fn
-						logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
-					} else {
-						defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-					}
-				}
-			}()
 		} else {
+			triedJAttachGC = true
+			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
 			gc, jstat, err = captureGC(pid, gc, fn)
 			if err == nil {
 				gcp = fn
@@ -406,7 +397,21 @@ func uploadGCLog(endpoint string, pid int) {
 		}
 	}()
 	if jstat != nil {
-		jstat.Wait()
+		err := jstat.Wait()
+		if err != nil && !triedJAttachGC {
+			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
+			gc, jstat, err = captureGC(pid, gc, fn)
+			if err == nil {
+				gcp = fn
+				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+			} else {
+				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			}
+			err = jstat.Wait()
+			if err != nil {
+				logger.Log("jattach gc log failed cause %s", err.Error())
+			}
+		}
 	}
 
 	// -------------------------------
@@ -567,25 +572,16 @@ Ignored errors: %v
 		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
 	}
 	var jstat shell.CmdManager
+	var triedJAttachGC bool
 	if pidPassed && (err != nil || gc == nil) {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {
 			config.GlobalConfig.GCPath = "gc.log"
 			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
-			go func() {
-				err := jstat.Wait()
-				if err != nil {
-					gc, jstat, err = captureGC(pid, gc, "gc.log")
-					if err == nil {
-						config.GlobalConfig.GCPath = "gc.log"
-						logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
-					} else {
-						defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-					}
-				}
-			}()
 		} else {
+			triedJAttachGC = true
+			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
 			gc, jstat, err = captureGC(pid, gc, "gc.log")
 			if err == nil {
 				config.GlobalConfig.GCPath = "gc.log"
@@ -688,7 +684,21 @@ Ignored errors: %v
 	}
 
 	if jstat != nil {
-		jstat.Wait()
+		err := jstat.Wait()
+		if err != nil && !triedJAttachGC {
+			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
+			gc, jstat, err = captureGC(pid, gc, "gc.log")
+			if err == nil {
+				config.GlobalConfig.GCPath = "gc.log"
+				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+			} else {
+				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			}
+			err = jstat.Wait()
+			if err != nil {
+				logger.Log("jattach gc log failed cause %s", err.Error())
+			}
+		}
 	}
 	// stop started tasks
 	if capTop != nil {

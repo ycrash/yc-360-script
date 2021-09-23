@@ -1,9 +1,9 @@
-//go:build linux
-// +build linux
+//go:build darwin
+// +build darwin
 
 package posix
 
-// #cgo CFLAGS: -D__linux__=1 -D__NR_setns=1
+// #cgo CFLAGS: -D__APPLE__=1
 // #include <stdio.h>
 // #include <stdlib.h>
 //
