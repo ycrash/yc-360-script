@@ -45,18 +45,18 @@ func runHDCaptureCmd(pid int) (path []byte, err error) {
 	return
 }
 
-func updatePaths(pid int) {
+func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
 	var path []byte
 	path, _ = runGCCaptureCmd(pid)
 	if len(path) > 0 {
-		config.GlobalConfig.GCPath = string(path)
+		*gcPath = string(path)
 	}
 	path, _ = runTDCaptureCmd(pid)
 	if len(path) > 0 {
-		config.GlobalConfig.ThreadDumpPath = string(path)
+		*tdPath = string(path)
 	}
 	path, _ = runHDCaptureCmd(pid)
 	if len(path) > 0 {
-		config.GlobalConfig.HeapDumpPath = string(path)
+		*hdPath = string(path)
 	}
 }

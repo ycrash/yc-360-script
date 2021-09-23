@@ -385,7 +385,7 @@ func uploadGCLog(endpoint string, pid int) {
 			gc, jstat, err = captureGC(pid, gc, fn)
 			if err == nil {
 				gcp = fn
-				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+				logger.Log("jattach gc log set to %s", gcp)
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			}
@@ -403,7 +403,7 @@ func uploadGCLog(endpoint string, pid int) {
 			gc, jstat, err = captureGC(pid, gc, fn)
 			if err == nil {
 				gcp = fn
-				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+				logger.Log("jattach gc log set to %s", gcp)
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			}
@@ -450,7 +450,10 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 
 func fullProcess(pid int) (rUrl string) {
 	startTime := time.Now()
-	updatePaths(pid)
+	gcPath := config.GlobalConfig.GCPath
+	tdPath := config.GlobalConfig.ThreadDumpPath
+	hdPath := config.GlobalConfig.HeapDumpPath
+	updatePaths(pid, &gcPath, &tdPath, &hdPath)
 	pidPassed := true
 	if pid <= 0 {
 		pidPassed = false
@@ -459,10 +462,10 @@ func fullProcess(pid int) (rUrl string) {
 	var dockerID string
 	if pidPassed {
 		// find gc log path in from command line arguments of ps result
-		if len(config.GlobalConfig.GCPath) < 1 {
+		if len(gcPath) < 1 {
 			output, err := getGCLogFile(pid)
 			if err == nil && len(output) > 0 {
-				config.GlobalConfig.GCPath = output
+				gcPath = output
 			}
 		}
 
@@ -474,7 +477,7 @@ func fullProcess(pid int) (rUrl string) {
 	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
 	logger.Log("APP_NAME is %s", config.GlobalConfig.AppName)
 	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
-	logger.Log("GC_LOG is %s", config.GlobalConfig.GCPath)
+	logger.Log("GC_LOG is %s", gcPath)
 	if len(dockerID) > 0 {
 		logger.Log("DOCKER_ID is %s", dockerID)
 	}
@@ -567,9 +570,9 @@ Ignored errors: %v
 
 	// check if it can find gc log from ps
 	var gc *os.File
-	gc, err = processGCLogFile(config.GlobalConfig.GCPath, "gc.log", dockerID, pid)
+	gc, err = processGCLogFile(gcPath, "gc.log", dockerID, pid)
 	if err != nil {
-		logger.Log("process log file failed %s, err: %s", config.GlobalConfig.GCPath, err.Error())
+		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
 	}
 	var jstat shell.CmdManager
 	var triedJAttachGC bool
@@ -577,15 +580,15 @@ Ignored errors: %v
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
 			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
 		if err == nil {
-			config.GlobalConfig.GCPath = "gc.log"
-			logger.Log("gc log set to %s", config.GlobalConfig.GCPath)
+			gcPath = "gc.log"
+			logger.Log("gc log set to %s", gcPath)
 		} else {
 			triedJAttachGC = true
 			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
 			gc, jstat, err = captureGC(pid, gc, "gc.log")
 			if err == nil {
-				config.GlobalConfig.GCPath = "gc.log"
-				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+				gcPath = "gc.log"
+				logger.Log("jattach gc log set to %s", gcPath)
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			}
@@ -669,7 +672,7 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
 		Pid:      pid,
-		TdPath:   config.GlobalConfig.ThreadDumpPath,
+		TdPath:   tdPath,
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
@@ -689,8 +692,8 @@ Ignored errors: %v
 			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
 			gc, jstat, err = captureGC(pid, gc, "gc.log")
 			if err == nil {
-				config.GlobalConfig.GCPath = "gc.log"
-				logger.Log("jattach gc log set to %s", config.GlobalConfig.GCPath)
+				gcPath = "gc.log"
+				logger.Log("jattach gc log set to %s", gcPath)
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			}
@@ -796,9 +799,9 @@ Resp: %s
 	//     Transmit GC Log
 	// -------------------------------
 	msg, ok = shell.PostData(endpoint, "gc", gc)
-	absGCPath, err := filepath.Abs(config.GlobalConfig.GCPath)
+	absGCPath, err := filepath.Abs(gcPath)
 	if err != nil {
-		absGCPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.GCPath, err.Error())
+		absGCPath = fmt.Sprintf("path %s: %s", gcPath, err.Error())
 	}
 	logger.Log(
 		`GC LOG DATA
@@ -840,9 +843,9 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
-	absTDPath, err := filepath.Abs(config.GlobalConfig.ThreadDumpPath)
+	absTDPath, err := filepath.Abs(tdPath)
 	if err != nil {
-		absTDPath = fmt.Sprintf("path %s: %s", config.GlobalConfig.ThreadDumpPath, err.Error())
+		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
 	}
 	if threadDump != nil {
 		result := <-threadDump
@@ -861,7 +864,7 @@ Resp: %s
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 	hd := config.GlobalConfig.HeapDump
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, config.GlobalConfig.HeapDumpPath, hd)
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {
