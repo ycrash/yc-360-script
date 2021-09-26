@@ -1,13 +1,25 @@
-//go:build linux
-// +build linux
+//go:build linux || darwin
+// +build linux darwin
 
 package posix
 
-// #cgo CFLAGS: -D__linux__=1 -D__NR_setns=1
-// #include <stdio.h>
-// #include <stdlib.h>
-//
-// extern int jattach(int pid, int argc, char** argv);
+/*
+#include <stdio.h>
+#include <stdlib.h>
+
+extern void jattach1(int pid);
+extern int jattach2(int pid, int argc, char** argv);
+extern int getenv_int(const char *name);
+
+__attribute__((constructor)) void init() {
+	int pid;
+    pid = getenv_int("pid");
+	if (pid <=0) {
+		return;
+	}
+	jattach1(pid);
+}
+*/
 import "C"
 import "unsafe"
 
@@ -18,7 +30,7 @@ func Capture(pid int, args ...string) (ret int) {
 		defer C.free(unsafe.Pointer(cs))
 		argv[i] = cs
 	}
-	ret = int(C.jattach(C.int(pid), C.int(len(args)), &argv[0]))
+	ret = int(C.jattach2(C.int(pid), C.int(len(args)), &argv[0]))
 	return
 }
 

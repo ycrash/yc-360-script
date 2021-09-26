@@ -47,10 +47,10 @@ func (t *JStack) Run() (result Result, err error) {
 				logger.Log("Failed to run jstack with err %v. Trying to capture thread dump using jattach...", err)
 				if jstack != nil {
 					err = shell.CommandCombinedOutputToWriter(jstack,
-						shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
 				} else {
 					jstack, err = shell.CommandCombinedOutputToFile(fn,
-						shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
 				}
 				if err != nil {
 					e1 <- err
@@ -122,7 +122,7 @@ func (t JStackF) Run() (result Result, err error) {
 			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)})
 		if err != nil {
 			err = shell.CommandCombinedOutputToWriter(t.jstack,
-				shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+				shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
 		}
 	}
 	return

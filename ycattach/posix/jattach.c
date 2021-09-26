@@ -25,17 +25,18 @@ extern int is_openj9_process(int pid);
 extern int jattach_openj9(int pid, int nspid, int argc, char** argv);
 extern int jattach_hotspot(int pid, int nspid, int argc, char** argv);
 
+static int nspid;
+static int code;
 
-__attribute__((visibility("default")))
-int jattach(int pid, int argc, char** argv) {
+void jattach1(int pid) {
     uid_t my_uid = geteuid();
     gid_t my_gid = getegid();
     uid_t target_uid = my_uid;
     gid_t target_gid = my_gid;
-    int nspid;
     if (get_process_info(pid, &target_uid, &target_gid, &nspid) < 0) {
         fprintf(stderr, "Process %d not found\n", pid);
-        return 1;
+        code = 1;
+        return;
     }
 
     // Container support: switch to the target namespaces.
@@ -49,14 +50,23 @@ int jattach(int pid, int argc, char** argv) {
     if ((my_gid != target_gid && setegid(target_gid) != 0) ||
         (my_uid != target_uid && seteuid(target_uid) != 0)) {
         perror("Failed to change credentials to match the target process");
-        return 1;
+        code = 1;
+        return;
     }
 
     get_tmp_path(mnt_changed > 0 ? nspid : pid);
 
     // Make write() return EPIPE instead of abnormal process termination
     signal(SIGPIPE, SIG_IGN);
+    code = 0;
+    return;
+}
 
+int jattach2(int pid, int argc, char** argv) {
+    if (code != 0) {
+        printf("jattach1 ret %d\n", code);
+        return code;
+    }
     if (is_openj9_process(nspid)) {
         return jattach_openj9(pid, nspid, argc, argv);
     } else {

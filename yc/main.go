@@ -444,7 +444,7 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 		}
 	}
 	file, jstat, err = shell.CommandStartInBackgroundToFile(fn,
-		shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
+		shell.Command{shell.Executable(pid), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
 	return
 }
 
@@ -984,7 +984,6 @@ Resp: %s
 	return
 }
 
-var nowString = shell.NowString
 var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
 
