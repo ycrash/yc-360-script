@@ -21,6 +21,8 @@ func Capture(args ...string) (ret int) {
 		argv[i] = cs
 	}
 	ret = int(C.jattach(C.int(len(args)), &argv[0]))
+	C.fflush(C.stdout)
+	C.fflush(C.stderr)
 	return
 }
 

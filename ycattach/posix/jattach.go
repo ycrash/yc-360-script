@@ -31,6 +31,8 @@ func Capture(pid int, args ...string) (ret int) {
 		argv[i] = cs
 	}
 	ret = int(C.jattach2(C.int(pid), C.int(len(args)), &argv[0]))
+	C.fflush(C.stdout)
+	C.fflush(C.stderr)
 	return
 }
 

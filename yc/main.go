@@ -689,7 +689,7 @@ Ignored errors: %v
 	if jstat != nil {
 		err := jstat.Wait()
 		if err != nil && !triedJAttachGC {
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
+			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach......", err.Error())
 			gc, jstat, err = captureGC(pid, gc, "gc.log")
 			if err == nil {
 				gcPath = "gc.log"
