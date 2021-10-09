@@ -260,7 +260,7 @@ func TestCaptureCmd(t *testing.T) {
 
 // https://tier1app.atlassian.net/browse/GCEA-1780
 func TestProcessResp(t *testing.T) {
-	err := processResp([]byte(`{"actions":["capture 1"]}`))
+	err := processResp([]byte(`{"actions":["capture 1"], "tags":["tag1", "tag2"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

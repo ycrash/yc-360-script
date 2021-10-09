@@ -252,13 +252,17 @@ func processResp(resp []byte) (err error) {
 		return
 	}
 	t := strings.Join(tags, ",")
+	one.Lock()
+	defer one.Unlock()
 	tmp := config.GlobalConfig.Tags
-	ts := strings.TrimRight(tmp, ",")
-	config.GlobalConfig.Tags = ts + "," + t
-	defer func() {
-		config.GlobalConfig.Tags = tmp
-	}()
-	_, err = processPids(pids)
+	if len(tmp) > 0 {
+		ts := strings.TrimRight(tmp, ",")
+		config.GlobalConfig.Tags = ts + "," + t
+	} else {
+		config.GlobalConfig.Tags = t
+	}
+	_, err = processPidsWithoutLock(pids)
+	config.GlobalConfig.Tags = tmp
 	return
 }
 
@@ -269,6 +273,10 @@ func processPids(pids []int) (rUrls []string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
+	return processPidsWithoutLock(pids)
+}
+
+func processPidsWithoutLock(pids []int) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
