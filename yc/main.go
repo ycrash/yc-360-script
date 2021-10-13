@@ -256,10 +256,10 @@ func processResp(resp []byte) (err error) {
 	defer one.Unlock()
 	tmp := config.GlobalConfig.Tags
 	if len(tmp) > 0 {
-		ts := strings.TrimRight(tmp, ",")
-		config.GlobalConfig.Tags = ts + "," + t
+		ts := strings.Trim(tmp, ",")
+		config.GlobalConfig.Tags = strings.Trim(ts+","+t, ",")
 	} else {
-		config.GlobalConfig.Tags = t
+		config.GlobalConfig.Tags = strings.Trim(t, ",")
 	}
 	_, err = processPidsWithoutLock(pids)
 	config.GlobalConfig.Tags = tmp
