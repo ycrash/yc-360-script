@@ -13,11 +13,16 @@ extern int getenv_int(const char *name);
 
 __attribute__((constructor)) void init() {
 	int pid;
-    pid = getenv_int("pid");
+	pid = getenv_int("pid");
 	if (pid <=0) {
 		return;
 	}
 	jattach1(pid);
+}
+
+void flush() {
+	fflush(stderr);
+	fflush(stdout);
 }
 */
 import "C"
@@ -31,8 +36,7 @@ func Capture(pid int, args ...string) (ret int) {
 		argv[i] = cs
 	}
 	ret = int(C.jattach2(C.int(pid), C.int(len(args)), &argv[0]))
-	C.fflush(C.stdout)
-	C.fflush(C.stderr)
+	C.flush()
 	return
 }
 
