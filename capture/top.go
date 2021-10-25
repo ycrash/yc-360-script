@@ -19,7 +19,16 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
-	defer top.Close()
+	defer func() {
+		e := top.Sync()
+		if e != nil {
+			logger.Log("failed to sync file %s", e)
+		}
+		e = top.Close()
+		if e != nil {
+			logger.Log("failed to close file %s", e)
+		}
+	}()
 	t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
 	if err != nil {
 		return
@@ -50,7 +59,16 @@ func (t *TopH) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
-	defer topdash.Close()
+	defer func() {
+		e := topdash.Sync()
+		if e != nil {
+			logger.Log("failed to sync file %s", e)
+		}
+		e = topdash.Close()
+		if e != nil {
+			logger.Log("failed to close file %s", e)
+		}
+	}()
 
 	command, err := shell.TopH.AddDynamicArg(strconv.Itoa(t.Pid))
 	if err != nil {
@@ -78,7 +96,16 @@ func (t *Top4M3) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
-	defer top.Close()
+	defer func() {
+		e := top.Sync()
+		if e != nil {
+			logger.Log("failed to sync file %s", e)
+		}
+		e = top.Close()
+		if e != nil {
+			logger.Log("failed to close file %s", e)
+		}
+	}()
 
 	for i := 0; i < 3; i++ {
 		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top4M3)

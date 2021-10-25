@@ -57,14 +57,25 @@ func (t *JStack) Run() (result Result, err error) {
 					return
 				}
 			}
-			defer jstack.Close()
-
-			_, err = JStackF{
+			_, err = (&JStackF{
 				jstack:   jstack,
 				javaHome: t.javaHome,
 				pid:      t.pid,
-			}.Run()
+			}).Run()
 			e1 <- err
+
+			_, e := jstack.WriteString("\n")
+			if e != nil {
+				logger.Log("failed to write file %s", e)
+			}
+			e = jstack.Sync()
+			if e != nil {
+				logger.Log("failed to sync file %s", e)
+			}
+			e = jstack.Close()
+			if e != nil {
+				logger.Log("failed to close file %s", e)
+			}
 		}
 	}()
 
@@ -108,8 +119,11 @@ type JStackF struct {
 	pid      int
 }
 
-func (t JStackF) Run() (result Result, err error) {
-	t.jstack.Seek(0, 0)
+func (t *JStackF) Run() (result Result, err error) {
+	_, err = t.jstack.Seek(0, 0)
+	if err != nil {
+		return
+	}
 	scanner := bufio.NewScanner(t.jstack)
 	i := 0
 	for scanner.Scan() && i <= 5 {
@@ -117,7 +131,10 @@ func (t JStackF) Run() (result Result, err error) {
 	}
 
 	if i <= 5 {
-		t.jstack.Seek(0, 0)
+		_, err = t.jstack.Seek(0, 0)
+		if err != nil {
+			return
+		}
 		err = shell.CommandCombinedOutputToWriter(t.jstack,
 			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)})
 		if err != nil {
