@@ -34,9 +34,11 @@ func PositionZero(file *os.File) (err error) {
 	return
 }
 
-var _5000Lines = 5000
-
 func PositionLast5000Lines(file *os.File) (err error) {
+	return PositionLastLines(file, 5000)
+}
+
+func PositionLastLines(file *os.File, n uint) (err error) {
 	var cursor int64 = 0
 	stat, err := file.Stat()
 	if err != nil {
@@ -44,7 +46,7 @@ func PositionLast5000Lines(file *os.File) (err error) {
 	}
 	size := stat.Size()
 	char := make([]byte, 1)
-	lines := _5000Lines
+	lines := n
 	for {
 		cursor -= 1
 		_, err = file.Seek(cursor, io.SeekEnd)

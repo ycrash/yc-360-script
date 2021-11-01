@@ -38,7 +38,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		var hdf *os.File
 		hdf, err = os.Open(t.hdPath)
 		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("Failed to %s. Trying to open in the Docker container...", t.hdPath, err.Error())
+			logger.Log("failed to open hdPath(%s) err: %s. Trying to open in the Docker container...", t.hdPath, err.Error())
 			hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
 		}
 		if err != nil {

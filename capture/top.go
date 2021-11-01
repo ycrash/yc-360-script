@@ -38,7 +38,10 @@ func (t *Top) Run() (result Result, err error) {
 		result.Ok = true
 		return
 	}
-	t.Cmd.Wait()
+	err = t.Cmd.Wait()
+	if err != nil {
+		logger.Log("failed to wait cmd: %s", err.Error())
+	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
 }
@@ -83,7 +86,10 @@ func (t *TopH) Run() (result Result, err error) {
 		result.Ok = true
 		return
 	}
-	t.Cmd.Wait()
+	err = t.Cmd.Wait()
+	if err != nil {
+		logger.Log("failed to wait cmd: %s", err.Error())
+	}
 	return
 }
 
@@ -117,12 +123,18 @@ func (t *Top4M3) Run() (result Result, err error) {
 			result.Ok = true
 			return
 		}
-		t.Cmd.Wait()
-		top.WriteString("\n\n\n")
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("failed to wait cmd: %s", err.Error())
+		}
+		_, err = top.WriteString("\n\n\n")
+		if err != nil {
+			logger.Log("failed to insert line break: %s", err.Error())
+		}
 		if i == 2 {
 			break
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(20 * time.Second)
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return

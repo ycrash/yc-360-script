@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var logger zerolog.Logger
+var logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}).With().Timestamp().Logger()
 var stdLogger zerolog.Logger
 var Log2File bool
 

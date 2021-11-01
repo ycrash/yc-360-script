@@ -85,6 +85,15 @@ func main() {
 		ret := ycattach.CaptureHeapDump(pid, config.GlobalConfig.HeapDumpPath)
 		os.Exit(ret)
 	}
+	if len(config.GlobalConfig.JCmdCaptureMode) > 0 {
+		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
+		if err != nil {
+			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
+			os.Exit(1)
+		}
+		ret := ycattach.Capture(pid, "jcmd", config.GlobalConfig.JCmdCaptureMode)
+		os.Exit(ret)
+	}
 
 	osSig := make(chan os.Signal, 1)
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
@@ -686,6 +695,22 @@ Ignored errors: %v
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
 	// ------------------------------------------------------------------------------
+	//   				Capture app log
+	// ------------------------------------------------------------------------------
+	var appLog chan capture.Result
+	if len(config.GlobalConfig.AppLog) > 0 {
+		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Path: config.GlobalConfig.AppLog, N: config.GlobalConfig.AppLogLineCount}))
+	}
+
+	// ------------------------------------------------------------------------------
+	//   				Capture hdsub log
+	// ------------------------------------------------------------------------------
+	hdsubLog := goCapture(endpoint, capture.WrapRun(&capture.HDSub{
+		Pid:      pid,
+		JavaHome: config.GlobalConfig.JavaHomePath,
+	}))
+
+	// ------------------------------------------------------------------------------
 	//                Capture final netstat
 	// ------------------------------------------------------------------------------
 	if capNetStat != nil {
@@ -827,6 +852,34 @@ Resp: %s
 		result := <-ping
 		logger.Log(
 			`PING DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit app log
+	// -------------------------------
+	if appLog != nil {
+		result := <-appLog
+		logger.Log(
+			`APPLOG DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit hdsub log
+	// -------------------------------
+	if hdsubLog != nil {
+		result := <-hdsubLog
+		logger.Log(
+			`HDSUB DATA
 Is transmission completed: %t
 Resp: %s
 

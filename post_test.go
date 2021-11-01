@@ -11,8 +11,7 @@ func TestLastNLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_5000Lines = 5
-	err = PositionLast5000Lines(file)
+	err = PositionLastLines(file, 5)
 	if err != nil {
 		t.Fatal(err)
 	}

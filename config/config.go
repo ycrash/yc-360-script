@@ -56,14 +56,18 @@ type Options struct {
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`
 
-	GCCaptureMode bool `yaml:"gcCaptureMode" usage:"Run in GC Capture mode"`
-	TDCaptureMode bool `yaml:"tdCaptureMode" usage:"Run in Thread Dump Capture mode"`
-	HDCaptureMode bool `yaml:"hdCaptureMode" usage:"Run in Heap Dump Capture mode"`
+	GCCaptureMode   bool   `yaml:"gcCaptureMode" usage:"Run in GC Capture mode"`
+	TDCaptureMode   bool   `yaml:"tdCaptureMode" usage:"Run in Thread Dump Capture mode"`
+	HDCaptureMode   bool   `yaml:"hdCaptureMode" usage:"Run in Heap Dump Capture mode"`
+	JCmdCaptureMode string `yaml:"jCmdCaptureMode" usage:"Run in JCmd Capture mode"`
 
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`
 	LogFileMaxCount uint   `yaml:"logFileMaxCount" usage:"Max count of the log files"`
 	LogLevel        string `yaml:"logLevel" usage:"Log level: trace, debug, info, warn, error, fatal, panic, disable."`
+
+	AppLog          string `yaml:"appLog" usage:"The target application’s log file path"`
+	AppLogLineCount uint   `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
 }
 
 type Command struct {
@@ -124,6 +128,7 @@ func defaultConfig() Config {
 			LogLevel:        zerolog.InfoLevel.String(),
 			PingHost:        "google.com",
 			DeferDelete:     true,
+			AppLogLineCount: 1000,
 		},
 	}
 }
