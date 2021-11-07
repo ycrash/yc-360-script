@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"fmt"
+	"strconv"
 	"testing"
 
 	"shell/config"
@@ -40,4 +42,27 @@ func TestParseJsonResp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log(ids, tags)
+}
+
+func TestGetProcessIdsByPid(t *testing.T) {
+	noGC, err := CommandStartInBackground(Command{"java", "-cp", "./capture/testdata/", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC.KillAndWait()
+
+	fake, err := CommandStartInBackground(Command{"java", "-cp", "./capture/testdata/", "MyClass", "-wait", strconv.Itoa(noGC.GetPid())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fake.KillAndWait()
+
+	ids, err := GetProcessIds(config.ProcessTokens{config.ProcessToken(fmt.Sprintf("%d$appNameTest", noGC.GetPid()))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(ids)
+	if len(ids) != 1 {
+		t.Fatal("can not get pid of java process")
+	}
 }

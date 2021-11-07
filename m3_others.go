@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package shell
@@ -38,14 +39,13 @@ Next:
 				columns := strings.Split(line, " ")
 				var col []string
 				for _, column := range columns {
-					if len(column) > 0 {
-						col = append(col, column)
-						if len(col) > 2 {
-							break
-						}
+					if len(column) <= 0 {
+						continue
 					}
-				}
-				if len(col) > 2 {
+					col = append(col, column)
+					if len(col) <= 1 {
+						continue
+					}
 					id := strings.TrimSpace(col[1])
 					pid, err := strconv.Atoi(id)
 					if err != nil {
@@ -53,6 +53,12 @@ Next:
 					}
 					if pid == cpid {
 						continue Next
+					}
+					tokenPid, err := strconv.Atoi(token)
+					if err == nil {
+						if tokenPid != pid {
+							continue Next
+						}
 					}
 					if _, ok := pids[pid]; !ok {
 						pids[pid] = appName
