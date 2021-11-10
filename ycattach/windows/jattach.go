@@ -13,7 +13,14 @@ import (
 	"unsafe"
 )
 
-func Capture(args ...string) (ret int) {
+func Capture(pid int, args ...string) (ret int) {
+	a := make([]string, len(args)+1)
+	a[0] = strconv.Itoa(pid)
+	copy(a[1:], args)
+	return capture(a...)
+}
+
+func capture(args ...string) (ret int) {
 	argv := make([]*C.char, len(args))
 	for i, s := range args {
 		cs := C.CString(s)
@@ -27,13 +34,13 @@ func Capture(args ...string) (ret int) {
 }
 
 func CaptureThreadDump(pid int) (ret int) {
-	return Capture(strconv.Itoa(pid), "threaddump")
+	return capture(strconv.Itoa(pid), "threaddump")
 }
 
 func CaptureHeapDump(pid int, out string) (ret int) {
-	return Capture(strconv.Itoa(pid), "dumpheap", out)
+	return capture(strconv.Itoa(pid), "dumpheap", out)
 }
 
 func CaptureGCLog(pid int) (ret int) {
-	return Capture(strconv.Itoa(pid), "jcmd", "GC.class_stats")
+	return capture(strconv.Itoa(pid), "jcmd", "GC.class_stats")
 }
