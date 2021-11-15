@@ -57,15 +57,13 @@ func PositionLastLines(file *os.File, n uint) (err error) {
 		if err != nil {
 			return
 		}
-		if cursor != -1 {
-			switch char[0] {
-			case '\r':
-			case '\n':
-				lines--
-			}
-			if lines == 0 {
-				return
-			}
+		switch char[0] {
+		case '\r':
+		case '\n':
+			lines--
+		}
+		if lines == 0 {
+			return
 		}
 		if cursor == -size {
 			_, err = file.Seek(0, io.SeekStart)
