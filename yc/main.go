@@ -209,7 +209,7 @@ Resp: %s
 					logger.Log("WARNING: skip empty resp")
 					continue
 				}
-				err = processResp(resp)
+				err = processResp(resp, pids)
 				if err != nil {
 					logger.Log("WARNING: processResp failed, %s", err)
 					continue
@@ -226,7 +226,7 @@ Resp: %s
 						if pid < 1 {
 							continue
 						}
-						fullProcess(pid)
+						fullProcess(pid, config.GlobalConfig.AppName)
 					}
 				} else {
 					logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
@@ -235,7 +235,7 @@ Resp: %s
 				logger.Log("unexpected error %s", err)
 			}
 		} else {
-			fullProcess(pid)
+			fullProcess(pid, config.GlobalConfig.AppName)
 		}
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
@@ -254,7 +254,7 @@ Resp: %s
 	}
 }
 
-func processResp(resp []byte) (err error) {
+func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	pids, tags, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
@@ -270,7 +270,7 @@ func processResp(resp []byte) (err error) {
 	} else {
 		config.GlobalConfig.Tags = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids)
+	_, err = processPidsWithoutLock(pids, pid2Name)
 	config.GlobalConfig.Tags = tmp
 	return
 }
@@ -282,10 +282,10 @@ func processPids(pids []int) (rUrls []string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
-	return processPidsWithoutLock(pids)
+	return processPidsWithoutLock(pids, nil)
 }
 
-func processPidsWithoutLock(pids []int) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
@@ -296,6 +296,13 @@ func processPidsWithoutLock(pids []int) (rUrls []string, err error) {
 			continue
 		}
 		set[pid] = struct{}{}
+		name := config.GlobalConfig.AppName
+		if len(pid2Name) > 0 {
+			n, ok := pid2Name[pid]
+			if ok {
+				name = n
+			}
+		}
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
 			_, err := shell.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
@@ -303,7 +310,7 @@ func processPidsWithoutLock(pids []int) (rUrls []string, err error) {
 				continue
 			}
 		} else {
-			url := fullProcess(pid)
+			url := fullProcess(pid, name)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -465,7 +472,7 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 	return
 }
 
-func fullProcess(pid int) (rUrl string) {
+func fullProcess(pid int, appName string) (rUrl string) {
 	startTime := time.Now()
 	gcPath := config.GlobalConfig.GCPath
 	tdPath := config.GlobalConfig.ThreadDumpPath
@@ -492,7 +499,7 @@ func fullProcess(pid int) (rUrl string) {
 	logger.Log("PID is %d", pid)
 	logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
 	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
-	logger.Log("APP_NAME is %s", config.GlobalConfig.AppName)
+	logger.Log("APP_NAME is %s", appName)
 	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
 	logger.Log("GC_LOG is %s", gcPath)
 	if len(dockerID) > 0 {
@@ -568,7 +575,7 @@ func fullProcess(pid int) (rUrl string) {
 	// -------------------------------
 	//     Transmit MetaInfo
 	// -------------------------------
-	msg, ok, err := writeMetaInfo(pid, config.GlobalConfig.AppName, endpoint)
+	msg, ok, err := writeMetaInfo(pid, appName, endpoint)
 	logger.Log(
 		`META INFO DATA
 Is transmission completed: %t
@@ -698,7 +705,7 @@ Ignored errors: %v
 	//   				Capture app log
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
-	if len(config.GlobalConfig.AppLog) > 0 {
+	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
 		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Path: config.GlobalConfig.AppLog, N: config.GlobalConfig.AppLogLineCount}))
 	}
 
