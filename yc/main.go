@@ -95,6 +95,8 @@ func main() {
 		os.Exit(ret)
 	}
 
+	validate()
+
 	osSig := make(chan os.Signal, 1)
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
@@ -107,7 +109,7 @@ func main() {
 	}
 }
 
-func mainLoop() {
+func validate() {
 	if len(os.Args) < 2 {
 		logger.Log("No arguments are passed.")
 		config.ShowUsage()
@@ -143,6 +145,14 @@ func mainLoop() {
 		logger.Log("WARNING: -onlyCapture will be ignored in m3 mode.")
 		config.GlobalConfig.OnlyCapture = false
 	}
+	if config.GlobalConfig.AppLogLineCount < 1 {
+		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be a number larger than 0.", config.GlobalConfig.AppLogLineCount)
+		config.ShowUsage()
+		os.Exit(1)
+	}
+}
+
+func mainLoop() {
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 

@@ -271,6 +271,15 @@ func (d *decoder) terror(n *node, tag string, out reflect.Value) {
 					n.line+1, value, n.name.String()))
 			return
 		}
+	case uint:
+		if !n.name.IsZero() {
+			if n.name.String() == "appLogLineCount" {
+				d.terrors = append(d.terrors,
+					fmt.Sprintf("line %d: %s is not a valid value for '%s' argument. It should be a number larger than 0.",
+						n.line+1, value, n.name.String()))
+				return
+			}
+		}
 	}
 	d.terrors = append(d.terrors, fmt.Sprintf("line %d: cannot unmarshal %s%s into %s", n.line+1, shortTag(tag), value, out.Type()))
 }
@@ -543,6 +552,12 @@ func (d *decoder) scalar(n *node, out reflect.Value) bool {
 		case float64:
 			if resolved <= math.MaxUint64 && !out.OverflowUint(uint64(resolved)) {
 				out.SetUint(uint64(resolved))
+				return true
+			}
+		case string:
+			d, err := strconv.ParseUint(resolved, 10, 64)
+			if err == nil {
+				out.SetUint(d)
 				return true
 			}
 		}

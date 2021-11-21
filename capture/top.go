@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -20,12 +21,8 @@ func (t *Top) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		e := top.Sync()
-		if e != nil {
-			logger.Log("failed to sync file %s", e)
-		}
-		e = top.Close()
-		if e != nil {
+		e := top.Close()
+		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
@@ -41,6 +38,10 @@ func (t *Top) Run() (result Result, err error) {
 	err = t.Cmd.Wait()
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
+	}
+	e := top.Sync()
+	if e != nil && !errors.Is(e, os.ErrClosed) {
+		logger.Log("failed to sync file %s", e)
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
@@ -64,11 +65,11 @@ func (t *TopH) Run() (result Result, err error) {
 	}
 	defer func() {
 		e := topdash.Sync()
-		if e != nil {
+		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to sync file %s", e)
 		}
 		e = topdash.Close()
-		if e != nil {
+		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
@@ -103,12 +104,8 @@ func (t *Top4M3) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		e := top.Sync()
-		if e != nil {
-			logger.Log("failed to sync file %s", e)
-		}
-		e = top.Close()
-		if e != nil {
+		e := top.Close()
+		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
@@ -135,6 +132,10 @@ func (t *Top4M3) Run() (result Result, err error) {
 			break
 		}
 		time.Sleep(20 * time.Second)
+	}
+	e := top.Sync()
+	if e != nil && !errors.Is(e, os.ErrClosed) {
+		logger.Log("failed to sync file %s", e)
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
