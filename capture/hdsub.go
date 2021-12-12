@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"errors"
 	"os"
 	"path"
 	"shell"
@@ -21,7 +22,14 @@ func (t *HDSub) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		_ = out.Close()
+		e := out.Sync()
+		if e != nil && !errors.Is(e, os.ErrClosed) {
+			logger.Log("failed to sync file %s", e)
+		}
+		e = out.Close()
+		if e != nil && !errors.Is(e, os.ErrClosed) {
+			logger.Log("failed to close file %s", e)
+		}
 	}()
 	_, err = out.WriteString("GC.class_histogram:\n")
 	if err != nil {
@@ -34,7 +42,7 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"})
 		if err != nil {
-			return
+			logger.Log("Failed to capture GC.class_histogram with err %v.", err)
 		}
 	}
 	_, err = out.WriteString("\nVM.system_properties:\n")
@@ -48,7 +56,7 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"})
 		if err != nil {
-			return
+			logger.Log("Failed to capture VM.system_properties with err %v.", err)
 		}
 	}
 	_, err = out.WriteString("\nGC.heap_info:\n")
@@ -62,7 +70,7 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"})
 		if err != nil {
-			return
+			logger.Log("Failed to capture GC.heap_info with err %v.", err)
 		}
 	}
 	_, err = out.WriteString("\nVM.flags:\n")
@@ -76,12 +84,12 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"})
 		if err != nil {
-			return
+			logger.Log("Failed to capture VM.flags with err %v.", err)
 		}
 	}
-	err = out.Sync()
-	if err != nil {
-		logger.Log("failed to sync, err: %s", err.Error())
+	e := out.Sync()
+	if e != nil && !errors.Is(e, os.ErrClosed) {
+		logger.Log("failed to sync file %s", e)
 	}
 
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "hdsub", out)

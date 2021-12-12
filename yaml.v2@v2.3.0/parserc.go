@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"bufio"
 	"bytes"
 )
 
@@ -715,9 +716,11 @@ func yaml_parser_parse_block_mapping_key(parser *yaml_parser_t, event *yaml_even
 
 	context_mark := parser.marks[len(parser.marks)-1]
 	parser.marks = parser.marks[:len(parser.marks)-1]
+	r := bufio.NewReader(bytes.NewReader(parser.buffer[token.start_mark.index : token.start_mark.index+parser.unread]))
+	line, _, _ := r.ReadLine()
 	return yaml_parser_set_parser_error_context(parser,
 		"while parsing a block mapping", context_mark,
-		"did not find expected key", token.start_mark)
+		"\""+string(line)+"...\", the indent style of this line is different to other lines", token.start_mark)
 }
 
 // Parse the productions:
