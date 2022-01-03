@@ -38,9 +38,10 @@ type Options struct {
 	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate"`
 	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
 
-	M3            bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
-	M3Frequency   time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3 minutes"`
-	ProcessTokens ProcessTokens `yaml:"processTokens" usage:"Process Tokens of m3 mode"`
+	M3                   bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
+	M3Frequency          time.Duration `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3 minutes"`
+	ProcessTokens        ProcessTokens `yaml:"processTokens" usage:"Process tokens of m3 mode"`
+	ExcludeProcessTokens ProcessTokens `yaml:"excludeTokens" usage:"Process exclude tokens of m3 mode"`
 
 	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
 

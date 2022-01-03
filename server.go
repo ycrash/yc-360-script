@@ -188,7 +188,7 @@ func parseActions(actions []string) (result []interface{}, hasCmd bool, err erro
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
 						var ids map[int]string
-						ids, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)})
+						ids, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
 						if e != nil {
 							continue
 						}

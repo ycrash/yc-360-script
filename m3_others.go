@@ -13,7 +13,7 @@ import (
 	"shell/config"
 )
 
-func GetProcessIds(tokens config.ProcessTokens) (pids map[int]string, err error) {
+func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
 	output, err := CommandCombinedOutput(M3PS)
 	if err != nil {
 		return
@@ -25,6 +25,12 @@ Next:
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
+		for _, exclude := range excludes {
+			p := strings.Index(line, string(exclude))
+			if p >= 0 {
+				continue Next
+			}
+		}
 		for _, t := range tokens {
 			token := string(t)
 			var appName string

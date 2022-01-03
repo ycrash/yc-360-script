@@ -229,7 +229,7 @@ Resp: %s
 	} else if len(config.GlobalConfig.Pid) > 0 {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
 		if err != nil {
-			ids, err := shell.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)})
+			ids, err := shell.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
 			if err == nil {
 				if len(ids) > 0 {
 					for pid := range ids {
@@ -360,7 +360,7 @@ func process(timestamp string, endpoint string) (pids map[int]string, err error)
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
-	pids, err = shell.GetProcessIds(config.GlobalConfig.ProcessTokens)
+	pids, err = shell.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	if err == nil && len(pids) > 0 {
 		for pid := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
