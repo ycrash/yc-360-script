@@ -366,8 +366,11 @@ func process(timestamp string, endpoint string) (pids map[int]string, err error)
 			logger.Log("uploading gc log for pid %d", pid)
 			uploadGCLog(endpoint, pid)
 		}
+	} else if err != nil {
+		logger.Log("WARNING: failed to get PID cause %v", err)
 	} else {
-		logger.Log("WARNING: No PID has ProcessTokens or failed by error %v", err)
+		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
+			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	}
 
 	logger.Log("Starting collection of top data...")

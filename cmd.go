@@ -18,6 +18,7 @@ type CmdManager interface {
 	SetStdoutAndStderr(io.Writer)
 	GetPid() int
 	ExitCode() (code int)
+	String() string
 }
 
 type WaitCmd struct {

@@ -3,6 +3,8 @@ package capture
 import (
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"time"
@@ -16,17 +18,17 @@ type Top struct {
 }
 
 func (t *Top) Run() (result Result, err error) {
-	top, err := os.Create("top.out")
+	file, err := os.Create("top.out")
 	if err != nil {
 		return
 	}
 	defer func() {
-		e := top.Close()
+		e := file.Close()
 		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top)
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top)
 	if err != nil {
 		return
 	}
@@ -39,11 +41,41 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	e := top.Sync()
+	if t.Cmd.ExitCode() != 0 {
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		output, rErr := ioutil.ReadAll(file)
+		oCmd := t.Cmd
+		err = file.Truncate(0)
+		if err != nil {
+			return
+		}
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top2)
+		if err != nil {
+			return
+		}
+		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing Top"
+			result.Ok = true
+			return
+		}
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("failed to wait cmd: %s", err.Error())
+		}
+	}
+	e := file.Sync()
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", file)
 	return
 }
 
@@ -59,16 +91,16 @@ func (t *TopH) Run() (result Result, err error) {
 		return
 	}
 	logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
-	topdash, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.N))
+	file, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.N))
 	if err != nil {
 		return
 	}
 	defer func() {
-		e := topdash.Sync()
+		e := file.Sync()
 		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to sync file %s", e)
 		}
-		e = topdash.Close()
+		e = file.Close()
 		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
@@ -78,7 +110,7 @@ func (t *TopH) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(topdash, command)
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, command)
 	if err != nil {
 		return
 	}
@@ -90,6 +122,36 @@ func (t *TopH) Run() (result Result, err error) {
 	err = t.Cmd.Wait()
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
+	}
+	if t.Cmd.ExitCode() != 0 {
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		output, rErr := ioutil.ReadAll(file)
+		oCmd := t.Cmd
+		err = file.Truncate(0)
+		if err != nil {
+			return
+		}
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.TopH2, strconv.Itoa(t.Pid))
+		if err != nil {
+			return
+		}
+		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing TopH"
+			result.Ok = true
+			return
+		}
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("failed to wait cmd: %s", err.Error())
+		}
 	}
 	return
 }

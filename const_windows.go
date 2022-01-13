@@ -11,10 +11,13 @@ var topScript []byte
 var (
 	NetState            = Command{"netstat", "-an"}
 	PS                  = Command{"tasklist"}
+	PS2                 = Command{"tasklist"}
 	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId,Commandline"}
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
+	Top2                = NopCommand
 	TopH                = NopCommand
+	TopH2               = NopCommand
 	Top4M3              = NopCommand
 	VMState             = NopCommand
 	DMesg               = NopCommand

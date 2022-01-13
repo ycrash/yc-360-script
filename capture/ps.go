@@ -2,8 +2,10 @@ package capture
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"shell"
+	"shell/logger"
 )
 
 type PS struct {
@@ -16,23 +18,39 @@ func NewPS() *PS {
 }
 
 func (t *PS) Run() (result Result, err error) {
-	ps, err := os.Create("ps.out")
+	file, err := os.Create("ps.out")
 	if err != nil {
 		return
 	}
-	defer ps.Close()
+	defer file.Close()
 
 	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
 	for n := 1; n <= m; n++ {
-		_, err = ps.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
+		_, err = file.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
 		if err != nil {
 			return
 		}
-		err = shell.CommandCombinedOutputToWriter(ps, shell.PS)
+		err = shell.CommandCombinedOutputToWriter(file, shell.PS)
 		if err != nil {
-			return
+			_, err = file.Seek(0, io.SeekStart)
+			if err != nil {
+				return
+			}
+			err = file.Truncate(0)
+			if err != nil {
+				return
+			}
+			_, err = file.Seek(0, io.SeekStart)
+			if err != nil {
+				return
+			}
+			logger.Log("trying %v, cause %v exit code != 0, read err %v", shell.PS2, shell.PS)
+			err = shell.CommandCombinedOutputToWriter(file, shell.PS2)
+			if err != nil {
+				return
+			}
 		}
 	}
-	result.Msg, result.Ok = shell.PostData(t.endpoint, "ps", ps)
+	result.Msg, result.Ok = shell.PostData(t.endpoint, "ps", file)
 	return
 }

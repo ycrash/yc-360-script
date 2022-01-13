@@ -7,12 +7,19 @@ import (
 var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
+	PS2      = Command{"ps", "-eLf"}
 	M3PS     = Command{"ps", "-eLf"}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", strconv.Itoa(TOP_INTERVAL),
 		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL + 1)}
+	Top2 = Command{WaitCommand, "top", "-bc",
+		"-d", strconv.Itoa(TOP_INTERVAL),
+		"-n", strconv.Itoa(SCRIPT_SPAN/TOP_INTERVAL + 1)}
 	TopH = Command{WaitCommand, "top", "-bH",
+		"-n", "1",
+		"-p", DynamicArg}
+	TopH2 = Command{WaitCommand, "top", "-bH",
 		"-n", "1",
 		"-p", DynamicArg}
 	Top4M3              = Command{WaitCommand, "top", "-bc", "-n", "1"}

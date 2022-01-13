@@ -3,10 +3,13 @@ package shell
 var (
 	NetState            = Command{"netstat", "-a"}
 	PS                  = Command{"ps", "-ef"}
+	PS2                 = Command{"ps", "-ef"}
 	M3PS                = Command{"ps", "-ef"}
 	Disk                = Command{"df"}
 	Top                 = Command{"topas", "-P"}
+	Top2                = Command{"topas", "-P"}
 	TopH                = Command{"topas", "-P"}
+	TopH2               = Command{"topas", "-P"}
 	Top4M3              = Command{"topas", "-P"}
 	VMState             = Command{"vmstat", DynamicArg, DynamicArg}
 	DMesg               = Command{"dmesg"}
