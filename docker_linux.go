@@ -51,11 +51,11 @@ func getPIDChain(pid int) (pids []int, err error) {
 }
 
 func DockerCopy(dst string, src string) (err error) {
-	err = CommandRun(DockerCP, src, dst)
+	err = CommandRun(Append(DockerCP, src, dst))
 	return
 }
 
 func DockerExecute(args ...string) (output []byte, err error) {
-	output, err = CommandCombinedOutput(DockerExec, args...)
+	output, err = CommandCombinedOutput(Append(DockerExec, args...))
 	return
 }

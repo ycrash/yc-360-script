@@ -36,11 +36,11 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to write file %s", err)
 	}
 	err = shell.CommandCombinedOutputToWriter(out,
-		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.class_histogram"})
+		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.class_histogram"}, shell.SudoHooker{PID: t.Pid})
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"})
+			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture GC.class_histogram with err %v.", err)
 		}
@@ -50,11 +50,11 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to write file %s", err)
 	}
 	err = shell.CommandCombinedOutputToWriter(out,
-		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.system_properties"})
+		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.system_properties"}, shell.SudoHooker{PID: t.Pid})
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"})
+			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture VM.system_properties with err %v.", err)
 		}
@@ -64,11 +64,11 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to write file %s", err)
 	}
 	err = shell.CommandCombinedOutputToWriter(out,
-		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_info"})
+		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_info"}, shell.SudoHooker{PID: t.Pid})
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"})
+			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture GC.heap_info with err %v.", err)
 		}
@@ -78,11 +78,11 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to write file %s", err)
 	}
 	err = shell.CommandCombinedOutputToWriter(out,
-		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.flags"})
+		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.flags"}, shell.SudoHooker{PID: t.Pid})
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"})
+			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture VM.flags with err %v.", err)
 		}

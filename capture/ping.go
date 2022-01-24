@@ -16,7 +16,7 @@ func (c *Ping) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	c.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Ping, c.Host)
+	c.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.Ping, c.Host))
 	if err != nil {
 		return
 	}

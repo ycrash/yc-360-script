@@ -85,7 +85,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		}
 		var output []byte
 		fp := filepath.Join(dir, hdOut)
-		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp})
+		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
 		logger.Log("Output from jcmd: %s, %v", output, err)
 		if err != nil ||
 			bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -95,7 +95,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 			}
 			var e2 error
 			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d", hdOut, t.Pid))
-			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"})
+			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"}, shell.SudoHooker{PID: t.Pid})
 			logger.Log("Output from jattach: %s, %v", output, e2)
 			if e2 != nil {
 				err = fmt.Errorf("%v: %v", e2, err)

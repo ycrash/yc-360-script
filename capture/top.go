@@ -138,7 +138,7 @@ func (t *TopH) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.TopH2, strconv.Itoa(t.Pid))
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.TopH2, strconv.Itoa(t.Pid)))
 		if err != nil {
 			return
 		}

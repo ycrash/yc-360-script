@@ -42,15 +42,15 @@ func (t *JStack) Run() (result Result, err error) {
 			}
 			fn := fmt.Sprintf("javacore.%d.out", n)
 			jstack, err := shell.CommandCombinedOutputToFile(fn,
-				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)})
+				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
 			if err != nil {
 				logger.Log("Failed to run jstack with err %v. Trying to capture thread dump using jattach...", err)
 				if jstack != nil {
 					err = shell.CommandCombinedOutputToWriter(jstack,
-						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.SudoHooker{PID: t.pid})
 				} else {
 					jstack, err = shell.CommandCombinedOutputToFile(fn,
-						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+						shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.SudoHooker{PID: t.pid})
 				}
 				if err != nil {
 					e1 <- err
@@ -136,10 +136,10 @@ func (t *JStackF) Run() (result Result, err error) {
 			return
 		}
 		err = shell.CommandCombinedOutputToWriter(t.jstack,
-			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)})
+			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
 		if err != nil {
 			err = shell.CommandCombinedOutputToWriter(t.jstack,
-				shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"})
+				shell.Command{shell.Executable(t.pid), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.SudoHooker{PID: t.pid})
 		}
 	}
 	return

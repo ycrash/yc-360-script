@@ -412,7 +412,7 @@ func uploadGCLog(endpoint string, pid int) {
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
+			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, shell.SudoHooker{PID: pid})
 		if err == nil {
 			gcp = fn
 			logger.Log("gc log set to %s", gcp)
@@ -481,7 +481,7 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 		}
 	}
 	file, jstat, err = shell.CommandStartInBackgroundToFile(fn,
-		shell.Command{shell.Executable(pid), "-p", strconv.Itoa(pid), "-gcCaptureMode"})
+		shell.Command{shell.Executable(pid), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, shell.SudoHooker{PID: pid})
 	return
 }
 
@@ -615,7 +615,7 @@ Ignored errors: %v
 	var triedJAttachGC bool
 	if pidPassed && (err != nil || gc == nil) {
 		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"})
+			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, shell.SudoHooker{PID: pid})
 		if err == nil {
 			gcPath = "gc.log"
 			logger.Log("gc log set to %s", gcPath)
@@ -1069,7 +1069,7 @@ var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func getGCLogFile(pid int) (result string, err error) {
-	output, err := shell.CommandCombinedOutput(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid))
+	output, err := shell.CommandCombinedOutput(shell.Append(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid)))
 	if err != nil {
 		return
 	}
