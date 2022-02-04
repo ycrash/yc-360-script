@@ -30,7 +30,7 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 		err = errors.New("invalid nil Command, please use NopCommand instead")
 		return
 	}
-	if *cmd == nil {
+	if len(*cmd) < 1 {
 		return NopCommand, nil
 	}
 	n := 0

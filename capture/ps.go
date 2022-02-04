@@ -44,7 +44,7 @@ func (t *PS) Run() (result Result, err error) {
 			if err != nil {
 				return
 			}
-			logger.Log("trying %v, cause %v exit code != 0, read err %v", shell.PS2, shell.PS)
+			logger.Log("trying %v, cause %v exit code != 0", shell.PS2, shell.PS)
 			err = shell.CommandCombinedOutputToWriter(file, shell.PS2)
 			if err != nil {
 				return

@@ -18,6 +18,11 @@ type Top struct {
 }
 
 func (t *Top) Run() (result Result, err error) {
+	if len(shell.Top) < 1 {
+		result.Msg = "skipped capturing TopH"
+		result.Ok = true
+		return
+	}
 	file, err := os.Create("top.out")
 	if err != nil {
 		return
@@ -86,6 +91,11 @@ type TopH struct {
 }
 
 func (t *TopH) Run() (result Result, err error) {
+	if len(shell.TopH) < 1 {
+		result.Msg = "skipped capturing TopH"
+		result.Ok = true
+		return
+	}
 	if !shell.IsProcessExists(t.Pid) {
 		err = fmt.Errorf("process %d does not exist", t.Pid)
 		return
@@ -161,6 +171,11 @@ type Top4M3 struct {
 }
 
 func (t *Top4M3) Run() (result Result, err error) {
+	if len(shell.Top4M3) < 1 {
+		result.Msg = "skipped capturing TopH"
+		result.Ok = true
+		return
+	}
 	top, err := os.Create("top4m3.out")
 	if err != nil {
 		return

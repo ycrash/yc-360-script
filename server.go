@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"net/url"
 	"shell/config"
+	"shell/logger"
 	"strconv"
 	"strings"
 )
 
 type Server struct {
 	*http.Server
-	ProcessPids func(pids []int) (rUrls []string, err error)
+	ProcessPids func(pids []int, pid2Name map[int]string) (rUrls []string, err error)
 	ln          net.Listener
 }
 
@@ -36,24 +37,24 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	resp := &Resp{}
+	var err error
 	defer func() {
-		err := encoder.Encode(resp)
+		err = encoder.Encode(resp)
 		if err != nil {
-			panic(err)
+			logger.Log("failed to encode response(%#v): %v", resp, err)
 		}
 	}()
 
 	forward := request.Header.Get("ycrash-forward")
 	if len(forward) > 0 {
 		fr := request.Clone(context.Background())
-		url, err := url.Parse(forward)
+		fr.URL, err = url.Parse(forward)
 		if err != nil {
 			resp.Code = -1
 			resp.Msg = err.Error()
 			return
 		}
 		fr.RequestURI = ""
-		fr.URL = url
 		fr.Header.Del("ycrash-forward")
 		fr.Close = true
 		client := http.Client{}
@@ -63,7 +64,11 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			resp.Msg = err.Error()
 			return
 		}
-		defer r.Body.Close()
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				logger.Log("failed to close response body: %v", err)
+			}
+		}()
 		for key, v := range r.Header {
 			for _, value := range v {
 				writer.Header().Add(key, value)
@@ -81,7 +86,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 
 	decoder := json.NewDecoder(request.Body)
 	req := &Req{}
-	err := decoder.Decode(req)
+	err = decoder.Decode(req)
 	if err != nil {
 		resp.Code = -1
 		resp.Msg = err.Error()
@@ -94,7 +99,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	result, hasCmd, err := parseActions(req.Actions)
+	result, pid2Name, hasCmd, err := parseActions(req.Actions)
 	if err != nil {
 		resp.Code = -1
 		resp.Msg = err.Error()
@@ -108,7 +113,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			for _, i := range result {
 				pids = append(pids, i.(int))
 			}
-			rUrls, err = s.ProcessPids(pids)
+			rUrls, err = s.ProcessPids(pids, pid2Name)
 			if err != nil {
 				resp.Code = -1
 				resp.Msg = err.Error()
@@ -122,7 +127,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 				if p, ok := i.(int); ok {
 					pid = p
 					output = append(output, strconv.Itoa(p))
-					rUrls, err = s.ProcessPids([]int{p})
+					rUrls, err = s.ProcessPids([]int{p}, pid2Name)
 					if err == nil {
 						resp.DashboardReportURLs = append(resp.DashboardReportURLs, rUrls...)
 						output = append(output, rUrls...)
@@ -148,11 +153,16 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		for _, i := range result {
 			pids = append(pids, i.(int))
 		}
-		go s.ProcessPids(pids)
+		go func() {
+			_, err := s.ProcessPids(pids, pid2Name)
+			if err != nil {
+				logger.Log("failed to process pids in background: %v", err)
+			}
+		}()
 	}
 }
 
-func parseActions(actions []string) (result []interface{}, hasCmd bool, err error) {
+func parseActions(actions []string) (result []interface{}, pid2Name map[int]string, hasCmd bool, err error) {
 	for _, s := range actions {
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")
@@ -187,12 +197,11 @@ func parseActions(actions []string) (result []interface{}, hasCmd bool, err erro
 					pid, e = strconv.Atoi(id)
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
-						var ids map[int]string
-						ids, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
+						pid2Name, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
 						if e != nil {
 							continue
 						}
-						for pid := range ids {
+						for pid := range pid2Name {
 							if pid > 0 {
 								result = append(result, pid)
 							}

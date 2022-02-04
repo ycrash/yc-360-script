@@ -1,6 +1,8 @@
 package capture
 
 import (
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,5 +45,28 @@ func TestTop4M3(t *testing.T) {
 	_, err := top.Run()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSkip(t *testing.T) {
+	command, err := shell.NopCommand.AddDynamicArg(strconv.Itoa(100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", command)
+	c, err := shell.CommandStartInBackgroundToWriter(os.NewFile(0, os.DevNull), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", c)
+	if !c.IsSkipped() {
+		t.Fatal("failed to skip")
+	}
+}
+
+func TestNop(t *testing.T) {
+	var a = shell.NopCommand
+	if len(a) > 0 {
+		t.Fatal("")
 	}
 }

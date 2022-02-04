@@ -288,11 +288,11 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 // only one thread can run capture process
 var one sync.Mutex
 
-func processPids(pids []int) (rUrls []string, err error) {
+func processPids(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
-	return processPidsWithoutLock(pids, nil)
+	return processPidsWithoutLock(pids, pid2Name)
 }
 
 func processPidsWithoutLock(pids []int, pid2Name map[int]string) (rUrls []string, err error) {

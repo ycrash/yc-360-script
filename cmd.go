@@ -76,6 +76,13 @@ func (c *WaitCmd) Kill() (err error) {
 	return
 }
 
+func (c *WaitCmd) String() string {
+	if c.Cmd == nil {
+		return ""
+	}
+	return c.Cmd.String()
+}
+
 type Cmd struct {
 	WaitCmd
 }
