@@ -1,0 +1,19 @@
+version: '1'
+options:
+    
+    k: Lunar@9e8d7840-91e6-48a5-9f16-2a75b2b2fcf4
+    s: 'http://localhost:8080'
+    tdPath: ''
+    gcPath: ''
+    d: false
+    port: 8085
+    address: 0.0.0.0
+    processTokens:
+    - buggyApp
+    tags: agentCapture
+    appLogLineCount: 60
+    appLog: C:\workspace\tier1app\uploads\t-log\logs\tier1app.log
+
+
+   a: Heap Trim check
+    appLog: C:\workspace\tier1app\uploads\t-log\logs\tier1app.log

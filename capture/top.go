@@ -46,7 +46,7 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	if t.Cmd.ExitCode() != 0 {
+	if t.Cmd.ExitCode() != 0 && len(shell.Top2) > 0 {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
@@ -133,7 +133,7 @@ func (t *TopH) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	if t.Cmd.ExitCode() != 0 {
+	if t.Cmd.ExitCode() != 0 && len(shell.TopH2) > 0 {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return

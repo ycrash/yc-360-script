@@ -129,4 +129,12 @@ func TestConfig(t *testing.T) {
 			t.Fail()
 		}
 	})
+
+	t.Run("Improve yaml parse error msg", func(t *testing.T) {
+		args := []string{"yc", "-c", "testdata/space-issue.yaml"}
+		err := ParseFlags(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
