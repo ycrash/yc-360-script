@@ -197,13 +197,17 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 					pid, e = strconv.Atoi(id)
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
-						pid2Name, e = GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
+						p2n, e := GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
 						if e != nil {
 							continue
 						}
-						for pid := range pid2Name {
+						for pid, name := range p2n {
 							if pid > 0 {
+								if pid2Name == nil {
+									pid2Name = make(map[int]string, len(p2n))
+								}
 								result = append(result, pid)
+								pid2Name[pid] = name
 							}
 						}
 						continue

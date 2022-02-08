@@ -309,6 +309,11 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
+	noGC2, err := shell.CommandStartInBackground(shell.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer noGC2.KillAndWait()
 
 	s, err := shell.NewServer("localhost", 0)
 	if err != nil {
@@ -329,7 +334,10 @@ func TestServer(t *testing.T) {
 
 	go func() {
 		defer s.Close()
-		buf := bytes.NewBufferString(fmt.Sprintf(`{"waitFor": true, "key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture %d"] }`, noGC.GetPid()))
+		buf := bytes.NewBufferString(
+			fmt.Sprintf(
+				`{"waitFor": true, "key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":["capture %d$ycrash-cloud", "capture %d$GCeasy"] }`,
+				noGC.GetPid(), noGC2.GetPid()))
 		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
