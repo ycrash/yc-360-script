@@ -40,7 +40,7 @@ func (t *HDSub) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.SudoHooker{PID: t.Pid})
+			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture GC.class_histogram with err %v.", err)
 		}
@@ -54,7 +54,7 @@ func (t *HDSub) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, shell.SudoHooker{PID: t.Pid})
+			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture VM.system_properties with err %v.", err)
 		}
@@ -68,7 +68,7 @@ func (t *HDSub) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, shell.SudoHooker{PID: t.Pid})
+			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture GC.heap_info with err %v.", err)
 		}
@@ -82,7 +82,7 @@ func (t *HDSub) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(t.Pid), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, shell.SudoHooker{PID: t.Pid})
+			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture VM.flags with err %v.", err)
 		}

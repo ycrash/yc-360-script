@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"shell/logger"
 	"strconv"
 	"strings"
 )
@@ -50,5 +51,6 @@ func (s SudoHooker) Before(command Command) (result Command) {
 		return command
 	}
 	result = append(Command{"sudo", "-u", fmt.Sprintf("#%s", uid)}, command...)
+	logger.Info().Str("cmd", strings.Join(result, " ")).Msg("sudo hooker result")
 	return
 }

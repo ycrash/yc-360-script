@@ -236,8 +236,7 @@ err: %v
 	return
 }
 
-func Executable(pid int) string {
-	Env = []string{fmt.Sprintf("pid=%d", pid)}
+func Executable() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return "../yc"
