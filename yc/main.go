@@ -1137,6 +1137,11 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 			gcPath = filepath.Join(d, tf)
 		}
 	}
+	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
+	// /home/ec2-user/buggyapp/gc.pid2843.log
+	if strings.Contains(gcPath, `%p`) {
+		gcPath = strings.Replace(gcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
+	}
 	if len(dockerID) > 0 {
 		err = shell.DockerCopy(out, dockerID+":"+gcPath)
 		if err == nil {
