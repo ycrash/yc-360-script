@@ -1,17 +1,77 @@
 package logger
 
 import (
+	"errors"
 	"io"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"github.com/rs/zerolog"
 )
 
-var Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}).With().Timestamp().Logger()
-var stdLogger zerolog.Logger
-var Log2File bool
+type stackElement struct {
+	l *zerolog.Logger
+	f *os.File
+}
+
+var (
+	logger        atomic.Value
+	loggerMtx     sync.Mutex
+	loggerStack   []stackElement
+	rootLogWriter io.Writer
+
+	stdLogger zerolog.Logger
+	Log2File  bool
+)
+
+func init() {
+	w := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.UnixDate}
+	rootLogWriter = w
+	l := zerolog.New(w).With().Timestamp().Logger()
+	logger.Store(&l)
+}
+
+func GetLogger() *zerolog.Logger {
+	return logger.Load().(*zerolog.Logger)
+}
+
+func SetLogger(l *zerolog.Logger) {
+	logger.Store(l)
+}
+
+func StartWritingToFile(file string) (f *os.File, err error) {
+	loggerMtx.Lock()
+	defer loggerMtx.Unlock()
+
+	f, err = os.Create(file)
+	if err != nil {
+		return
+	}
+	lw := zerolog.ConsoleWriter{Out: f, TimeFormat: time.UnixDate, NoColor: true}
+	l := GetLogger()
+	loggerStack = append(loggerStack, stackElement{l, f})
+	w := io.MultiWriter(lw, rootLogWriter)
+	nl := l.Output(w)
+	SetLogger(&nl)
+	return
+}
+
+func StopWritingToFile() (err error) {
+	loggerMtx.Lock()
+	defer loggerMtx.Unlock()
+
+	l := loggerStack[len(loggerStack)-1]
+	loggerStack = loggerStack[:len(loggerStack)-1]
+	SetLogger(l.l)
+	err = l.f.Close()
+	if errors.Is(err, os.ErrClosed) {
+		err = nil
+	}
+	return
+}
 
 func Init(path string, count uint, size int64, logLevel string) (err error) {
 	level, err := zerolog.ParseLevel(logLevel)
@@ -34,13 +94,15 @@ func Init(path string, count uint, size int64, logLevel string) (err error) {
 	} else {
 		logWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.UnixDate}
 	}
-	Logger = zerolog.New(logWriter).With().Timestamp().Logger().Level(level)
+	rootLogWriter = logWriter
+	l := zerolog.New(logWriter).With().Timestamp().Logger().Level(level)
+	SetLogger(&l)
 	stdLogger = zerolog.New(stdout).With().Timestamp().Logger().Level(level)
 	return
 }
 
 func Log(format string, values ...interface{}) {
-	Logger.Info().Msgf(format, values...)
+	GetLogger().Info().Msgf(format, values...)
 }
 
 func StdLog(format string, values ...interface{}) {
@@ -49,27 +111,27 @@ func StdLog(format string, values ...interface{}) {
 
 // Output duplicates the global logger and sets w as its output.
 func Output(w io.Writer) zerolog.Logger {
-	return Logger.Output(w)
+	return GetLogger().Output(w)
 }
 
 // With creates a child logger with the field added to its context.
 func With() zerolog.Context {
-	return Logger.With()
+	return GetLogger().With()
 }
 
 // Level creates a child logger with the minimum accepted level set to level.
 func Level(level zerolog.Level) zerolog.Logger {
-	return Logger.Level(level)
+	return GetLogger().Level(level)
 }
 
 // Sample returns a logger with the s sampler.
 func Sample(s zerolog.Sampler) zerolog.Logger {
-	return Logger.Sample(s)
+	return GetLogger().Sample(s)
 }
 
 // Hook returns a logger with the h Hook.
 func Hook(h zerolog.Hook) zerolog.Logger {
-	return Logger.Hook(h)
+	return GetLogger().Hook(h)
 }
 
 // Err starts a new message with error level with err as a field if not nil or
@@ -77,42 +139,42 @@ func Hook(h zerolog.Hook) zerolog.Logger {
 //
 // You must call Msg on the returned event in order to send the event.
 func Err(err error) *zerolog.Event {
-	return Logger.Err(err)
+	return GetLogger().Err(err)
 }
 
 // Trace starts a new message with trace level.
 //
 // You must call Msg on the returned event in order to send the event.
 func Trace() *zerolog.Event {
-	return Logger.Trace()
+	return GetLogger().Trace()
 }
 
 // Debug starts a new message with debug level.
 //
 // You must call Msg on the returned event in order to send the event.
 func Debug() *zerolog.Event {
-	return Logger.Debug()
+	return GetLogger().Debug()
 }
 
 // Info starts a new message with info level.
 //
 // You must call Msg on the returned event in order to send the event.
 func Info() *zerolog.Event {
-	return Logger.Info()
+	return GetLogger().Info()
 }
 
 // Warn starts a new message with warn level.
 //
 // You must call Msg on the returned event in order to send the event.
 func Warn() *zerolog.Event {
-	return Logger.Warn()
+	return GetLogger().Warn()
 }
 
 // Error starts a new message with error level.
 //
 // You must call Msg on the returned event in order to send the event.
 func Error() *zerolog.Event {
-	return Logger.Error()
+	return GetLogger().Error()
 }
 
 // Fatal starts a new message with fatal level. The os.Exit(1) function
@@ -120,7 +182,7 @@ func Error() *zerolog.Event {
 //
 // You must call Msg on the returned event in order to send the event.
 func Fatal() *zerolog.Event {
-	return Logger.Fatal()
+	return GetLogger().Fatal()
 }
 
 // Panic starts a new message with panic level. The message is also sent
@@ -128,12 +190,12 @@ func Fatal() *zerolog.Event {
 //
 // You must call Msg on the returned event in order to send the event.
 func Panic() *zerolog.Event {
-	return Logger.Panic()
+	return GetLogger().Panic()
 }
 
 // WithLevel starts a new message with level.
 //
 // You must call Msg on the returned event in order to send the event.
 func WithLevel(level zerolog.Level) *zerolog.Event {
-	return Logger.WithLevel(level)
+	return GetLogger().WithLevel(level)
 }

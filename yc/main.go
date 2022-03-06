@@ -574,6 +574,22 @@ func fullProcess(pid int, appName string) (rUrl string) {
 	if err != nil {
 		return
 	}
+	var agentLogFile *os.File
+	if !config.GlobalConfig.M3 {
+		agentLogFile, err = logger.StartWritingToFile("agentlog.out")
+		if err != nil {
+			logger.Info().Err(err).Msg("Failed to start writing to file")
+		}
+		defer func() {
+			if agentLogFile == nil {
+				return
+			}
+			err := logger.StopWritingToFile()
+			if err != nil {
+				logger.Info().Err(err).Msg("Failed to stop writing to file")
+			}
+		}()
+	}
 
 	// Display the PIDs which have been input to the script
 	logger.Log("PROBLEMATIC_PID is: %d", pid)
@@ -985,6 +1001,22 @@ Resp: %s
 `, i, command.Cmd, result.Ok, result.Msg)
 	}
 	logger.Log("Executed custom commands")
+
+	if agentLogFile != nil {
+		msg, ok = shell.PostData(endpoint, "agentlog", agentLogFile)
+		err := logger.StopWritingToFile()
+		if err != nil {
+			logger.Info().Err(err).Msg("Failed to stop writing to file")
+		}
+		agentLogFile = nil
+		logger.Log(
+			`AGENT LOG DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
+	}
 
 	if config.GlobalConfig.OnlyCapture {
 		return
