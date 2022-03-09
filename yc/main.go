@@ -152,7 +152,7 @@ func validate() {
 	}
 }
 
-func mainLoop() {
+func startupLogs() {
 	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
@@ -164,8 +164,12 @@ Resp: %s
 
 --------------------------------
 `, ok, msg)
+}
 
+func mainLoop() {
+	var once sync.Once
 	if config.GlobalConfig.Port > 0 {
+		once.Do(startupLogs)
 		go func() {
 			s, err := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
 			if err != nil {
@@ -181,6 +185,7 @@ Resp: %s
 	}
 
 	if config.GlobalConfig.M3 {
+		once.Do(startupLogs)
 		go func() {
 			for {
 				time.Sleep(config.GlobalConfig.M3Frequency)
@@ -249,6 +254,7 @@ Resp: %s
 		}
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
+		once.Do(startupLogs)
 		logger.Log("WARNING: nothing can be done")
 		os.Exit(1)
 	}
@@ -486,43 +492,18 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 }
 
 func fullProcess(pid int, appName string) (rUrl string) {
-	startTime := time.Now()
-	gcPath := config.GlobalConfig.GCPath
-	tdPath := config.GlobalConfig.ThreadDumpPath
-	hdPath := config.GlobalConfig.HeapDumpPath
-	updatePaths(pid, &gcPath, &tdPath, &hdPath)
-	pidPassed := true
-	if pid <= 0 {
-		pidPassed = false
-	}
-
-	var dockerID string
-	if pidPassed {
-		// find gc log path in from command line arguments of ps result
-		if len(gcPath) < 1 {
-			output, err := getGCLogFile(pid)
-			if err == nil && len(output) > 0 {
-				gcPath = output
-			}
-		}
-
-		dockerID, _ = shell.GetDockerID(pid)
-	}
-
-	logger.Log("PID is %d", pid)
-	logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
-	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
-	logger.Log("APP_NAME is %s", appName)
-	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
-	logger.Log("GC_LOG is %s", gcPath)
-	if len(dockerID) > 0 {
-		logger.Log("DOCKER_ID is %s", dockerID)
-	}
-
+	var agentLogFile *os.File
 	var err error
 	defer func() {
 		if err != nil {
 			logger.Log("Unexpected Error %s", err)
+		}
+		if agentLogFile == nil {
+			return
+		}
+		err := logger.StopWritingToFile()
+		if err != nil {
+			logger.Info().Err(err).Msg("Failed to stop writing to file")
 		}
 	}()
 	// -------------------------------------------------------------------
@@ -574,21 +555,46 @@ func fullProcess(pid int, appName string) (rUrl string) {
 	if err != nil {
 		return
 	}
-	var agentLogFile *os.File
+
 	if !config.GlobalConfig.M3 {
 		agentLogFile, err = logger.StartWritingToFile("agentlog.out")
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to start writing to file")
 		}
-		defer func() {
-			if agentLogFile == nil {
-				return
+	}
+	startupLogs()
+
+	startTime := time.Now()
+	gcPath := config.GlobalConfig.GCPath
+	tdPath := config.GlobalConfig.ThreadDumpPath
+	hdPath := config.GlobalConfig.HeapDumpPath
+	updatePaths(pid, &gcPath, &tdPath, &hdPath)
+	pidPassed := true
+	if pid <= 0 {
+		pidPassed = false
+	}
+
+	var dockerID string
+	if pidPassed {
+		// find gc log path in from command line arguments of ps result
+		if len(gcPath) < 1 {
+			output, err := getGCLogFile(pid)
+			if err == nil && len(output) > 0 {
+				gcPath = output
 			}
-			err := logger.StopWritingToFile()
-			if err != nil {
-				logger.Info().Err(err).Msg("Failed to stop writing to file")
-			}
-		}()
+		}
+
+		dockerID, _ = shell.GetDockerID(pid)
+	}
+
+	logger.Log("PID is %d", pid)
+	logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
+	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
+	logger.Log("APP_NAME is %s", appName)
+	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
+	logger.Log("GC_LOG is %s", gcPath)
+	if len(dockerID) > 0 {
+		logger.Log("DOCKER_ID is %s", dockerID)
 	}
 
 	// Display the PIDs which have been input to the script
@@ -1002,22 +1008,6 @@ Resp: %s
 	}
 	logger.Log("Executed custom commands")
 
-	if agentLogFile != nil {
-		msg, ok = shell.PostData(endpoint, "agentlog", agentLogFile)
-		err := logger.StopWritingToFile()
-		if err != nil {
-			logger.Info().Err(err).Msg("Failed to stop writing to file")
-		}
-		agentLogFile = nil
-		logger.Log(
-			`AGENT LOG DATA
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, ok, msg)
-	}
-
 	if config.GlobalConfig.OnlyCapture {
 		return
 	}
@@ -1040,14 +1030,27 @@ Resp: %s
 	logger.Log(`
 %s
 `, resp)
-	if logger.Log2File {
-		logger.Log(`
+	logger.Log(`
 %s
 `, pterm.RemoveColorFromString(result))
-	} else {
-		logger.Log(`
+	logger.StdLog(`
 %s
 `, result)
+
+	if agentLogFile != nil {
+		msg, ok = shell.PostData(endpoint, "agentlog", agentLogFile)
+		err := logger.StopWritingToFile()
+		if err != nil {
+			logger.Info().Err(err).Msg("Failed to stop writing to file")
+		}
+		agentLogFile = nil
+		logger.Log(
+			`AGENT LOG DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
 	}
 	return
 }
