@@ -16,7 +16,7 @@ import (
 
 type Server struct {
 	*http.Server
-	ProcessPids func(pids []int, pid2Name map[int]string) (rUrls []string, err error)
+	ProcessPids func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error)
 	ln          net.Listener
 }
 
@@ -24,6 +24,8 @@ type Req struct {
 	Key     string
 	Actions []string
 	WaitFor bool
+	Hd      bool
+	Tags    string
 }
 
 type Resp struct {
@@ -113,7 +115,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			for _, i := range result {
 				pids = append(pids, i.(int))
 			}
-			rUrls, err = s.ProcessPids(pids, pid2Name)
+			rUrls, err = s.ProcessPids(pids, pid2Name, req.Hd, req.Tags)
 			if err != nil {
 				resp.Code = -1
 				resp.Msg = err.Error()
@@ -127,7 +129,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 				if p, ok := i.(int); ok {
 					pid = p
 					output = append(output, strconv.Itoa(p))
-					rUrls, err = s.ProcessPids([]int{p}, pid2Name)
+					rUrls, err = s.ProcessPids([]int{p}, pid2Name, req.Hd, req.Tags)
 					if err == nil {
 						resp.DashboardReportURLs = append(resp.DashboardReportURLs, rUrls...)
 						output = append(output, rUrls...)
@@ -154,7 +156,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			pids = append(pids, i.(int))
 		}
 		go func() {
-			_, err := s.ProcessPids(pids, pid2Name)
+			_, err := s.ProcessPids(pids, pid2Name, req.Hd, req.Tags)
 			if err != nil {
 				logger.Log("failed to process pids in background: %v", err)
 			}

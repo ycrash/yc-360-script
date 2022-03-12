@@ -241,7 +241,7 @@ func mainLoop() {
 						if pid < 1 {
 							continue
 						}
-						fullProcess(pid, config.GlobalConfig.AppName)
+						fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
 					}
 				} else {
 					logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
@@ -250,7 +250,7 @@ func mainLoop() {
 				logger.Log("unexpected error %s", err)
 			}
 		} else {
-			fullProcess(pid, config.GlobalConfig.AppName)
+			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
 		}
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
@@ -282,26 +282,25 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	tmp := config.GlobalConfig.Tags
 	if len(tmp) > 0 {
 		ts := strings.Trim(tmp, ",")
-		config.GlobalConfig.Tags = strings.Trim(ts+","+t, ",")
+		tmp = strings.Trim(ts+","+t, ",")
 	} else {
-		config.GlobalConfig.Tags = strings.Trim(t, ",")
+		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name)
-	config.GlobalConfig.Tags = tmp
+	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp)
 	return
 }
 
 // only one thread can run capture process
 var one sync.Mutex
 
-func processPids(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
-	return processPidsWithoutLock(pids, pid2Name)
+	return processPidsWithoutLock(pids, pid2Name, hd, tags)
 }
 
-func processPidsWithoutLock(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
@@ -326,7 +325,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string) (rUrls []string
 				continue
 			}
 		} else {
-			url := fullProcess(pid, name)
+			url := fullProcess(pid, name, hd, tags)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -491,7 +490,7 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 	return
 }
 
-func fullProcess(pid int, appName string) (rUrl string) {
+func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	var agentLogFile *os.File
 	var err error
 	defer func() {
@@ -610,7 +609,7 @@ func fullProcess(pid int, appName string) (rUrl string) {
 	// -------------------------------
 	//     Transmit MetaInfo
 	// -------------------------------
-	msg, ok, err := writeMetaInfo(pid, appName, endpoint)
+	msg, ok, err := writeMetaInfo(pid, appName, endpoint, tags)
 	logger.Log(
 		`META INFO DATA
 Is transmission completed: %t
@@ -966,7 +965,6 @@ Resp: %s
 	//     Transmit Heap dump result
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
-	hd := config.GlobalConfig.HeapDump
 	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
@@ -1341,7 +1339,7 @@ javaVersion=%s
 osVersion=%s
 tags=%s`
 
-func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool, err error) {
+func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, ok bool, err error) {
 	file, err := os.Create("meta-info.txt")
 	if err != nil {
 		return
@@ -1374,7 +1372,7 @@ func writeMetaInfo(processId int, appName, endpoint string) (msg string, ok bool
 	} else {
 		un = current.Username
 	}
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov, config.GlobalConfig.Tags))
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return

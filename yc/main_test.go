@@ -174,7 +174,7 @@ func TestWriteMetaInfo(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
-	msg, ok, err := writeMetaInfo(11111, "test", endpoint)
+	msg, ok, err := writeMetaInfo(11111, "test", endpoint, "tag1")
 	if err != nil || !ok {
 		t.Fatal(err, msg)
 	}
