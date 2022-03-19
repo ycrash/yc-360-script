@@ -1007,6 +1007,13 @@ Resp: %s
 	logger.Log("Executed custom commands")
 
 	if config.GlobalConfig.OnlyCapture {
+		if agentLogFile != nil {
+			err := logger.StopWritingToFile()
+			if err != nil {
+				logger.Info().Err(err).Msg("Failed to stop writing to file")
+			}
+			agentLogFile = nil
+		}
 		return
 	}
 	// -------------------------------
@@ -1022,18 +1029,18 @@ Resp: %s
 	endTime := time.Now()
 	var result string
 	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
-	logger.StdLog(`
-%s
-`, resp)
+	//	logger.StdLog(`
+	//%s
+	//`, resp)
+	//	logger.StdLog(`
+	//%s
+	//`, result)
 	logger.Log(`
 %s
 `, resp)
 	logger.Log(`
 %s
 `, pterm.RemoveColorFromString(result))
-	logger.StdLog(`
-%s
-`, result)
 
 	if agentLogFile != nil {
 		msg, ok = shell.PostData(endpoint, "agentlog", agentLogFile)
