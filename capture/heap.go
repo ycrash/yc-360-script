@@ -79,32 +79,26 @@ func (t *HeapDump) Run() (result Result, err error) {
 	}
 	if t.Pid > 0 && hd == nil && t.dump {
 		logger.Log("capturing heap dump data")
-		var output []byte
-		fp := filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
+		var dir string
+		dir, err = os.Getwd()
+		if err != nil {
+			return
+		}
+		fp := filepath.Join(dir, fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
+		err = t.heapDump(fp)
+		if err != nil {
+			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
+			err = t.heapDump(fp)
+			if err != nil {
+				return
+			}
+		}
 		defer func() {
 			err := os.Remove(fp)
 			if err != nil {
 				logger.Trace().Err(err).Str("file", fp).Msg("failed to rm hd file")
 			}
 		}()
-		output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
-		logger.Log("Output from jcmd: %s, %v", output, err)
-		if err != nil ||
-			bytes.Index(output, []byte("No such file")) >= 0 ||
-			bytes.Index(output, []byte("Permission denied")) >= 0 {
-			if len(output) > 1 {
-				err = fmt.Errorf("%w because %s", err, output)
-			}
-			var e2 error
-			output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
-				shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
-				shell.SudoHooker{PID: t.Pid})
-			logger.Log("Output from jattach: %s, %v", output, e2)
-			if e2 != nil {
-				err = fmt.Errorf("%v: %v", e2, err)
-				return
-			}
-		}
 		hd, err = os.Open(fp)
 		if err != nil && runtime.GOOS == "linux" {
 			logger.Log("Failed to %s. Trying to open in the Docker container...", err.Error())
@@ -162,5 +156,29 @@ func (t *HeapDump) Run() (result Result, err error) {
 	}
 
 	result.Msg, result.Ok = shell.PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
+	return
+}
+
+func (t *HeapDump) heapDump(fp string) (err error) {
+	var output []byte
+	output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
+	logger.Log("Output from jcmd: %s, %v", output, err)
+	if err != nil ||
+		bytes.Index(output, []byte("No such file")) >= 0 ||
+		bytes.Index(output, []byte("Permission denied")) >= 0 {
+		if len(output) > 1 {
+			err = fmt.Errorf("%w because %s", err, output)
+		}
+		var e2 error
+		output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
+			shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+			shell.SudoHooker{PID: t.Pid})
+		logger.Log("Output from jattach: %s, %v", output, e2)
+		if e2 != nil {
+			err = fmt.Errorf("%v: %v", e2, err)
+			return
+		}
+		err = nil
+	}
 	return
 }

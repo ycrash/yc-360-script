@@ -10,6 +10,7 @@ require (
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/pterm/pterm v0.12.8
 	github.com/rs/zerolog v1.20.0
+	golang.org/x/sys v0.0.0-20220319134239-a9b59b0215f8 // indirect
 	gopkg.in/yaml.v2 v2.3.0
 )
 
