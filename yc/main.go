@@ -495,7 +495,7 @@ func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	var err error
 	defer func() {
 		if err != nil {
-			logger.Log("Unexpected Error %s", err)
+			logger.Error().Err(err).Msg("unexpected error")
 		}
 		if agentLogFile == nil {
 			return
@@ -513,6 +513,9 @@ func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 
 	dname := "yc-" + timestamp
+	if len(config.GlobalConfig.StoragePath) > 0 {
+		dname = filepath.Join(config.GlobalConfig.StoragePath, dname)
+	}
 	err = os.Mkdir(dname, 0777)
 	if err != nil {
 		return

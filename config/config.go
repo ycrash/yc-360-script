@@ -69,6 +69,8 @@ type Options struct {
 
 	AppLog          string `yaml:"appLog" usage:"The target application’s log file path"`
 	AppLogLineCount uint   `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
+
+	StoragePath string `yaml:"storagePath" usage:"The storage path to save the captured files"`
 }
 
 type Command struct {
