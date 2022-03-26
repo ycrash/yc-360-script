@@ -9,7 +9,7 @@ import (
 )
 
 func zipFolder(folder string) (name string, err error) {
-	name = fmt.Sprintf("%s.zip", filepath.Base(folder))
+	name = fmt.Sprintf("%s.zip", folder)
 	file, err := os.Create(name)
 	if err != nil {
 		return

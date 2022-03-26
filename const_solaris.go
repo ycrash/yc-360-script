@@ -26,7 +26,7 @@ var (
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{now=strftime("%T "); print now $0; fflush()}'`}
 	DMesg               = Command{"dmesg"}
 	DMesg2              = Command{"dmesg"}
-	GC                  = Command{"/bin/sh", "-c"}
+	GC                  = Command{"ps", "-f", "-p", DynamicArg}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{"ps", "-eo", "pid,cmd,%cpu", "--sort=-%cpu"}

@@ -22,7 +22,7 @@ var (
 	VMState             = NopCommand
 	DMesg               = NopCommand
 	DMesg2              = NopCommand
-	GC                  = NopCommand
+	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc CPU}"}

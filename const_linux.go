@@ -20,7 +20,7 @@ var (
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
 	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn && dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
 	DMesg2              = Command{"/bin/sh", "-c", "dmesg -n 4 | tail -20"}
-	GC                  = Command{"/bin/sh", "-c"}
+	GC                  = Command{"ps", "-f", "-p", DynamicArg}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{"/bin/sh", "-c", "ps -o pid,%cpu,cmd, ax | sort -b -k2 -r"}

@@ -1112,7 +1112,14 @@ var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func getGCLogFile(pid int) (result string, err error) {
-	output, err := shell.CommandCombinedOutput(shell.Append(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid)))
+	var output []byte
+	if runtime.GOOS == "windows" {
+		var command shell.Command
+		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId == %d", pid))
+		output, err = shell.CommandCombinedOutput(command)
+	} else {
+		output, err = shell.CommandCombinedOutput(shell.Append(shell.GC, strconv.Itoa(pid)))
+	}
 	if err != nil {
 		return
 	}
