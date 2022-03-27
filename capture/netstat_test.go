@@ -1,6 +1,9 @@
 package capture
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestNetStat(t *testing.T) {
 	capNetStat := NewNetStat()
@@ -14,5 +17,12 @@ func TestNetStat(t *testing.T) {
 	}
 	if !result.Ok {
 		t.Fatal(result)
+	}
+}
+
+func TestNativeNetStat(t *testing.T) {
+	err := netStat(true, true, true, true, true, true, false, os.Stdout)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
