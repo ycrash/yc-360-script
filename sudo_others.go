@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"shell/logger"
 	"strconv"
 	"strings"
@@ -14,6 +15,9 @@ import (
 
 type SudoHooker struct {
 	PID int
+}
+
+func (s SudoHooker) After(command *exec.Cmd) {
 }
 
 func (s SudoHooker) Before(command Command) (result Command) {

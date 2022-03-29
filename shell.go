@@ -130,6 +130,9 @@ func NewCommand(cmd Command, hookers ...Hooker) CmdManager {
 		command.Env = os.Environ()
 		command.Env = append(command.Env, Env...)
 	}
+	for _, hooker := range hookers {
+		hooker.After(command)
+	}
 	if wait {
 		return &WaitCmd{command}
 	}
