@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -229,5 +230,32 @@ func TestAttendanceAPI(t *testing.T) {
 		if ok {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestJSON(t *testing.T) {
+	type test struct {
+		B *bool
+	}
+
+	var a test
+	err := json.Unmarshal([]byte("{\"c\":true}"), &a)
+	if err != nil || a.B != nil {
+		t.Fatal(err)
+	}
+	err = json.Unmarshal([]byte("{\"b\":false}"), &a)
+	if err != nil || a.B == nil {
+		t.Fatal(err)
+	}
+	if *a.B {
+		t.Fatal("should be false")
+	}
+
+	err = json.Unmarshal([]byte("{\"b\":true}"), &a)
+	if err != nil || a.B == nil {
+		t.Fatal(err)
+	}
+	if !*a.B {
+		t.Fatal("should be true")
 	}
 }

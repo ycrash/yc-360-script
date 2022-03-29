@@ -24,7 +24,7 @@ type Req struct {
 	Key     string
 	Actions []string
 	WaitFor bool
-	Hd      string
+	Hd      *bool
 	Tags    string
 }
 
@@ -110,12 +110,8 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	var needHeapDump bool
-	if len(req.Hd) > 0 {
-		needHeapDump, err = strconv.ParseBool(req.Hd)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to parse hd, using global config")
-			needHeapDump = config.GlobalConfig.HeapDump
-		}
+	if req.Hd != nil {
+		needHeapDump = *req.Hd
 	} else {
 		logger.Info().Msg("no hd passed in the request, using global config")
 		needHeapDump = config.GlobalConfig.HeapDump
