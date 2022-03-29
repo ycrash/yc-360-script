@@ -3,6 +3,8 @@
 
 package shell
 
+import "os/exec"
+
 type SudoHooker struct {
 	PID int
 }
