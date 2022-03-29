@@ -24,7 +24,7 @@ type Req struct {
 	Key     string
 	Actions []string
 	WaitFor bool
-	Hd      bool
+	Hd      string
 	Tags    string
 }
 
@@ -94,6 +94,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		resp.Msg = err.Error()
 		return
 	}
+	logger.Info().Msgf("action request: %#v", req)
 
 	if config.GlobalConfig.ApiKey != req.Key {
 		resp.Code = -1
@@ -108,6 +109,17 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	var needHeapDump bool
+	if len(req.Hd) > 0 {
+		needHeapDump, err = strconv.ParseBool(req.Hd)
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to parse hd, using global config")
+			needHeapDump = config.GlobalConfig.HeapDump
+		}
+	} else {
+		logger.Info().Msg("no hd passed in the request, using global config")
+		needHeapDump = config.GlobalConfig.HeapDump
+	}
 	if req.WaitFor || hasCmd {
 		var rUrls []string
 		if !hasCmd {
@@ -115,7 +127,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			for _, i := range result {
 				pids = append(pids, i.(int))
 			}
-			rUrls, err = s.ProcessPids(pids, pid2Name, req.Hd, req.Tags)
+			rUrls, err = s.ProcessPids(pids, pid2Name, needHeapDump, req.Tags)
 			if err != nil {
 				resp.Code = -1
 				resp.Msg = err.Error()
@@ -129,7 +141,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 				if p, ok := i.(int); ok {
 					pid = p
 					output = append(output, strconv.Itoa(p))
-					rUrls, err = s.ProcessPids([]int{p}, pid2Name, req.Hd, req.Tags)
+					rUrls, err = s.ProcessPids([]int{p}, pid2Name, needHeapDump, req.Tags)
 					if err == nil {
 						resp.DashboardReportURLs = append(resp.DashboardReportURLs, rUrls...)
 						output = append(output, rUrls...)
@@ -156,7 +168,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			pids = append(pids, i.(int))
 		}
 		go func() {
-			_, err := s.ProcessPids(pids, pid2Name, req.Hd, req.Tags)
+			_, err := s.ProcessPids(pids, pid2Name, needHeapDump, req.Tags)
 			if err != nil {
 				logger.Log("failed to process pids in background: %v", err)
 			}

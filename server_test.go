@@ -15,7 +15,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -63,7 +63,7 @@ func TestServerCmdActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -111,7 +111,7 @@ func TestServerForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -129,7 +129,7 @@ func TestServerForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	rs.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log("ok", pids)
 		return
 	}
@@ -188,7 +188,7 @@ func TestAttendanceAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
