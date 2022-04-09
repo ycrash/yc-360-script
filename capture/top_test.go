@@ -70,3 +70,10 @@ func TestNop(t *testing.T) {
 		t.Fatal("")
 	}
 }
+
+func TestNativeTop(t *testing.T) {
+	err := topCPU(10, os.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
