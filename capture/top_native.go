@@ -7,6 +7,7 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 	"io"
 	"runtime"
+	"shell/logger"
 	"sort"
 	"time"
 )
@@ -16,6 +17,7 @@ type Process struct {
 	Cmd string
 	MEM float32
 	CPU float64
+	p   *process.Process
 }
 
 func topCPU(n int, w io.Writer) (err error) {
@@ -27,26 +29,38 @@ func topCPU(n int, w io.Writer) (err error) {
 	for _, p := range processes {
 		cmdline, err := p.Cmdline()
 		if err != nil {
+			logger.Debug().Err(err).Msg("failed to get cmdline")
 			continue
+		}
+		if len(cmdline) == 0 {
+			cmdline, err = p.Name()
+			if err != nil {
+				logger.Debug().Err(err).Msg("failed to get name")
+				continue
+			}
 		}
 		memoryPercent, err := p.MemoryPercent()
 		if err != nil {
+			logger.Debug().Err(err).Msg("failed to get memoryPercent")
 			continue
 		}
 		_, err = p.Percent(0)
 		if err != nil {
+			logger.Debug().Err(err).Msg("failed to get cpuPercent")
 			continue
 		}
 		result = append(result, Process{
 			Pid: p.Pid,
 			Cmd: cmdline,
 			MEM: memoryPercent,
+			p:   p,
 		})
 	}
 	time.Sleep(time.Second)
-	for i, p := range processes {
-		cpuPercent, err := p.Percent(0)
+	for i, p := range result {
+		cpuPercent, err := p.p.Percent(0)
 		if err != nil {
+			logger.Debug().Err(err).Msg("failed to get cpuPercent")
 			continue
 		}
 		result[i].CPU = cpuPercent
