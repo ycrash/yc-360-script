@@ -72,7 +72,7 @@ func topCPU(n int, w io.Writer) (err error) {
 		n = len(result)
 	}
 	result = result[:n]
-	_, err = fmt.Fprintf(w, "top %s :\n", getTime())
+	_, err = fmt.Fprintf(w, "top: time - %s\n", getTime())
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func topHCPU(pid int, n int, w io.Writer) (err error) {
 		n = len(result)
 	}
 	result = result[:n]
-	_, err = fmt.Fprintf(w, "toph %s :\n", getTime())
+	_, err = fmt.Fprintf(w, "toph: time - %s\n", getTime())
 	if err != nil {
 		return err
 	}
