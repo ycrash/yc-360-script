@@ -72,7 +72,7 @@ func topCPU(n int, w io.Writer) (err error) {
 		n = len(result)
 	}
 	result = result[:n]
-	_, err = fmt.Fprintln(w, "top:")
+	_, err = fmt.Fprintf(w, "top %s :\n", getTime())
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func topHCPU(pid int, n int, w io.Writer) (err error) {
 		n = len(result)
 	}
 	result = result[:n]
-	_, err = fmt.Fprintln(w, "toph:")
+	_, err = fmt.Fprintf(w, "toph %s :\n", getTime())
 	if err != nil {
 		return err
 	}
@@ -158,4 +158,8 @@ func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 
 	delta_proc := t2.Total() - t1.Total()
 	overall_percent := ((delta_proc / delta) * 100) * float64(numcpu)
 	return overall_percent
+}
+
+func getTime() string {
+	return time.Now().Format("15:04:05")
 }
