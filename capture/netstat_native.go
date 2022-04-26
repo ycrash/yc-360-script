@@ -101,13 +101,20 @@ func displaySockInfo(proto string, s []netstat.SockTabEntry, resolve bool, write
 	}
 
 	for _, e := range s {
-		p := ""
+		p := "-"
 		if e.Process != nil {
-			p = e.Process.String()
+			pn := e.Process.String()
+			if len(pn) > 0 {
+				p = pn
+			}
 		}
 		saddr := lookup(e.LocalAddr)
 		daddr := lookup(e.RemoteAddr)
-		_, err = fmt.Fprintf(writer, "%-5s %-23.23s %-23.23s %-12s %-16s\n", proto, saddr, daddr, e.State, p)
+		state := e.State.String()
+		if len(state) <= 0 {
+			state = "CLOSE"
+		}
+		_, err = fmt.Fprintf(writer, "%-5s %-23.23s %-23.23s %-12s %-16s\n", proto, saddr, daddr, state, p)
 		if err != nil {
 			return
 		}
