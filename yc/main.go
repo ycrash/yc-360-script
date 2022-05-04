@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"shell/vmstat"
 	ycattach "shell/ycattach"
 	"sort"
 	"strconv"
@@ -92,6 +93,10 @@ func main() {
 			os.Exit(1)
 		}
 		ret := ycattach.Capture(pid, "jcmd", config.GlobalConfig.JCmdCaptureMode)
+		os.Exit(ret)
+	}
+	if config.GlobalConfig.VMStatMode {
+		ret := vmstat.VMStat(os.Args[1:]...)
 		os.Exit(ret)
 	}
 

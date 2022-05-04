@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"shell/logger"
 	"strings"
 )
@@ -239,10 +240,17 @@ err: %v
 	return
 }
 
+var workDir string
+
+func init() {
+	workDir, _ = os.Getwd()
+}
+
 func Executable() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "../yc"
+		logger.Warn().Err(err).Msg("Failed to get executable path")
+		return filepath.Join(workDir, os.Args[0])
 	}
 	return exe
 }

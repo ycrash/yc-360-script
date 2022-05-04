@@ -61,6 +61,7 @@ type Options struct {
 	TDCaptureMode   bool   `yaml:"tdCaptureMode" usage:"Run in Thread Dump Capture mode"`
 	HDCaptureMode   bool   `yaml:"hdCaptureMode" usage:"Run in Heap Dump Capture mode"`
 	JCmdCaptureMode string `yaml:"jCmdCaptureMode" usage:"Run in JCmd Capture mode"`
+	VMStatMode      bool   `yaml:"vmstatMode" usage:"Run in vmstat mode"`
 
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`

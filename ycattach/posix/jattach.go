@@ -20,7 +20,7 @@ __attribute__((constructor)) void init() {
 	jattach1(pid);
 }
 
-void flush() {
+static void flush() {
 	fflush(stderr);
 	fflush(stdout);
 }
