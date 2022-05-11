@@ -113,7 +113,7 @@
 /* #undef HAVE_MMAP */
 
 /* Define to 1 if you have the <ncurses.h> header file. */
-/* #undef HAVE_NCURSES_H */
+#define HAVE_NCURSES_H 1
 
 /* Define to 1 if you have the `nl_langinfo' function. */
 #define HAVE_NL_LANGINFO 1
@@ -297,7 +297,7 @@
 /* #undef NUMA_DISABLE */
 
 /* disable new startup defaults, return to original top */
-/* #undef ORIG_TOPDEFS */
+#define ORIG_TOPDEFS 1
 
 /* Name of package */
 #define PACKAGE "procps-ng"

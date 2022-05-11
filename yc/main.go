@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"shell/vmstat"
+	"shell/procps"
 	ycattach "shell/ycattach"
 	"sort"
 	"strconv"
@@ -45,6 +45,16 @@ import (
 var wg sync.WaitGroup
 
 func main() {
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "-vmstatMode":
+			ret := procps.VMStat(os.Args[1:]...)
+			os.Exit(ret)
+		case "-topMode":
+			ret := procps.Top(append([]string{"top"}, os.Args[2:]...)...)
+			os.Exit(ret)
+		}
+	}
 	err := config.ParseFlags(os.Args)
 	if err != nil {
 		log.Fatal(err.Error())
@@ -93,10 +103,6 @@ func main() {
 			os.Exit(1)
 		}
 		ret := ycattach.Capture(pid, "jcmd", config.GlobalConfig.JCmdCaptureMode)
-		os.Exit(ret)
-	}
-	if config.GlobalConfig.VMStatMode {
-		ret := vmstat.VMStat(os.Args[1:]...)
 		os.Exit(ret)
 	}
 

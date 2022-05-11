@@ -38,18 +38,16 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
-	if err == nil {
-		if t.Cmd.IsSkipped() {
-			result.Msg = "skipped capturing Top"
-			result.Ok = true
-			return
-		}
-		err = t.Cmd.Wait()
-		if err != nil {
-			logger.Log("failed to wait cmd: %s", err.Error())
-		}
+	if t.Cmd.IsSkipped() {
+		result.Msg = "skipped capturing Top"
+		result.Ok = true
+		return
 	}
-	if t.Cmd.ExitCode() != 0 {
+	err = t.Cmd.Wait()
+	if err != nil {
+		logger.Log("failed to wait cmd: %s", err.Error())
+	}
+	if t.Cmd.ExitCode() != 0 && len(shell.Top2) > 0 {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
@@ -64,20 +62,19 @@ func (t *Top) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top2)
+		if err != nil {
+			return
+		}
 		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
-		for i := 0; i < 3; i++ {
-			err = topCPU(10, file)
-			if err != nil {
-				return
-			}
-			_, err = file.WriteString("\n\n\n")
-			if err != nil {
-				logger.Log("failed to insert line break: %s", err.Error())
-			}
-			if i == 2 {
-				break
-			}
-			time.Sleep(10 * time.Second)
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing Top"
+			result.Ok = true
+			return
+		}
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("failed to wait cmd: %s", err.Error())
 		}
 	}
 	e := file.Sync()
@@ -125,7 +122,7 @@ func (t *TopH) Run() (result Result, err error) {
 		return
 	}
 	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, command)
-	if err != nil {
+	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
 	if t.Cmd.IsSkipped() {
@@ -137,67 +134,34 @@ func (t *TopH) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	if t.Cmd.ExitCode() != 0 {
-		if len(shell.TopH2) > 0 {
-			_, err = file.Seek(0, io.SeekStart)
-			if err != nil {
-				return
-			}
-			output, rErr := ioutil.ReadAll(file)
-			oCmd := t.Cmd
-			err = file.Truncate(0)
-			if err != nil {
-				return
-			}
-			_, err = file.Seek(0, io.SeekStart)
-			if err != nil {
-				return
-			}
-			t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.TopH2, strconv.Itoa(t.Pid)))
-			if err != nil {
-				return
-			}
-			logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
-			if t.Cmd.IsSkipped() {
-				result.Msg = "skipped capturing TopH"
-				result.Ok = true
-				return
-			}
-			err = t.Cmd.Wait()
-			if err != nil {
-				logger.Log("failed to wait cmd: %s", err.Error())
-			}
+	if t.Cmd.ExitCode() != 0 && len(shell.TopH2) > 0 {
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
 		}
-		if t.Cmd.ExitCode() != 0 {
-			_, err = file.Seek(0, io.SeekStart)
-			if err != nil {
-				return
-			}
-			output, rErr := ioutil.ReadAll(file)
-			oCmd := t.Cmd
-			err = file.Truncate(0)
-			if err != nil {
-				return
-			}
-			_, err = file.Seek(0, io.SeekStart)
-			if err != nil {
-				return
-			}
-			logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
-			for i := 0; i < 3; i++ {
-				err = topHCPU(t.Pid, 10, file)
-				if err != nil {
-					return
-				}
-				_, err = file.WriteString("\n\n\n")
-				if err != nil {
-					logger.Log("failed to insert line break: %s", err.Error())
-				}
-				if i == 2 {
-					break
-				}
-				time.Sleep(10 * time.Second)
-			}
+		output, rErr := ioutil.ReadAll(file)
+		oCmd := t.Cmd
+		err = file.Truncate(0)
+		if err != nil {
+			return
+		}
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.TopH2, strconv.Itoa(t.Pid)))
+		if err != nil {
+			return
+		}
+		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
+		if t.Cmd.IsSkipped() {
+			result.Msg = "skipped capturing TopH"
+			result.Ok = true
+			return
+		}
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("failed to wait cmd: %s", err.Error())
 		}
 	}
 	return
@@ -213,19 +177,19 @@ func (t *Top4M3) Run() (result Result, err error) {
 		result.Ok = true
 		return
 	}
-	file, err := os.Create("top4m3.out")
+	top, err := os.Create("top4m3.out")
 	if err != nil {
 		return
 	}
 	defer func() {
-		e := file.Close()
+		e := top.Close()
 		if e != nil && !errors.Is(e, os.ErrClosed) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
 
 	for i := 0; i < 3; i++ {
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top4M3)
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top4M3)
 		if err != nil {
 			return
 		}
@@ -238,13 +202,7 @@ func (t *Top4M3) Run() (result Result, err error) {
 		if err != nil {
 			logger.Log("failed to wait cmd: %s", err.Error())
 		}
-		if t.Cmd.ExitCode() != 0 {
-			err = topCPU(10, file)
-			if err != nil {
-				return
-			}
-		}
-		_, err = file.WriteString("\n\n\n")
+		_, err = top.WriteString("\n\n\n")
 		if err != nil {
 			logger.Log("failed to insert line break: %s", err.Error())
 		}
@@ -253,10 +211,10 @@ func (t *Top4M3) Run() (result Result, err error) {
 		}
 		time.Sleep(20 * time.Second)
 	}
-	e := file.Sync()
+	e := top.Sync()
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", file)
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
 	return
 }

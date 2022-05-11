@@ -29,6 +29,11 @@ func (t *VMStat) Run() (result Result, err error) {
 	}
 
 	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, cmd)
+	if t.Cmd.IsSkipped() {
+		result.Msg = "skipped capturing VMStat"
+		result.Ok = true
+		return
+	}
 	if err != nil {
 		if runtime.GOOS != "linux" {
 			return
@@ -67,11 +72,6 @@ func (t *VMStat) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-	}
-	if t.Cmd.IsSkipped() {
-		result.Msg = "skipped capturing VMStat"
-		result.Ok = true
-		return
 	}
 	t.Cmd.Wait()
 	file.Sync()

@@ -9,14 +9,16 @@ var (
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", "10",
 		"-n", "3"}
-	Top2 = Command{WaitCommand, "top", "-b",
+	Top2 = Command{WaitCommand, Executable(), "-topMode", "-bc",
 		"-d", "10",
 		"-n", "3"}
 	TopH = Command{WaitCommand, "top", "-bH",
 		"-n", "1",
 		"-p", DynamicArg}
-	TopH2               = Command{"/bin/sh", "-c", `"RESULT=$(top -bH -n 1) && echo \"$RESULT\" | head -n 4 && echo \"$RESULT\" | grep"`}
-	Top4M3              = Command{WaitCommand, "top", "-bc", "-n", "1"}
+	TopH2 = Command{WaitCommand, Executable(), "-topMode", "-bH",
+		"-n", "1",
+		"-p", DynamicArg}
+	Top4M3              = Command{WaitCommand, Executable(), "-topMode", "-bc", "-n", "1"}
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
 	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn && dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
 	DMesg2              = Command{"/bin/sh", "-c", "dmesg -n 4 | tail -20"}

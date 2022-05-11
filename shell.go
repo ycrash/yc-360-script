@@ -246,11 +246,11 @@ func init() {
 	workDir, _ = os.Getwd()
 }
 
-func Executable() string {
-	exe, err := os.Executable()
+func Executable() (path string) {
+	path, err := os.Executable()
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get executable path")
-		return filepath.Join(workDir, os.Args[0])
+		path = filepath.Join(workDir, os.Args[0])
+		logger.Warn().Err(err).Str("path", path).Msg("Failed to get executable path")
 	}
-	return exe
+	return
 }
