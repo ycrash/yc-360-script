@@ -308,7 +308,14 @@ func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUr
 	one.Lock()
 	defer one.Unlock()
 
-	return processPidsWithoutLock(pids, pid2Name, hd, tags)
+	tmp := config.GlobalConfig.Tags
+	if len(tmp) > 0 {
+		ts := strings.Trim(tmp, ",")
+		tmp = strings.Trim(ts+","+tags, ",")
+	} else {
+		tmp = strings.Trim(tags, ",")
+	}
+	return processPidsWithoutLock(pids, pid2Name, hd, tmp)
 }
 
 func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
