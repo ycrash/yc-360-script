@@ -130,8 +130,8 @@ func (t *HeapDump) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		if err := zipfile.Close(); err != nil {
-			logger.Log("failed to close zip file: %s", err.Error())
+		if err := zipfile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			logger.Debug().Err(err).Msg("failed to close zip file")
 		}
 	}()
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
