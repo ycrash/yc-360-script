@@ -96,11 +96,11 @@ func (t *JStack) Run() (result Result, err error) {
 		b1 <- n
 		err = <-e1
 		if err != nil {
-			break
+			logger.Warn().Err(err).Msg("Failed to run jstack with err")
 		}
 		err = <-e2
 		if err != nil {
-			break
+			logger.Warn().Err(err).Msg("Failed to run top h with err")
 		}
 
 		if n == count {

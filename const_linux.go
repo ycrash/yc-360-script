@@ -17,7 +17,7 @@ var (
 		"-p", DynamicArg}
 	TopH2 = Command{WaitCommand, Executable(), "-topMode", "-bH",
 		"-n", "1",
-		"-p", DynamicArg}
+		"-p"}
 	Top4M3              = Command{WaitCommand, Executable(), "-topMode", "-bc", "-n", "1"}
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
 	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn && dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
