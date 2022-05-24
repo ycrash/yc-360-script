@@ -57,6 +57,14 @@ func (t *JStack) Run() (result Result, err error) {
 					return
 				}
 			}
+			e := jstack.Sync()
+			if e != nil {
+				logger.Log("failed to sync file %s", e)
+			}
+			_, e = jstack.WriteString("\nFull thread dump\n")
+			if e != nil {
+				logger.Log("failed to write file %s", e)
+			}
 			_, err = (&JStackF{
 				jstack:   jstack,
 				javaHome: t.javaHome,
@@ -64,10 +72,6 @@ func (t *JStack) Run() (result Result, err error) {
 			}).Run()
 			e1 <- err
 
-			_, e := jstack.WriteString("\n")
-			if e != nil {
-				logger.Log("failed to write file %s", e)
-			}
 			e = jstack.Sync()
 			if e != nil {
 				logger.Log("failed to sync file %s", e)
