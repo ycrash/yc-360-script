@@ -252,7 +252,7 @@ func mainLoop() {
 						if pid < 1 {
 							continue
 						}
-						fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
+						fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 					}
 				} else {
 					logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
@@ -261,7 +261,7 @@ func mainLoop() {
 				logger.Log("unexpected error %s", err)
 			}
 		} else {
-			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
+			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 		}
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
@@ -282,7 +282,7 @@ Resp: %s
 }
 
 func processResp(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, err := shell.ParseJsonResp(resp)
+	pids, tags, timestamp, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -297,7 +297,7 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp)
+	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamp)
 	return
 }
 
@@ -315,10 +315,10 @@ func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUr
 	} else {
 		tmp = strings.Trim(tags, ",")
 	}
-	return processPidsWithoutLock(pids, pid2Name, hd, tmp)
+	return processPidsWithoutLock(pids, pid2Name, hd, tmp, "")
 }
 
-func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamp string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
@@ -343,7 +343,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 				continue
 			}
 		} else {
-			url := fullProcess(pid, name, hd, tags)
+			url := fullProcess(pid, name, hd, tags, timestamp)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -508,7 +508,7 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 	return
 }
 
-func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
+func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl string) {
 	var agentLogFile *os.File
 	var err error
 	defer func() {
@@ -527,7 +527,12 @@ func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	//  Create output files
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	var parameters string
+	if len(ts) > 0 {
+		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), ts)
+	} else {
+		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	}
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 
 	dname := "yc-" + timestamp
