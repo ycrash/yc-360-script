@@ -54,7 +54,7 @@ func (s SudoHooker) Before(command Command) (result Command) {
 	if err != nil {
 		return command
 	}
-	result = append(Command{"sudo", "-u", fmt.Sprintf("#%s", uid)}, command...)
+	result = append(Command{"sudo", "-E", "-u", fmt.Sprintf("#%s", uid)}, command...)
 	logger.Info().Str("cmd", strings.Join(result, " ")).Msg("sudo hooker result")
 	return
 }
