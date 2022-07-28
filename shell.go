@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"shell/logger"
 	"strings"
+	"sync"
 )
 
 type Command []string
@@ -253,4 +254,58 @@ func Executable() (path string) {
 		logger.Warn().Err(err).Str("path", path).Msg("Failed to get executable path")
 	}
 	return
+}
+
+var tmpPathMtx sync.RWMutex
+var tmpPath string
+
+func Copy2TempPath() (name string, err error) {
+	tmpPathMtx.RLock()
+	name = tmpPath
+	tmpPathMtx.RUnlock()
+
+	if len(name) > 0 {
+		return
+	}
+
+	tmpPathMtx.Lock()
+	defer tmpPathMtx.Unlock()
+
+	path := Executable()
+	if len(path) < 1 {
+		err = errors.New("failed to Copy2TempPath: invalid path")
+		return
+	}
+	in, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	file, err := os.CreateTemp("", "yc")
+	if err != nil {
+		return
+	}
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			logger.Warn().Err(err).Msg("failed to close file in Copy2TempPath")
+		}
+	}()
+	_, err = io.Copy(file, in)
+	if err != nil {
+		return
+	}
+	err = file.Chmod(0777)
+	name = file.Name()
+	tmpPath = name
+	return
+}
+
+func RemoveFromTempPath() {
+	tmpPathMtx.RLock()
+	name := tmpPath
+	tmpPathMtx.RUnlock()
+
+	if len(name) > 0 {
+		os.Remove(name)
+	}
 }
