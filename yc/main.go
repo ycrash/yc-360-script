@@ -112,6 +112,7 @@ func main() {
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
 	go mainLoop()
+	defer shell.RemoveFromTempPath()
 
 	select {
 	case <-osSig:
@@ -263,6 +264,7 @@ func mainLoop() {
 		} else {
 			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 		}
+		shell.RemoveFromTempPath()
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
 		once.Do(startupLogs)
@@ -652,38 +654,15 @@ Ignored errors: %v
 		}()
 	}
 
-	// check if it can find gc log from ps
-	var gc *os.File
-	gc, err = processGCLogFile(gcPath, "gc.log", dockerID, pid)
-	if err != nil {
-		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
-	}
-	var jstat shell.CmdManager
-	var triedJAttachGC bool
-	if pidPassed && (err != nil || gc == nil) {
-		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, shell.SudoHooker{PID: pid})
-		if err == nil {
-			gcPath = "gc.log"
-			logger.Log("gc log set to %s", gcPath)
-		} else {
-			triedJAttachGC = true
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
-			gc, jstat, err = captureGC(pid, gc, "gc.log")
-			if err == nil {
-				gcPath = "gc.log"
-				logger.Log("jattach gc log set to %s", gcPath)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-		}
-	}
-	defer func() {
-		if gc != nil {
-			gc.Close()
-		}
-	}()
-
+	// ------------------------------------------------------------------------------
+	//   				Capture gc
+	// ------------------------------------------------------------------------------
+	gc := goCapture(endpoint, capture.WrapRun(&capture.GC{
+		Pid:      pid,
+		JavaHome: config.GlobalConfig.JavaHomePath,
+		DockerID: dockerID,
+		GCPath:   gcPath,
+	}))
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
 	var capTop *capture.Top
@@ -786,23 +765,6 @@ Ignored errors: %v
 		logger.Log("Final netstat snapshot complete.")
 	}
 
-	if jstat != nil {
-		err := jstat.Wait()
-		if err != nil && !triedJAttachGC {
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach......", err.Error())
-			gc, jstat, err = captureGC(pid, gc, "gc.log")
-			if err == nil {
-				gcPath = "gc.log"
-				logger.Log("jattach gc log set to %s", gcPath)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-			err = jstat.Wait()
-			if err != nil {
-				logger.Log("jattach gc log failed cause %s", err.Error())
-			}
-		}
-	}
 	// stop started tasks
 	if capTop != nil {
 		capTop.Kill()
@@ -898,19 +860,19 @@ Resp: %s
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok = shell.PostData(endpoint, "gc", gc)
-	absGCPath, err := filepath.Abs(gcPath)
-	if err != nil {
-		absGCPath = fmt.Sprintf("path %s: %s", gcPath, err.Error())
-	}
-	logger.Log(
-		`GC LOG DATA
-%s
+	if gc != nil {
+		result := <-gc
+		logger.Log(
+			`GC LOG DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, absGCPath, ok, msg)
+`, result.Ok, result.Msg)
+		if !result.Ok {
+			defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log")
+		}
+	}
 
 	// -------------------------------
 	//     Transmit ping dump

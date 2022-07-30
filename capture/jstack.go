@@ -33,7 +33,6 @@ func (t *JStack) Run() (result Result, err error) {
 	defer func() {
 		close(b1)
 		close(b2)
-		shell.RemoveFromTempPath()
 	}()
 	go func() {
 		defer func() {

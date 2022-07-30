@@ -42,7 +42,16 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
-			logger.Log("Failed to capture GC.class_histogram with err %v.", err)
+			logger.Log("Failed to capture GC.class_histogram with err %v.. Trying to capture using tmp jattach...", err)
+			var tempPath string
+			tempPath, err = shell.Copy2TempPath()
+			if err == nil {
+				err = shell.CommandCombinedOutputToWriter(out,
+					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			}
+			if err != nil {
+				logger.Log("Failed to capture GC.class_histogram with err %v.", err)
+			}
 		}
 	}
 	_, err = out.WriteString("\nVM.system_properties:\n")
@@ -56,7 +65,16 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
-			logger.Log("Failed to capture VM.system_properties with err %v.", err)
+			logger.Log("Failed to capture VM.system_properties with err %v. Trying to capture using tmp jattach...", err)
+			var tempPath string
+			tempPath, err = shell.Copy2TempPath()
+			if err == nil {
+				err = shell.CommandCombinedOutputToWriter(out,
+					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			}
+			if err != nil {
+				logger.Log("Failed to capture VM.system_properties with err %v.", err)
+			}
 		}
 	}
 	_, err = out.WriteString("\nGC.heap_info:\n")
@@ -70,7 +88,16 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
-			logger.Log("Failed to capture GC.heap_info with err %v.", err)
+			logger.Log("Failed to capture GC.heap_info with err %v. Trying to capture using tmp jattach...", err)
+			var tempPath string
+			tempPath, err = shell.Copy2TempPath()
+			if err == nil {
+				err = shell.CommandCombinedOutputToWriter(out,
+					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			}
+			if err != nil {
+				logger.Log("Failed to capture GC.heap_info with err %v.", err)
+			}
 		}
 	}
 	_, err = out.WriteString("\nVM.flags:\n")
@@ -84,7 +111,16 @@ func (t *HDSub) Run() (result Result, err error) {
 		err = shell.CommandCombinedOutputToWriter(out,
 			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
-			logger.Log("Failed to capture VM.flags with err %v.", err)
+			logger.Log("Failed to capture VM.flags with err %v. Trying to capture using tmp jattach...", err)
+			var tempPath string
+			tempPath, err = shell.Copy2TempPath()
+			if err == nil {
+				err = shell.CommandCombinedOutputToWriter(out,
+					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			}
+			if err != nil {
+				logger.Log("Failed to capture VM.flags with err %v.", err)
+			}
 		}
 	}
 	e := out.Sync()
