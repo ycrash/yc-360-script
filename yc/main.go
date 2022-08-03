@@ -1098,13 +1098,13 @@ var goCapture = capture.GoCapture
 
 func getGCLogFile(pid int) (result string, err error) {
 	var output []byte
+	var command shell.Command
 	if runtime.GOOS == "windows" {
-		var command shell.Command
 		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId == %d", pid))
-		output, err = shell.CommandCombinedOutput(command)
 	} else {
-		output, err = shell.CommandCombinedOutput(shell.Append(shell.GC, strconv.Itoa(pid)))
+		command, err = shell.GC.AddDynamicArg(strconv.Itoa(pid))
 	}
+	output, err = shell.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
