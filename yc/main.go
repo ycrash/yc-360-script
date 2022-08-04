@@ -1100,7 +1100,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	var output []byte
 	var command shell.Command
 	if runtime.GOOS == "windows" {
-		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId == %d", pid))
+		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId=%d", pid))
 	} else {
 		command, err = shell.GC.AddDynamicArg(strconv.Itoa(pid))
 	}
