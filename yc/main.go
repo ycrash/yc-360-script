@@ -24,6 +24,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"shell"
+	"shell/capture"
+	"shell/config"
+	"shell/logger"
 	"shell/procps"
 	ycattach "shell/ycattach"
 	"sort"
@@ -33,13 +37,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pterm/pterm"
-	"shell"
-	"shell/capture"
-	"shell/config"
-	"shell/logger"
-
 	"github.com/gentlemanautomaton/cmdline"
+	"github.com/pterm/pterm"
+	ps "github.com/shirou/gopsutil/v3/process"
 )
 
 var wg sync.WaitGroup
@@ -1135,6 +1135,19 @@ func getGCLogFile(pid int) (result string, err error) {
 		return
 	}
 	result = strings.TrimSpace(string(fp))
+	if !filepath.IsAbs(result) {
+		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+			p, err := ps.NewProcess(int32(pid))
+			if err == nil {
+				cwd, err := p.Cwd()
+				if err == nil {
+					result = filepath.Join(cwd, result)
+				}
+			}
+		} else {
+			logger.Warn().Str("gcpath", result).Msg("Please use absolute file path for '-Xloggc' and '-Xlog:gc'")
+		}
+	}
 	return
 }
 
