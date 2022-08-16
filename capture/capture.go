@@ -2,6 +2,7 @@ package capture
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"shell"
@@ -50,6 +51,14 @@ func (cap *Capture) Kill() error {
 
 func (cap *Capture) Endpoint() string {
 	return cap.endpoint
+}
+
+func (cap *Capture) EndpointWithParams(params string) string {
+	if strings.Contains(cap.endpoint, "?") {
+		return fmt.Sprintf("%s&%s", cap.endpoint, params)
+	} else {
+		return fmt.Sprintf("%s?%s", cap.endpoint, params)
+	}
 }
 
 func (cap *Capture) SetEndpoint(endpoint string) {

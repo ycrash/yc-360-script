@@ -72,6 +72,7 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		}
 		defer td.Close()
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
+	params := fmt.Sprintf("pid=%d", t.Pid)
+	result.Msg, result.Ok = shell.PostData(t.EndpointWithParams(params), "td", td)
 	return
 }
