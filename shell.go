@@ -10,6 +10,7 @@ import (
 	"shell/logger"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Command []string
@@ -149,7 +150,7 @@ func CommandCombinedOutput(cmd Command, hookers ...Hooker) ([]byte, error) {
 	return c.CombinedOutput()
 }
 
-func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
+func CommandCombinedOutputToWriterNoTimeout(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
 	c := NewCommand(cmd, hookers...)
 	if c.IsSkipped() {
 		return
@@ -165,6 +166,49 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 		return
 	}
 	_, err = writer.Write(output)
+	return
+}
+
+func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
+	c := NewCommand(cmd, hookers...)
+	if c.IsSkipped() {
+		return
+	}
+
+	channelDone := make(chan bool)
+	go func() {
+		// --- execution routine start
+		var output []byte
+		output, err = c.CombinedOutput()
+		if err != nil {
+			if len(output) > 1 {
+				err = fmt.Errorf("%w because %s", err, output)
+			}
+			if _, e := writer.Write(output); e != nil {
+				err = fmt.Errorf("%w and %s", err, e.Error())
+			}
+		} else {
+			_, err = writer.Write(output)
+		}
+		// --- execution routine finish
+		channelDone <- true
+	}()
+
+	// execution timer
+	timerDuration := 1 * time.Minute
+	timer := time.NewTimer(timerDuration)
+	logger.Log("Timer created for the command execution (%ds) [%s]", int(timerDuration/time.Second), c.String())
+	select {
+	case <-timer.C:
+		logger.Log("Timeout happened during the command execution [%s]", c.String())
+		err = c.Kill()
+		if err != nil {
+			_ = fmt.Errorf("Error doing cmd.Kill() invocation: " + err.Error())
+		}
+	case <-channelDone:
+		timer.Stop()
+		logger.Log("Command executed without timeout [%s]", c.String())
+	}
 	return
 }
 

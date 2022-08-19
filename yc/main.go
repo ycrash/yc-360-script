@@ -777,6 +777,7 @@ Ignored errors: %v
 	//     Transmit Top data
 	// -------------------------------
 	if top != nil {
+		logger.Log("Reading result from top channel")
 		result := <-top
 		logger.Log(
 			`TOP DATA
@@ -791,6 +792,7 @@ Resp: %s
 	//     Transmit DF data
 	// -------------------------------
 	if disk != nil {
+		logger.Log("Reading result from disk channel")
 		result := <-disk
 		logger.Log(
 			`DISK USAGE DATA
@@ -805,6 +807,7 @@ Resp: %s
 	//     Transmit netstat data
 	// -------------------------------
 	if netStat != nil {
+		logger.Log("Reading result from netStat channel")
 		result := <-netStat
 		logger.Log(
 			`NETSTAT DATA
@@ -819,6 +822,7 @@ Resp: %s
 	//     Transmit ps data
 	// -------------------------------
 	if ps != nil {
+		logger.Log("Reading result from ps channel")
 		result := <-ps
 		logger.Log(
 			`PROCESS STATUS DATA
@@ -833,6 +837,7 @@ Resp: %s
 	//     Transmit VMstat data
 	// -------------------------------
 	if vmstat != nil {
+		logger.Log("Reading result from vmstat channel")
 		result := <-vmstat
 		logger.Log(
 			`VMstat DATA
@@ -847,6 +852,7 @@ Resp: %s
 	//     Transmit DMesg data
 	// -------------------------------
 	if dmesg != nil {
+		logger.Log("Reading result from dmesg channel")
 		result := <-dmesg
 		logger.Log(
 			`DMesg DATA
@@ -861,6 +867,7 @@ Resp: %s
 	//     Transmit GC Log
 	// -------------------------------
 	if gc != nil {
+		logger.Log("Reading result from gc channel")
 		result := <-gc
 		logger.Log(
 			`GC LOG DATA
@@ -878,6 +885,7 @@ Resp: %s
 	//     Transmit ping dump
 	// -------------------------------
 	if ping != nil {
+		logger.Log("Reading result from ping channel")
 		result := <-ping
 		logger.Log(
 			`PING DATA
@@ -892,6 +900,8 @@ Resp: %s
 	//     Transmit app log
 	// -------------------------------
 	if appLog != nil {
+		logger.Log("Reading result from appLog channel")
+		// the channel is open, but potentially frozen, ... timeout ?
 		result := <-appLog
 		logger.Log(
 			`APPLOG DATA
@@ -906,6 +916,7 @@ Resp: %s
 	//     Transmit hdsub log
 	// -------------------------------
 	if hdsubLog != nil {
+		logger.Log("Reading result from hdsubLog channel")
 		result := <-hdsubLog
 		logger.Log(
 			`HDSUB DATA
@@ -920,6 +931,7 @@ Resp: %s
 	//     Transmit kernel param dump
 	// -------------------------------
 	if kernel != nil {
+		logger.Log("Reading result from kernel channel")
 		result := <-kernel
 		logger.Log(
 			`KERNEL PARAMS DATA
@@ -938,6 +950,7 @@ Resp: %s
 		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
 	}
 	if threadDump != nil {
+		logger.Log("Reading result from threadDump channel")
 		result := <-threadDump
 		logger.Log(
 			`THREAD DUMP DATA
