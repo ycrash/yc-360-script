@@ -212,7 +212,7 @@ func mainLoop() {
 					periodCounter.ResetCounter()
 				}
 				dumpThreads = periodCounter.AddDuration(config.GlobalConfig.M3Frequency)
-				pids, err := process(timestamp, endpoint, dumpThreads)
+				pids, err := processM3(timestamp, endpoint, dumpThreads)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
@@ -361,7 +361,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 	return
 }
 
-func process(timestamp string, endpoint string, dumpThreads bool) (pids map[int]string, err error) {
+func processM3(timestamp string, endpoint string, dumpThreads bool) (pids map[int]string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -399,7 +399,7 @@ func process(timestamp string, endpoint string, dumpThreads bool) (pids map[int]
 			uploadGCLog(endpoint, pid)
 			if dumpThreads {
 				logger.Log("uploading thread dump for pid %d", pid)
-				uploadThreadDump(endpoint, pid)
+				uploadThreadDump(endpoint, pid, true)
 			}
 		}
 	} else if err != nil {
@@ -505,7 +505,7 @@ Resp: %s
 `, absGCPath, ok, msg)
 }
 
-func uploadThreadDump(endpoint string, pid int) {
+func uploadThreadDump(endpoint string, pid int, sendPidParam bool) {
 	var threadDump chan capture.Result
 	gcPath := config.GlobalConfig.GCPath
 	tdPath := config.GlobalConfig.ThreadDumpPath
@@ -520,6 +520,9 @@ func uploadThreadDump(endpoint string, pid int) {
 		Pid:      pid,
 		TdPath:   tdPath,
 		JavaHome: config.GlobalConfig.JavaHomePath,
+	}
+	if sendPidParam {
+		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 	// -------------------------------
