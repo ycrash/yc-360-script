@@ -197,17 +197,15 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 	// execution timer
 	timerDuration := 1 * time.Minute
 	timer := time.NewTimer(timerDuration)
-	logger.Log("Timer created for the command execution (%ds) [%s]", int(timerDuration/time.Second), c.String())
 	select {
 	case <-timer.C:
-		logger.Log("Timeout happened during the command execution [%s]", c.String())
+		logger.Log("Timeout happened during the command execution (%ds) [%s]", int(timerDuration/time.Second), c.String())
 		err = c.Kill()
 		if err != nil {
 			_ = fmt.Errorf("Error doing cmd.Kill() invocation: " + err.Error())
 		}
 	case <-channelDone:
 		timer.Stop()
-		logger.Log("Command executed without timeout [%s]", c.String())
 	}
 	return
 }
