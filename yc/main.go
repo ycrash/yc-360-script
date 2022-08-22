@@ -199,13 +199,20 @@ func mainLoop() {
 	if config.GlobalConfig.M3 {
 		once.Do(startupLogs)
 		go func() {
+			periodCounter := NewPeriodCounter(time.Minute * 5)
+			dumpThreads := false
 			for {
 				time.Sleep(config.GlobalConfig.M3Frequency)
 
 				timestamp := time.Now().Format("2006-01-02T15-04-05")
 				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 				endpoint := fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, parameters)
-				pids, err := process(timestamp, endpoint)
+
+				if dumpThreads {
+					periodCounter.ResetCounter()
+				}
+				dumpThreads = periodCounter.AddDuration(config.GlobalConfig.M3Frequency)
+				pids, err := processM3(timestamp, endpoint, dumpThreads)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
@@ -354,7 +361,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 	return
 }
 
-func process(timestamp string, endpoint string) (pids map[int]string, err error) {
+func processM3(timestamp string, endpoint string, dumpThreads bool) (pids map[int]string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -390,6 +397,10 @@ func process(timestamp string, endpoint string) (pids map[int]string, err error)
 		for pid := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
 			uploadGCLog(endpoint, pid)
+			if dumpThreads {
+				logger.Log("uploading thread dump for pid %d", pid)
+				uploadThreadDump(endpoint, pid, true)
+			}
 		}
 	} else if err != nil {
 		logger.Log("WARNING: failed to get PID cause %v", err)
@@ -492,6 +503,46 @@ Resp: %s
 
 --------------------------------
 `, absGCPath, ok, msg)
+}
+
+func uploadThreadDump(endpoint string, pid int, sendPidParam bool) {
+	var threadDump chan capture.Result
+	gcPath := config.GlobalConfig.GCPath
+	tdPath := config.GlobalConfig.ThreadDumpPath
+	hdPath := config.GlobalConfig.HeapDumpPath
+	updatePaths(pid, &gcPath, &tdPath, &hdPath)
+
+	// endpoint, pid, tdPath
+	// ------------------------------------------------------------------------------
+	//   				Capture thread dumps
+	// ------------------------------------------------------------------------------
+	capThreadDump := &capture.ThreadDump{
+		Pid:      pid,
+		TdPath:   tdPath,
+		JavaHome: config.GlobalConfig.JavaHomePath,
+	}
+	if sendPidParam {
+		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
+	}
+	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+	// -------------------------------
+	//     Log Thread dump
+	// -------------------------------
+	absTDPath, err := filepath.Abs(tdPath)
+	if err != nil {
+		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
+	}
+	if threadDump != nil {
+		result := <-threadDump
+		logger.Log(
+			`THREAD DUMP DATA
+%s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, absTDPath, result.Ok, result.Msg)
+	}
 }
 
 func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdManager, err error) {

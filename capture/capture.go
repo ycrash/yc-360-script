@@ -2,6 +2,7 @@ package capture
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"shell"
@@ -14,9 +15,10 @@ type Result struct {
 }
 
 type Capture struct {
-	Cmd      shell.CmdManager
-	endpoint string
-	wg       sync.WaitGroup
+	Cmd               shell.CmdManager
+	endpoint          string
+	wg                sync.WaitGroup
+	mapEndpointParams map[string]string
 }
 
 func (cap *Capture) DoneWaitGroup() {
@@ -49,15 +51,48 @@ func (cap *Capture) Kill() error {
 }
 
 func (cap *Capture) Endpoint() string {
-	return cap.endpoint
+	if len(cap.mapEndpointParams) == 0 {
+		return cap.endpoint
+	}
+
+	return cap.getEndpointWithParams()
+}
+
+func (cap *Capture) getEndpointWithParams() string {
+	pairs := make([]string, len(cap.mapEndpointParams))
+	for key, value := range cap.mapEndpointParams {
+		pairs = append(pairs, key+"="+value)
+	}
+	endpointParams := strings.Join(pairs, "&")
+	endpointDelimiter := "?"
+	if strings.Contains(cap.endpoint, "?") {
+		endpointDelimiter = "&"
+	}
+	return fmt.Sprintf("%s%s%s", cap.endpoint, endpointDelimiter, endpointParams)
 }
 
 func (cap *Capture) SetEndpoint(endpoint string) {
 	cap.endpoint = endpoint
 }
 
+func (cap *Capture) SetEndpointParam(name, value string) {
+	if cap.mapEndpointParams == nil {
+		cap.mapEndpointParams = make(map[string]string)
+	}
+	cap.mapEndpointParams[name] = value
+}
+
+func (cap *Capture) RemoveEndpointParam(name string) {
+	if cap.mapEndpointParams == nil {
+		return
+	}
+	delete(cap.mapEndpointParams, name)
+}
+
 type Task interface {
 	SetEndpoint(endpoint string)
+	SetEndpointParam(name, value string)
+	RemoveEndpointParam(name string)
 	Run() (result Result, err error)
 	Kill() error
 	InitWaitGroup()
