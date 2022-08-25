@@ -51,9 +51,12 @@ func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
 	if len(path) > 0 {
 		*gcPath = string(path)
 	}
-	path, _ = runTDCaptureCmd(pid)
-	if len(path) > 0 {
-		*tdPath = string(path)
+	if len(*tdPath) > 0 {
+		// Thread dump: Attempt 4: tdCaptureCmd argument (real step is 2 ), adjusting tdPath argument
+		path, _ = runTDCaptureCmd(pid)
+		if len(path) > 0 {
+			*tdPath = string(path)
+		}
 	}
 	path, _ = runHDCaptureCmd(pid)
 	if len(path) > 0 {

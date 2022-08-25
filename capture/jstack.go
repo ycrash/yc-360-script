@@ -43,51 +43,90 @@ func (t *JStack) Run() (result Result, err error) {
 			if !ok {
 				return
 			}
-			fn := fmt.Sprintf("javacore.%d.out", n)
-			jstack, err := shell.CommandCombinedOutputToFile(fn,
-				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
-			if err != nil {
-				logger.Log("Failed to run jstack with err %v. Trying to capture thread dump using jattach...", err)
-				jstack, err = shell.CommandCombinedOutputToFile(fn,
-					shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+			outputFileName := fmt.Sprintf("javacore.%d.out", n)
+			var jstackFile *os.File = nil
+
+			// Thread dump: Attempt 1: jstack
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jstack ...")
+				jstackFile, err = shell.CommandCombinedOutputToFile(
+					outputFileName,
+					shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
+					shell.SudoHooker{PID: t.pid},
+				)
 				if err != nil {
-					logger.Log("Failed to run jattach with err %v. Trying to capture thread dump using jattach in temp path...", err)
-					tempPath, err := shell.Copy2TempPath()
-					if err != nil {
-						e1 <- err
-						return
-					}
-					jstack, err = shell.CommandCombinedOutputToFile(fn,
-						shell.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
-					if err != nil {
-						e1 <- err
-						return
-					}
+					logger.Log("Failed to run jstack with err %v", err)
 				}
 			}
-			e := jstack.Sync()
-			if e != nil {
-				logger.Log("failed to sync file %s", e)
+			//  Thread dump: Attempt 2a: jattach via self execution with -tdCaptureMode
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jattach...")
+				jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
+					shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+				if err != nil {
+					logger.Log("Failed to run jattach with err %v", err)
+				}
 			}
-			_, e = jstack.WriteString("\nFull thread dump\n")
-			if e != nil {
-				logger.Log("failed to write file %s", e)
-			}
-			_, err = (&JStackF{
-				jstack:   jstack,
-				javaHome: t.javaHome,
-				pid:      t.pid,
-			}).Run()
-			e1 <- err
 
-			e = jstack.Sync()
-			if e != nil {
-				logger.Log("failed to sync file %s", e)
+			// Thread dump: Attempt 2b: jattach via self execution from tmp path with -tdCaptureMode
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jattach in temp path...")
+				tempPath, err := shell.Copy2TempPath()
+				if err == nil {
+					jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
+						shell.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+					if err != nil {
+						logger.Log("Failed to run jattach with err %v", err)
+					}
+				} else {
+					logger.Log("Failed to Copy2TempPath with err %v", err)
+				}
 			}
-			e = jstack.Close()
-			if e != nil {
-				logger.Log("failed to close file %s", e)
+
+			// Thread dump: Attempt 5: jstack -F
+			if jstackFile == nil {
+				jstackFile, err = os.Create(outputFileName)
+				if err != nil {
+					logger.Log("Failed to create output file %v", err)
+					e1 <- err
+					return
+				}
+
+				defer func() {
+					e := jstackFile.Sync()
+					if e != nil {
+						logger.Log("failed to sync file %s", e)
+					}
+					e = jstackFile.Close()
+					if e != nil {
+						logger.Log("failed to close file %s", e)
+					}
+				}()
+
+				_, e := jstackFile.WriteString("\nFull thread dump\n")
+				if e != nil {
+					logger.Log("failed to write file %s", e)
+					e1 <- e
+					return
+				}
+				logger.Log(" Thread dump: Attempt 5: jstack -F")
+				_, err = (&JStackF{
+					jstack:   jstackFile,
+					javaHome: t.javaHome,
+					pid:      t.pid,
+				}).Run()
+				if err != nil {
+					logger.Log("failed to collect dump using jstack -F : %v", err)
+					e1 <- err
+					return
+				}
 			}
+
+			e := jstackFile.Sync()
+			if e != nil {
+				logger.Log("failed to sync file %v", e)
+			}
+
 		}
 	}()
 
@@ -111,7 +150,7 @@ func (t *JStack) Run() (result Result, err error) {
 		b1 <- n
 		err = <-e1
 		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to run jstack with err")
+			logger.Warn().Err(err).Msg("Failed to gather thread dump with err")
 		}
 		err = <-e2
 		if err != nil {
@@ -121,7 +160,7 @@ func (t *JStack) Run() (result Result, err error) {
 		if n == count {
 			break
 		}
-		logger.Log("sleeping for %v for next capture of jstack...", timeToSleep)
+		logger.Log("sleeping for %v for next capture of thread dump ...", timeToSleep)
 		time.Sleep(timeToSleep)
 	}
 	return
