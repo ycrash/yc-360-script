@@ -109,7 +109,6 @@ func (t *JStack) Run() (result Result, err error) {
 					e1 <- e
 					return
 				}
-				logger.Log(" Thread dump: Attempt 5: jstack -F")
 				_, err = (&JStackF{
 					jstack:   jstackFile,
 					javaHome: t.javaHome,
