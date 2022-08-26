@@ -126,6 +126,8 @@ func (t *JStack) Run() (result Result, err error) {
 				logger.Log("failed to sync file %v", e)
 			}
 
+			// necessary to send something into channel to prevent blocking inside waiting loop
+			e1 <- e
 		}
 	}()
 
@@ -156,12 +158,12 @@ func (t *JStack) Run() (result Result, err error) {
 			logger.Warn().Err(err).Msg("Failed to run top h with err")
 		}
 
-		if n == count {
-			break
+		if n < count {
+			logger.Log("sleeping for %v for next capture of thread dump ...", timeToSleep)
+			time.Sleep(timeToSleep)
 		}
-		logger.Log("sleeping for %v for next capture of thread dump ...", timeToSleep)
-		time.Sleep(timeToSleep)
 	}
+
 	return
 }
 
