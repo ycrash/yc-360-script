@@ -28,41 +28,56 @@ type GC struct {
 }
 
 func (t *GC) Run() (result Result, err error) {
-	fn := "gc.log"
-	var gc *os.File
-	gc, err = processGCLogFile(t.GCPath, fn, t.DockerID, t.Pid)
+	fileName := "gc.log"
+	var gcFile *os.File
+
+	gcFile, err = processGCLogFile(t.GCPath, fileName, t.DockerID, t.Pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", t.GCPath, err.Error())
 	}
-	if t.Pid > 0 && (err != nil || gc == nil) {
-		gc, err = shell.CommandCombinedOutputToFile(fn,
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, shell.SudoHooker{PID: t.Pid})
-		if err == nil {
-			t.GCPath = fn
-			logger.Log("gc log set to %s", t.GCPath)
-		} else {
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
-			gc, err = shell.CommandCombinedOutputToFile(fn,
-				shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
-			if err == nil {
-				t.GCPath = fn
-				logger.Log("jattach gc log set to %s", t.GCPath)
-			} else {
-				var tempPath string
-				tempPath, err = shell.Copy2TempPath()
-				if err != nil {
-					return
-				}
-				gc, err = shell.CommandCombinedOutputToFile(fn,
-					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
-				if err == nil {
-					t.GCPath = fn
-					logger.Log("tmp jattach gc log set to %s", t.GCPath)
-				}
+
+	if gcFile == nil && t.Pid > 0 {
+
+		if gcFile == nil {
+			// Garbage collection log: Attempt 5: jstat
+			logger.Log("Trying to capture gc log using jstat...")
+			gcFile, err = shell.CommandCombinedOutputToFile(fileName,
+				shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, shell.SudoHooker{PID: t.Pid})
+			if err != nil {
+				logger.Log("jstat failed cause %s", err.Error())
 			}
 		}
+		if gcFile == nil {
+			// Garbage collection log: Attempt 6a: jattach
+			logger.Log("Trying to capture gc log using jattach...")
+			gcFile, err = shell.CommandCombinedOutputToFile(fileName,
+				shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			if err != nil {
+				logger.Log("jattach failed cause %s", err.Error())
+			}
+		}
+		if gcFile == nil {
+			// Garbage collection log: Attempt 6b: tmp jattach
+			logger.Log("Trying to capture gc log using tmp jattach...")
+			var tempPath string
+			tempPath, err = shell.Copy2TempPath()
+			if err != nil {
+				return
+			}
+			gcFile, err = shell.CommandCombinedOutputToFile(fileName,
+				shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			if err != nil {
+				logger.Log("tmp jattach failed cause %s", err.Error())
+			}
+		}
+
+		if gcFile != nil {
+			t.GCPath = fileName
+			logger.Log("gc log set to %s", t.GCPath)
+		}
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "gc", gc)
+
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "gc", gcFile)
 	absGCPath, err := filepath.Abs(t.GCPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", t.GCPath, err.Error())

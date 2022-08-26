@@ -6,6 +6,7 @@ package main
 //                      Changed yc end point
 //                      Changed minor changes to messages printed on the screen
 
+import "C"
 import (
 	"bufio"
 	"bytes"
@@ -647,15 +648,12 @@ func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
 	updatePaths(pid, &gcPath, &tdPath, &hdPath)
-	pidPassed := true
-	if pid <= 0 {
-		pidPassed = false
-	}
+	pidPassed := pid > 0
 
 	var dockerID string
 	if pidPassed {
 		// find gc log path in from command line arguments of ps result
-		if len(gcPath) < 1 {
+		if len(gcPath) == 0 {
 			output, err := getGCLogFile(pid)
 			if err == nil && len(output) > 0 {
 				gcPath = output
@@ -952,7 +950,6 @@ Resp: %s
 	// -------------------------------
 	if appLog != nil {
 		logger.Log("Reading result from appLog channel")
-		// the channel is open, but potentially frozen, ... timeout ?
 		result := <-appLog
 		logger.Log(
 			`APPLOG DATA
@@ -1163,42 +1160,36 @@ var goCapture = capture.GoCapture
 func getGCLogFile(pid int) (result string, err error) {
 	var output []byte
 	var command shell.Command
+	var logFile string
+	dynamicArg := strconv.Itoa(pid)
 	if runtime.GOOS == "windows" {
-		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId=%d", pid))
-	} else {
-		command, err = shell.GC.AddDynamicArg(strconv.Itoa(pid))
+		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
 	}
+	command, _ = shell.GC.AddDynamicArg(dynamicArg)
 	output, err = shell.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
-	re := regexp.MustCompile("-Xlog:gc.+? ")
-	loggc := re.Find(output)
 
-	var fp []byte
-	if len(loggc) > 1 {
-		fre := regexp.MustCompile("file=(.+?)[: ]")
-		submatch := fre.FindSubmatch(loggc)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
-		} else {
-			fre := regexp.MustCompile("gc:((.+?)$|(.+?):)")
-			submatch := fre.FindSubmatch(loggc)
-			if len(submatch) >= 2 {
-				fp = submatch[1]
-			}
-		}
-	} else {
-		re := regexp.MustCompile("-Xloggc:(.+?) ")
-		submatch := re.FindSubmatch(output)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
+	if logFile == "" {
+		// Garbage collection log: Attempt 1: -Xloggc:< file-path >
+		re := regexp.MustCompile("-Xloggc:(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
 		}
 	}
-	if len(fp) < 1 {
-		return
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=< file-path >
+		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
 	}
-	result = strings.TrimSpace(string(fp))
+
+	result = strings.TrimSpace(logFile)
 	if !filepath.IsAbs(result) {
 		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 			p, err := ps.NewProcess(int32(pid))
@@ -1212,6 +1203,7 @@ func getGCLogFile(pid int) (result string, err error) {
 			logger.Warn().Str("gcpath", result).Msg("Please use absolute file path for '-Xloggc' and '-Xlog:gc'")
 		}
 	}
+
 	return
 }
 
