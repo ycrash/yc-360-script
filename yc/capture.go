@@ -60,8 +60,10 @@ func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
 			*tdPath = string(path)
 		}
 	}
-	path, _ = runHDCaptureCmd(pid)
-	if len(path) > 0 {
-		*hdPath = string(path)
+	if len(*hdPath) == 0 {
+		path, _ = runHDCaptureCmd(pid)
+		if len(path) > 0 {
+			*hdPath = string(path)
+		}
 	}
 }

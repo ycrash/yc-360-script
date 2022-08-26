@@ -163,6 +163,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 
 func (t *HeapDump) heapDump(fp string) (err error) {
 	var output []byte
+	// Heap dump: Attempt 1: jcmd
 	output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
 	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
@@ -172,6 +173,7 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 			err = fmt.Errorf("%w because %s", err, output)
 		}
 		var e2 error
+		// Heap dump: Attempt 2a: jattach
 		output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
 			shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
 			shell.SudoHooker{PID: t.Pid})
@@ -183,6 +185,7 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 				e2 = fmt.Errorf("%w because %s", e2, output)
 			}
 			err = fmt.Errorf("%v: %v", e2, err)
+			// Heap dump: Attempt 2b: tmp jattach
 			tempPath, e := shell.Copy2TempPath()
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)
