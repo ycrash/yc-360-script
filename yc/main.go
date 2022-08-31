@@ -1190,7 +1190,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	}
 
 	result = strings.TrimSpace(logFile)
-	if !filepath.IsAbs(result) {
+	if result != "" && !filepath.IsAbs(result) {
 		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 			p, err := ps.NewProcess(int32(pid))
 			if err == nil {
