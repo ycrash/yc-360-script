@@ -20,6 +20,7 @@ type ThreadDump struct {
 
 func (t *ThreadDump) Run() (result Result, err error) {
 	var td *os.File
+	// Thread dump: Attempt 3: tdPath argument (real step is 1 )
 	if len(t.TdPath) > 0 {
 		var tdf *os.File
 		tdf, err = os.Open(t.TdPath)
@@ -40,8 +41,8 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			if err != nil {
 				return
 			}
-
 		}
+		return
 	}
 	if t.Pid > 0 && td == nil {
 		if !shell.IsProcessExists(t.Pid) {

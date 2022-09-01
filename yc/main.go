@@ -6,6 +6,7 @@ package main
 //                      Changed yc end point
 //                      Changed minor changes to messages printed on the screen
 
+import "C"
 import (
 	"bufio"
 	"bytes"
@@ -647,15 +648,12 @@ func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
 	updatePaths(pid, &gcPath, &tdPath, &hdPath)
-	pidPassed := true
-	if pid <= 0 {
-		pidPassed = false
-	}
+	pidPassed := pid > 0
 
 	var dockerID string
 	if pidPassed {
 		// find gc log path in from command line arguments of ps result
-		if len(gcPath) < 1 {
+		if len(gcPath) == 0 {
 			output, err := getGCLogFile(pid)
 			if err == nil && len(output) > 0 {
 				gcPath = output
@@ -828,6 +826,7 @@ Ignored errors: %v
 	//     Transmit Top data
 	// -------------------------------
 	if top != nil {
+		logger.Log("Reading result from top channel")
 		result := <-top
 		logger.Log(
 			`TOP DATA
@@ -842,6 +841,7 @@ Resp: %s
 	//     Transmit DF data
 	// -------------------------------
 	if disk != nil {
+		logger.Log("Reading result from disk channel")
 		result := <-disk
 		logger.Log(
 			`DISK USAGE DATA
@@ -856,6 +856,7 @@ Resp: %s
 	//     Transmit netstat data
 	// -------------------------------
 	if netStat != nil {
+		logger.Log("Reading result from netStat channel")
 		result := <-netStat
 		logger.Log(
 			`NETSTAT DATA
@@ -870,6 +871,7 @@ Resp: %s
 	//     Transmit ps data
 	// -------------------------------
 	if ps != nil {
+		logger.Log("Reading result from ps channel")
 		result := <-ps
 		logger.Log(
 			`PROCESS STATUS DATA
@@ -884,6 +886,7 @@ Resp: %s
 	//     Transmit VMstat data
 	// -------------------------------
 	if vmstat != nil {
+		logger.Log("Reading result from vmstat channel")
 		result := <-vmstat
 		logger.Log(
 			`VMstat DATA
@@ -898,6 +901,7 @@ Resp: %s
 	//     Transmit DMesg data
 	// -------------------------------
 	if dmesg != nil {
+		logger.Log("Reading result from dmesg channel")
 		result := <-dmesg
 		logger.Log(
 			`DMesg DATA
@@ -912,6 +916,7 @@ Resp: %s
 	//     Transmit GC Log
 	// -------------------------------
 	if gc != nil {
+		logger.Log("Reading result from gc channel")
 		result := <-gc
 		logger.Log(
 			`GC LOG DATA
@@ -929,6 +934,7 @@ Resp: %s
 	//     Transmit ping dump
 	// -------------------------------
 	if ping != nil {
+		logger.Log("Reading result from ping channel")
 		result := <-ping
 		logger.Log(
 			`PING DATA
@@ -943,6 +949,7 @@ Resp: %s
 	//     Transmit app log
 	// -------------------------------
 	if appLog != nil {
+		logger.Log("Reading result from appLog channel")
 		result := <-appLog
 		logger.Log(
 			`APPLOG DATA
@@ -957,6 +964,7 @@ Resp: %s
 	//     Transmit hdsub log
 	// -------------------------------
 	if hdsubLog != nil {
+		logger.Log("Reading result from hdsubLog channel")
 		result := <-hdsubLog
 		logger.Log(
 			`HDSUB DATA
@@ -971,6 +979,7 @@ Resp: %s
 	//     Transmit kernel param dump
 	// -------------------------------
 	if kernel != nil {
+		logger.Log("Reading result from kernel channel")
 		result := <-kernel
 		logger.Log(
 			`KERNEL PARAMS DATA
@@ -989,6 +998,7 @@ Resp: %s
 		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
 	}
 	if threadDump != nil {
+		logger.Log("Reading result from threadDump channel")
 		result := <-threadDump
 		logger.Log(
 			`THREAD DUMP DATA
@@ -1150,43 +1160,37 @@ var goCapture = capture.GoCapture
 func getGCLogFile(pid int) (result string, err error) {
 	var output []byte
 	var command shell.Command
+	var logFile string
+	dynamicArg := strconv.Itoa(pid)
 	if runtime.GOOS == "windows" {
-		command, err = shell.GC.AddDynamicArg(fmt.Sprintf("ProcessId=%d", pid))
-	} else {
-		command, err = shell.GC.AddDynamicArg(strconv.Itoa(pid))
+		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
 	}
+	command, _ = shell.GC.AddDynamicArg(dynamicArg)
 	output, err = shell.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
-	re := regexp.MustCompile("-Xlog:gc.+? ")
-	loggc := re.Find(output)
 
-	var fp []byte
-	if len(loggc) > 1 {
-		fre := regexp.MustCompile("file=(.+?)[: ]")
-		submatch := fre.FindSubmatch(loggc)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
-		} else {
-			fre := regexp.MustCompile("gc:((.+?)$|(.+?):)")
-			submatch := fre.FindSubmatch(loggc)
-			if len(submatch) >= 2 {
-				fp = submatch[1]
-			}
-		}
-	} else {
-		re := regexp.MustCompile("-Xloggc:(.+?) ")
-		submatch := re.FindSubmatch(output)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
+	if logFile == "" {
+		// Garbage collection log: Attempt 1: -Xloggc:< file-path >
+		re := regexp.MustCompile("-Xloggc:(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
 		}
 	}
-	if len(fp) < 1 {
-		return
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=< file-path >
+		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
 	}
-	result = strings.TrimSpace(string(fp))
-	if !filepath.IsAbs(result) {
+
+	result = strings.TrimSpace(logFile)
+	if result != "" && !filepath.IsAbs(result) {
 		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 			p, err := ps.NewProcess(int32(pid))
 			if err == nil {
@@ -1199,6 +1203,7 @@ func getGCLogFile(pid int) (result string, err error) {
 			logger.Warn().Str("gcpath", result).Msg("Please use absolute file path for '-Xloggc' and '-Xlog:gc'")
 		}
 	}
+
 	return
 }
 
