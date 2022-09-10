@@ -245,7 +245,7 @@ func CommandStartInBackground(cmd Command, hookers ...Hooker) (c CmdManager, err
 }
 
 func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, hookers ...Hooker) (c CmdManager, err error) {
-	//c = &WaitCmd{}
+	c = &WaitCmd{}
 	if len(cmd) < 1 {
 		return
 	}
@@ -259,7 +259,7 @@ func CommandStartInBackgroundToWriter(writer io.Writer, cmd Command, hookers ...
 }
 
 func CommandStartInBackgroundToFile(name string, cmd Command, hookers ...Hooker) (file *os.File, c CmdManager, err error) {
-	//c = &WaitCmd{}
+	c = &WaitCmd{}
 	file, err = os.Create(name)
 	if err != nil {
 		return
