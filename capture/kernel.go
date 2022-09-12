@@ -21,7 +21,7 @@ func (k *Kernel) Run() (result Result, err error) {
 	}
 	if k.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing Kernel"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	k.Cmd.Wait()

@@ -26,7 +26,7 @@ func (c *Custom) Run() (result Result, err error) {
 	}
 	if c.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing custom"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	c.Cmd.Wait()
