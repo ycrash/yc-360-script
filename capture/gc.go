@@ -77,6 +77,12 @@ func (t *GC) Run() (result Result, err error) {
 		}
 	}
 
+	if gcFile != nil {
+		defer func() {
+			_ = gcFile.Close()
+		}()
+	}
+
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "gc", gcFile)
 	absGCPath, err := filepath.Abs(t.GCPath)
 	if err != nil {
