@@ -26,7 +26,7 @@ func (t *DMesg) Run() (result Result, err error) {
 	}
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing DMesg"
-		result.Ok = false
+		result.Ok = true
 		return
 	}
 	err = t.Cmd.Wait()
@@ -55,7 +55,7 @@ func (t *DMesg) Run() (result Result, err error) {
 		logger.Log("trying %s, cause %s exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
 		if t.Cmd.IsSkipped() {
 			result.Msg = "skipped capturing DMesg"
-			result.Ok = false
+			result.Ok = true
 			return
 		}
 		err = t.Cmd.Wait()
