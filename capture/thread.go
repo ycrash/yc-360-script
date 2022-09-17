@@ -27,22 +27,28 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		if err != nil {
 			logger.Log("failed to open tdPath(%s), err: %s", t.TdPath, err.Error())
 		} else {
-			defer tdf.Close()
+			defer func() {
+				_ = tdf.Close()
+			}()
 			td, err = os.Create(tdOut)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
-			defer td.Close()
+			defer func() {
+				_ = td.Close()
+			}()
 			_, err = io.Copy(td, tdf)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
 			_, err = td.Seek(0, 0)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
 		}
-		return
 	}
 	if t.Pid > 0 && td == nil {
 		if !shell.IsProcessExists(t.Pid) {
@@ -71,7 +77,9 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		defer td.Close()
+		defer func() {
+			_ = td.Close()
+		}()
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
 	return
