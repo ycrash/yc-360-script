@@ -92,21 +92,11 @@ func (t *JStack) Run() (result Result, err error) {
 					return
 				}
 
-				defer func() {
-					e := jstackFile.Sync()
-					if e != nil {
-						logger.Log("failed to sync file %s", e)
-					}
-					e = jstackFile.Close()
-					if e != nil {
-						logger.Log("failed to close file %s", e)
-					}
-				}()
-
 				_, e := jstackFile.WriteString("\nFull thread dump\n")
 				if e != nil {
 					logger.Log("failed to write file %s", e)
 					e1 <- e
+					_ = jstackFile.Close()
 					return
 				}
 				_, err = (&JStackF{
@@ -117,13 +107,18 @@ func (t *JStack) Run() (result Result, err error) {
 				if err != nil {
 					logger.Log("failed to collect dump using jstack -F : %v", err)
 					e1 <- err
+					_ = jstackFile.Close()
 					return
 				}
 			}
 
-			e := jstackFile.Sync()
-			if e != nil {
-				logger.Log("failed to sync file %v", e)
+			var e error
+			if jstackFile != nil {
+				e := jstackFile.Sync()
+				if e != nil {
+					logger.Log("failed to sync file %v", e)
+				}
+				_ = jstackFile.Close()
 			}
 
 			// necessary to send something into channel to prevent blocking inside waiting loop
