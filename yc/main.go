@@ -450,7 +450,6 @@ func uploadGCLog(endpoint string, pid int, tailLinesLimit int) {
 	}
 
 	if gc != nil && tailLinesLimit > 0 {
-		logger.Log("	DEBUG: limiting %s file to %d tail lines", fn, tailLinesLimit)
 		gc, _, err = util.GetTailOfFile(gc, fn, tailLinesLimit)
 		if err != nil {
 			logger.Log("unable to limit %s file %s", fn, err.Error())
