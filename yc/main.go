@@ -30,7 +30,6 @@ import (
 	"shell/config"
 	"shell/logger"
 	"shell/procps"
-	"shell/util"
 	ycattach "shell/ycattach"
 	"sort"
 	"strconv"
@@ -43,8 +42,6 @@ import (
 	"github.com/pterm/pterm"
 	ps "github.com/shirou/gopsutil/v3/process"
 )
-
-const LogTailLinesCount = 5000
 
 var wg sync.WaitGroup
 
@@ -400,7 +397,7 @@ func processM3(timestamp string, endpoint string, dumpThreads bool) (pids map[in
 	if err == nil && len(pids) > 0 {
 		for pid := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
-			uploadGCLog(endpoint, pid, LogTailLinesCount)
+			uploadGCLog(endpoint, pid)
 			if dumpThreads {
 				logger.Log("uploading thread dump for pid %d", pid)
 				uploadThreadDump(endpoint, pid, true)
@@ -430,7 +427,7 @@ Resp: %s
 	return
 }
 
-func uploadGCLog(endpoint string, pid int, tailLinesLimit int) {
+func uploadGCLog(endpoint string, pid int) {
 	var gcp string
 	bs, err := runGCCaptureCmd(pid)
 	dockerID, _ := shell.GetDockerID(pid)
@@ -448,15 +445,6 @@ func uploadGCLog(endpoint string, pid int, tailLinesLimit int) {
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
-
-	if gc != nil && tailLinesLimit > 0 {
-		logger.Log("	DEBUG: limiting %s file to %d tail lines", fn, tailLinesLimit)
-		gc, _, err = util.GetTailOfFile(gc, fn, tailLinesLimit)
-		if err != nil {
-			logger.Log("unable to limit %s file %s", fn, err.Error())
-		}
-	}
-
 	var jstat shell.CmdManager
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
@@ -1401,18 +1389,16 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 
 // combine previous gc log to new gc log
 func copyFile(gc *os.File, file string, pid int) (err error) {
-	logFile, err := os.Open(file)
+	log, err := os.Open(file)
 	if err != nil && runtime.GOOS == "linux" {
 		logger.Log("Failed to %s. Trying to open in the Docker container...", err)
-		logFile, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
+		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
 	}
 	if err != nil {
 		return
 	}
-	defer func() {
-		_ = logFile.Close()
-	}()
-	_, err = io.Copy(gc, logFile)
+	defer log.Close()
+	_, err = io.Copy(gc, log)
 	return
 }
 
