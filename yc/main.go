@@ -202,6 +202,7 @@ func mainLoop() {
 		go func() {
 			periodCounter := NewPeriodCounter(time.Minute * 5)
 			dumpThreads := false
+			accessLogPosition := int64(0)
 			for {
 				time.Sleep(config.GlobalConfig.M3Frequency)
 
@@ -213,7 +214,7 @@ func mainLoop() {
 					periodCounter.ResetCounter()
 				}
 				dumpThreads = periodCounter.AddDuration(config.GlobalConfig.M3Frequency)
-				pids, err := processM3(timestamp, endpoint, dumpThreads)
+				pids, err := processM3(timestamp, endpoint, dumpThreads, &accessLogPosition)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
@@ -362,7 +363,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 	return
 }
 
-func processM3(timestamp string, endpoint string, dumpThreads bool) (pids map[int]string, err error) {
+func processM3(timestamp string, endpoint string, dumpThreads bool, accessLogPosition *int64) (pids map[int]string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -414,6 +415,15 @@ func processM3(timestamp string, endpoint string, dumpThreads bool) (pids map[in
 	capTop := &capture.Top4M3{}
 	top := goCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
+
+	if config.GlobalConfig.AccessLog != "" && accessLogPosition != nil {
+		logger.Log("uploading access log")
+		*accessLogPosition, err = uploadAccessLog(endpoint, config.GlobalConfig.AccessLog, *accessLogPosition)
+		if err != nil {
+			logger.Log("WARNING: Can not upload access log: %s", err)
+		}
+	}
+
 	if top != nil {
 		result := <-top
 		logger.Log(
@@ -425,6 +435,40 @@ Resp: %s
 `, result.Ok, result.Msg)
 	}
 	return
+}
+
+func uploadAccessLog(endpoint string, accessLogPath string, accessLogPosition int64) (int64, error) {
+
+	var accessLog chan capture.Result
+	// ------------------------------------------------------------------------------
+	//   				Capture access log
+	// ------------------------------------------------------------------------------
+	capAccessLog := &capture.AccessLog{
+		Path:     accessLogPath,
+		Position: accessLogPosition,
+	}
+
+	accessLog = goCapture(endpoint, capture.WrapRun(capAccessLog))
+	// -------------------------------
+	//     Log access log
+	// -------------------------------
+	absAccessLogPath, err := filepath.Abs(accessLogPath)
+	if err != nil {
+		absAccessLogPath = fmt.Sprintf("path %s: %s", accessLogPath, err.Error())
+	}
+	if accessLog != nil {
+		result := <-accessLog
+		logger.Log(
+			`ACCESS LOG DATA
+%s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, absAccessLogPath, result.Ok, result.Msg)
+	}
+
+	return capAccessLog.Position, nil
 }
 
 func uploadGCLog(endpoint string, pid int) {
@@ -1389,16 +1433,18 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 
 // combine previous gc log to new gc log
 func copyFile(gc *os.File, file string, pid int) (err error) {
-	log, err := os.Open(file)
+	logFile, err := os.Open(file)
 	if err != nil && runtime.GOOS == "linux" {
 		logger.Log("Failed to %s. Trying to open in the Docker container...", err)
-		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
+		logFile, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
 	}
 	if err != nil {
 		return
 	}
-	defer log.Close()
-	_, err = io.Copy(gc, log)
+	defer func() {
+		_ = logFile.Close()
+	}()
+	_, err = io.Copy(gc, logFile)
 	return
 }
 

@@ -43,6 +43,8 @@ type Options struct {
 	ProcessTokens        ProcessTokens `yaml:"processTokens" usage:"Process tokens of m3 mode"`
 	ExcludeProcessTokens ProcessTokens `yaml:"excludeTokens" usage:"Process exclude tokens of m3 mode"`
 
+	AccessLog string `yaml:"accessLog" usage:"Access log file path which is written by the target application"`
+
 	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
 
 	Address string `yaml:"address" usage:"Address to serve API service"`
