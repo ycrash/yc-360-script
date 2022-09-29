@@ -448,7 +448,9 @@ func uploadAccessLog(endpoint string, accessLogPath string, accessLogPosition in
 		Position: accessLogPosition,
 	}
 
+	logger.Log("Starting collection of access log ...")
 	accessLog = goCapture(endpoint, capture.WrapRun(capAccessLog))
+	logger.Log("Collection of access log started.")
 	// -------------------------------
 	//     Log access log
 	// -------------------------------
