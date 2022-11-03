@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -19,20 +20,30 @@ func zipFolder(folder string) (name string, err error) {
 	w := zip.NewWriter(file)
 	defer w.Close()
 
-	walker := func(path string, info os.FileInfo, err error) error {
+	folderBaseName := path.Base(folder)
+
+	walker := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
-		file, err := os.Open(path)
+		file, err := os.Open(filePath)
 		if err != nil {
 			return err
 		}
 		defer file.Close()
 
-		f, err := w.Create(path)
+		// filePath can contain absolute path, so let's get the base path.
+		fileBaseName := path.Base(filePath)
+
+		// zipFileName is in the form of folder/filename.ext
+		// If otherwise filePath is used here, it can contains an absolute path, which results in
+		// unexpected zip contents.
+		zipFileName := path.Join(folderBaseName, fileBaseName)
+
+		f, err := w.Create(zipFileName)
 		if err != nil {
 			return err
 		}
