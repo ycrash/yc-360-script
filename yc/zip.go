@@ -20,7 +20,7 @@ func zipFolder(folder string) (name string, err error) {
 	w := zip.NewWriter(file)
 	defer w.Close()
 
-	folderBaseName := path.Base(folder)
+	folderBaseName := filepath.Base(folder)
 
 	walker := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -36,7 +36,7 @@ func zipFolder(folder string) (name string, err error) {
 		defer file.Close()
 
 		// filePath can contain absolute path, so let's get the base path.
-		fileBaseName := path.Base(filePath)
+		fileBaseName := filepath.Base(filePath)
 
 		// zipFileName is in the form of folder/filename.ext
 		// If otherwise filePath is used here, it can contains an absolute path, which results in
