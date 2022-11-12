@@ -85,6 +85,7 @@ func (t *JStack) Run() (result Result, err error) {
 
 			// Thread dump: Attempt 5: jstack -F
 			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jstack -F ...")
 				jstackFile, err = os.Create(outputFileName)
 				if err != nil {
 					logger.Log("Failed to create output file %v", err)
@@ -109,6 +110,38 @@ func (t *JStack) Run() (result Result, err error) {
 					e1 <- err
 					_ = jstackFile.Close()
 					return
+				}
+			}
+
+			// Thread dump: Attempt 6: jhsdb jstack --pid PID
+			// If you see this error:
+			// java.lang.RuntimeException: Unable to deduce type of thread from address 0x00007fab10001000 (expected type JavaThread, CompilerThread, ServiceThread, JvmtiAgentThread or CodeCacheSweeperThread)
+			// It requires the debug information. In ubuntu, you can install it with: apt install openjdk-11-dbg
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jhsdb jstack ...")
+
+				jstackFile, err = os.Create(outputFileName)
+				if err != nil {
+					logger.Log("Failed to create output file %v", err)
+					e1 <- err
+					return
+				}
+
+				_, e := jstackFile.WriteString("\nFull thread dump\n")
+				if e != nil {
+					logger.Log("failed to write file %s", e)
+					e1 <- e
+					_ = jstackFile.Close()
+					return
+				}
+
+				err = shell.CommandCombinedOutputToWriter(jstackFile,
+					shell.Command{path.Join(t.javaHome, "bin/jhsdb"), "jstack", "--pid", strconv.Itoa(t.pid)},
+					shell.SudoHooker{PID: t.pid},
+				)
+
+				if err != nil {
+					logger.Log("Failed to run jhsdb jstack with err %v", err)
 				}
 			}
 
