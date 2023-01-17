@@ -1450,10 +1450,12 @@ func copyFile(gc *os.File, file string, pid int) (err error) {
 	return
 }
 
-const metaInfoTemplate = `hostName=%s
+const metaInfoTemplate = `
+hostName=%s
 processId=%d
 appName=%s
 whoami=%s
+timestamp=%s
 javaVersion=%s
 osVersion=%s
 tags=%s`
@@ -1491,7 +1493,9 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	} else {
 		un = current.Username
 	}
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov, tags))
+	now := time.Now()
+	timestamp := now.Format("2006-01-02T15-04-05")
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
