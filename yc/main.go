@@ -1450,8 +1450,7 @@ func copyFile(gc *os.File, file string, pid int) (err error) {
 	return
 }
 
-const metaInfoTemplate = `
-hostName=%s
+const metaInfoTemplate = `hostName=%s
 processId=%d
 appName=%s
 whoami=%s
