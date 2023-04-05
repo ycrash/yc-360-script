@@ -32,13 +32,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pterm/pterm"
 	"shell"
 	"shell/capture"
 	"shell/config"
 	"shell/logger"
 
 	"github.com/gentlemanautomaton/cmdline"
+	"github.com/pterm/pterm"
 )
 
 var wg sync.WaitGroup
@@ -210,7 +210,7 @@ func mainLoop() {
 							break
 						}
 						ps.WriteString("-")
-						ns.WriteString("-")
+						ns.WriteString("^")
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
