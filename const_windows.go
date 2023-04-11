@@ -20,8 +20,8 @@ var (
 	TopH2               = NopCommand
 	Top4M3              = NopCommand
 	VMState             = NopCommand
-	DMesg               = NopCommand
-	DMesg2              = NopCommand
+	DMesg               = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
+	DMesg2              = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning}"}
 	GC                  = NopCommand
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
