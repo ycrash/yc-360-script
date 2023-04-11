@@ -11,9 +11,9 @@ var (
 	TopH                = Command{WaitCommand, "top", "-l", "1", "-pid", DynamicArg}
 	TopH2               = Command{WaitCommand, "top", "-l", "1", "-pid", DynamicArg}
 	Top4M3              = Command{"top", "-bc"}
-	VMState             = Command{"vmstat"}
+	VMState             = Command{"vm_stat"}
 	DMesg               = Command{"dmesg"}
-	DMesg2              = Command{"dmesg"}
+	DMesg2              = Command{"/bin/sh", "-c", "cat /var/log/system.log | tail -20"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
