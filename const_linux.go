@@ -18,8 +18,8 @@ var (
 	TopH2               = Command{"/bin/sh", "-c", `"RESULT=$(top -bH -n 1) && echo \"$RESULT\" | head -n 4 && echo \"$RESULT\" | grep"`}
 	Top4M3              = Command{WaitCommand, "top", "-bc", "-n", "1"}
 	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
-	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn && dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
-	DMesg2              = Command{"/bin/sh", "-c", "dmesg -n 4 | tail -20"}
+	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
+	DMesg2              = Command{"/bin/sh", "-c", "dmesg --level=emerg,alert,crit,err,warn | tail -20 | awk '{gsub(/\[[^]]*\]/,""); print strftime("[\%a \%b \%d \%H:\%M:\%S \%Y]", systime()-$(NF-1)), $0}'"}
 	GC                  = Command{"/bin/sh", "-c"}
 	AppendJavaCoreFiles = Command{"/bin/sh", "-c", "cat javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"/bin/sh", "-c", "cat topdashH.* >> threaddump.out"}
