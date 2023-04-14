@@ -93,7 +93,7 @@ func TestPostData(t *testing.T) {
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 
 	t.Run("requestFin", func(t *testing.T) {
-		finEp := fmt.Sprintf("%s/m3-fin?apiKey=%s&%s", host, api, parameters)
+		finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", host, api, parameters)
 		requestFin(finEp)
 	})
 

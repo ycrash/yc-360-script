@@ -1114,10 +1114,10 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
+	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
 	resp, err := requestFin(finEp)
 	if err != nil {
-		logger.Log("post m3-fin err %s", err.Error())
+		logger.Log("post yc-fin err %s", err.Error())
 		err = nil
 	}
 
@@ -1190,7 +1190,7 @@ func requestFin(endpoint string) (resp []byte, err error) {
 		resp, err = ioutil.ReadAll(post.Body)
 		if err == nil {
 			logger.Log(
-				`m3-fin endpoint: %s
+				`yc-fin endpoint: %s
 Resp: %s
 
 --------------------------------
