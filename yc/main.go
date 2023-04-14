@@ -231,7 +231,7 @@ func mainLoop() {
 							break
 						}
 						ps.WriteString("-")
-						ns.WriteString("-")
+						ns.WriteString("%5E")
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
@@ -1114,10 +1114,10 @@ Resp: %s
 	// -------------------------------
 	//     Conclusion
 	// -------------------------------
-	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
+	finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 	resp, err := requestFin(finEp)
 	if err != nil {
-		logger.Log("post yc-fin err %s", err.Error())
+		logger.Log("post m3-fin err %s", err.Error())
 		err = nil
 	}
 
@@ -1190,7 +1190,7 @@ func requestFin(endpoint string) (resp []byte, err error) {
 		resp, err = ioutil.ReadAll(post.Body)
 		if err == nil {
 			logger.Log(
-				`yc-fin endpoint: %s
+				`m3-fin endpoint: %s
 Resp: %s
 
 --------------------------------
