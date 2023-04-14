@@ -6,8 +6,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"shell/logger"
 	"strings"
+	"sync"
+	"time"
 )
 
 type Command []string
@@ -130,6 +133,9 @@ func NewCommand(cmd Command, hookers ...Hooker) CmdManager {
 		command.Env = os.Environ()
 		command.Env = append(command.Env, Env...)
 	}
+	for _, hooker := range hookers {
+		hooker.After(command)
+	}
 	if wait {
 		return &WaitCmd{command}
 	}
@@ -144,7 +150,7 @@ func CommandCombinedOutput(cmd Command, hookers ...Hooker) ([]byte, error) {
 	return c.CombinedOutput()
 }
 
-func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
+func CommandCombinedOutputToWriterNoTimeout(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
 	c := NewCommand(cmd, hookers...)
 	if c.IsSkipped() {
 		return
@@ -160,6 +166,47 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 		return
 	}
 	_, err = writer.Write(output)
+	return
+}
+
+func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hooker) (err error) {
+	c := NewCommand(cmd, hookers...)
+	if c.IsSkipped() {
+		return
+	}
+
+	channelDone := make(chan bool)
+	go func() {
+		// --- execution routine start
+		var output []byte
+		output, err = c.CombinedOutput()
+		if err != nil {
+			if len(output) > 1 {
+				err = fmt.Errorf("%w because %s", err, output)
+			}
+			if _, e := writer.Write(output); e != nil {
+				err = fmt.Errorf("%w and %s", err, e.Error())
+			}
+		} else {
+			_, err = writer.Write(output)
+		}
+		// --- execution routine finish
+		channelDone <- true
+	}()
+
+	// execution timer
+	timerDuration := 1 * time.Minute
+	timer := time.NewTimer(timerDuration)
+	select {
+	case <-timer.C:
+		logger.Log("Timeout happened during the command execution (%ds) [%s]", int(timerDuration/time.Second), c.String())
+		err = c.KillAndWait()
+		if err != nil {
+			logger.Log("Error doing cmd.KillAndWait() invocation: [%s]", err.Error())
+		}
+	case <-channelDone:
+		timer.Stop()
+	}
 	return
 }
 
@@ -236,10 +283,71 @@ err: %v
 	return
 }
 
-func Executable() string {
-	exe, err := os.Executable()
+var workDir string
+
+func init() {
+	workDir, _ = os.Getwd()
+}
+
+func Executable() (path string) {
+	path, err := os.Executable()
 	if err != nil {
-		return "../yc"
+		path = filepath.Join(workDir, os.Args[0])
+		logger.Warn().Err(err).Str("path", path).Msg("Failed to get executable path")
 	}
-	return exe
+	return
+}
+
+var tmpPathMtx sync.RWMutex
+var tmpPath string
+
+func Copy2TempPath() (name string, err error) {
+	tmpPathMtx.RLock()
+	name = tmpPath
+	tmpPathMtx.RUnlock()
+
+	if len(name) > 0 {
+		return
+	}
+
+	tmpPathMtx.Lock()
+	defer tmpPathMtx.Unlock()
+
+	path := Executable()
+	if len(path) < 1 {
+		err = errors.New("failed to Copy2TempPath: invalid path")
+		return
+	}
+	in, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	file, err := os.CreateTemp("", "yc")
+	if err != nil {
+		return
+	}
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			logger.Warn().Err(err).Msg("failed to close file in Copy2TempPath")
+		}
+	}()
+	_, err = io.Copy(file, in)
+	if err != nil {
+		return
+	}
+	err = file.Chmod(0777)
+	name = file.Name()
+	tmpPath = name
+	return
+}
+
+func RemoveFromTempPath() {
+	tmpPathMtx.RLock()
+	name := tmpPath
+	tmpPathMtx.RUnlock()
+
+	if len(name) > 0 {
+		os.Remove(name)
+	}
 }

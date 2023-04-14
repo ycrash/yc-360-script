@@ -43,6 +43,8 @@ type Options struct {
 	ProcessTokens        ProcessTokens `yaml:"processTokens" usage:"Process tokens of m3 mode"`
 	ExcludeProcessTokens ProcessTokens `yaml:"excludeTokens" usage:"Process exclude tokens of m3 mode"`
 
+	AccessLog string `yaml:"accessLog" usage:"Access log file path which is written by the target application"`
+
 	CaptureCmd string `yaml:"captureCmd" usage:"Capture command line to be executed"`
 
 	Address string `yaml:"address" usage:"Address to serve API service"`
@@ -61,6 +63,8 @@ type Options struct {
 	TDCaptureMode   bool   `yaml:"tdCaptureMode" usage:"Run in Thread Dump Capture mode"`
 	HDCaptureMode   bool   `yaml:"hdCaptureMode" usage:"Run in Heap Dump Capture mode"`
 	JCmdCaptureMode string `yaml:"jCmdCaptureMode" usage:"Run in JCmd Capture mode"`
+	VMStatMode      bool   `yaml:"vmstatMode" usage:"Run in vmstat mode"`
+	TopMode         bool   `yaml:"topMode" usage:"Run in top mode"`
 
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`
@@ -69,6 +73,8 @@ type Options struct {
 
 	AppLog          string `yaml:"appLog" usage:"The target application’s log file path"`
 	AppLogLineCount uint   `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
+
+	StoragePath string `yaml:"storagePath" usage:"The storage path to save the captured files"`
 }
 
 type Command struct {

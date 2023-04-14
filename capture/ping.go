@@ -22,7 +22,7 @@ func (c *Ping) Run() (result Result, err error) {
 	}
 	if c.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing Ping"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	c.Cmd.Wait()

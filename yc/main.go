@@ -6,6 +6,7 @@ package main
 //                      Changed yc end point
 //                      Changed minor changes to messages printed on the screen
 
+import "C"
 import (
 	"bufio"
 	"bytes"
@@ -24,6 +25,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"shell"
+	"shell/capture"
+	"shell/config"
+	"shell/logger"
+	"shell/procps"
 	ycattach "shell/ycattach"
 	"sort"
 	"strconv"
@@ -32,18 +38,24 @@ import (
 	"syscall"
 	"time"
 
-	"shell"
-	"shell/capture"
-	"shell/config"
-	"shell/logger"
-
 	"github.com/gentlemanautomaton/cmdline"
 	"github.com/pterm/pterm"
+	ps "github.com/shirou/gopsutil/v3/process"
 )
 
 var wg sync.WaitGroup
 
 func main() {
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "-vmstatMode":
+			ret := procps.VMStat(os.Args[1:]...)
+			os.Exit(ret)
+		case "-topMode":
+			ret := procps.Top(append([]string{"top"}, os.Args[2:]...)...)
+			os.Exit(ret)
+		}
+	}
 	err := config.ParseFlags(os.Args)
 	if err != nil {
 		log.Fatal(err.Error())
@@ -101,6 +113,7 @@ func main() {
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
 	go mainLoop()
+	defer shell.RemoveFromTempPath()
 
 	select {
 	case <-osSig:
@@ -187,13 +200,21 @@ func mainLoop() {
 	if config.GlobalConfig.M3 {
 		once.Do(startupLogs)
 		go func() {
+			periodCounter := NewPeriodCounter(time.Minute * 5)
+			dumpThreads := false
+			accessLogPosition := int64(0)
 			for {
 				time.Sleep(config.GlobalConfig.M3Frequency)
 
 				timestamp := time.Now().Format("2006-01-02T15-04-05")
 				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 				endpoint := fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, parameters)
-				pids, err := process(timestamp, endpoint)
+
+				if dumpThreads {
+					periodCounter.ResetCounter()
+				}
+				dumpThreads = periodCounter.AddDuration(config.GlobalConfig.M3Frequency)
+				pids, err := processM3(timestamp, endpoint, dumpThreads, &accessLogPosition)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
@@ -241,7 +262,7 @@ func mainLoop() {
 						if pid < 1 {
 							continue
 						}
-						fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
+						fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 					}
 				} else {
 					logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
@@ -250,8 +271,9 @@ func mainLoop() {
 				logger.Log("unexpected error %s", err)
 			}
 		} else {
-			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags)
+			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 		}
+		shell.RemoveFromTempPath()
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
 		once.Do(startupLogs)
@@ -271,7 +293,7 @@ Resp: %s
 }
 
 func processResp(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, err := shell.ParseJsonResp(resp)
+	pids, tags, timestamp, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -286,7 +308,7 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp)
+	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamp)
 	return
 }
 
@@ -297,10 +319,17 @@ func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUr
 	one.Lock()
 	defer one.Unlock()
 
-	return processPidsWithoutLock(pids, pid2Name, hd, tags)
+	tmp := config.GlobalConfig.Tags
+	if len(tmp) > 0 {
+		ts := strings.Trim(tmp, ",")
+		tmp = strings.Trim(ts+","+tags, ",")
+	} else {
+		tmp = strings.Trim(tags, ",")
+	}
+	return processPidsWithoutLock(pids, pid2Name, hd, tmp, "")
 }
 
-func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamp string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
@@ -325,7 +354,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 				continue
 			}
 		} else {
-			url := fullProcess(pid, name, hd, tags)
+			url := fullProcess(pid, name, hd, tags, timestamp)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -334,7 +363,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 	return
 }
 
-func process(timestamp string, endpoint string) (pids map[int]string, err error) {
+func processM3(timestamp string, endpoint string, dumpThreads bool, accessLogPosition *int64) (pids map[int]string, err error) {
 	one.Lock()
 	defer one.Unlock()
 
@@ -370,6 +399,10 @@ func process(timestamp string, endpoint string) (pids map[int]string, err error)
 		for pid := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
 			uploadGCLog(endpoint, pid)
+			if dumpThreads {
+				logger.Log("uploading thread dump for pid %d", pid)
+				uploadThreadDump(endpoint, pid, true)
+			}
 		}
 	} else if err != nil {
 		logger.Log("WARNING: failed to get PID cause %v", err)
@@ -382,6 +415,15 @@ func process(timestamp string, endpoint string) (pids map[int]string, err error)
 	capTop := &capture.Top4M3{}
 	top := goCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
+
+	if config.GlobalConfig.AccessLog != "" && accessLogPosition != nil {
+		logger.Log("uploading access log")
+		*accessLogPosition, err = uploadAccessLog(endpoint, config.GlobalConfig.AccessLog, *accessLogPosition)
+		if err != nil {
+			logger.Log("WARNING: Can not upload access log: %s", err)
+		}
+	}
+
 	if top != nil {
 		result := <-top
 		logger.Log(
@@ -393,6 +435,42 @@ Resp: %s
 `, result.Ok, result.Msg)
 	}
 	return
+}
+
+func uploadAccessLog(endpoint string, accessLogPath string, accessLogPosition int64) (int64, error) {
+
+	var accessLog chan capture.Result
+	// ------------------------------------------------------------------------------
+	//   				Capture access log
+	// ------------------------------------------------------------------------------
+	capAccessLog := &capture.AccessLog{
+		Path:     accessLogPath,
+		Position: accessLogPosition,
+	}
+
+	logger.Log("Starting collection of access log ...")
+	accessLog = goCapture(endpoint, capture.WrapRun(capAccessLog))
+	logger.Log("Collection of access log started.")
+	// -------------------------------
+	//     Log access log
+	// -------------------------------
+	absAccessLogPath, err := filepath.Abs(accessLogPath)
+	if err != nil {
+		absAccessLogPath = fmt.Sprintf("path %s: %s", accessLogPath, err.Error())
+	}
+	if accessLog != nil {
+		result := <-accessLog
+		logger.Log(
+			`ACCESS LOG DATA
+%s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, absAccessLogPath, result.Ok, result.Msg)
+	}
+
+	return capAccessLog.Position, nil
 }
 
 func uploadGCLog(endpoint string, pid int) {
@@ -474,6 +552,46 @@ Resp: %s
 `, absGCPath, ok, msg)
 }
 
+func uploadThreadDump(endpoint string, pid int, sendPidParam bool) {
+	var threadDump chan capture.Result
+	gcPath := config.GlobalConfig.GCPath
+	tdPath := config.GlobalConfig.ThreadDumpPath
+	hdPath := config.GlobalConfig.HeapDumpPath
+	updatePaths(pid, &gcPath, &tdPath, &hdPath)
+
+	// endpoint, pid, tdPath
+	// ------------------------------------------------------------------------------
+	//   				Capture thread dumps
+	// ------------------------------------------------------------------------------
+	capThreadDump := &capture.ThreadDump{
+		Pid:      pid,
+		TdPath:   tdPath,
+		JavaHome: config.GlobalConfig.JavaHomePath,
+	}
+	if sendPidParam {
+		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
+	}
+	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+	// -------------------------------
+	//     Log Thread dump
+	// -------------------------------
+	absTDPath, err := filepath.Abs(tdPath)
+	if err != nil {
+		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
+	}
+	if threadDump != nil {
+		result := <-threadDump
+		logger.Log(
+			`THREAD DUMP DATA
+%s
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, absTDPath, result.Ok, result.Msg)
+	}
+}
+
 func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdManager, err error) {
 	if gc != nil {
 		err = gc.Close()
@@ -490,12 +608,12 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 	return
 }
 
-func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
+func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl string) {
 	var agentLogFile *os.File
 	var err error
 	defer func() {
 		if err != nil {
-			logger.Log("Unexpected Error %s", err)
+			logger.Error().Err(err).Msg("unexpected error")
 		}
 		if agentLogFile == nil {
 			return
@@ -509,10 +627,18 @@ func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	//  Create output files
 	// -------------------------------------------------------------------
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	var parameters string
+	if len(ts) > 0 {
+		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), ts)
+	} else {
+		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	}
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 
 	dname := "yc-" + timestamp
+	if len(config.GlobalConfig.StoragePath) > 0 {
+		dname = filepath.Join(config.GlobalConfig.StoragePath, dname)
+	}
 	err = os.Mkdir(dname, 0777)
 	if err != nil {
 		return
@@ -568,15 +694,12 @@ func fullProcess(pid int, appName string, hd bool, tags string) (rUrl string) {
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
 	updatePaths(pid, &gcPath, &tdPath, &hdPath)
-	pidPassed := true
-	if pid <= 0 {
-		pidPassed = false
-	}
+	pidPassed := pid > 0
 
 	var dockerID string
 	if pidPassed {
 		// find gc log path in from command line arguments of ps result
-		if len(gcPath) < 1 {
+		if len(gcPath) == 0 {
 			output, err := getGCLogFile(pid)
 			if err == nil && len(output) > 0 {
 				gcPath = output
@@ -626,38 +749,15 @@ Ignored errors: %v
 		}()
 	}
 
-	// check if it can find gc log from ps
-	var gc *os.File
-	gc, err = processGCLogFile(gcPath, "gc.log", dockerID, pid)
-	if err != nil {
-		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
-	}
-	var jstat shell.CmdManager
-	var triedJAttachGC bool
-	if pidPassed && (err != nil || gc == nil) {
-		gc, jstat, err = shell.CommandStartInBackgroundToFile("gc.log",
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, shell.SudoHooker{PID: pid})
-		if err == nil {
-			gcPath = "gc.log"
-			logger.Log("gc log set to %s", gcPath)
-		} else {
-			triedJAttachGC = true
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
-			gc, jstat, err = captureGC(pid, gc, "gc.log")
-			if err == nil {
-				gcPath = "gc.log"
-				logger.Log("jattach gc log set to %s", gcPath)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-		}
-	}
-	defer func() {
-		if gc != nil {
-			gc.Close()
-		}
-	}()
-
+	// ------------------------------------------------------------------------------
+	//   				Capture gc
+	// ------------------------------------------------------------------------------
+	gc := goCapture(endpoint, capture.WrapRun(&capture.GC{
+		Pid:      pid,
+		JavaHome: config.GlobalConfig.JavaHomePath,
+		DockerID: dockerID,
+		GCPath:   gcPath,
+	}))
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
 	var capTop *capture.Top
@@ -760,23 +860,6 @@ Ignored errors: %v
 		logger.Log("Final netstat snapshot complete.")
 	}
 
-	if jstat != nil {
-		err := jstat.Wait()
-		if err != nil && !triedJAttachGC {
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach......", err.Error())
-			gc, jstat, err = captureGC(pid, gc, "gc.log")
-			if err == nil {
-				gcPath = "gc.log"
-				logger.Log("jattach gc log set to %s", gcPath)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-			err = jstat.Wait()
-			if err != nil {
-				logger.Log("jattach gc log failed cause %s", err.Error())
-			}
-		}
-	}
 	// stop started tasks
 	if capTop != nil {
 		capTop.Kill()
@@ -789,6 +872,7 @@ Ignored errors: %v
 	//     Transmit Top data
 	// -------------------------------
 	if top != nil {
+		logger.Log("Reading result from top channel")
 		result := <-top
 		logger.Log(
 			`TOP DATA
@@ -803,6 +887,7 @@ Resp: %s
 	//     Transmit DF data
 	// -------------------------------
 	if disk != nil {
+		logger.Log("Reading result from disk channel")
 		result := <-disk
 		logger.Log(
 			`DISK USAGE DATA
@@ -817,6 +902,7 @@ Resp: %s
 	//     Transmit netstat data
 	// -------------------------------
 	if netStat != nil {
+		logger.Log("Reading result from netStat channel")
 		result := <-netStat
 		logger.Log(
 			`NETSTAT DATA
@@ -831,6 +917,7 @@ Resp: %s
 	//     Transmit ps data
 	// -------------------------------
 	if ps != nil {
+		logger.Log("Reading result from ps channel")
 		result := <-ps
 		logger.Log(
 			`PROCESS STATUS DATA
@@ -845,6 +932,7 @@ Resp: %s
 	//     Transmit VMstat data
 	// -------------------------------
 	if vmstat != nil {
+		logger.Log("Reading result from vmstat channel")
 		result := <-vmstat
 		logger.Log(
 			`VMstat DATA
@@ -859,6 +947,7 @@ Resp: %s
 	//     Transmit DMesg data
 	// -------------------------------
 	if dmesg != nil {
+		logger.Log("Reading result from dmesg channel")
 		result := <-dmesg
 		logger.Log(
 			`DMesg DATA
@@ -872,24 +961,26 @@ Resp: %s
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok = shell.PostData(endpoint, "gc", gc)
-	absGCPath, err := filepath.Abs(gcPath)
-	if err != nil {
-		absGCPath = fmt.Sprintf("path %s: %s", gcPath, err.Error())
-	}
-	logger.Log(
-		`GC LOG DATA
-%s
+	if gc != nil {
+		logger.Log("Reading result from gc channel")
+		result := <-gc
+		logger.Log(
+			`GC LOG DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, absGCPath, ok, msg)
+`, result.Ok, result.Msg)
+		if !result.Ok {
+			defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log")
+		}
+	}
 
 	// -------------------------------
 	//     Transmit ping dump
 	// -------------------------------
 	if ping != nil {
+		logger.Log("Reading result from ping channel")
 		result := <-ping
 		logger.Log(
 			`PING DATA
@@ -904,6 +995,7 @@ Resp: %s
 	//     Transmit app log
 	// -------------------------------
 	if appLog != nil {
+		logger.Log("Reading result from appLog channel")
 		result := <-appLog
 		logger.Log(
 			`APPLOG DATA
@@ -918,6 +1010,7 @@ Resp: %s
 	//     Transmit hdsub log
 	// -------------------------------
 	if hdsubLog != nil {
+		logger.Log("Reading result from hdsubLog channel")
 		result := <-hdsubLog
 		logger.Log(
 			`HDSUB DATA
@@ -932,6 +1025,7 @@ Resp: %s
 	//     Transmit kernel param dump
 	// -------------------------------
 	if kernel != nil {
+		logger.Log("Reading result from kernel channel")
 		result := <-kernel
 		logger.Log(
 			`KERNEL PARAMS DATA
@@ -950,6 +1044,7 @@ Resp: %s
 		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
 	}
 	if threadDump != nil {
+		logger.Log("Reading result from threadDump channel")
 		result := <-threadDump
 		logger.Log(
 			`THREAD DUMP DATA
@@ -1109,37 +1204,52 @@ var getOutboundIP = shell.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func getGCLogFile(pid int) (result string, err error) {
-	output, err := shell.CommandCombinedOutput(shell.Append(shell.GC, fmt.Sprintf(`ps -f -p %d`, pid)))
+	var output []byte
+	var command shell.Command
+	var logFile string
+	dynamicArg := strconv.Itoa(pid)
+	if runtime.GOOS == "windows" {
+		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
+	}
+	command, _ = shell.GC.AddDynamicArg(dynamicArg)
+	output, err = shell.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
-	re := regexp.MustCompile("-Xlog:gc.+? ")
-	loggc := re.Find(output)
 
-	var fp []byte
-	if len(loggc) > 1 {
-		fre := regexp.MustCompile("file=(.+?)[: ]")
-		submatch := fre.FindSubmatch(loggc)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
-		} else {
-			fre := regexp.MustCompile("gc:((.+?)$|(.+?):)")
-			submatch := fre.FindSubmatch(loggc)
-			if len(submatch) >= 2 {
-				fp = submatch[1]
+	if logFile == "" {
+		// Garbage collection log: Attempt 1: -Xloggc:< file-path >
+		re := regexp.MustCompile("-Xloggc:(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=< file-path >
+		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
+	}
+
+	result = strings.TrimSpace(logFile)
+	if result != "" && !filepath.IsAbs(result) {
+		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+			p, err := ps.NewProcess(int32(pid))
+			if err == nil {
+				cwd, err := p.Cwd()
+				if err == nil {
+					result = filepath.Join(cwd, result)
+				}
 			}
-		}
-	} else {
-		re := regexp.MustCompile("-Xloggc:(.+?) ")
-		submatch := re.FindSubmatch(output)
-		if len(submatch) >= 2 {
-			fp = submatch[1]
+		} else {
+			logger.Warn().Str("gcpath", result).Msg("Please use absolute file path for '-Xloggc' and '-Xlog:gc'")
 		}
 	}
-	if len(fp) < 1 {
-		return
-	}
-	result = strings.TrimSpace(string(fp))
+
 	return
 }
 
@@ -1325,16 +1435,18 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 
 // combine previous gc log to new gc log
 func copyFile(gc *os.File, file string, pid int) (err error) {
-	log, err := os.Open(file)
+	logFile, err := os.Open(file)
 	if err != nil && runtime.GOOS == "linux" {
 		logger.Log("Failed to %s. Trying to open in the Docker container...", err)
-		log, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
+		logFile, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
 	}
 	if err != nil {
 		return
 	}
-	defer log.Close()
-	_, err = io.Copy(gc, log)
+	defer func() {
+		_ = logFile.Close()
+	}()
+	_, err = io.Copy(gc, logFile)
 	return
 }
 
@@ -1342,6 +1454,7 @@ const metaInfoTemplate = `hostName=%s
 processId=%d
 appName=%s
 whoami=%s
+timestamp=%s
 javaVersion=%s
 osVersion=%s
 tags=%s`
@@ -1379,7 +1492,9 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	} else {
 		un = current.Username
 	}
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, jv, ov, tags))
+	now := time.Now()
+	timestamp := now.Format("2006-01-02T15-04-05")
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return

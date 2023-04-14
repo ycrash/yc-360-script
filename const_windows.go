@@ -22,7 +22,7 @@ var (
 	VMState             = NopCommand
 	DMesg               = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
 	DMesg2              = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning}"}
-	GC                  = NopCommand
+	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc CPU}"}

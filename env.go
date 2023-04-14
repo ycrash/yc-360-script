@@ -1,16 +1,18 @@
 package shell
 
-import "fmt"
+import (
+	"fmt"
+	"os/exec"
+)
 
 type EnvHooker map[string]string
 
-func (h EnvHooker) Before(command Command) (result Command) {
-	if len(h) < 1 {
-		return command
-	}
+func (h EnvHooker) After(command *exec.Cmd) {
 	for k, v := range h {
-		result = append(result, fmt.Sprintf("%s=%s", k, v))
+		command.Env = append(command.Env, fmt.Sprintf("%s=%s", k, v))
 	}
-	result = append(result, command...)
-	return
+}
+
+func (h EnvHooker) Before(command Command) (result Command) {
+	return command
 }

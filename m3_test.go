@@ -25,19 +25,19 @@ func TestGetProcessIds(t *testing.T) {
 }
 
 func TestParseJsonResp(t *testing.T) {
-	ids, tags, err := ParseJsonResp([]byte(`{"actions":[ "capture 12321", "capture 2341", "capture 45321"] }`))
+	ids, tags, _, err := ParseJsonResp([]byte(`{"actions":[ "capture 12321", "capture 2341", "capture 45321"] }`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log(ids, tags)
 
-	ids, tags, err = ParseJsonResp([]byte(`{"actions":["capture 2116"]}`))
+	ids, tags, _, err = ParseJsonResp([]byte(`{"actions":["capture 2116"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log(ids, tags)
 
-	ids, tags, err = ParseJsonResp([]byte(`{ "actions": [] }`))
+	ids, tags, _, err = ParseJsonResp([]byte(`{ "actions": [] }`))
 	if err != nil {
 		t.Fatal(err)
 	}

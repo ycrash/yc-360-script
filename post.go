@@ -16,7 +16,7 @@ import (
 func GetOutboundIP() net.IP {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
-		panic(err)
+		return net.IPv4(127, 0, 0, 1)
 	}
 	defer conn.Close()
 

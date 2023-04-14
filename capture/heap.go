@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"shell"
@@ -115,7 +117,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 				logger.Log("failed to close hd file %s cause err: %s", fp, err.Error())
 			}
 		}()
-		logger.Log("captured heap dump data")
+		logger.Log("captured heap dump data, zipping...")
 	}
 	if hd == nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -130,8 +132,8 @@ func (t *HeapDump) Run() (result Result, err error) {
 		return
 	}
 	defer func() {
-		if err := zipfile.Close(); err != nil {
-			logger.Log("failed to close zip file: %s", err.Error())
+		if err := zipfile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			logger.Debug().Err(err).Msg("failed to close zip file")
 		}
 	}()
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
@@ -161,8 +163,9 @@ func (t *HeapDump) Run() (result Result, err error) {
 
 func (t *HeapDump) heapDump(fp string) (err error) {
 	var output []byte
+	// Heap dump: Attempt 1: jcmd
 	output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
-	logger.Log("Output from jcmd: %s, %v", output, err)
+	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
 		bytes.Index(output, []byte("No such file")) >= 0 ||
 		bytes.Index(output, []byte("Permission denied")) >= 0 {
@@ -170,13 +173,50 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 			err = fmt.Errorf("%w because %s", err, output)
 		}
 		var e2 error
+		// Heap dump: Attempt 2a: jattach
 		output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
 			shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
 			shell.SudoHooker{PID: t.Pid})
-		logger.Log("Output from jattach: %s, %v", output, e2)
-		if e2 != nil {
+		logger.Log("heap dump output from jattach: %s, %v", output, e2)
+		if e2 != nil ||
+			bytes.Index(output, []byte("No such file")) >= 0 ||
+			bytes.Index(output, []byte("Permission denied")) >= 0 {
+			if len(output) > 1 {
+				e2 = fmt.Errorf("%w because %s", e2, output)
+			}
 			err = fmt.Errorf("%v: %v", e2, err)
-			return
+			// Heap dump: Attempt 2b: tmp jattach
+			tempPath, e := shell.Copy2TempPath()
+			if e != nil {
+				err = fmt.Errorf("%v: %v", e, err)
+				return
+			}
+			var e3 error
+			output, e3 = shell.CommandCombinedOutput(shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
+				shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+				shell.SudoHooker{PID: t.Pid})
+			logger.Log("heap dump output from tmp jattach: %s, %v", output, e3)
+			if e3 != nil ||
+				bytes.Index(output, []byte("No such file")) >= 0 ||
+				bytes.Index(output, []byte("Permission denied")) >= 0 {
+				if len(output) > 1 {
+					e3 = fmt.Errorf("%w because %s", e3, output)
+				}
+				err = fmt.Errorf("%v: %v", e3, err)
+				return
+			}
+			u, e := user.Current()
+			if e != nil {
+				err = fmt.Errorf("%v: %v", e, err)
+				return
+			}
+			command := shell.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), fp}
+			e = shell.CommandRun(command)
+			logger.Info().Str("cmd", strings.Join(command, " ")).Msgf("chown: %s, %v", fp, e)
+			if e != nil {
+				err = fmt.Errorf("%v: %v", e, err)
+				return
+			}
 		}
 		err = nil
 	}

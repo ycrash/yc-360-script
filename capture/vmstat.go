@@ -1,7 +1,11 @@
 package capture
 
 import (
+	"io"
+	"io/ioutil"
 	"os"
+	"runtime"
+	"shell/logger"
 	"strconv"
 
 	"shell"
@@ -12,11 +16,11 @@ type VMStat struct {
 }
 
 func (t *VMStat) Run() (result Result, err error) {
-	vmstat, err := os.Create("vmstat.out")
+	file, err := os.Create("vmstat.out")
 	if err != nil {
 		return
 	}
-	defer vmstat.Close()
+	defer file.Close()
 	cmd, err := shell.VMState.AddDynamicArg(
 		strconv.Itoa(shell.VMSTAT_INTERVAL),
 		"5")
@@ -24,18 +28,54 @@ func (t *VMStat) Run() (result Result, err error) {
 		return
 	}
 
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(vmstat, cmd)
-	if err != nil {
-		return
-	}
+	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, cmd)
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing VMStat"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
+	if err != nil {
+		if runtime.GOOS != "linux" {
+			return
+		}
+	}
+	if t.Cmd.ExitCode() != 0 {
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		output, rErr := ioutil.ReadAll(file)
+		oCmd := t.Cmd
+		err = file.Truncate(0)
+		if err != nil {
+			return
+		}
+		_, err = file.Seek(0, io.SeekStart)
+		if err != nil {
+			return
+		}
+		cmd, err = (&shell.Command{
+			shell.WaitCommand,
+			shell.Executable(),
+			"-vmstatMode",
+			shell.DynamicArg,
+			shell.DynamicArg,
+			`| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`,
+		}).AddDynamicArg(
+			strconv.Itoa(shell.VMSTAT_INTERVAL),
+			"5")
+		logger.Info().Strs("cmd", cmd).Err(rErr).Bytes("output", output).Str("failed cmd", oCmd.String()).Msg("vmstat failed, trying to use -vmstatMode")
+		if err != nil {
+			return
+		}
+		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, cmd)
+		if err != nil {
+			return
+		}
+	}
 	t.Cmd.Wait()
-	vmstat.Sync()
+	file.Sync()
 
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "vmstat", vmstat)
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "vmstat", file)
 	return
 }

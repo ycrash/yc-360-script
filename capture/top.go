@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -20,7 +21,7 @@ type Top struct {
 func (t *Top) Run() (result Result, err error) {
 	if len(shell.Top) < 1 {
 		result.Msg = "skipped capturing TopH"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	file, err := os.Create("top.out")
@@ -34,12 +35,12 @@ func (t *Top) Run() (result Result, err error) {
 		}
 	}()
 	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top)
-	if err != nil {
+	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing Top"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	err = t.Cmd.Wait()
@@ -68,7 +69,7 @@ func (t *Top) Run() (result Result, err error) {
 		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
 		if t.Cmd.IsSkipped() {
 			result.Msg = "skipped capturing Top"
-			result.Ok = true
+			result.Ok = false
 			return
 		}
 		err = t.Cmd.Wait()
@@ -93,7 +94,7 @@ type TopH struct {
 func (t *TopH) Run() (result Result, err error) {
 	if len(shell.TopH) < 1 {
 		result.Msg = "skipped capturing TopH"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	if !shell.IsProcessExists(t.Pid) {
@@ -121,12 +122,12 @@ func (t *TopH) Run() (result Result, err error) {
 		return
 	}
 	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, command)
-	if err != nil {
+	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing TopH"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	err = t.Cmd.Wait()
@@ -155,7 +156,7 @@ func (t *TopH) Run() (result Result, err error) {
 		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
 		if t.Cmd.IsSkipped() {
 			result.Msg = "skipped capturing TopH"
-			result.Ok = true
+			result.Ok = false
 			return
 		}
 		err = t.Cmd.Wait()
@@ -173,7 +174,7 @@ type Top4M3 struct {
 func (t *Top4M3) Run() (result Result, err error) {
 	if len(shell.Top4M3) < 1 {
 		result.Msg = "skipped capturing TopH"
-		result.Ok = true
+		result.Ok = false
 		return
 	}
 	top, err := os.Create("top4m3.out")
@@ -194,7 +195,7 @@ func (t *Top4M3) Run() (result Result, err error) {
 		}
 		if t.Cmd.IsSkipped() {
 			result.Msg = "skipped capturing Top"
-			result.Ok = true
+			result.Ok = false
 			return
 		}
 		err = t.Cmd.Wait()

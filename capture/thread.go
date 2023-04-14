@@ -20,27 +20,34 @@ type ThreadDump struct {
 
 func (t *ThreadDump) Run() (result Result, err error) {
 	var td *os.File
+	// Thread dump: Attempt 3: tdPath argument (real step is 1 )
 	if len(t.TdPath) > 0 {
 		var tdf *os.File
 		tdf, err = os.Open(t.TdPath)
 		if err != nil {
 			logger.Log("failed to open tdPath(%s), err: %s", t.TdPath, err.Error())
 		} else {
-			defer tdf.Close()
+			defer func() {
+				_ = tdf.Close()
+			}()
 			td, err = os.Create(tdOut)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
-			defer td.Close()
+			defer func() {
+				_ = td.Close()
+			}()
 			_, err = io.Copy(td, tdf)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
 			_, err = td.Seek(0, 0)
 			if err != nil {
+				result.Msg = err.Error()
 				return
 			}
-
 		}
 	}
 	if t.Pid > 0 && td == nil {
@@ -70,7 +77,9 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		defer td.Close()
+		defer func() {
+			_ = td.Close()
+		}()
 	}
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "td", td)
 	return

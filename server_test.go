@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -15,7 +16,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -63,7 +64,7 @@ func TestServerCmdActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -111,7 +112,7 @@ func TestServerForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -129,7 +130,7 @@ func TestServerForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	rs.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log("ok", pids)
 		return
 	}
@@ -188,7 +189,7 @@ func TestAttendanceAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.ProcessPids = func(pids []int, pid2Name map[int]string) (rUrls []string, err error) {
+	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
 	}
@@ -229,5 +230,32 @@ func TestAttendanceAPI(t *testing.T) {
 		if ok {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestJSON(t *testing.T) {
+	type test struct {
+		B *bool
+	}
+
+	var a test
+	err := json.Unmarshal([]byte("{\"c\":true}"), &a)
+	if err != nil || a.B != nil {
+		t.Fatal(err)
+	}
+	err = json.Unmarshal([]byte("{\"b\":false}"), &a)
+	if err != nil || a.B == nil {
+		t.Fatal(err)
+	}
+	if *a.B {
+		t.Fatal("should be false")
+	}
+
+	err = json.Unmarshal([]byte("{\"b\":true}"), &a)
+	if err != nil || a.B == nil {
+		t.Fatal(err)
+	}
+	if !*a.B {
+		t.Fatal("should be true")
 	}
 }

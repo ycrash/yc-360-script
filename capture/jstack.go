@@ -26,60 +26,143 @@ func NewJStack(javaHome string, pid int) *JStack {
 }
 
 func (t *JStack) Run() (result Result, err error) {
-	b1 := make(chan int, 1)
-	b2 := make(chan int, 1)
-	e1 := make(chan error, 1)
-	e2 := make(chan error, 1)
+	b1 := make(chan int, count)
+	b2 := make(chan int, count)
+	e1 := make(chan error, count)
+	e2 := make(chan error, count)
 	defer func() {
 		close(b1)
 		close(b2)
 	}()
 	go func() {
+		defer func() {
+			close(e1)
+		}()
 		for {
 			n, ok := <-b1
 			if !ok {
 				return
 			}
-			fn := fmt.Sprintf("javacore.%d.out", n)
-			jstack, err := shell.CommandCombinedOutputToFile(fn,
-				shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
-			if err != nil {
-				logger.Log("Failed to run jstack with err %v. Trying to capture thread dump using jattach...", err)
-				if jstack != nil {
-					err = shell.CommandCombinedOutputToWriter(jstack,
-						shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
-				} else {
-					jstack, err = shell.CommandCombinedOutputToFile(fn,
-						shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
-				}
+			outputFileName := fmt.Sprintf("javacore.%d.out", n)
+			var jstackFile *os.File = nil
+
+			// Thread dump: Attempt 1: jstack
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jstack ...")
+				jstackFile, err = shell.CommandCombinedOutputToFile(
+					outputFileName,
+					shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
+					shell.SudoHooker{PID: t.pid},
+				)
 				if err != nil {
+					logger.Log("Failed to run jstack with err %v", err)
+				}
+			}
+			//  Thread dump: Attempt 2a: jattach via self execution with -tdCaptureMode
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jattach...")
+				jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
+					shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+				if err != nil {
+					logger.Log("Failed to run jattach with err %v", err)
+				}
+			}
+
+			// Thread dump: Attempt 2b: jattach via self execution from tmp path with -tdCaptureMode
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jattach in temp path...")
+				tempPath, err := shell.Copy2TempPath()
+				if err == nil {
+					jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
+						shell.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+					if err != nil {
+						logger.Log("Failed to run jattach with err %v", err)
+					}
+				} else {
+					logger.Log("Failed to Copy2TempPath with err %v", err)
+				}
+			}
+
+			// Thread dump: Attempt 5: jstack -F
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jstack -F ...")
+				jstackFile, err = os.Create(outputFileName)
+				if err != nil {
+					logger.Log("Failed to create output file %v", err)
 					e1 <- err
 					return
 				}
-			}
-			_, err = (&JStackF{
-				jstack:   jstack,
-				javaHome: t.javaHome,
-				pid:      t.pid,
-			}).Run()
-			e1 <- err
 
-			_, e := jstack.WriteString("\n")
-			if e != nil {
-				logger.Log("failed to write file %s", e)
+				_, e := jstackFile.WriteString("\nFull thread dump\n")
+				if e != nil {
+					logger.Log("failed to write file %s", e)
+					e1 <- e
+					_ = jstackFile.Close()
+					return
+				}
+				_, err = (&JStackF{
+					jstack:   jstackFile,
+					javaHome: t.javaHome,
+					pid:      t.pid,
+				}).Run()
+				if err != nil {
+					logger.Log("failed to collect dump using jstack -F : %v", err)
+					e1 <- err
+					_ = jstackFile.Close()
+					return
+				}
 			}
-			e = jstack.Sync()
-			if e != nil {
-				logger.Log("failed to sync file %s", e)
+
+			// Thread dump: Attempt 6: jhsdb jstack --pid PID
+			// If you see this error:
+			// java.lang.RuntimeException: Unable to deduce type of thread from address 0x00007fab10001000 (expected type JavaThread, CompilerThread, ServiceThread, JvmtiAgentThread or CodeCacheSweeperThread)
+			// It requires the debug information. In ubuntu, you can install it with: apt install openjdk-11-dbg
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jhsdb jstack ...")
+
+				jstackFile, err = os.Create(outputFileName)
+				if err != nil {
+					logger.Log("Failed to create output file %v", err)
+					e1 <- err
+					return
+				}
+
+				_, e := jstackFile.WriteString("\nFull thread dump\n")
+				if e != nil {
+					logger.Log("failed to write file %s", e)
+					e1 <- e
+					_ = jstackFile.Close()
+					return
+				}
+
+				err = shell.CommandCombinedOutputToWriter(jstackFile,
+					shell.Command{path.Join(t.javaHome, "bin/jhsdb"), "jstack", "--pid", strconv.Itoa(t.pid)},
+					shell.SudoHooker{PID: t.pid},
+				)
+
+				if err != nil {
+					logger.Log("Failed to run jhsdb jstack with err %v", err)
+				}
 			}
-			e = jstack.Close()
-			if e != nil {
-				logger.Log("failed to close file %s", e)
+
+			var e error
+			if jstackFile != nil {
+				e := jstackFile.Sync()
+				if e != nil {
+					logger.Log("failed to sync file %v", e)
+				}
+				_ = jstackFile.Close()
 			}
+
+			// necessary to send something into channel to prevent blocking inside waiting loop
+			e1 <- e
 		}
 	}()
 
 	go func() {
+		defer func() {
+			close(e2)
+		}()
 		for {
 			n, ok := <-b2
 			if !ok {
@@ -96,19 +179,19 @@ func (t *JStack) Run() (result Result, err error) {
 		b1 <- n
 		err = <-e1
 		if err != nil {
-			break
+			logger.Warn().Err(err).Msg("Failed to gather thread dump with err")
 		}
 		err = <-e2
 		if err != nil {
-			break
+			logger.Warn().Err(err).Msg("Failed to run top h with err")
 		}
 
-		if n == count {
-			break
+		if n < count {
+			logger.Log("sleeping for %v for next capture of thread dump ...", timeToSleep)
+			time.Sleep(timeToSleep)
 		}
-		logger.Log("sleeping for %v for next capture of jstack...", timeToSleep)
-		time.Sleep(timeToSleep)
 	}
+
 	return
 }
 
