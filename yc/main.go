@@ -231,7 +231,7 @@ func mainLoop() {
 							break
 						}
 						ps.WriteString("-")
-						ns.WriteString("%5E")
+						ns.WriteString("-")
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
