@@ -179,12 +179,12 @@ Resp: %s
 `, ok, msg)
 }
 
-func mainLoop() {
+func mainLoop(cpuCount int) {
 	var once sync.Once
 	if config.GlobalConfig.Port > 0 {
 		once.Do(startupLogs)
 		go func() {
-			s, err := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+			s, err := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port, cpuCount)
 			if err != nil {
 				logger.Log("WARNING: %s", err)
 				return
