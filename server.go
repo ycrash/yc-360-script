@@ -244,7 +244,7 @@ Resp: %s
 	return
 }
 
-func NewServer(address string, port int) (s *Server, err error) {
+func NewServer(address string, port int, cpuCount int) (s *Server, err error) {
 	addr := net.JoinHostPort(address, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -255,7 +255,8 @@ func NewServer(address string, port int) (s *Server, err error) {
 		Server: &http.Server{
 			Handler: mux,
 		},
-		ln: ln,
+		ln:       ln,
+		cpuCount: cpuCount,
 	}
 	mux.HandleFunc("/action", s.Action)
 	return
