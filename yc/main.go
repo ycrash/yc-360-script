@@ -235,6 +235,9 @@ func mainLoop() {
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
+
+				parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
+
 				finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 				resp, err := requestFin(finEp)
 				if err != nil {
