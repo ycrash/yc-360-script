@@ -21,7 +21,7 @@ var (
 	Top4M3              = NopCommand
 	VMState             = NopCommand
 	DMesg               = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
-	DMesg2              = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning}"}
+	DMesg2              = Command{WaitCommand, "PowerShell.exe", "-Command", "& { Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning | Select-Object TimeGenerated, EntryType, Message | ForEach-Object { Write-Host \"$($_.TimeGenerated) [$($_.EntryType)]: $($_.Message)\" }"}
 	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
