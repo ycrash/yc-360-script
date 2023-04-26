@@ -21,6 +21,7 @@ var (
 	ProcessTopMEM       = Command{"ps", "-eo", "pid,cmd,%mem", "--sort=-%mem"}
 	OSVersion           = Command{WaitCommand, "uname", "-a"}
 	KernelParam         = Command{WaitCommand, "sysctl", "-a"}
+	JavaVersionCommand  = Command{"java", "-XshowSettings:java", "-version"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )

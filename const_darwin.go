@@ -22,6 +22,7 @@ var (
 	OSVersion           = Command{WaitCommand, "uname", "-a"}
 	KernelParam         = Command{WaitCommand, "sysctl", "-a"}
 	Ping                = Command{WaitCommand, "ping", "-c", "6"}
+	JavaVersionCommand  = Command{"java", "-XshowSettings:java", "-version"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )
