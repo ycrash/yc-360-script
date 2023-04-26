@@ -36,4 +36,6 @@ var (
 	DockerInfo = Command{"/bin/sh", "-c", "docker ps -q | xargs docker inspect --format '{{.State.Pid}} {{.Id}}'"}
 	DockerCP   = Command{"docker", "cp"}
 	DockerExec = Command{"docker", "exec"}
+
+	JavaVersionCommand = Command{"java", "-XshowSettings:java", "-version"}
 )
