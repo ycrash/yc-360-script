@@ -12,6 +12,7 @@ require (
 	github.com/pterm/pterm v0.12.8
 	github.com/rs/zerolog v1.20.0
 	github.com/shirou/gopsutil/v3 v3.22.7
+	github.com/stretchr/testify v1.8.2 // indirect
 	gopkg.in/yaml.v2 v2.3.0
 )
 

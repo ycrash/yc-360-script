@@ -296,7 +296,7 @@ Resp: %s
 }
 
 func processResp(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamp, err := shell.ParseJsonResp(resp)
+	pids, tags, timestamps, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -311,7 +311,7 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamp)
+	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
 }
 
@@ -329,16 +329,16 @@ func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUr
 	} else {
 		tmp = strings.Trim(tags, ",")
 	}
-	return processPidsWithoutLock(pids, pid2Name, hd, tmp, "")
+	return processPidsWithoutLock(pids, pid2Name, hd, tmp, []string{""})
 }
 
-func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamp string) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
 	}
 	set := make(map[int]struct{}, len(pids))
-	for _, pid := range pids {
+	for i, pid := range pids {
 		if _, ok := set[pid]; ok {
 			continue
 		}
@@ -357,6 +357,16 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 				continue
 			}
 		} else {
+			var timestamp string
+			// In case pids has more elements than timetamps,
+			// the extra elements will use "" timestamp
+			// which will be defaulted to now in fullProcess().
+			if i > len(timestamps)-1 {
+				timestamp = ""
+			} else {
+				timestamp = timestamps[i]
+			}
+
 			url := fullProcess(pid, name, hd, tags, timestamp)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
