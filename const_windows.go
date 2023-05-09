@@ -19,7 +19,7 @@ var (
 	TopH                = NopCommand
 	TopH2               = NopCommand
 	Top4M3              = NopCommand
-	VMState             = NopCommand
+	VMState             = Command{WaitCommand, "PowerShell.exe", "-Command", "& { typeperf -sc 10 -si 5 '\\Memory\\Available MBytes', '\\Memory\\% Committed Bytes In Use', '\\Memory\\Free & Zero Page List Bytes', '\\Memory\\Pages Input/sec', '\\Memory\\Page Reads/sec', '\\Memory\\Pages Output/sec', '\\Paging File(*)\\% Usage'}"}
 	DMesg               = Command{WaitCommand, "PowerShell.exe", "-Command", "& { Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning | Select-Object TimeGenerated, EntryType, Message | ForEach-Object { Write-Host \"$($_.TimeGenerated) [$($_.EntryType)]: $($_.Message)\" }}"}
 	DMesg2              = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
 	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
