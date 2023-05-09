@@ -6,7 +6,7 @@ var (
 	PS2                 = Command{"ps", "-ef"}
 	M3PS                = Command{"ps", "-ef"}
 	Disk                = Command{"df", "-hk"}
-	Top                 = Command{WaitCommand, "/bin/sh", "-c", "for i in {1..3}; do top -l 1 ; sleep 10; done"}
+	Top                 = Command{WaitCommand, "/bin/sh", "-c", "for i in {1..3}; do top -l 5 ; sleep 10; done"}
 	Top2                = NopCommand
 	TopH                = Command{WaitCommand, "top", "-l", "1", "-pid", DynamicArg}
 	TopH2               = NopCommand
