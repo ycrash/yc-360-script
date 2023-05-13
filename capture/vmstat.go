@@ -39,7 +39,7 @@ func (t *VMStat) Run() (result Result, err error) {
 			return
 		}
 	}
-	if t.Cmd.ExitCode() != 0 {
+	if t.Cmd.ExitCode() != 0 && runtime.GOOS == "linux" {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
