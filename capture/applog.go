@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 
 	"shell"
 
@@ -54,7 +54,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 	}
 	defer src.Close()
 
-	fileBaseName := path.Base(filePath)
+	fileBaseName := filepath.Base(filePath)
 
 	dst, err := os.Create("applog_" + fileBaseName)
 	if err != nil {
