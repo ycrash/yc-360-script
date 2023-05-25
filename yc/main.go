@@ -1302,17 +1302,19 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	}
 
 	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
+	// /home/ec2-user/buggyapp/gc.2843.log
+	// or
 	// /home/ec2-user/buggyapp/gc.pid2843.log
 	if strings.Contains(gcPath, `%p`) {
-		javaVersion, err := shell.GetLocalJavaVersion()
-		if err != nil {
-			logger.Log("unable to get local java version, err: %s", err.Error())
-		}
+		originalGcPath := gcPath
+		gcPath = strings.Replace(originalGcPath, `%p`, ""+strconv.Itoa(pid), 1)
+		logger.Log("trying to use gcPath %s", gcPath)
 
-		if javaVersion.Major > 8 {
-			gcPath = strings.Replace(gcPath, `%p`, ""+strconv.Itoa(pid), 1)
-		} else {
-			gcPath = strings.Replace(gcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
+		if !fileExists(gcPath) {
+			logger.Log("gcPath %s doesn't exist", gcPath)
+
+			gcPath = strings.Replace(originalGcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
+			logger.Log("trying to use gcPath %s", gcPath)
 		}
 	}
 
@@ -1529,4 +1531,12 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	}
 	msg, ok = shell.PostData(endpoint, "meta", file)
 	return
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }
