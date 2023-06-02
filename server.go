@@ -132,6 +132,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			resp.DashboardReportURLs = rUrls
 		} else {
 			var pid int
+			_ = fmt.Sprintf("%d", pid) // Blank identifier to indicate intentional unused variable
 			for _, i := range result {
 				var output []string
 				if p, ok := i.(int); ok {
@@ -144,7 +145,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 					} else {
 						output = append(output, err.Error())
 					}
-				} else if cmd, ok := i.(string); ok {
+				} /* else if cmd, ok := i.(string); ok {
 					output = append(output, cmd)
 					out, err := RunCaptureCmd(pid, cmd)
 					if err == nil {
@@ -152,7 +153,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 					} else {
 						output = append(output, err.Error())
 					}
-				}
+				} */
 				resp.Output = append(resp.Output, output)
 			}
 		}
@@ -236,10 +237,10 @@ Resp: %s
 
 --------------------------------
 `, ok, msg)
-		} else {
+		} /* else {
 			hasCmd = true
 			result = append(result, s)
-		}
+		} */
 	}
 	return
 }
