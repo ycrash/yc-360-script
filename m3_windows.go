@@ -31,9 +31,10 @@ func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (
 	}
 	header := scanner.Text()
 	header = strings.TrimSpace(header)
-	indexName := strings.Index(header, "Name")
-	if indexName < 0 {
-		err = errors.New("name in the header line")
+	indexProcessId := strings.Index(header, "ProcessId")
+
+	if indexProcessId < 0 {
+		err = errors.New("string ProcessId not found in the header line")
 		return
 	}
 
@@ -47,6 +48,13 @@ Next:
 				continue Next
 			}
 		}
+
+		if len(line) <= indexProcessId {
+			continue Next
+		}
+
+		wmicProcessId := strings.TrimSpace(line[indexProcessId:])
+
 		for _, t := range tokens {
 			token := string(t)
 			var appName string
@@ -56,35 +64,16 @@ Next:
 				token = token[:index]
 			}
 
-			p := strings.Index(line, token)
-			if p >= 0 {
-				line = line[indexName:]
-				columns := strings.Split(line, " ")
-				var col []string
-				for _, column := range columns {
-					if len(column) <= 0 {
-						continue
-					}
-					col = append(col, column)
-					if len(col) <= 1 {
-						continue
-					}
-					id := strings.TrimSpace(col[1])
-					pid, err := strconv.Atoi(id)
-					if err != nil {
-						continue Next
-					}
-					tokenPid, err := strconv.Atoi(token)
-					if err == nil {
-						if tokenPid != pid {
-							continue Next
-						}
-					}
-					if _, ok := pids[pid]; !ok {
-						pids[pid] = appName
-					}
+			if token == wmicProcessId {
+				pid, err := strconv.Atoi(wmicProcessId)
+				if err != nil {
 					continue Next
 				}
+
+				if _, ok := pids[pid]; !ok {
+					pids[pid] = appName
+				}
+				continue Next
 			}
 		}
 	}

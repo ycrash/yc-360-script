@@ -12,7 +12,7 @@ var (
 	NetState            = Command{"netstat", "-an"}
 	PS                  = Command{"tasklist"}
 	PS2                 = Command{"tasklist"}
-	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId,Commandline"}
+	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId"}
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
 	Top2                = NopCommand
