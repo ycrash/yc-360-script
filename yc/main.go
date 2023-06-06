@@ -849,11 +849,19 @@ Ignored errors: %v
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
 	// ------------------------------------------------------------------------------
-	//   				Capture app log
+	//   				Capture legacy app log
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
 	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Path: config.GlobalConfig.AppLog, N: config.GlobalConfig.AppLogLineCount}))
+		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: []string{config.GlobalConfig.AppLog}, N: config.GlobalConfig.AppLogLineCount}))
+	}
+
+	// ------------------------------------------------------------------------------
+	//   				Capture app logs
+	// ------------------------------------------------------------------------------
+	var appLogs chan capture.Result
+	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
@@ -1013,7 +1021,24 @@ Resp: %s
 		logger.Log(
 			`APPLOG DATA
 Is transmission completed: %t
-Resp: %s
+Resp:
+%s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit app logs
+	// -------------------------------
+	if appLogs != nil {
+		logger.Log("Reading result from appLogs channel")
+		result := <-appLogs
+		logger.Log(
+			`APPLOGS DATA
+Ok (at least one success): %t
+Resps:
+%s
 
 --------------------------------
 `, result.Ok, result.Msg)

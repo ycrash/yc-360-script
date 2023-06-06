@@ -1,48 +1,71 @@
 package capture
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"os"
-	"shell/logger"
+	"path"
 
 	"shell"
-)
 
-const appOut = "applog.out"
+	"github.com/mattn/go-zglob"
+)
 
 type AppLog struct {
 	Capture
-	Path string
-	N    uint
+	Paths []string
+	N     uint
 }
 
 func (t *AppLog) Run() (result Result, err error) {
-	if len(t.Path) <= 0 {
-		return
-	}
-	var dst *os.File
-	var src *os.File
-	src, err = os.Open(t.Path)
-	if err != nil {
-		logger.Log("failed to open applog(%s), err: %s", t.Path, err.Error())
-		return
-	}
-	defer func() {
-		err := src.Close()
+	results := []Result{}
+	errs := []error{}
+
+	for _, path := range t.Paths {
+		matches, err := zglob.Glob(path)
+
 		if err != nil {
-			logger.Log("failed to close, err: %s", err.Error())
+			r := Result{Msg: "invalid glob pattern: " + path, Ok: false}
+			e := err
+
+			results = append(results, r)
+			errs = append(errs, e)
+		} else {
+			for _, match := range matches {
+				r, e := t.CaptureSingleAppLog(match)
+
+				results = append(results, r)
+				errs = append(errs, e)
+			}
 		}
-	}()
-	dst, err = os.Create(appOut)
+	}
+
+	result, err = summarizeResults(results, errs)
+
+	return
+}
+
+func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error) {
+	src, err := os.Open(filePath)
+	if err != nil {
+		err = fmt.Errorf("failed to open applog(%s), err: %w", filePath, err)
+		return
+	}
+	defer src.Close()
+
+	fileBaseName := path.Base(filePath)
+
+	dst, err := os.Create("applog_" + fileBaseName)
 	if err != nil {
 		return
 	}
-	defer func() {
-		_ = dst.Close()
-	}()
+	defer dst.Close()
+
 	if t.N == 0 {
 		t.N = 1000
 	}
+
 	err = shell.PositionLastLines(src, t.N)
 	if err != nil {
 		return
@@ -51,10 +74,53 @@ func (t *AppLog) Run() (result Result, err error) {
 	if err != nil {
 		return
 	}
+
 	err = dst.Sync()
 	if err != nil {
-		logger.Log("failed to sync, err: %s", err.Error())
+		err = fmt.Errorf("failed to sync: %w", err)
+		return
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "applog", dst)
+
+	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "applog&logName="+fileBaseName, dst)
+
+	return
+}
+
+func summarizeResults(results []Result, errs []error) (result Result, err error) {
+	var buffer bytes.Buffer
+	ok := false
+
+	var lastErr error
+
+	for i, r := range results {
+		buffer.WriteString("Msg: ")
+		buffer.WriteString(r.Msg)
+		buffer.WriteString("\n")
+		buffer.WriteString("Ok: ")
+
+		if r.Ok {
+			buffer.WriteString("true")
+			ok = true
+		} else {
+			buffer.WriteString("false")
+		}
+
+		if errs[i] != nil {
+			buffer.WriteString("\n")
+			buffer.WriteString("Err: ")
+			buffer.WriteString(errs[i].Error())
+			lastErr = errs[i]
+		}
+
+		buffer.WriteString("\n----\n")
+	}
+
+	result.Msg = buffer.String()
+	result.Ok = ok
+
+	if !ok {
+		err = lastErr
+	}
+
 	return
 }

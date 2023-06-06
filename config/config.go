@@ -71,8 +71,9 @@ type Options struct {
 	LogFileMaxCount uint   `yaml:"logFileMaxCount" usage:"Max count of the log files"`
 	LogLevel        string `yaml:"logLevel" usage:"Log level: trace, debug, info, warn, error, fatal, panic, disable."`
 
-	AppLog          string `yaml:"appLog" usage:"The target application’s log file path"`
-	AppLogLineCount uint   `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
+	AppLog          string   `yaml:"appLog" usage:"The target application’s log file path"`
+	AppLogs         []string `yaml:"appLogs" usage:"The target application’s log file paths"`
+	AppLogLineCount uint     `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
 
 	StoragePath string `yaml:"storagePath" usage:"The storage path to save the captured files"`
 }
