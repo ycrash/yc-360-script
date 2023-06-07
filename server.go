@@ -145,15 +145,13 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 					} else {
 						output = append(output, err.Error())
 					}
-				} /* else if cmd, ok := i.(string); ok {
+				} else if cmd, ok := i.(string); ok {
 					output = append(output, cmd)
-					out, err := RunCaptureCmd(pid, cmd)
-					if err == nil {
-						output = append(output, string(out))
-					} else {
-						output = append(output, err.Error())
+					// Display "Unsupported Operation" message
+					if len(output) == 1 {
+						output = []string{"Unsupported Operation"}
 					}
-				} */
+				}
 				resp.Output = append(resp.Output, output)
 			}
 		}
@@ -237,10 +235,11 @@ Resp: %s
 
 --------------------------------
 `, ok, msg)
-		} /* else {
+		} else {
 			hasCmd = true
-			result = append(result, s)
-		} */
+			// Display "Unsupported Operation" message
+			result = append(result, "Unsupported Operation")
+		}
 	}
 	return
 }
