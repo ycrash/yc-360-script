@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"shell/config"
 
 	"shell"
 
@@ -14,7 +15,7 @@ import (
 
 type AppLog struct {
 	Capture
-	Paths []string
+	Paths config.AppLogs
 	N     uint
 }
 
@@ -23,10 +24,10 @@ func (t *AppLog) Run() (result Result, err error) {
 	errs := []error{}
 
 	for _, path := range t.Paths {
-		matches, err := zglob.Glob(path)
+		matches, err := zglob.Glob(string(path))
 
 		if err != nil {
-			r := Result{Msg: "invalid glob pattern: " + path, Ok: false}
+			r := Result{Msg: "invalid glob pattern: " + string(path), Ok: false}
 			e := err
 
 			results = append(results, r)

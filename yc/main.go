@@ -853,7 +853,8 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
 	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: []string{config.GlobalConfig.AppLog}, N: config.GlobalConfig.AppLogLineCount}))
+		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
+		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, N: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
