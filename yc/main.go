@@ -1257,7 +1257,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	}
 
 	if logFile == "" {
-		// Garbage collection log: Attempt 1: -Xloggc:< file-path >
+		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
 		re := regexp.MustCompile("-Xloggc:(\\S+)")
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
@@ -1266,8 +1266,17 @@ func getGCLogFile(pid int) (result string, err error) {
 	}
 
 	if logFile == "" {
-		// Garbage collection log: Attempt 2: -Xlog:gc*:file=< file-path >
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
 		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
+		re := regexp.MustCompile("-Xlog:gc:(\\S+)")
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
