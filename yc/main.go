@@ -1283,6 +1283,15 @@ func getGCLogFile(pid int) (result string, err error) {
 		}
 	}
 
+	if logFile == "" {
+		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
+		re := regexp.MustCompile("-Xverbosegclog:(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
+	}
+
 	result = strings.TrimSpace(logFile)
 	if result != "" && !filepath.IsAbs(result) {
 		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {

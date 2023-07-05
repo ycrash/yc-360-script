@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mattn/go-zglob"
 )
 
 type GC struct {
@@ -124,6 +126,45 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 		}
 		if len(tf) > 0 {
 			gcPath = filepath.Join(d, tf)
+		}
+	}
+
+	if strings.Contains(gcPath, `%pid`) {
+		gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
+
+		if !fileExists(gcPath) && strings.Contains(gcPath, ",") {
+			splitByComma := strings.Split(gcPath, ",")
+			// Check if it's in the form of filename,x,y
+			// Get the last modified file of files in the filename.* pattern.
+			if len(splitByComma) == 3 {
+				pattern := splitByComma[0] + ".*"
+
+				matches, err := zglob.Glob(pattern)
+
+				if err != nil {
+					logger.Log(err.Error())
+				} else {
+					fileInfos := []os.FileInfo{}
+
+					for _, match := range matches {
+						fileInfo, err := os.Lstat(match)
+						if err != nil {
+							logger.Log(err.Error())
+						}
+						fileInfos = append(fileInfos, fileInfo)
+					}
+
+					// descending
+					sort.Slice(fileInfos, func(i, j int) bool {
+						return fileInfos[i].ModTime().After(fileInfos[j].ModTime())
+					})
+
+					if len(fileInfos) > 0 {
+						gcPath = filepath.Join(filepath.Dir(gcPath), fileInfos[0].Name())
+						logger.Log("resolved last modified file of gc files: %s", gcPath)
+					}
+				}
+			}
 		}
 	}
 
