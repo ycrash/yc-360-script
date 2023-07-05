@@ -6,9 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"shell/config"
-
 	"shell"
+	"shell/config"
 
 	"github.com/mattn/go-zglob"
 )
@@ -57,7 +56,21 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 
 	fileBaseName := filepath.Base(filePath)
 
-	dst, err := os.Create("applog_" + fileBaseName)
+	// Initialize a counter variable
+	counter := 1
+
+	// Generate a unique filename by appending the sequential number
+	dstFileName := fmt.Sprintf("applog.%d.%s", counter, fileBaseName) // Example: applog.1.abc.log
+
+	// Check if the file already exists with the generated name
+	for fileExists(dstFileName) {
+		// If the file exists, increment the counter and generate a new filename
+		counter++
+		dstFileName = fmt.Sprintf("applog.%d.%s", counter, fileBaseName) // Example: applog.2.abc.log
+	}
+
+	dst, err := os.Create(dstFileName)
+
 	if err != nil {
 		return
 	}
