@@ -60,13 +60,13 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 	counter := 1
 
 	// Generate a unique filename by appending the sequential number
-	dstFileName := fmt.Sprintf("applog.%d.%s", counter, fileBaseName) // Example: applog.1.abc.log
+	dstFileName := fmt.Sprintf("%d.appLogs.%s", counter, fileBaseName) // Example: 1.appLogs.abc.log
 
 	// Check if the file already exists with the generated name
 	for fileExists(dstFileName) {
 		// If the file exists, increment the counter and generate a new filename
 		counter++
-		dstFileName = fmt.Sprintf("applog.%d.%s", counter, fileBaseName) // Example: applog.2.abc.log
+		dstFileName = fmt.Sprintf("%d.appLogs.%s", counter, fileBaseName) // Example: 2.appLogs.abc.log
 	}
 
 	dst, err := os.Create(dstFileName)
