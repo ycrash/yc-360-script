@@ -9,10 +9,11 @@ import (
 var topScript []byte
 
 var (
-	NetState            = Command{"netstat", "-an"}
-	PS                  = Command{"tasklist"}
-	PS2                 = Command{"tasklist"}
-	M3PS                = Command{"wmic", "process", "where", DynamicArg, "get", "Name,ProcessId"}
+	NetState = Command{"netstat", "-an"}
+	PS       = Command{"tasklist"}
+	PS2      = Command{"tasklist"}
+	M3PS     = Command{WaitCommand, "PowerShell.exe", "-Command", "Get-CimInstance -Class Win32_Process | ConvertTo-Json"}
+
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
 	Top2                = NopCommand
