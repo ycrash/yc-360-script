@@ -863,6 +863,19 @@ Ignored errors: %v
 	var appLogs chan capture.Result
 	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
 		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
+	} else {
+		// Auto discover app logs
+		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
+		if err != nil {
+			logger.Log("Error on auto discovering app logs: %s", err.Error())
+		}
+
+		paths := config.AppLogs{}
+		for _, f := range discoveredLogFiles {
+			paths = append(paths, config.AppLog(f))
+		}
+
+		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, N: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
