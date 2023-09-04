@@ -5,6 +5,7 @@ package shell
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"shell/config"
@@ -54,7 +55,7 @@ NextProcess:
 				token = token[:index]
 			}
 
-			if strings.Contains(cimProcess.CommandLine, token) {
+			if cimProcessContainsToken(cimProcess, token) {
 				if _, ok := pids[cimProcess.ProcessId]; !ok {
 					pids[cimProcess.ProcessId] = appName
 				}
@@ -65,4 +66,18 @@ NextProcess:
 	logger.Debug().Msgf("m3_windows GetProcessIds pids: %v", pids)
 
 	return
+}
+
+func cimProcessContainsToken(cimProcess CIMProcess, token string) bool {
+	if strings.Contains(cimProcess.CommandLine, token) {
+		return true
+	} else {
+		// token can be an int
+		tokenInt, _ := strconv.Atoi(token)
+		if tokenInt > 0 && cimProcess.ProcessId == tokenInt {
+			return true
+		}
+	}
+
+	return false
 }
