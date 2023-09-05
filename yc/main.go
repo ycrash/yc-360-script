@@ -1280,10 +1280,18 @@ func getGCLogFile(pid int) (result string, err error) {
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
+		// -Xlog[:option]
+		//	option         :=  [<what>][:[<output>][:[<decorators>][:<output-options>]]]
+		// https://openjdk.org/jeps/158
 		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFileSplit := strings.Split(logFile, ":")
+				logFile = logFileSplit[0]
+			}
 		}
 	}
 
@@ -1293,6 +1301,11 @@ func getGCLogFile(pid int) (result string, err error) {
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFileSplit := strings.Split(logFile, ":")
+				logFile = logFileSplit[0]
+			}
 		}
 	}
 
