@@ -1176,12 +1176,13 @@ Resp: %s
 	endTime := time.Now()
 	var result string
 	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
-	//	logger.StdLog(`
-	//%s
-	//`, resp)
-	//	logger.StdLog(`
-	//%s
-	//`, result)
+
+	// A big customer is relying on this stdout.
+	// They probably uses it with their own script / automation.
+	logger.StdLog(`
+%s
+`, resp)
+
 	logger.Log(`
 %s
 `, resp)
