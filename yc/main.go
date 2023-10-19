@@ -1290,8 +1290,7 @@ func getGCLogFile(pid int) (result string, err error) {
 			logFile = string(matches[1])
 
 			if strings.Contains(logFile, ":") {
-				logFileSplit := strings.Split(logFile, ":")
-				logFile = logFileSplit[0]
+				logFile = GetFileFromJEP158(logFile)
 			}
 		}
 	}
@@ -1304,8 +1303,7 @@ func getGCLogFile(pid int) (result string, err error) {
 			logFile = string(matches[1])
 
 			if strings.Contains(logFile, ":") {
-				logFileSplit := strings.Split(logFile, ":")
-				logFile = logFileSplit[0]
+				logFile = GetFileFromJEP158(logFile)
 			}
 		}
 	}
@@ -1610,4 +1608,33 @@ func fileExists(filename string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+// GetFileFromJEP158 takes the file name from the JEP158 options
+// For example from: /tmp/jvm.log:time,uptime,level,tags:filecount=10,filesize=1m
+// It will return /tmp/jvm.log
+// See also: https://openjdk.org/jeps/158
+func GetFileFromJEP158(s string) string {
+	strBuilder := strings.Builder{}
+
+	// Handle Windows's drive character `:\`
+	// Without this handling, the `C:\` string confused the logic below this.
+	if strings.Contains(s, `:\`) {
+		splitted := strings.SplitAfterN(s, `:\`, 2)
+
+		// Put the `C:\`` to strBuilder for later
+		strBuilder.WriteString(splitted[0])
+
+		// Continue the logic as usual without the `C:\`
+		s = splitted[1]
+	}
+
+	splitted := strings.SplitN(s, ":", 2)
+	if len(splitted) > 0 {
+		strBuilder.WriteString(splitted[0])
+	} else {
+		strBuilder.WriteString(s)
+	}
+
+	return strBuilder.String()
 }
