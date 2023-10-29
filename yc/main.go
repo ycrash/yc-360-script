@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/gentlemanautomaton/cmdline"
+	"github.com/mattn/go-zglob"
 	"github.com/pterm/pterm"
 	ps "github.com/shirou/gopsutil/v3/process"
 )
@@ -1341,32 +1342,23 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	}
 	// -Xloggc:/app/boomi/gclogs/gc%t.log
 	if strings.Contains(gcPath, `%t`) {
-		d := filepath.Dir(gcPath)
-		open, err := os.Open(d)
+		pattern := strings.ReplaceAll(gcPath, "%t", "*")
+		files, err := zglob.Glob(pattern)
+
 		if err != nil {
-			return nil, err
-		}
-		defer open.Close()
-		fs, err := open.Readdirnames(0)
-		if err != nil {
-			return nil, err
+			logger.Log("error on expanding %%t, pattern:%s, err:%s", pattern, err)
 		}
 
-		var t time.Time
-		var tf string
-		for _, f := range fs {
-			stat, err := os.Stat(filepath.Join(d, f))
-			if err != nil {
-				continue
-			}
-			mt := stat.ModTime()
-			if t.IsZero() || mt.After(t) {
-				t = mt
-				tf = f
-			}
-		}
-		if len(tf) > 0 {
-			gcPath = filepath.Join(d, tf)
+		// descending
+		sort.Slice(files, func(i, j int) bool {
+			fileNameI := filepath.Base(files[i])
+			fileNameJ := filepath.Base(files[j])
+			return strings.Compare(fileNameI, fileNameJ) > 0
+		})
+
+		if len(files) > 0 {
+			logger.Log("gcPath is updated from %s to %s", gcPath, files[0])
+			gcPath = files[0]
 		}
 	}
 
