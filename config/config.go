@@ -79,8 +79,8 @@ type Options struct {
 }
 
 type Command struct {
-	UrlParams UrlParams `yaml:"urlParams" usage:"The params to be added at the end of upload request url, should be paired with '-cmd' together"`
-	Cmd       Cmd       `yaml:"cmd" usage:"The command to be executed, should be paired with '-urlParams' together"`
+	UrlParams UrlParams `yaml:"urlParams" usage:"[DEPRECATED] This option is no longer in use."`
+	Cmd       Cmd       `yaml:"cmd" usage:"[DEPRECATED] This option is no longer in use."`
 }
 
 type UrlParams string
