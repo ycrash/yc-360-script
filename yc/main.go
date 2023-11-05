@@ -8,8 +8,6 @@ package main
 
 import "C"
 import (
-	"bufio"
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -31,7 +29,6 @@ import (
 	"shell/logger"
 	"shell/procps"
 	ycattach "shell/ycattach"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,7 +36,6 @@ import (
 	"time"
 
 	"github.com/gentlemanautomaton/cmdline"
-	"github.com/mattn/go-zglob"
 	"github.com/pterm/pterm"
 	ps "github.com/shirou/gopsutil/v3/process"
 )
@@ -501,7 +497,7 @@ func uploadGCLog(endpoint string, pid int) {
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = processGCLogFile(gcp, fn, dockerID, pid)
+	gc, err = capture.ProcessGCLogFile(gcp, fn, dockerID, pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
@@ -1333,190 +1329,6 @@ func getGCLogFile(pid int) (result string, err error) {
 		}
 	}
 
-	return
-}
-
-func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
-	if len(gcPath) <= 0 {
-		return
-	}
-	// -Xloggc:/app/boomi/gclogs/gc%t.log
-	if strings.Contains(gcPath, `%t`) {
-		pattern := strings.ReplaceAll(gcPath, "%t", "*")
-		files, err := zglob.Glob(pattern)
-
-		if err != nil {
-			logger.Log("error on expanding %%t, pattern:%s, err:%s", pattern, err)
-		}
-
-		// descending
-		sort.Slice(files, func(i, j int) bool {
-			fileNameI := filepath.Base(files[i])
-			fileNameJ := filepath.Base(files[j])
-			return strings.Compare(fileNameI, fileNameJ) > 0
-		})
-
-		if len(files) > 0 {
-			logger.Log("gcPath is updated from %s to %s", gcPath, files[0])
-			gcPath = files[0]
-		}
-	}
-
-	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
-	// /home/ec2-user/buggyapp/gc.2843.log
-	// or
-	// /home/ec2-user/buggyapp/gc.pid2843.log
-	if strings.Contains(gcPath, `%p`) {
-		originalGcPath := gcPath
-		gcPath = strings.Replace(originalGcPath, `%p`, ""+strconv.Itoa(pid), 1)
-		logger.Log("trying to use gcPath %s", gcPath)
-
-		if !fileExists(gcPath) {
-			logger.Log("gcPath %s doesn't exist", gcPath)
-
-			gcPath = strings.Replace(originalGcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
-			logger.Log("trying to use gcPath %s", gcPath)
-		}
-	}
-
-	if len(dockerID) > 0 {
-		err = shell.DockerCopy(out, dockerID+":"+gcPath)
-		if err == nil {
-			gc, err = os.Open(out)
-			return
-		}
-	} else {
-		gc, err = os.Create(out)
-		if err != nil {
-			return
-		}
-		err = copyFile(gc, gcPath, pid)
-		if err == nil {
-			return
-		}
-	}
-	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
-	// err is other than not exists
-	if !os.IsNotExist(err) {
-		return
-	}
-
-	// config.GlobalConfig.GCPath is not exists, maybe using -XX:+UseGCLogFileRotation
-	d := filepath.Dir(gcPath)
-	logName := filepath.Base(gcPath)
-	var fs []string
-	if len(dockerID) > 0 {
-		output, err := shell.DockerExecute(dockerID, "ls", "-1", d)
-		if err != nil {
-			return nil, err
-		}
-		scanner := bufio.NewScanner(bytes.NewReader(output))
-		for scanner.Scan() {
-			line := scanner.Text()
-			line = strings.TrimSpace(line)
-			fs = append(fs, line)
-		}
-	} else {
-		open, err := os.Open(d)
-		if err != nil {
-			return nil, err
-		}
-		defer open.Close()
-		fs, err = open.Readdirnames(0)
-		if err != nil {
-			return nil, err
-		}
-	}
-	re := regexp.MustCompile(logName + "\\.([0-9]+?)\\.current")
-	reo := regexp.MustCompile(logName + "\\.([0-9]+)")
-	var rf []string
-	files := make([]int, 0, len(fs))
-	for _, f := range fs {
-		r := re.FindStringSubmatch(f)
-		if len(r) > 1 {
-			rf = r
-			continue
-		}
-		r = reo.FindStringSubmatch(f)
-		if len(r) > 1 {
-			p, err := strconv.Atoi(r[1])
-			if err != nil {
-				logger.Log("skipped file %s because can not parse its index", f)
-				continue
-			}
-			files = append(files, p)
-		}
-	}
-	if len(rf) < 2 {
-		err = fmt.Errorf("can not find the current log file, %w", os.ErrNotExist)
-		return
-	}
-	p, err := strconv.Atoi(rf[1])
-	if err != nil {
-		return
-	}
-	// try to find previous log
-	var preLog string
-	if len(files) == 1 {
-		preLog = gcPath + "." + strconv.Itoa(files[0])
-	} else if len(files) > 1 {
-		files = append(files, p)
-		sort.Ints(files)
-		index := -1
-		for i, file := range files {
-			if file == p {
-				index = i
-				break
-			}
-		}
-		if index >= 0 {
-			if index-1 >= 0 {
-				preLog = gcPath + "." + strconv.Itoa(files[index-1])
-			} else {
-				preLog = gcPath + "." + strconv.Itoa(files[len(files)-1])
-			}
-		}
-	}
-	if gc == nil {
-		gc, err = os.Create(out)
-		if err != nil {
-			return
-		}
-	}
-	if len(preLog) > 0 {
-		logger.Log("collecting previous gc log %s", preLog)
-		if len(dockerID) > 0 {
-			tmp := filepath.Join(os.TempDir(), out+".pre")
-			err = shell.DockerCopy(tmp, dockerID+":"+preLog)
-			if err == nil {
-				err = copyFile(gc, tmp, pid)
-			}
-		} else {
-			err = copyFile(gc, preLog, pid)
-		}
-		if err != nil {
-			logger.Log("failed to collect previous gc log %s", err.Error())
-		} else {
-			logger.Log("collected previous gc log %s", preLog)
-		}
-	}
-
-	curLog := filepath.Join(d, rf[0])
-	logger.Log("collecting previous gc log %s", curLog)
-	if len(dockerID) > 0 {
-		tmp := filepath.Join(os.TempDir(), out+".cur")
-		err = shell.DockerCopy(tmp, dockerID+":"+curLog)
-		if err == nil {
-			err = copyFile(gc, tmp, pid)
-		}
-	} else {
-		err = copyFile(gc, curLog, pid)
-	}
-	if err != nil {
-		logger.Log("failed to collect previous gc log %s", err.Error())
-	} else {
-		logger.Log("collected previous gc log %s", curLog)
-	}
 	return
 }
 

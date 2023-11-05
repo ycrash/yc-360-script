@@ -32,7 +32,7 @@ func (t *GC) Run() (result Result, err error) {
 	fileName := "gc.log"
 	var gcFile *os.File
 
-	gcFile, err = processGCLogFile(t.GCPath, fileName, t.DockerID, t.Pid)
+	gcFile, err = ProcessGCLogFile(t.GCPath, fileName, t.DockerID, t.Pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", t.GCPath, err.Error())
 	}
@@ -93,7 +93,7 @@ func (t *GC) Run() (result Result, err error) {
 	return
 }
 
-func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
+func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
 	}
