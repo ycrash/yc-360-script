@@ -36,18 +36,18 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to write file %s", err)
 	}
 	err = shell.CommandCombinedOutputToWriter(out,
-		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.class_histogram"}, shell.SudoHooker{PID: t.Pid})
+		shell.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.class_histogram -all"}, shell.SudoHooker{PID: t.Pid})
 	if err != nil {
 		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
 		err = shell.CommandCombinedOutputToWriter(out,
-			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+			shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram -all"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 		if err != nil {
 			logger.Log("Failed to capture GC.class_histogram with err %v.. Trying to capture using tmp jattach...", err)
 			var tempPath string
 			tempPath, err = shell.Copy2TempPath()
 			if err == nil {
 				err = shell.CommandCombinedOutputToWriter(out,
-					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
+					shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram -all"}, shell.EnvHooker{"pid": strconv.Itoa(t.Pid)}, shell.SudoHooker{PID: t.Pid})
 			}
 			if err != nil {
 				logger.Log("Failed to capture GC.class_histogram with err %v.", err)
