@@ -5,9 +5,7 @@ Usage of yc:
         The APP Name of the target
   -c string
         The config file path to load
-  -cmd value
-        The command to be executed, should be paired with '-urlParams' together
-  -d    Delete logs folder created during analyse, default is false
+  -d Delete logs folder created during analyse, default is false
   -gcPath string
         The gc log file to be uploaded while it exists
   -hd
@@ -24,8 +22,6 @@ Usage of yc:
         The server url that will be used to upload data, for example: https://ycrash.companyname.com
   -tdPath string
         The thread dump file to be uploaded while it exists
-  -urlParams value
-        The params to be added at the end of upload request url, should be paired with '-cmd' together
   -version
         Show the version of this program
 
@@ -44,9 +40,6 @@ options:
   gcPath: /var/log/gc.log
   hdPath: /var/log/heapdump.log
   tdPath: /var/log/threaddump.log
-  cmds:
-  - urlParams: dt=vmstat
-    cmd: vmstat 1 1
 ```
 
 The config file is using yaml format. The name of the option keys is same as the name of argument options.
@@ -69,14 +62,3 @@ Only for argument options:
 ### Example to capture info from target with pid 3121:
 
 `yc -p 3121 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64 -c ./config.yaml`
-
-### Example to execute custom commands after the capturing:
-
-- By arguments. One '-urlParams' should be paired with one '-cmd'.  
-`yc ... -urlParams dt=vmstat -cmd "vmstat 1 1" -urlParams dt=pidstat -cmd "pidstat 1 1" ...` 
-- By config file. 
-```yaml
-  cmds:
-  - urlParams: dt=vmstat
-    cmd: vmstat 1 1
-```

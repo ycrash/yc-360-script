@@ -7,19 +7,34 @@ import (
 )
 
 type M3Resp struct {
-	Actions   []string
-	Tags      []string
-	Timestamp string
+	Actions    []string
+	Tags       []string
+	Timestamp  string
+	Timestamps []string
 }
 
-func ParseJsonResp(resp []byte) (pids []int, tags []string, timestamp string, err error) {
+func ParseJsonResp(resp []byte) (pids []int, tags []string, timestamps []string, err error) {
+	// Init empty slice instead of []int(nil)
+	pids = []int{}
+	tags = []string{}
+	timestamps = []string{}
+
 	r := &M3Resp{}
 	err = json.Unmarshal(resp, r)
 	if err != nil {
 		return
 	}
+
 	tags = r.Tags
-	timestamp = r.Timestamp
+	if len(r.Timestamps) > 0 {
+		// If the new "timestamps" field is present
+		timestamps = r.Timestamps
+	} else if r.Timestamp != "" {
+		// If the new "timestamps" is not present,
+		// Use the legacy "timestamp" field
+		timestamps = append(timestamps, r.Timestamp)
+	}
+
 	for _, s := range r.Actions {
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")

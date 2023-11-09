@@ -39,7 +39,10 @@ func (t *VMStat) Run() (result Result, err error) {
 			return
 		}
 	}
-	if t.Cmd.ExitCode() != 0 {
+	t.Cmd.Wait()
+	file.Sync()
+
+	if t.Cmd.ExitCode() != 0 && runtime.GOOS == "linux" {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
@@ -72,9 +75,9 @@ func (t *VMStat) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
+		t.Cmd.Wait()
+		file.Sync()
 	}
-	t.Cmd.Wait()
-	file.Sync()
 
 	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "vmstat", file)
 	return

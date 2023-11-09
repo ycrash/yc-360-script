@@ -16,7 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/mattn/go-zglob"
 )
 
 type GC struct {
@@ -31,7 +32,7 @@ func (t *GC) Run() (result Result, err error) {
 	fileName := "gc.log"
 	var gcFile *os.File
 
-	gcFile, err = processGCLogFile(t.GCPath, fileName, t.DockerID, t.Pid)
+	gcFile, err = ProcessGCLogFile(t.GCPath, fileName, t.DockerID, t.Pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", t.GCPath, err.Error())
 	}
@@ -92,45 +93,75 @@ func (t *GC) Run() (result Result, err error) {
 	return
 }
 
-func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
+func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
 	}
 	// -Xloggc:/app/boomi/gclogs/gc%t.log
 	if strings.Contains(gcPath, `%t`) {
-		d := filepath.Dir(gcPath)
-		open, err := os.Open(d)
+		pattern := strings.ReplaceAll(gcPath, "%t", "*")
+		files, err := zglob.Glob(pattern)
+
 		if err != nil {
-			return nil, err
-		}
-		defer open.Close()
-		fs, err := open.Readdirnames(0)
-		if err != nil {
-			return nil, err
+			logger.Log("error on expanding %%t, pattern:%s, err:%s", pattern, err)
 		}
 
-		var t time.Time
-		var tf string
-		for _, f := range fs {
-			stat, err := os.Stat(filepath.Join(d, f))
-			if err != nil {
-				continue
-			}
-			mt := stat.ModTime()
-			if t.IsZero() || mt.After(t) {
-				t = mt
-				tf = f
-			}
-		}
-		if len(tf) > 0 {
-			gcPath = filepath.Join(d, tf)
+		// descending
+		sort.Slice(files, func(i, j int) bool {
+			fileNameI := filepath.Base(files[i])
+			fileNameJ := filepath.Base(files[j])
+			return strings.Compare(fileNameI, fileNameJ) > 0
+		})
+
+		if len(files) > 0 {
+			logger.Log("gcPath is updated from %s to %s", gcPath, files[0])
+			gcPath = files[0]
 		}
 	}
+
+	if strings.Contains(gcPath, `%pid`) {
+		gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
+
+		if !fileExists(gcPath) && strings.Contains(gcPath, ",") {
+			splitByComma := strings.Split(gcPath, ",")
+			// Check if it's in the form of filename,x,y
+			// Get the last modified file of files in the filename.* pattern.
+			if len(splitByComma) == 3 {
+				originalGcPath := splitByComma[0]
+				gcPath = findLatestFileInRotatingLogFiles(originalGcPath)
+
+				if originalGcPath != gcPath {
+					logger.Log("resolved last modified file of gc files: %s", gcPath)
+				}
+			}
+		}
+	}
+
 	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
+	// /home/ec2-user/buggyapp/gc.2843.log
+	// or
 	// /home/ec2-user/buggyapp/gc.pid2843.log
 	if strings.Contains(gcPath, `%p`) {
-		gcPath = strings.Replace(gcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
+		originalGcPath := gcPath
+		gcPath = strings.Replace(originalGcPath, `%p`, ""+strconv.Itoa(pid), 1)
+		logger.Log("trying to use gcPath %s", gcPath)
+
+		if !fileExists(gcPath) {
+			logger.Log("gcPath %s doesn't exist", gcPath)
+
+			gcPath = strings.Replace(originalGcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
+			logger.Log("trying to use gcPath %s", gcPath)
+		}
 	}
+
+	// Attempt 1 to find the latest file in rotating gc logs
+	originalGcPath := gcPath
+	gcPath = findLatestFileInRotatingLogFiles(originalGcPath)
+
+	if originalGcPath != gcPath {
+		logger.Log("resolved last modified file of gc files: %s", gcPath)
+	}
+
 	if len(dockerID) > 0 {
 		err = shell.DockerCopy(out, dockerID+":"+gcPath)
 		if err == nil {
@@ -147,7 +178,10 @@ func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 			return
 		}
 	}
+
+	// Attempt 2 to find the latest file in rotating gc logs
 	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
+
 	// err is other than not exists
 	if !os.IsNotExist(err) {
 		return
@@ -285,4 +319,45 @@ func copyFile(gc *os.File, file string, pid int) (err error) {
 	defer log.Close()
 	_, err = io.Copy(gc, log)
 	return
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func findLatestFileInRotatingLogFiles(gcPath string) string {
+	pattern := gcPath + ".*"
+	matches, err := zglob.Glob(pattern)
+	if fileExists(gcPath) {
+		matches = append(matches, gcPath)
+	}
+
+	if err != nil {
+		logger.Log(err.Error())
+	} else {
+		fileInfos := []os.FileInfo{}
+
+		for _, match := range matches {
+			fileInfo, err := os.Lstat(match)
+			if err != nil {
+				logger.Log(err.Error())
+			}
+			fileInfos = append(fileInfos, fileInfo)
+		}
+
+		// descending
+		sort.Slice(fileInfos, func(i, j int) bool {
+			return fileInfos[i].ModTime().After(fileInfos[j].ModTime())
+		})
+
+		if len(fileInfos) > 0 {
+			gcPath = filepath.Join(filepath.Dir(gcPath), fileInfos[0].Name())
+		}
+	}
+
+	return gcPath
 }

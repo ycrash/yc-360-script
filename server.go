@@ -132,6 +132,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 			resp.DashboardReportURLs = rUrls
 		} else {
 			var pid int
+			_ = fmt.Sprintf("%d", pid) // Blank identifier to indicate intentional unused variable
 			for _, i := range result {
 				var output []string
 				if p, ok := i.(int); ok {
@@ -146,11 +147,9 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 					}
 				} else if cmd, ok := i.(string); ok {
 					output = append(output, cmd)
-					out, err := RunCaptureCmd(pid, cmd)
-					if err == nil {
-						output = append(output, string(out))
-					} else {
-						output = append(output, err.Error())
+					// Display "Unsupported Operation" message
+					if len(output) == 1 {
+						output = []string{"Unsupported Operation"}
 					}
 				}
 				resp.Output = append(resp.Output, output)
@@ -238,7 +237,8 @@ Resp: %s
 `, ok, msg)
 		} else {
 			hasCmd = true
-			result = append(result, s)
+			// Display "Unsupported Operation" message
+			result = append(result, "Unsupported Operation")
 		}
 	}
 	return

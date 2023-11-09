@@ -71,15 +71,16 @@ type Options struct {
 	LogFileMaxCount uint   `yaml:"logFileMaxCount" usage:"Max count of the log files"`
 	LogLevel        string `yaml:"logLevel" usage:"Log level: trace, debug, info, warn, error, fatal, panic, disable."`
 
-	AppLog          string `yaml:"appLog" usage:"The target application’s log file path"`
-	AppLogLineCount uint   `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
+	AppLog          string  `yaml:"appLog" usage:"The target application’s log file path"`
+	AppLogs         AppLogs `yaml:"appLogs" usage:"The target application’s log file paths"`
+	AppLogLineCount uint    `yaml:"appLogLineCount" usage:"Number of last lines from the log file should be uploaded"`
 
 	StoragePath string `yaml:"storagePath" usage:"The storage path to save the captured files"`
 }
 
 type Command struct {
-	UrlParams UrlParams `yaml:"urlParams" usage:"The params to be added at the end of upload request url, should be paired with '-cmd' together"`
-	Cmd       Cmd       `yaml:"cmd" usage:"The command to be executed, should be paired with '-urlParams' together"`
+	UrlParams UrlParams `yaml:"urlParams" usage:"[DEPRECATED] This option is no longer in use."`
+	Cmd       Cmd       `yaml:"cmd" usage:"[DEPRECATED] This option is no longer in use."`
 }
 
 type UrlParams string
@@ -120,6 +121,18 @@ func (p *ProcessTokens) String() string {
 
 func (p *ProcessTokens) Set(s string) error {
 	*p = append(*p, ProcessToken(s))
+	return nil
+}
+
+type AppLog string
+type AppLogs []AppLog
+
+func (p *AppLogs) String() string {
+	return fmt.Sprintf("%v", *p)
+}
+
+func (p *AppLogs) Set(s string) error {
+	*p = append(*p, AppLog(s))
 	return nil
 }
 
@@ -250,6 +263,11 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			var tokens ProcessTokens
 			flagSet.Var(&tokens, name, usage)
 			result[i] = &tokens
+			continue
+		case AppLogs:
+			var appLogs AppLogs
+			flagSet.Var(&appLogs, name, usage)
+			result[i] = &appLogs
 			continue
 		case time.Duration:
 			result[i] = flagSet.Duration(name, v, usage)

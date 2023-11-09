@@ -8,8 +8,6 @@ package main
 
 import "C"
 import (
-	"bufio"
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -31,7 +29,6 @@ import (
 	"shell/logger"
 	"shell/procps"
 	ycattach "shell/ycattach"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -231,10 +228,13 @@ func mainLoop() {
 							break
 						}
 						ps.WriteString("-")
-						ns.WriteString("%5E")
+						ns.WriteString("-")
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
+
+				parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
+
 				finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 				resp, err := requestFin(finEp)
 				if err != nil {
@@ -293,7 +293,7 @@ Resp: %s
 }
 
 func processResp(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamp, err := shell.ParseJsonResp(resp)
+	pids, tags, timestamps, err := shell.ParseJsonResp(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -308,7 +308,7 @@ func processResp(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamp)
+	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
 }
 
@@ -326,16 +326,16 @@ func processPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUr
 	} else {
 		tmp = strings.Trim(tags, ",")
 	}
-	return processPidsWithoutLock(pids, pid2Name, hd, tmp, "")
+	return processPidsWithoutLock(pids, pid2Name, hd, tmp, []string{""})
 }
 
-func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamp string) (rUrls []string, err error) {
+func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
 		logger.Log("No action needed.")
 		return
 	}
 	set := make(map[int]struct{}, len(pids))
-	for _, pid := range pids {
+	for i, pid := range pids {
 		if _, ok := set[pid]; ok {
 			continue
 		}
@@ -354,6 +354,16 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 				continue
 			}
 		} else {
+			var timestamp string
+			// In case pids has more elements than timetamps,
+			// the extra elements will use "" timestamp
+			// which will be defaulted to now in fullProcess().
+			if i > len(timestamps)-1 {
+				timestamp = ""
+			} else {
+				timestamp = timestamps[i]
+			}
+
 			url := fullProcess(pid, name, hd, tags, timestamp)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
@@ -487,7 +497,7 @@ func uploadGCLog(endpoint string, pid int) {
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = processGCLogFile(gcp, fn, dockerID, pid)
+	gc, err = capture.ProcessGCLogFile(gcp, fn, dockerID, pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
@@ -836,11 +846,33 @@ Ignored errors: %v
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
 	// ------------------------------------------------------------------------------
-	//   				Capture app log
+	//   				Capture legacy app log
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
 	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Path: config.GlobalConfig.AppLog, N: config.GlobalConfig.AppLogLineCount}))
+		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
+		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, N: config.GlobalConfig.AppLogLineCount}))
+	}
+
+	// ------------------------------------------------------------------------------
+	//   				Capture app logs
+	// ------------------------------------------------------------------------------
+	var appLogs chan capture.Result
+	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
+	} else {
+		// Auto discover app logs
+		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
+		if err != nil {
+			logger.Log("Error on auto discovering app logs: %s", err.Error())
+		}
+
+		paths := config.AppLogs{}
+		for _, f := range discoveredLogFiles {
+			paths = append(paths, config.AppLog(f))
+		}
+
+		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, N: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
@@ -1000,7 +1032,24 @@ Resp: %s
 		logger.Log(
 			`APPLOG DATA
 Is transmission completed: %t
-Resp: %s
+Resp:
+%s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit app logs
+	// -------------------------------
+	if appLogs != nil {
+		logger.Log("Reading result from appLogs channel")
+		result := <-appLogs
+		logger.Log(
+			`APPLOGS DATA
+Ok (at least one success): %t
+Resps:
+%s
 
 --------------------------------
 `, result.Ok, result.Msg)
@@ -1124,12 +1173,13 @@ Resp: %s
 	endTime := time.Now()
 	var result string
 	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
-	//	logger.StdLog(`
-	//%s
-	//`, resp)
-	//	logger.StdLog(`
-	//%s
-	//`, result)
+
+	// A big customer is relying on this stdout.
+	// They probably uses it with their own script / automation.
+	logger.StdLog(`
+%s
+`, resp)
+
 	logger.Log(`
 %s
 `, resp)
@@ -1218,7 +1268,7 @@ func getGCLogFile(pid int) (result string, err error) {
 	}
 
 	if logFile == "" {
-		// Garbage collection log: Attempt 1: -Xloggc:< file-path >
+		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
 		re := regexp.MustCompile("-Xloggc:(\\S+)")
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
@@ -1227,8 +1277,37 @@ func getGCLogFile(pid int) (result string, err error) {
 	}
 
 	if logFile == "" {
-		// Garbage collection log: Attempt 2: -Xlog:gc*:file=< file-path >
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
+		// -Xlog[:option]
+		//	option         :=  [<what>][:[<output>][:[<decorators>][:<output-options>]]]
+		// https://openjdk.org/jeps/158
 		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFile = GetFileFromJEP158(logFile)
+			}
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
+		re := regexp.MustCompile("-Xlog:gc:(\\S+)")
+		matches := re.FindSubmatch(output)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFile = GetFileFromJEP158(logFile)
+			}
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
+		re := regexp.MustCompile("-Xverbosegclog:(\\S+)")
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
@@ -1250,186 +1329,6 @@ func getGCLogFile(pid int) (result string, err error) {
 		}
 	}
 
-	return
-}
-
-func processGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
-	if len(gcPath) <= 0 {
-		return
-	}
-	// -Xloggc:/app/boomi/gclogs/gc%t.log
-	if strings.Contains(gcPath, `%t`) {
-		d := filepath.Dir(gcPath)
-		open, err := os.Open(d)
-		if err != nil {
-			return nil, err
-		}
-		defer open.Close()
-		fs, err := open.Readdirnames(0)
-		if err != nil {
-			return nil, err
-		}
-
-		var t time.Time
-		var tf string
-		for _, f := range fs {
-			stat, err := os.Stat(filepath.Join(d, f))
-			if err != nil {
-				continue
-			}
-			mt := stat.ModTime()
-			if t.IsZero() || mt.After(t) {
-				t = mt
-				tf = f
-			}
-		}
-		if len(tf) > 0 {
-			gcPath = filepath.Join(d, tf)
-		}
-	}
-	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
-	// /home/ec2-user/buggyapp/gc.pid2843.log
-	if strings.Contains(gcPath, `%p`) {
-		gcPath = strings.Replace(gcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
-	}
-	if len(dockerID) > 0 {
-		err = shell.DockerCopy(out, dockerID+":"+gcPath)
-		if err == nil {
-			gc, err = os.Open(out)
-			return
-		}
-	} else {
-		gc, err = os.Create(out)
-		if err != nil {
-			return
-		}
-		err = copyFile(gc, gcPath, pid)
-		if err == nil {
-			return
-		}
-	}
-	logger.Log("collecting rotation gc logs, because file open failed %s", err.Error())
-	// err is other than not exists
-	if !os.IsNotExist(err) {
-		return
-	}
-
-	// config.GlobalConfig.GCPath is not exists, maybe using -XX:+UseGCLogFileRotation
-	d := filepath.Dir(gcPath)
-	logName := filepath.Base(gcPath)
-	var fs []string
-	if len(dockerID) > 0 {
-		output, err := shell.DockerExecute(dockerID, "ls", "-1", d)
-		if err != nil {
-			return nil, err
-		}
-		scanner := bufio.NewScanner(bytes.NewReader(output))
-		for scanner.Scan() {
-			line := scanner.Text()
-			line = strings.TrimSpace(line)
-			fs = append(fs, line)
-		}
-	} else {
-		open, err := os.Open(d)
-		if err != nil {
-			return nil, err
-		}
-		defer open.Close()
-		fs, err = open.Readdirnames(0)
-		if err != nil {
-			return nil, err
-		}
-	}
-	re := regexp.MustCompile(logName + "\\.([0-9]+?)\\.current")
-	reo := regexp.MustCompile(logName + "\\.([0-9]+)")
-	var rf []string
-	files := make([]int, 0, len(fs))
-	for _, f := range fs {
-		r := re.FindStringSubmatch(f)
-		if len(r) > 1 {
-			rf = r
-			continue
-		}
-		r = reo.FindStringSubmatch(f)
-		if len(r) > 1 {
-			p, err := strconv.Atoi(r[1])
-			if err != nil {
-				logger.Log("skipped file %s because can not parse its index", f)
-				continue
-			}
-			files = append(files, p)
-		}
-	}
-	if len(rf) < 2 {
-		err = fmt.Errorf("can not find the current log file, %w", os.ErrNotExist)
-		return
-	}
-	p, err := strconv.Atoi(rf[1])
-	if err != nil {
-		return
-	}
-	// try to find previous log
-	var preLog string
-	if len(files) == 1 {
-		preLog = gcPath + "." + strconv.Itoa(files[0])
-	} else if len(files) > 1 {
-		files = append(files, p)
-		sort.Ints(files)
-		index := -1
-		for i, file := range files {
-			if file == p {
-				index = i
-				break
-			}
-		}
-		if index >= 0 {
-			if index-1 >= 0 {
-				preLog = gcPath + "." + strconv.Itoa(files[index-1])
-			} else {
-				preLog = gcPath + "." + strconv.Itoa(files[len(files)-1])
-			}
-		}
-	}
-	if gc == nil {
-		gc, err = os.Create(out)
-		if err != nil {
-			return
-		}
-	}
-	if len(preLog) > 0 {
-		logger.Log("collecting previous gc log %s", preLog)
-		if len(dockerID) > 0 {
-			tmp := filepath.Join(os.TempDir(), out+".pre")
-			err = shell.DockerCopy(tmp, dockerID+":"+preLog)
-			if err == nil {
-				err = copyFile(gc, tmp, pid)
-			}
-		} else {
-			err = copyFile(gc, preLog, pid)
-		}
-		if err != nil {
-			logger.Log("failed to collect previous gc log %s", err.Error())
-		} else {
-			logger.Log("collected previous gc log %s", preLog)
-		}
-	}
-
-	curLog := filepath.Join(d, rf[0])
-	logger.Log("collecting previous gc log %s", curLog)
-	if len(dockerID) > 0 {
-		tmp := filepath.Join(os.TempDir(), out+".cur")
-		err = shell.DockerCopy(tmp, dockerID+":"+curLog)
-		if err == nil {
-			err = copyFile(gc, tmp, pid)
-		}
-	} else {
-		err = copyFile(gc, curLog, pid)
-	}
-	if err != nil {
-		logger.Log("failed to collect previous gc log %s", err.Error())
-	} else {
-		logger.Log("collected previous gc log %s", curLog)
-	}
 	return
 }
 
@@ -1455,6 +1354,8 @@ processId=%d
 appName=%s
 whoami=%s
 timestamp=%s
+timezone=%s
+cpuCount=%d
 javaVersion=%s
 osVersion=%s
 tags=%s`
@@ -1494,11 +1395,50 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	}
 	now := time.Now()
 	timestamp := now.Format("2006-01-02T15-04-05")
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, jv, ov, tags))
+	timezone, _ := now.Zone()
+	cpuCount := runtime.NumCPU()
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, cpuCount, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
 	}
 	msg, ok = shell.PostData(endpoint, "meta", file)
 	return
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
+// GetFileFromJEP158 takes the file name from the JEP158 options
+// For example from: /tmp/jvm.log:time,uptime,level,tags:filecount=10,filesize=1m
+// It will return /tmp/jvm.log
+// See also: https://openjdk.org/jeps/158
+func GetFileFromJEP158(s string) string {
+	strBuilder := strings.Builder{}
+
+	// Handle Windows's drive character `:\`
+	// Without this handling, the `C:\` string confused the logic below this.
+	if strings.Contains(s, `:\`) {
+		splitted := strings.SplitAfterN(s, `:\`, 2)
+
+		// Put the `C:\`` to strBuilder for later
+		strBuilder.WriteString(splitted[0])
+
+		// Continue the logic as usual without the `C:\`
+		s = splitted[1]
+	}
+
+	splitted := strings.SplitN(s, ":", 2)
+	if len(splitted) > 0 {
+		strBuilder.WriteString(splitted[0])
+	} else {
+		strBuilder.WriteString(s)
+	}
+
+	return strBuilder.String()
 }
