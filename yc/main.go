@@ -197,8 +197,6 @@ func mainLoop() {
 	if config.GlobalConfig.M3 {
 		once.Do(startupLogs)
 		go func() {
-			periodCounter := NewPeriodCounter(time.Minute * 5)
-			dumpThreads := false
 			accessLogPosition := int64(0)
 			for {
 				time.Sleep(config.GlobalConfig.M3Frequency)
@@ -206,12 +204,7 @@ func mainLoop() {
 				timestamp := time.Now().Format("2006-01-02T15-04-05")
 				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 				endpoint := fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, parameters)
-
-				if dumpThreads {
-					periodCounter.ResetCounter()
-				}
-				dumpThreads = periodCounter.AddDuration(config.GlobalConfig.M3Frequency)
-				pids, err := processM3(timestamp, endpoint, dumpThreads, &accessLogPosition)
+				pids, err := processM3(timestamp, endpoint, true, &accessLogPosition)
 				if err != nil {
 					logger.Log("WARNING: process failed, %s", err)
 					continue
