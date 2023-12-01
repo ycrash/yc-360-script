@@ -148,7 +148,7 @@ func defaultConfig() Config {
 			LogLevel:        zerolog.InfoLevel.String(),
 			PingHost:        "google.com",
 			DeferDelete:     true,
-			AppLogLineCount: 1000,
+			AppLogLineCount: 2000,
 		},
 	}
 }
