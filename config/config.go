@@ -14,7 +14,8 @@ import (
 )
 
 type Config struct {
-	Version string
+	Version    string
+	TimezoneID string // Add TimezoneID field
 	Options
 }
 
