@@ -529,7 +529,7 @@ func uploadGCLog(endpoint string, pid int) {
 	}
 	var gc *os.File
 	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = processGCLogFile(gcp, fn, dockerID, pid)
+	gc, err = capture.ProcessGCLogFile(gcp, fn, dockerID, pid)
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
 	}
