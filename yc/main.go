@@ -897,7 +897,7 @@ Ignored errors: %v
 
 		// To exclude GC log files from app logs discovery
 		pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
-		files, globErr := zglob.Glob(pattern)
+		globFiles, globErr := zglob.Glob(pattern)
 		if globErr != nil {
 			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
 		}
@@ -905,11 +905,11 @@ Ignored errors: %v
 		paths := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
 			isGCLog := false
-			for _, fileName := range files {
+			for _, fileName := range globFiles {
 				// To exclude discovered gc log such f as /tmp/buggyapp-%p-%t.log
 				// also exclude discovered gc log with rotation where such f as /tmp/buggyapp-%p-%t.log.0
 				// Where the `pattern` = /tmp/buggyapp-*-*.log
-				if strings.Contains(f, fileName) {
+				if strings.Contains(f, filepath.FromSlash(fileName)) {
 					isGCLog = true
 					logger.Log("App logs Auto discovery: Ignored %s because it is detected as a GC log", f)
 					break

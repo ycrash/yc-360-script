@@ -129,7 +129,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 
 		if len(files) > 0 {
 			logger.Log("gcPath is updated from %s to %s", originalGcPath, files[0])
-			gcPath = files[0]
+			gcPath = filepath.FromSlash(files[0])
 		}
 	}
 
