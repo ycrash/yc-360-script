@@ -93,6 +93,14 @@ func (t *GC) Run() (result Result, err error) {
 	return
 }
 
+func GetGlobPatternFromGCPath(gcPath string, pid int) string {
+	gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
+	gcPath = strings.Replace(gcPath, `%p`, "*", 1)
+
+	pattern := strings.ReplaceAll(gcPath, "%t", "*")
+	return pattern
+}
+
 func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return

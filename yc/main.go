@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/gentlemanautomaton/cmdline"
+	"github.com/mattn/go-zglob"
 	"github.com/pterm/pterm"
 	ps "github.com/shirou/gopsutil/v3/process"
 )
@@ -894,9 +895,30 @@ Ignored errors: %v
 			logger.Log("Error on auto discovering app logs: %s", err.Error())
 		}
 
+		// To exclude GC log files from app logs discovery
+		pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
+		files, globErr := zglob.Glob(pattern)
+		if globErr != nil {
+			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
+		}
+
 		paths := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
-			paths = append(paths, config.AppLog(f))
+			isGCLog := false
+			for _, fileName := range files {
+				// To exclude discovered gc log such f as /tmp/buggyapp-%p-%t.log
+				// also exclude discovered gc log with rotation where such f as /tmp/buggyapp-%p-%t.log.0
+				// Where the `pattern` = /tmp/buggyapp-*-*.log
+				if strings.Contains(f, fileName) {
+					isGCLog = true
+					logger.Log("App logs Auto discovery: Ignored %s because it is detected as a GC log", f)
+					break
+				}
+			}
+
+			if !isGCLog {
+				paths = append(paths, config.AppLog(f))
+			}
 		}
 
 		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, N: config.GlobalConfig.AppLogLineCount}))
