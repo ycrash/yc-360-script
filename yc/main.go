@@ -1363,6 +1363,15 @@ func getGCLogFile(pid int) (result string, err error) {
 		matches := re.FindSubmatch(output)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ",") {
+				splitByComma := strings.Split(logFile, ",")
+				// Check if it's in the form of filename,x,y
+				// Take only filename
+				if len(splitByComma) == 3 {
+					logFile = splitByComma[0]
+				}
+			}
 		}
 	}
 

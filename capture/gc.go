@@ -93,87 +93,76 @@ func (t *GC) Run() (result Result, err error) {
 	return
 }
 
+// GetGlobPatternFromGCPath converts GCPath to a glob pattern
+// /tmp/buggyapp-%p-%t.log to /tmp/buggyapp-*1234-*.log
+// /tmp/buggyapp-%pid-%t.log to /tmp/buggyapp-1234-*.log
 func GetGlobPatternFromGCPath(gcPath string, pid int) string {
 	gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
-	gcPath = strings.Replace(gcPath, `%p`, "*", 1)
 
+	// `*{pid}` so that it covers 2 conditions: %p->1234, or %p->pid1234
+	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
+	// /home/ec2-user/buggyapp/gc.2843.log
+	// or
+	// /home/ec2-user/buggyapp/gc.pid2843.log
+	gcPath = strings.Replace(gcPath, `%p`, "*"+strconv.Itoa(pid), 1)
+
+	// %t is replaced with a date string
+	// JVM updates /tmp/jvm-%t.log to /tmp/jvm-2023-10-28_09-07-59.log.
+	// So, replace %t with % to match all.
 	pattern := strings.ReplaceAll(gcPath, "%t", "*")
+
 	return pattern
+}
+
+func GetLatestFileFromGlobPattern(globPattern string) (string, error) {
+	globFiles, err := zglob.Glob(globPattern)
+
+	if err != nil {
+		logger.Log("GetLatestFileFromGlobPattern: error on expanding %%t, pattern:%s, err:%s", globPattern, err)
+		return "", err
+	}
+
+	// descending
+	sort.Slice(globFiles, func(i, j int) bool {
+		fileNameI := filepath.Base(globFiles[i])
+		fileNameJ := filepath.Base(globFiles[j])
+		return strings.Compare(fileNameI, fileNameJ) > 0
+	})
+
+	if len(globFiles) == 0 {
+		logger.Log("No file found from glob %s", globPattern)
+		return "", fmt.Errorf("no file found from glob %s", globPattern)
+	}
+
+	return filepath.FromSlash(globFiles[0]), nil
 }
 
 func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
 	if len(gcPath) <= 0 {
 		return
 	}
-	// -Xloggc:/app/boomi/gclogs/gc%t.log
-	if strings.Contains(gcPath, `%t`) {
-		// Temporary fix to make %p and %t work together
-		// Later we need to simplify the logic
-		originalGcPath := gcPath
-		gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
-		gcPath = strings.Replace(gcPath, `%p`, "*", 1)
 
-		pattern := strings.ReplaceAll(gcPath, "%t", "*")
-		files, err := zglob.Glob(pattern)
-
-		if err != nil {
-			logger.Log("error on expanding %%t, pattern:%s, err:%s", pattern, err)
-		}
-
-		// descending
-		sort.Slice(files, func(i, j int) bool {
-			fileNameI := filepath.Base(files[i])
-			fileNameJ := filepath.Base(files[j])
-			return strings.Compare(fileNameI, fileNameJ) > 0
-		})
-
-		if len(files) > 0 {
-			logger.Log("gcPath is updated from %s to %s", originalGcPath, files[0])
-			gcPath = filepath.FromSlash(files[0])
-		}
-	}
-
-	if strings.Contains(gcPath, `%pid`) {
-		gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
-
-		if !fileExists(gcPath) && strings.Contains(gcPath, ",") {
-			splitByComma := strings.Split(gcPath, ",")
-			// Check if it's in the form of filename,x,y
-			// Get the last modified file of files in the filename.* pattern.
-			if len(splitByComma) == 3 {
-				originalGcPath := splitByComma[0]
-				gcPath = findLatestFileInRotatingLogFiles(originalGcPath)
-
-				if originalGcPath != gcPath {
-					logger.Log("resolved last modified file of gc files: %s", gcPath)
-				}
-			}
-		}
-	}
-
-	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
-	// /home/ec2-user/buggyapp/gc.2843.log
-	// or
-	// /home/ec2-user/buggyapp/gc.pid2843.log
-	if strings.Contains(gcPath, `%p`) {
-		originalGcPath := gcPath
-		gcPath = strings.Replace(originalGcPath, `%p`, ""+strconv.Itoa(pid), 1)
-		logger.Log("trying to use gcPath %s", gcPath)
-
-		if !fileExists(gcPath) {
-			logger.Log("gcPath %s doesn't exist", gcPath)
-
-			gcPath = strings.Replace(originalGcPath, `%p`, "pid"+strconv.Itoa(pid), 1)
-			logger.Log("trying to use gcPath %s", gcPath)
-		}
-	}
-
-	// Attempt 1 to find the latest file in rotating gc logs
 	originalGcPath := gcPath
-	gcPath = findLatestFileInRotatingLogFiles(originalGcPath)
 
-	if originalGcPath != gcPath {
-		logger.Log("resolved last modified file of gc files: %s", gcPath)
+	// /tmp/buggyapp-%p-%t.log -> /tmp/buggyapp-*-*.log
+	if strings.Contains(gcPath, "%") {
+		globPattern := GetGlobPatternFromGCPath(gcPath, pid)
+		logger.Log("Finding GC log gcPath=%s glob=%s", gcPath, globPattern)
+
+		latestFile, err := GetLatestFileFromGlobPattern(globPattern)
+		if err == nil && gcPath != latestFile {
+			gcPath = latestFile
+			logger.Log("gcPath is updated from %s to %s", originalGcPath, latestFile)
+		}
+	}
+
+	// Attempt to find the latest file in rotating GC log
+	// i.e: find /tmp/jvm-2023-10-28_09-07-59.log.9 from tmp/jvm-2023-10-28_09-07-59.log
+	gcPathBefore := gcPath
+	gcPath = findLatestFileInRotatingLogFiles(gcPathBefore)
+
+	if gcPathBefore != gcPath {
+		logger.Log("Found rotating logs: gcPath is updated from %s to %s", gcPathBefore, gcPath)
 	}
 
 	if len(dockerID) > 0 {
