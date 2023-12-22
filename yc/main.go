@@ -229,8 +229,8 @@ func mainLoop() {
 						if i == len(pids) {
 							break
 						}
-						ps.WriteString("$")
-						ns.WriteString("$")
+						ps.WriteString("($)")
+						ns.WriteString("($)")
 					}
 					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
 				}
