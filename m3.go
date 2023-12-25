@@ -6,20 +6,20 @@ import (
 	"strings"
 )
 
-type M3Resp struct {
+type M3FinResponse struct {
 	Actions    []string
 	Tags       []string
 	Timestamp  string
 	Timestamps []string
 }
 
-func ParseJsonResp(resp []byte) (pids []int, tags []string, timestamps []string, err error) {
+func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []string, err error) {
 	// Init empty slice instead of []int(nil)
 	pids = []int{}
 	tags = []string{}
 	timestamps = []string{}
 
-	r := &M3Resp{}
+	r := &M3FinResponse{}
 	err = json.Unmarshal(resp, r)
 	if err != nil {
 		return

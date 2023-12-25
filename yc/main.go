@@ -8,13 +8,8 @@ package main
 
 import "C"
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -198,61 +193,9 @@ func mainLoop() {
 
 	if config.GlobalConfig.M3 {
 		once.Do(startupLogs)
+		m3App := M3App{}
 		go func() {
-			accessLogPosition := int64(0)
-			for {
-				time.Sleep(config.GlobalConfig.M3Frequency)
-
-				// Get the server's local time zone
-				serverTimeZone := getServerTimeZone()
-				parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), time.Now().Format("2006-01-02T15-04-05"))
-
-				// Encode the server's time zone as base64
-				timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(serverTimeZone))
-				parameters += "&timezoneID=" + timezoneBase64
-
-				endpoint := fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, parameters)
-
-				pids, err := processM3(time.Now().Format("2006-01-02T15-04-05"), endpoint, true, &accessLogPosition)
-				if err != nil {
-					logger.Log("WARNING: process failed, %s", err)
-					continue
-				}
-
-				if len(pids) > 0 {
-					var ps, ns strings.Builder
-					i := 0
-					for pid, name := range pids {
-						ps.WriteString(strconv.Itoa(pid))
-						ns.WriteString(name)
-						i++
-						if i == len(pids) {
-							break
-						}
-						ps.WriteString("($)")
-						ns.WriteString("($)")
-					}
-					parameters += "&pids=" + ps.String() + "&m3apptoken=" + ns.String()
-				}
-
-				parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
-
-				finEp := fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
-				resp, err := requestFin(finEp)
-				if err != nil {
-					logger.Log("WARNING: Request M3 Fin failed, %s", err)
-					continue
-				}
-				if len(resp) <= 0 {
-					logger.Log("WARNING: skip empty resp")
-					continue
-				}
-				err = processResp(resp, pids)
-				if err != nil {
-					logger.Log("WARNING: processResp failed, %s", err)
-					continue
-				}
-			}
+			m3App.RunLoop()
 		}()
 	} else if len(config.GlobalConfig.Pid) > 0 {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
@@ -319,26 +262,6 @@ func getServerTimeZone() string {
 	return timezone
 }
 
-func processResp(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamps, err := shell.ParseJsonResp(resp)
-	if err != nil {
-		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
-		return
-	}
-	t := strings.Join(tags, ",")
-	one.Lock()
-	defer one.Unlock()
-	tmp := config.GlobalConfig.Tags
-	if len(tmp) > 0 {
-		ts := strings.Trim(tmp, ",")
-		tmp = strings.Trim(ts+","+t, ",")
-	} else {
-		tmp = strings.Trim(t, ",")
-	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
-	return
-}
-
 // only one thread can run capture process
 var one sync.Mutex
 
@@ -398,238 +321,6 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 		}
 	}
 	return
-}
-
-func processM3(timestamp string, endpoint string, dumpThreads bool, accessLogPosition *int64) (pids map[int]string, err error) {
-	one.Lock()
-	defer one.Unlock()
-
-	dname := "yc-" + timestamp
-	err = os.Mkdir(dname, 0777)
-	if err != nil {
-		return
-	}
-	wg.Add(1)
-	defer func() {
-		defer wg.Done()
-		err := os.RemoveAll(dname)
-		if err != nil {
-			logger.Log("WARNING: Can not remove the current directory: %s", err)
-			return
-		}
-	}()
-	dir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	defer os.Chdir(dir)
-	err = os.Chdir(dname)
-	if err != nil {
-		return
-	}
-
-	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
-	logger.Log("yc script starting...")
-
-	pids, err = shell.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
-	if err == nil && len(pids) > 0 {
-		for pid := range pids {
-			logger.Log("uploading gc log for pid %d", pid)
-			uploadGCLog(endpoint, pid)
-			if dumpThreads {
-				logger.Log("uploading thread dump for pid %d", pid)
-				uploadThreadDump(endpoint, pid, true)
-			}
-		}
-	} else if err != nil {
-		logger.Log("WARNING: failed to get PID cause %v", err)
-	} else {
-		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
-			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
-	}
-
-	logger.Log("Starting collection of top data...")
-	capTop := &capture.Top4M3{}
-	top := goCapture(endpoint, capture.WrapRun(capTop))
-	logger.Log("Collection of top data started.")
-
-	if config.GlobalConfig.AccessLog != "" && accessLogPosition != nil {
-		logger.Log("uploading access log")
-		*accessLogPosition, err = uploadAccessLog(endpoint, config.GlobalConfig.AccessLog, *accessLogPosition)
-		if err != nil {
-			logger.Log("WARNING: Can not upload access log: %s", err)
-		}
-	}
-
-	if top != nil {
-		result := <-top
-		logger.Log(
-			`TOP DATA
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, result.Ok, result.Msg)
-	}
-	return
-}
-
-func uploadAccessLog(endpoint string, accessLogPath string, accessLogPosition int64) (int64, error) {
-
-	var accessLog chan capture.Result
-	// ------------------------------------------------------------------------------
-	//   				Capture access log
-	// ------------------------------------------------------------------------------
-	capAccessLog := &capture.AccessLog{
-		Path:     accessLogPath,
-		Position: accessLogPosition,
-	}
-
-	logger.Log("Starting collection of access log ...")
-	accessLog = goCapture(endpoint, capture.WrapRun(capAccessLog))
-	logger.Log("Collection of access log started.")
-	// -------------------------------
-	//     Log access log
-	// -------------------------------
-	absAccessLogPath, err := filepath.Abs(accessLogPath)
-	if err != nil {
-		absAccessLogPath = fmt.Sprintf("path %s: %s", accessLogPath, err.Error())
-	}
-	if accessLog != nil {
-		result := <-accessLog
-		logger.Log(
-			`ACCESS LOG DATA
-%s
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, absAccessLogPath, result.Ok, result.Msg)
-	}
-
-	return capAccessLog.Position, nil
-}
-
-func uploadGCLog(endpoint string, pid int) {
-	var gcp string
-	bs, err := runGCCaptureCmd(pid)
-	dockerID, _ := shell.GetDockerID(pid)
-	if err == nil && len(bs) > 0 {
-		gcp = string(bs)
-	} else {
-		output, err := getGCLogFile(pid)
-		if err == nil && len(output) > 0 {
-			gcp = output
-		}
-	}
-	var gc *os.File
-	fn := fmt.Sprintf("gc.%d.log", pid)
-	gc, err = capture.ProcessGCLogFile(gcp, fn, dockerID, pid)
-	if err != nil {
-		logger.Log("process log file failed %s, err: %s", gcp, err.Error())
-	}
-	var jstat shell.CmdManager
-	var triedJAttachGC bool
-	if gc == nil || err != nil {
-		gc, jstat, err = shell.CommandStartInBackgroundToFile(fn,
-			shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, shell.SudoHooker{PID: pid})
-		if err == nil {
-			gcp = fn
-			logger.Log("gc log set to %s", gcp)
-		} else {
-			triedJAttachGC = true
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
-			gc, jstat, err = captureGC(pid, gc, fn)
-			if err == nil {
-				gcp = fn
-				logger.Log("jattach gc log set to %s", gcp)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-		}
-	}
-	defer func() {
-		if gc != nil {
-			gc.Close()
-		}
-	}()
-	if jstat != nil {
-		err := jstat.Wait()
-		if err != nil && !triedJAttachGC {
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
-			gc, jstat, err = captureGC(pid, gc, fn)
-			if err == nil {
-				gcp = fn
-				logger.Log("jattach gc log set to %s", gcp)
-			} else {
-				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			}
-
-			if jstat != nil {
-				err = jstat.Wait()
-				if err != nil {
-					logger.Log("jattach gc log failed cause %s", err.Error())
-				}
-			}
-		}
-	}
-
-	// -------------------------------
-	//     Transmit GC Log
-	// -------------------------------
-	msg, ok := shell.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, shell.PositionLast5000Lines)
-	absGCPath, err := filepath.Abs(gcp)
-	if err != nil {
-		absGCPath = fmt.Sprintf("path %s: %s", gcp, err.Error())
-	}
-	logger.Log(
-		`GC LOG DATA
-%s
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, absGCPath, ok, msg)
-}
-
-func uploadThreadDump(endpoint string, pid int, sendPidParam bool) {
-	var threadDump chan capture.Result
-	gcPath := config.GlobalConfig.GCPath
-	tdPath := config.GlobalConfig.ThreadDumpPath
-	hdPath := config.GlobalConfig.HeapDumpPath
-	updatePaths(pid, &gcPath, &tdPath, &hdPath)
-
-	// endpoint, pid, tdPath
-	// ------------------------------------------------------------------------------
-	//   				Capture thread dumps
-	// ------------------------------------------------------------------------------
-	capThreadDump := &capture.ThreadDump{
-		Pid:      pid,
-		TdPath:   tdPath,
-		JavaHome: config.GlobalConfig.JavaHomePath,
-	}
-	if sendPidParam {
-		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
-	}
-	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
-	// -------------------------------
-	//     Log Thread dump
-	// -------------------------------
-	absTDPath, err := filepath.Abs(tdPath)
-	if err != nil {
-		absTDPath = fmt.Sprintf("path %s: %s", tdPath, err.Error())
-	}
-	if threadDump != nil {
-		result := <-threadDump
-		logger.Log(
-			`THREAD DUMP DATA
-%s
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, absTDPath, result.Ok, result.Msg)
-	}
 }
 
 func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdManager, err error) {
@@ -1216,7 +907,7 @@ Resp: %s
 	//     Conclusion
 	// -------------------------------
 	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
-	resp, err := requestFin(finEp)
+	resp, err := requestM3Fin(finEp)
 	if err != nil {
 		logger.Log("post yc-fin err %s", err.Error())
 		err = nil
@@ -1253,51 +944,6 @@ Resp: %s
 
 --------------------------------
 `, ok, msg)
-	}
-	return
-}
-
-func requestFin(endpoint string) (resp []byte, err error) {
-	if config.GlobalConfig.OnlyCapture {
-		err = errors.New("in only capture mode")
-		return
-	}
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
-	}
-	path := config.GlobalConfig.CACertPath
-	if len(path) > 0 {
-		pool := x509.NewCertPool()
-		var ca []byte
-		ca, err = ioutil.ReadFile(path)
-		if err != nil {
-			return
-		}
-		pool.AppendCertsFromPEM(ca)
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-	}
-	req, err := http.NewRequest("POST", endpoint, nil)
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "text")
-	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
-	post, err := httpClient.Do(req)
-	if err == nil {
-		defer post.Body.Close()
-		resp, err = ioutil.ReadAll(post.Body)
-		if err == nil {
-			logger.Log(
-				`yc-fin endpoint: %s
-Resp: %s
-
---------------------------------
-`, endpoint, resp)
-		}
 	}
 	return
 }

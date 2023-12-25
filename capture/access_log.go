@@ -9,6 +9,7 @@ import (
 
 const accessLogOut = "accesslog.out"
 
+// AccessLog is deprecated in favor of App logs auto discovery
 type AccessLog struct {
 	Capture
 	Path     string

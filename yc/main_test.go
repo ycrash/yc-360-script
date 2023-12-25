@@ -94,7 +94,7 @@ func TestPostData(t *testing.T) {
 
 	t.Run("requestFin", func(t *testing.T) {
 		finEp := fmt.Sprintf("%s/yc-fin?apiKey=%s&%s", host, api, parameters)
-		requestFin(finEp)
+		requestM3Fin(finEp)
 	})
 
 	vmstat, err := os.Open("testdata/vmstat.out")
@@ -260,7 +260,7 @@ func TestCaptureCmd(t *testing.T) {
 
 // https://tier1app.atlassian.net/browse/GCEA-1780
 func TestProcessResp(t *testing.T) {
-	err := processResp([]byte(`{"actions":["capture 1"], "tags":["tag1", "tag2"]}`), map[int]string{1: "abc"})
+	err := processM3FinResponse([]byte(`{"actions":["capture 1"], "tags":["tag1", "tag2"]}`), map[int]string{1: "abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
