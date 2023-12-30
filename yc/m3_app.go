@@ -26,7 +26,15 @@ import (
 
 type M3App struct {
 	runLock  sync.Mutex
-	appLogM3 capture.AppLogM3
+	appLogM3 *capture.AppLogM3
+}
+
+func NewM3App() *M3App {
+	appLogM3 := capture.NewAppLogM3()
+
+	return &M3App{
+		appLogM3: appLogM3,
+	}
 }
 
 func (m3 *M3App) RunLoop() {
@@ -171,7 +179,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 			uploadThreadDumpM3(endpoint, pid, true)
 
 			logger.Log("Starting collection of app logs data...")
-			m3.uploadAppLogM3(gcPath, pid, gcPath)
+			m3.uploadAppLogM3(endpoint, pid, gcPath)
 		}
 	} else {
 		if err != nil {
@@ -319,20 +327,16 @@ Resp: %s
 }
 
 func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
-	logger.Log(">>>> DEBUG gcPath %s", gcPath)
-
-	var appLogM3 chan capture.Result
+	var appLogM3Chan chan capture.Result
 
 	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		// TODO(andy): Communicate the expected behavior?
-		appLogM3 = goCapture(endpoint, capture.WrapRun(&capture.AppLogM3{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
+		appLogM3Chan = goCapture(endpoint, capture.WrapRun(&capture.AppLogM3{Paths: config.GlobalConfig.AppLogs}))
 	} else {
 		// Auto discover app logs
 		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
 			logger.Log("Error on auto discovering app logs: %s", err.Error())
 		}
-		logger.Log(">>>> DEBUG pid=%d, discoveredLogFiles=%v", pid, discoveredLogFiles)
 
 		// To exclude GC log files from app logs discovery
 		pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
@@ -340,7 +344,6 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
 		if globErr != nil {
 			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
 		}
-		logger.Log(">>>> DEBUG pattern=%s", pattern)
 
 		paths := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
@@ -361,18 +364,16 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
 			}
 		}
 
-		capAppLogM3 := &m3.appLogM3
+		appLogM3 := m3.appLogM3
+		appLogM3.SetPaths(paths)
 
-		// TODO(andy): Set paths
-		logger.Log(">>>> DEBUG paths=%v", paths)
-
-		appLogM3 = goCapture(endpoint, capture.WrapRun(capAppLogM3))
+		appLogM3Chan = goCapture(endpoint, capture.WrapRun(appLogM3))
 	}
 
 	logger.Log("Collection of app logs data started.")
 
-	if appLogM3 != nil {
-		result := <-appLogM3
+	if appLogM3Chan != nil {
+		result := <-appLogM3Chan
 		logger.Log(
 			`APPLOGS DATA
 Ok (at least one success): %t

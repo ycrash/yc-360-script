@@ -193,7 +193,7 @@ func mainLoop() {
 
 	if config.GlobalConfig.M3 {
 		once.Do(startupLogs)
-		m3App := M3App{}
+		m3App := NewM3App()
 		go func() {
 			m3App.RunLoop()
 		}()
