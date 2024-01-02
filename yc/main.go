@@ -564,9 +564,12 @@ func uploadGCLog(endpoint string, pid int) {
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			}
-			err = jstat.Wait()
-			if err != nil {
-				logger.Log("jattach gc log failed cause %s", err.Error())
+
+			if jstat != nil {
+				err = jstat.Wait()
+				if err != nil {
+					logger.Log("jattach gc log failed cause %s", err.Error())
+				}
 			}
 		}
 	}
