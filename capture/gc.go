@@ -111,6 +111,13 @@ func GetGlobPatternFromGCPath(gcPath string, pid int) string {
 	// So, replace %t with % to match all.
 	pattern := strings.ReplaceAll(gcPath, "%t", "*")
 
+	pattern = strings.ReplaceAll(pattern, `%Y`, "*")
+	pattern = strings.ReplaceAll(pattern, `%m`, "*")
+	pattern = strings.ReplaceAll(pattern, `%d`, "*")
+	pattern = strings.ReplaceAll(pattern, `%H`, "*")
+	pattern = strings.ReplaceAll(pattern, `%M`, "*")
+	pattern = strings.ReplaceAll(pattern, `%S`, "*")
+
 	return pattern
 }
 
@@ -153,6 +160,23 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 		if err == nil && gcPath != latestFile {
 			gcPath = latestFile
 			logger.Log("gcPath is updated from %s to %s", originalGcPath, latestFile)
+		}
+
+		// Handle a condition in some JVM versions such as OpenJ9,
+		// where using rotation, /tmp/buggyapp-*-*.log doesn't exist, but /tmp/buggyapp-*-*.log.001 does.
+		if latestFile == "" {
+			// To find one of the rotation file
+			globPattern += ".*"
+			logger.Log("Retry finding GC log gcPath=%s glob=%s", gcPath, globPattern)
+
+			latestFile, err = GetLatestFileFromGlobPattern(globPattern)
+			if err == nil && gcPath != latestFile {
+				// Trim extension so that the behavior is the same as the above logic (the initial attempt):
+				// returns /tmp/buggyapp-*-*.log excluding the .001
+				// The .001 will be handled by the same code in the following lines
+				gcPath = strings.TrimSuffix(latestFile, filepath.Ext(latestFile))
+				logger.Log("gcPath is updated from %s to %s", originalGcPath, gcPath)
+			}
 		}
 	}
 
