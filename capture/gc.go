@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mattn/go-zglob"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 type GC struct {
@@ -109,20 +109,20 @@ func GetGlobPatternFromGCPath(gcPath string, pid int) string {
 	// %t is replaced with a date string
 	// JVM updates /tmp/jvm-%t.log to /tmp/jvm-2023-10-28_09-07-59.log.
 	// So, replace %t with % to match all.
-	pattern := strings.ReplaceAll(gcPath, "%t", "*")
+	pattern := strings.ReplaceAll(gcPath, "%t", "????-??-??_??-??-??")
 
-	pattern = strings.ReplaceAll(pattern, `%Y`, "*")
-	pattern = strings.ReplaceAll(pattern, `%m`, "*")
-	pattern = strings.ReplaceAll(pattern, `%d`, "*")
-	pattern = strings.ReplaceAll(pattern, `%H`, "*")
-	pattern = strings.ReplaceAll(pattern, `%M`, "*")
-	pattern = strings.ReplaceAll(pattern, `%S`, "*")
+	pattern = strings.ReplaceAll(pattern, `%Y`, "????")
+	pattern = strings.ReplaceAll(pattern, `%m`, "??")
+	pattern = strings.ReplaceAll(pattern, `%d`, "??")
+	pattern = strings.ReplaceAll(pattern, `%H`, "??")
+	pattern = strings.ReplaceAll(pattern, `%M`, "??")
+	pattern = strings.ReplaceAll(pattern, `%S`, "??")
 
 	return pattern
 }
 
 func GetLatestFileFromGlobPattern(globPattern string) (string, error) {
-	globFiles, err := zglob.Glob(globPattern)
+	globFiles, err := doublestar.FilepathGlob(globPattern, doublestar.WithFilesOnly(), doublestar.WithNoFollow())
 
 	if err != nil {
 		logger.Log("GetLatestFileFromGlobPattern: error on expanding %%t, pattern:%s, err:%s", globPattern, err)
@@ -358,7 +358,8 @@ func fileExists(filename string) bool {
 
 func findLatestFileInRotatingLogFiles(gcPath string) string {
 	pattern := gcPath + ".*"
-	matches, err := zglob.Glob(pattern)
+	matches, err := doublestar.FilepathGlob(pattern, doublestar.WithFilesOnly(), doublestar.WithNoFollow())
+
 	if fileExists(gcPath) {
 		matches = append(matches, gcPath)
 	}
