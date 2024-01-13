@@ -1319,8 +1319,6 @@ func getGCLogFile(pid int) (result string, err error) {
 		return
 	}
 
-	output = []byte(`-Xlog:gc*:file="C:/buggyapp-latest/gc_logs/jvm-buggyapp-2704-2024-01-07_09-51-02.log":tags,time,uptime,level:filecount=10,filesize=10M`)
-
 	if logFile == "" {
 		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
 		re := regexp.MustCompile("-Xloggc:(\\S+)")
@@ -1474,6 +1472,11 @@ func fileExists(filename string) bool {
 	if os.IsNotExist(err) {
 		return false
 	}
+
+	if info == nil {
+		return false
+	}
+
 	return !info.IsDir()
 }
 
@@ -1497,6 +1500,8 @@ func GetFileFromJEP158(s string) string {
 	} else if strings.Contains(s, `:/`) {
 		// Handle strange case:
 		// -Xlog:gc*:file=\"F:/tmp/psslogs/gc.log\":tags,time,uptime,level:filecount=10,filesize=10M
+		// or
+		// -Xlog:gc*:file="F:/tmp/psslogs/gc.log":tags,time,uptime,level:filecount=10,filesize=10M
 		// where the slash is F:/ instead of F:\
 
 		splitted := strings.SplitAfterN(s, `:/`, 2)
@@ -1517,9 +1522,13 @@ func GetFileFromJEP158(s string) string {
 
 	logFile := strBuilder.String()
 
-	// Remove extra " such in
+	// Remove extra \" such in
 	// -Xlog:gc*:file=\"F:/tmp/psslogs/gc.log\":tags,time,uptime,level:filecount=10,filesize=10M
-	logFile = strings.Trim(logFile, `"`)
+	logFile = strings.TrimPrefix(strings.TrimSuffix(logFile, `\"`), `\"`)
+
+	// Remove extra " such in
+	// -Xlog:gc*:file="F:/tmp/psslogs/gc.log":tags,time,uptime,level:filecount=10,filesize=10M
+	logFile = strings.Trim(logFile, `" `)
 
 	return logFile
 }
