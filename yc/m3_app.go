@@ -171,7 +171,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 
 	if err == nil && len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
-		for pid := range pids {
+		for pid, appName := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
 			gcPath := uploadGCLogM3(endpoint, pid)
 
@@ -179,7 +179,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 			uploadThreadDumpM3(endpoint, pid, true)
 
 			logger.Log("Starting collection of app logs data...")
-			m3.uploadAppLogM3(endpoint, pid, gcPath)
+			m3.uploadAppLogM3(endpoint, pid, appName, gcPath)
 		}
 	} else {
 		if err != nil {
@@ -326,12 +326,36 @@ Resp: %s
 	}
 }
 
-func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
+func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath string) {
 	var appLogM3Chan chan capture.Result
 
-	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		appLogM3Chan = goCapture(endpoint, capture.WrapRun(&capture.AppLogM3{Paths: config.GlobalConfig.AppLogs}))
-	} else {
+	useGlobalConfigAppLogs := false
+	if len(config.GlobalConfig.AppLogs) > 0 {
+		appLogs := config.AppLogs{}
+
+		for _, configAppLog := range config.GlobalConfig.AppLogs {
+			searchToken := "$" + appName
+
+			beforeSearchToken, found := cutSuffix(string(configAppLog), searchToken)
+			if found {
+				appLogs = append(appLogs, config.AppLog(beforeSearchToken))
+			}
+
+		}
+
+		if len(appLogs) > 0 {
+			paths := make(map[int]config.AppLogs)
+			paths[pid] = appLogs
+
+			appLogM3 := m3.appLogM3
+			appLogM3.SetPaths(paths)
+
+			useGlobalConfigAppLogs = true
+			appLogM3Chan = goCapture(endpoint, capture.WrapRun(appLogM3))
+		}
+	}
+
+	if !useGlobalConfigAppLogs {
 		// Auto discover app logs
 		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
@@ -345,7 +369,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
 			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
 		}
 
-		paths := config.AppLogs{}
+		appLogs := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
 			isGCLog := false
 			for _, fileName := range globFiles {
@@ -360,11 +384,15 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, gcPath string) {
 			}
 
 			if !isGCLog {
-				paths = append(paths, config.AppLog(f))
+				appLogs = append(appLogs, config.AppLog(f))
 			}
 		}
 
 		appLogM3 := m3.appLogM3
+
+		paths := make(map[int]config.AppLogs)
+		paths[pid] = appLogs
+
 		appLogM3.SetPaths(paths)
 
 		appLogM3Chan = goCapture(endpoint, capture.WrapRun(appLogM3))
@@ -446,4 +474,17 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	}
 	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
+}
+
+// CutSuffix returns s without the provided ending suffix string
+// and reports whether it found the suffix.
+// If s doesn't end with suffix, CutSuffix returns s, false.
+// If suffix is the empty string, CutSuffix returns s, true.
+// This is a shim for strings.CutPrefix. Once we upgraded go version to a recent one,
+// this should be replaced with strings.CutPrefix.
+func cutSuffix(s, suffix string) (before string, found bool) {
+	if !strings.HasSuffix(s, suffix) {
+		return s, false
+	}
+	return s[:len(s)-len(suffix)], true
 }

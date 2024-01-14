@@ -8,6 +8,7 @@ import (
 	"shell"
 	"shell/config"
 	"shell/logger"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-zglob"
@@ -18,7 +19,7 @@ import (
 // file content starting from previous position.
 type AppLogM3 struct {
 	Capture
-	Paths     config.AppLogs
+	Paths     map[int]config.AppLogs // int=pid
 	readStats map[string]appLogM3ReadStat
 }
 
@@ -31,10 +32,11 @@ type appLogM3ReadStat struct {
 func NewAppLogM3() *AppLogM3 {
 	return &AppLogM3{
 		readStats: make(map[string]appLogM3ReadStat),
+		Paths:     make(map[int]config.AppLogs),
 	}
 }
 
-func (a *AppLogM3) SetPaths(p config.AppLogs) {
+func (a *AppLogM3) SetPaths(p map[int]config.AppLogs) {
 	a.Paths = p
 }
 
@@ -42,21 +44,23 @@ func (a *AppLogM3) Run() (result Result, err error) {
 	results := []Result{}
 	errs := []error{}
 
-	for _, path := range a.Paths {
-		matches, err := zglob.Glob(string(path))
+	for pid, paths := range a.Paths {
+		for _, path := range paths {
+			matches, err := zglob.Glob(string(path))
 
-		if err != nil {
-			r := Result{Msg: "invalid glob pattern: " + string(path), Ok: false}
-			e := err
-
-			results = append(results, r)
-			errs = append(errs, e)
-		} else {
-			for _, match := range matches {
-				r, e := a.CaptureSingleAppLog(match)
+			if err != nil {
+				r := Result{Msg: "invalid glob pattern: " + string(path), Ok: false}
+				e := err
 
 				results = append(results, r)
 				errs = append(errs, e)
+			} else {
+				for _, match := range matches {
+					r, e := a.CaptureSingleAppLog(match, pid)
+
+					results = append(results, r)
+					errs = append(errs, e)
+				}
 			}
 		}
 	}
@@ -66,7 +70,7 @@ func (a *AppLogM3) Run() (result Result, err error) {
 	return
 }
 
-func (a *AppLogM3) CaptureSingleAppLog(filePath string) (result Result, err error) {
+func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (result Result, err error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		err = fmt.Errorf("failed to stat applog(%s), err: %w", filePath, err)
@@ -112,7 +116,7 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string) (result Result, err erro
 	// If the file was truncated
 	if currentSize > 0 && currentSize < readStat.fileSize {
 		readStat.readPosition = 0
-		logger.Log("applogm3: reseting read position because the file was truncated: %s", filePath)
+		logger.Log("applogm3: resetting read position because the file was truncated: %s", filePath)
 	} else {
 		_, errSeek := src.Seek(readStat.readPosition, io.SeekStart)
 		logger.Log("applogm3: reading log file %s starting from pos: %d", filePath, readStat.readPosition)
@@ -133,7 +137,7 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string) (result Result, err erro
 		return
 	}
 
-	dt := "applog&logName=" + fileBaseName
+	dt := "applog&logName=" + fileBaseName + "&pid=" + strconv.Itoa(pid)
 	if isCompressed {
 		dt = dt + "&content-encoding=" + fileExt
 	}
