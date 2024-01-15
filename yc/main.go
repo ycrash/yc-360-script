@@ -36,8 +36,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gentlemanautomaton/cmdline"
-	"github.com/mattn/go-zglob"
 	"github.com/pterm/pterm"
 	ps "github.com/shirou/gopsutil/v3/process"
 )
@@ -900,7 +900,7 @@ Ignored errors: %v
 
 		// To exclude GC log files from app logs discovery
 		pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
-		globFiles, globErr := zglob.Glob(pattern)
+		globFiles, globErr := doublestar.FilepathGlob(pattern, doublestar.WithFilesOnly(), doublestar.WithNoFollow())
 		if globErr != nil {
 			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
 		}
