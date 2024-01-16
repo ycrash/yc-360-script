@@ -57,14 +57,14 @@ func (m3 *M3App) RunSingle() error {
 
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 
-	pids, err := m3.processM3(timestamp, GetM3ReceiverEndpoint())
+	pids, err := m3.processM3(timestamp, GetM3ReceiverEndpoint(timestamp))
 
 	if err != nil {
 		logger.Log("WARNING: processM3 failed, %s", err)
 		return err
 	}
 
-	finEndpoint := GetM3FinEndpoint(pids)
+	finEndpoint := GetM3FinEndpoint(timestamp, pids)
 	resp, err := requestM3Fin(finEndpoint)
 
 	if err != nil {
@@ -87,12 +87,12 @@ func (m3 *M3App) RunSingle() error {
 	return nil
 }
 
-func GetM3ReceiverEndpoint() string {
-	return fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, GetM3CommonEndpointParameters())
+func GetM3ReceiverEndpoint(timestamp string) string {
+	return fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, GetM3CommonEndpointParameters(timestamp))
 }
 
-func GetM3FinEndpoint(pids map[int]string) string {
-	parameters := GetM3CommonEndpointParameters()
+func GetM3FinEndpoint(timestamp string, pids map[int]string) string {
+	parameters := GetM3CommonEndpointParameters(timestamp)
 
 	if len(pids) > 0 {
 		var ps, ns strings.Builder
@@ -115,10 +115,10 @@ func GetM3FinEndpoint(pids map[int]string) string {
 	return fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 }
 
-func GetM3CommonEndpointParameters() string {
+func GetM3CommonEndpointParameters(timestamp string) string {
 	// Get the server's local time zone
 	serverTimeZone := getServerTimeZone()
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), time.Now().Format("2006-01-02T15-04-05"))
+	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
 
 	// Encode the server's time zone as base64
 	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(serverTimeZone))
