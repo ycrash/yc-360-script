@@ -26,8 +26,8 @@ var (
 	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
-	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc CPU}"}
-	ProcessTopMEM       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {ps | sort -desc PM}"}
+	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-WmiObject Win32_PerfFormattedData_PerfProc_Process | Select-Object -Property Name, IDProcess, @{Name=\"PercentProcessorTime\"; Expression={(\"{0:P1}\" -f ($_.PercentProcessorTime/100))}}, @{Name=\"WSP(MB)\"; Expression={[int]($_.WorkingSetPrivate/1mb)}} | Where-Object {$_.Name -notmatch \"^(idle|_total|system)$\"} | Sort-Object -Property PercentProcessorTime -Descending | Format-Table @{Label=\"Name\"; Expression={$_.Name}}, @{Label=\"ID\"; Expression={$_.IDProcess}}, User, @{Label=\"CPU\"; Expression={$_.PercentProcessorTime}}, @{Label=\"Memory\"; Expression={$_.\"WSP(MB)\"}} -AutoSize}"}
+	ProcessTopMEM       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-WmiObject Win32_PerfFormattedData_PerfProc_Process | Select-Object -Property Name, IDProcess, @{Name=\"PercentProcessorTime\"; Expression={(\"{0:P1}\" -f ($_.PercentProcessorTime/100))}}, @{Name=\"WSP(MB)\"; Expression={[int]($_.WorkingSetPrivate/1mb)}} | Where-Object {$_.Name -notmatch \"^(idle|_total|system)$\"} | Sort-Object -Property \"WSP(MB)\" -Descending | Format-Table @{Label=\"Name\"; Expression={$_.Name}}, @{Label=\"ID\"; Expression={$_.IDProcess}}, User, @{Label=\"CPU\"; Expression={$_.PercentProcessorTime}}, @{Label=\"Memory\"; Expression={$_.\"WSP(MB)\"}} -AutoSize}"}
 	OSVersion           = Command{WaitCommand, "PowerShell.exe", "-Command", "& {systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"}"}
 	KernelParam         = NopCommand
 	Ping                = Command{WaitCommand, "ping", "-n", "6"}
