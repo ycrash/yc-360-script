@@ -580,9 +580,43 @@ Ignored errors: %v
 	//   				Capture app logs
 	// ------------------------------------------------------------------------------
 	var appLogs chan capture.Result
+	useGlobalConfigAppLogs := false
 	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
-		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
-	} else {
+
+		appLogsContainDollarSign := false
+		for _, configAppLog := range config.GlobalConfig.AppLogs {
+			if strings.Contains(string(configAppLog), "$") {
+				appLogsContainDollarSign = true
+				break
+			}
+		}
+
+		if appLogsContainDollarSign {
+			// If any of the appLogs contain '$', choose only the matched appName
+			appLogsMatchingAppName := config.AppLogs{}
+
+			for _, configAppLog := range config.GlobalConfig.AppLogs {
+				searchToken := "$" + appName
+
+				beforeSearchToken, found := cutSuffix(string(configAppLog), searchToken)
+				if found {
+					appLogsMatchingAppName = append(appLogsMatchingAppName, config.AppLog(beforeSearchToken))
+				}
+
+			}
+
+			if len(appLogsMatchingAppName) > 0 {
+				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, N: config.GlobalConfig.AppLogLineCount}))
+				useGlobalConfigAppLogs = true
+				fmt.Println(appLogsMatchingAppName)
+			}
+		} else {
+			appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
+			useGlobalConfigAppLogs = true
+		}
+	}
+
+	if !useGlobalConfigAppLogs {
 		// Auto discover app logs
 		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
