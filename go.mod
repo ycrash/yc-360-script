@@ -15,7 +15,7 @@ require (
 	github.com/rs/zerolog v1.20.0
 	github.com/shirou/gopsutil/v3 v3.22.7
 	github.com/stretchr/testify v1.8.2
-	gopkg.in/yaml.v2 v2.3.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 replace gopkg.in/yaml.v2 v2.3.0 => ./yaml.v2@v2.3.0/
