@@ -109,6 +109,26 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// Validate at least 1 pid exists
+	var pids []int
+	for _, i := range result {
+		pids = append(pids, i.(int))
+	}
+
+	atLeast1PidExist := false
+	for _, pid := range pids {
+		if IsProcessExists(pid) {
+			atLeast1PidExist = true
+			break
+		}
+	}
+
+	if !atLeast1PidExist {
+		resp.Code = -1
+		resp.Msg = "You have entered non-existent process ids."
+		return
+	}
+
 	var needHeapDump bool
 	if req.Hd != nil {
 		needHeapDump = *req.Hd
@@ -119,10 +139,6 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 	if req.WaitFor || hasCmd {
 		var rUrls []string
 		if !hasCmd {
-			var pids []int
-			for _, i := range result {
-				pids = append(pids, i.(int))
-			}
 			rUrls, err = s.ProcessPids(pids, pid2Name, needHeapDump, req.Tags)
 			if err != nil {
 				resp.Code = -1
@@ -158,10 +174,6 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !hasCmd {
-		var pids []int
-		for _, i := range result {
-			pids = append(pids, i.(int))
-		}
 		go func() {
 			_, err := s.ProcessPids(pids, pid2Name, needHeapDump, req.Tags)
 			if err != nil {
