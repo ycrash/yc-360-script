@@ -118,6 +118,8 @@ func GetGlobPatternFromGCPath(gcPath string, pid int) string {
 	pattern = strings.ReplaceAll(pattern, `%M`, "??")
 	pattern = strings.ReplaceAll(pattern, `%S`, "??")
 
+	pattern = strings.ReplaceAll(pattern, `%seq`, "???")
+
 	return pattern
 }
 
