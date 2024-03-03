@@ -97,28 +97,43 @@ func (t *GC) Run() (result Result, err error) {
 // /tmp/buggyapp-%p-%t.log to /tmp/buggyapp-*1234-*.log
 // /tmp/buggyapp-%pid-%t.log to /tmp/buggyapp-1234-*.log
 func GetGlobPatternFromGCPath(gcPath string, pid int) string {
-	gcPath = strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
+	pattern := strings.Replace(gcPath, `%pid`, ""+strconv.Itoa(pid), 1)
+
+	// Dump counter
+	pattern = strings.ReplaceAll(pattern, `%seq`, "???")
+	// msec counter
+	pattern = strings.ReplaceAll(pattern, `%tick`, "*")
+	// User name, i.e: root
+	pattern = strings.ReplaceAll(pattern, `%uid`, "*")
+	// Last dump
+	pattern = strings.ReplaceAll(pattern, `%last`, "*")
 
 	// `*{pid}` so that it covers 2 conditions: %p->1234, or %p->pid1234
 	// -Xloggc:/home/ec2-user/buggyapp/gc.%p.log
 	// /home/ec2-user/buggyapp/gc.2843.log
 	// or
 	// /home/ec2-user/buggyapp/gc.pid2843.log
-	gcPath = strings.Replace(gcPath, `%p`, "*"+strconv.Itoa(pid), 1)
+	pattern = strings.Replace(pattern, `%p`, "*"+strconv.Itoa(pid), 1)
 
 	// %t is replaced with a date string
 	// JVM updates /tmp/jvm-%t.log to /tmp/jvm-2023-10-28_09-07-59.log.
 	// So, replace %t with % to match all.
-	pattern := strings.ReplaceAll(gcPath, "%t", "????-??-??_??-??-??")
+	pattern = strings.ReplaceAll(pattern, "%t", "????-??-??_??-??-??")
 
+	// Year (4 digits)
 	pattern = strings.ReplaceAll(pattern, `%Y`, "????")
+	// Year (2 digits)
+	pattern = strings.ReplaceAll(pattern, `%y`, "??")
+	// Month (2 digits)
 	pattern = strings.ReplaceAll(pattern, `%m`, "??")
+	// Day of the month (2 digits)
 	pattern = strings.ReplaceAll(pattern, `%d`, "??")
+	// Hour (2 digits)
 	pattern = strings.ReplaceAll(pattern, `%H`, "??")
+	// Minute (2 digits)
 	pattern = strings.ReplaceAll(pattern, `%M`, "??")
+	// Second (2 digits)
 	pattern = strings.ReplaceAll(pattern, `%S`, "??")
-
-	pattern = strings.ReplaceAll(pattern, `%seq`, "???")
 
 	return pattern
 }
