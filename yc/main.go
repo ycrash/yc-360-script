@@ -1096,6 +1096,7 @@ appName=%s
 whoami=%s
 timestamp=%s
 timezone=%s
+timezoneId=%s
 cpuCount=%d
 javaVersion=%s
 osVersion=%s
@@ -1138,7 +1139,9 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	timestamp := now.Format("2006-01-02T15-04-05")
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, cpuCount, jv, ov, tags))
+	// Get the server's local time zone
+	serverTimeZone := getServerTimeZone()
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, serverTimeZone, cpuCount, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
