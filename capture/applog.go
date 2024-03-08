@@ -86,7 +86,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 	defer dst.Close()
 
 	if t.N == 0 {
-		t.N = 1000
+		t.N = 3000
 	}
 
 	if !isCompressed {
