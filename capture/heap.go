@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -87,25 +88,26 @@ func (t *HeapDump) Run() (result Result, err error) {
 			return
 		}
 		fp := filepath.Join(dir, fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
-		err = t.heapDump(fp)
+		actualDumpPath := fp
+		actualDumpPath, err = t.heapDump(fp)
 		if err != nil {
 			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
-			err = t.heapDump(fp)
+			actualDumpPath, err = t.heapDump(fp)
 			if err != nil {
 				return
 			}
 		}
 		defer func() {
-			err := os.Remove(fp)
+			err := os.Remove(actualDumpPath)
 			if err != nil {
-				logger.Trace().Err(err).Str("file", fp).Msg("failed to rm hd file")
+				logger.Trace().Err(err).Str("file", actualDumpPath).Msg("failed to rm hd file")
 			}
 		}()
-		hd, err = os.Open(fp)
+		hd, err = os.Open(actualDumpPath)
 		if err != nil && runtime.GOOS == "linux" {
 			logger.Log("Failed to %s. Trying to open in the Docker container...", err.Error())
-			fp = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", fp)
-			hd, err = os.Open(fp)
+			actualDumpPath = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", actualDumpPath)
+			hd, err = os.Open(actualDumpPath)
 		}
 		if err != nil {
 			err = fmt.Errorf("failed to open heap dump file: %w", err)
@@ -114,7 +116,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		defer func() {
 			err := hd.Close()
 			if err != nil {
-				logger.Log("failed to close hd file %s cause err: %s", fp, err.Error())
+				logger.Log("failed to close hd file %s cause err: %s", actualDumpPath, err.Error())
 			}
 		}()
 		logger.Log("captured heap dump data, zipping...")
@@ -161,10 +163,20 @@ func (t *HeapDump) Run() (result Result, err error) {
 	return
 }
 
-func (t *HeapDump) heapDump(fp string) (err error) {
+// heapDump runs the JDK tool (jcmd, jattach, etc) to capture the heap dump to the requested file.
+// The returned actualDumpPath is the actual file name written to is returned.
+// In IBM JDK, this may not be the same as the requested filename for several reasons:
+// - null or the empty string were specified, this will cause the JVM to write the dump to the default location based on the current dump settings and return that path.
+// - Replacement (%) tokens were specified in the file name. These will have been expanded.
+// - The full path is returned, if only a file name with no directory was specified the full path with the directory the dump was written to will be returned.
+// - The JVM couldn't write to the specified location. In this case it will attempt to write the dump to another location, unless -Xdump:nofailover was specified on the command line.
+func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, err error) {
+	// The default value of writtenDumpPath is the same as the requested file path
+	actualDumpPath = requestedFilePath
 	var output []byte
+
 	// Heap dump: Attempt 1: jcmd
-	output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", fp}, shell.SudoHooker{PID: t.Pid})
+	output, err = shell.CommandCombinedOutput(shell.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, shell.SudoHooker{PID: t.Pid})
 	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
 		bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -174,7 +186,7 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 		}
 		var e2 error
 		// Heap dump: Attempt 2a: jattach
-		output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
+		output, e2 = shell.CommandCombinedOutput(shell.Command{shell.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
 			shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
 			shell.SudoHooker{PID: t.Pid})
 		logger.Log("heap dump output from jattach: %s, %v", output, e2)
@@ -192,7 +204,7 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 				return
 			}
 			var e3 error
-			output, e3 = shell.CommandCombinedOutput(shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", fp, "-hdCaptureMode"},
+			output, e3 = shell.CommandCombinedOutput(shell.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
 				shell.EnvHooker{"pid": strconv.Itoa(t.Pid)},
 				shell.SudoHooker{PID: t.Pid})
 			logger.Log("heap dump output from tmp jattach: %s, %v", output, e3)
@@ -210,12 +222,21 @@ func (t *HeapDump) heapDump(fp string) (err error) {
 				err = fmt.Errorf("%v: %v", e, err)
 				return
 			}
-			command := shell.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), fp}
+			command := shell.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), requestedFilePath}
 			e = shell.CommandRun(command)
-			logger.Info().Str("cmd", strings.Join(command, " ")).Msgf("chown: %s, %v", fp, e)
+			logger.Info().Str("cmd", strings.Join(command, " ")).Msgf("chown: %s, %v", requestedFilePath, e)
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)
 				return
+			}
+		} else if bytes.Index(output, []byte("Dump written to")) > 0 {
+			// IBM JDK jattach response:
+			// Connected to remote JVM
+			// Dump written to /tmp/heap_dump.out.15580.1710254434
+			re := regexp.MustCompile(`(?m)^Dump written to (.*)$`)
+			stringSubmatch := re.FindStringSubmatch(string(output))
+			if len(stringSubmatch) > 1 {
+				actualDumpPath = stringSubmatch[1]
 			}
 		}
 		err = nil
