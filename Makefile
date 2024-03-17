@@ -6,7 +6,7 @@ _:
 alpine:
 	docker build -f Dockerfile.base.alpine -t yc-agent-base:alpine .
 
-base:
+base: alpine
 	docker run --init -d -ti --rm \
 	--name yc-agent-alpine \
 	-v $(CWD):/opt/workspace/yc-agent-repo \
@@ -16,8 +16,8 @@ shell:
 	docker exec -it yc-agent-alpine /bin/sh
 
 deploy:
-	docker exec -it yc-agent-alpine /bin/sh -c "cd yc && go build -o yc_deploy -ldflags='-s -w' -buildvcs=false && mkdir -p ../bin && mv yc_deploy ../bin"
+	docker exec -it yc-agent-alpine /bin/sh -c "mkdir -p ./bin && go build -gcflags='all=-N -l' -buildvcs=false -o ./bin/yc_deploy ./cmd/yc"
 
 build:
-	docker exec -it yc-agent-alpine /bin/sh -c "cd yc && go build -o yc -gcflags='all=-N -l' -buildvcs=false && mkdir -p ../bin && mv yc ../bin"
+	docker exec -it yc-agent-alpine /bin/sh -c "mkdir -p ./bin && go build -gcflags='all=-N -l' -buildvcs=false -o ./bin/ ./cmd/..."
 
