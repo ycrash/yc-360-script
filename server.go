@@ -109,10 +109,35 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// Validate at least 1 action exists
+	unsupportedOperationCount := 0
+	for _, i := range result {
+		if s, ok := i.(string); ok {
+			if s == "Unsupported Operation" {
+				unsupportedOperationCount++
+			}
+		}
+	}
+
+	// If all result is ["Unsupported Operation", "Unsupported Operation"]
+	// We can't continue, since we have no supported operation
+	// {"Code":0,"Msg":"","Output":[["Unsupported Operation"]]}
+	if len(result) == unsupportedOperationCount {
+		for _, i := range result {
+			if s, ok := i.(string); ok {
+				resp.Output = append(resp.Output, []string{s})
+			}
+		}
+
+		return
+	}
+
 	// Validate at least 1 pid exists
 	var pids []int
 	for _, i := range result {
-		pids = append(pids, i.(int))
+		if pid, ok := i.(int); ok {
+			pids = append(pids, pid)
+		}
 	}
 
 	atLeast1PidExist := false
