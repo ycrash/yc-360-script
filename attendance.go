@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 )
 

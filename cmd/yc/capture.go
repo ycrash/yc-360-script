@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"shell"
-	"shell/config"
+	"shell/internal/config"
 )
 
 func runGCCaptureCmd(pid int) (path []byte, err error) {

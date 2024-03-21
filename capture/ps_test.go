@@ -1,7 +1,7 @@
 package capture
 
 import (
-	"shell/config"
+	"shell/internal/config"
 	"testing"
 )
 

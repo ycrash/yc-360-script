@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"shell/config"
+	"shell/internal/config"
 	"testing"
 )
 

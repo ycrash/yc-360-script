@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/config"
+	"shell/internal/config"
 )
 
 func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {

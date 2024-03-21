@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"shell"
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 	"strconv"
 	"strings"

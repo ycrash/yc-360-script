@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 )
 

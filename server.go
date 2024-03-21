@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 	"strconv"
 	"strings"

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"shell/config"
+	"shell/internal/config"
 )
 
 func GetOutboundIP() net.IP {

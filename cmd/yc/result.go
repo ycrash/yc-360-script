@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"shell/internal/config"
+
 	"github.com/pterm/pterm"
-	"shell/config"
 )
 
 var col1 = []string{

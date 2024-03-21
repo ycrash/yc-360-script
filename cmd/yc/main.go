@@ -21,7 +21,7 @@ import (
 	"runtime"
 	"shell"
 	"shell/capture"
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 	"shell/procps"
 	ycattach "shell/ycattach"

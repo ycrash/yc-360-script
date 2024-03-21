@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"shell"
-	"shell/config"
+	"shell/internal/config"
 	"shell/logger"
 	"sort"
 	"strconv"

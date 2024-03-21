@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"shell"
-	"shell/config"
+	"shell/internal/config"
 	"strings"
 
 	"github.com/mattn/go-zglob"
