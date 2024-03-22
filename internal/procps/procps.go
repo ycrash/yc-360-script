@@ -3,7 +3,7 @@
 
 package procps
 
-import "shell/procps/linux"
+import "shell/internal/procps/linux"
 
 var VMStat = linux.VMStat
 var Top = linux.Top

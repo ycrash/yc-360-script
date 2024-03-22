@@ -23,7 +23,7 @@ import (
 	"shell/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/procps"
+	"shell/internal/procps"
 	ycattach "shell/ycattach"
 	"strconv"
 	"strings"
