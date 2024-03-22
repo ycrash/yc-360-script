@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"runtime"
 	"shell"
-	"shell/capture"
+	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/procps"
