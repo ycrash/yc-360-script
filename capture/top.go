@@ -10,7 +10,7 @@ import (
 	"strconv"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 type Top struct {

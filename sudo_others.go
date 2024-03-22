@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 	"strings"
 )

@@ -5,7 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"shell/logger"
+	"shell/internal/logger"
 
 	"shell"
 )

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 type Top4M3 struct {

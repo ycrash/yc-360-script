@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"runtime"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 
 	"shell"

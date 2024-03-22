@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 const count = 3

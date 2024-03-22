@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 type PS struct {

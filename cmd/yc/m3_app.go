@@ -15,7 +15,7 @@ import (
 	"shell"
 	"shell/capture"
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 	"strings"
 	"sync"

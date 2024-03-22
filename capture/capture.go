@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 type Result struct {

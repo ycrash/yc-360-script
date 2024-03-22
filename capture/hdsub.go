@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 )
 

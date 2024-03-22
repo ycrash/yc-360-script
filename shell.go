@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"shell/logger"
+	"shell/internal/logger"
 	"strings"
 	"sync"
 	"time"

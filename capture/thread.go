@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 const tdOut = "threaddump.out"

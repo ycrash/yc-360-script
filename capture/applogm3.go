@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"shell"
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 	"strings"
 

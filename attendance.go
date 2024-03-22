@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 func sleep4Attendance() {

@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 	"strconv"
 	"strings"
 	"testing"

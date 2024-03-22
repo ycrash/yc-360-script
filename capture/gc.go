@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"shell"
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 	"sort"
 	"strconv"
 	"strings"

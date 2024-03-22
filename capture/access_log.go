@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 const accessLogOut = "accesslog.out"

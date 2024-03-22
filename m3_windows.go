@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"shell/internal/config"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 type CIMProcess struct {

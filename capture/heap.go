@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"shell"
-	"shell/logger"
+	"shell/internal/logger"
 )
 
 const hdOut = "heap_dump.out"
