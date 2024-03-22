@@ -24,7 +24,7 @@ import (
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/procps"
-	ycattach "shell/ycattach"
+	ycattach "shell/internal/ycattach"
 	"strconv"
 	"strings"
 	"sync"
