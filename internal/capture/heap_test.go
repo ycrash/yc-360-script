@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 const (
@@ -36,7 +36,7 @@ func init() {
 		javaHome = jh
 	}
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", internal.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
 	heapEndpoint = fmt.Sprintf("%s/yc-receiver-heap?%s", host, parameters)
 	endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", host, parameters)
 }
@@ -51,7 +51,7 @@ func TestHeapDump(t *testing.T) {
 
 func testHeapDump(hdPath string, dump bool) func(t *testing.T) {
 	return func(t *testing.T) {
-		noGC, err := internal.CommandStartInBackground(internal.Command{"java", "MyClass"})
+		noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
 		if err != nil {
 			t.Fatal(err)
 		}

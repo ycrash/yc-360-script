@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"shell/internal"
 	"unicode"
+
+	"shell/internal/utils"
 )
 
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
@@ -64,7 +65,7 @@ func lastNText(file string, N uint) ([]byte, error) {
 		return nil, err
 	}
 
-	err = internal.PositionLastLines(f, N)
+	err = utils.PositionLastLines(f, N)
 	if err != nil {
 		return nil, err
 	}

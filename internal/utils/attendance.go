@@ -1,4 +1,4 @@
-package internal
+package utils
 
 import (
 	"fmt"
@@ -43,7 +43,7 @@ func calDuration4Distribution(ip net.IP) time.Duration {
 	return d
 }
 
-func attend(typ string) (string, bool) {
+func AttendWithType(typ string) (string, bool) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&%s",
@@ -59,9 +59,9 @@ func Attend() (string, bool) {
 
 	sleep4Distribution()
 
-	return attend("daily")
+	return AttendWithType("daily")
 }
 
 func StartupAttend() (string, bool) {
-	return attend("startup")
+	return AttendWithType("startup")
 }

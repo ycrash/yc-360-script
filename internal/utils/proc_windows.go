@@ -1,7 +1,7 @@
-//go:build !windows
-// +build !windows
+//go:build windows
+// +build windows
 
-package internal
+package utils
 
 import (
 	"bufio"
@@ -29,13 +29,13 @@ Next:
 			for _, column := range columns {
 				if len(column) > 0 {
 					col = append(col, column)
-					if len(col) > 0 {
+					if len(col) > 6 {
 						break
 					}
 				}
 			}
-			if len(col) > 0 {
-				id := strings.TrimSpace(col[0])
+			if len(col) > 6 {
+				id := strings.TrimSpace(col[5])
 				pid, err = strconv.Atoi(id)
 				if err != nil {
 					continue Next
@@ -68,13 +68,13 @@ Next:
 			for _, column := range columns {
 				if len(column) > 0 {
 					col = append(col, column)
-					if len(col) > 0 {
+					if len(col) > 6 {
 						break
 					}
 				}
 			}
-			if len(col) > 0 {
-				id := strings.TrimSpace(col[0])
+			if len(col) > 6 {
+				id := strings.TrimSpace(col[5])
 				pid, err = strconv.Atoi(id)
 				if err != nil {
 					continue Next

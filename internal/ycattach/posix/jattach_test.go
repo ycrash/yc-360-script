@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 func TestCaptureThreadDump(t *testing.T) {
-	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "-cp", "../../capture/testdata/", "MyClass"})
+	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "-cp", "../../capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

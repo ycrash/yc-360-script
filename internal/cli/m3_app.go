@@ -12,14 +12,15 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"shell/internal"
-	"shell/internal/capture"
-	"shell/internal/config"
-	"shell/internal/logger"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"shell/internal/capture"
+	"shell/internal/config"
+	"shell/internal/logger"
+	"shell/internal/utils"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -158,7 +159,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 		return
 	}
 
-	logger.Log("yc agent version: " + internal.SCRIPT_VERSION)
+	logger.Log("yc agent version: " + utils.SCRIPT_VERSION)
 	logger.Log("yc script starting in m3 mode...")
 
 	logger.Log("Starting collection of top data...")
@@ -167,7 +168,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 	logger.Log("Collection of top data started.")
 
 	// @Andy: If this is m3 specific, it could be moved to m3 specific file for clarity
-	pids, err = internal.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+	pids, err = utils.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 
 	if err == nil && len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
@@ -207,8 +208,8 @@ Resp: %s
 
 func uploadGCLogM3(endpoint string, pid int) string {
 	var gcPath string
-	bs, err := runGCCaptureCmd(pid)
-	dockerID, _ := internal.GetDockerID(pid)
+	bs, err := RunGCCaptureCmd(pid)
+	dockerID, _ := utils.GetDockerID(pid)
 	if err == nil && len(bs) > 0 {
 		gcPath = string(bs)
 	} else {
@@ -223,11 +224,11 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
 	}
-	var jstat internal.CmdManager
+	var jstat utils.CmdManager
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
-		gc, jstat, err = internal.CommandStartInBackgroundToFile(fn,
-			internal.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, internal.SudoHooker{PID: pid})
+		gc, jstat, err = utils.CommandStartInBackgroundToFile(fn,
+			utils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, utils.SudoHooker{PID: pid})
 		if err == nil {
 			gcPath = fn
 			logger.Log("gc log set to %s", gcPath)
@@ -269,7 +270,7 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := internal.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, internal.PositionLast5000Lines)
+	msg, ok := utils.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, utils.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcPath, err.Error())
@@ -458,7 +459,7 @@ Resp: %s
 }
 
 func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamps, err := internal.ParseM3FinResponse(resp)
+	pids, tags, timestamps, err := utils.ParseM3FinResponse(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return

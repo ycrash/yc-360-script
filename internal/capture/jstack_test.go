@@ -4,11 +4,11 @@ import (
 	"os"
 	"testing"
 
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 func TestJStack(t *testing.T) {
-	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "MyClass"})
+	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestJStack(t *testing.T) {
 //	Cannot connect to core dump or remote debug server. Use jhsdb jstack instead
 func TestJStackF_Run(t *testing.T) {
 	t.Skip(" -F option used. Cannot connect to core dump or remote debug server. Use jhsdb jstack instead")
-	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "MyClass"})
+	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 type Custom struct {
@@ -20,7 +20,7 @@ func (c *Custom) Run() (result Result, err error) {
 		return
 	}
 	defer custom.Close()
-	c.Cmd, err = internal.CommandStartInBackgroundToWriter(custom, c.Command)
+	c.Cmd, err = utils.CommandStartInBackgroundToWriter(custom, c.Command)
 	if err != nil {
 		return
 	}
@@ -30,6 +30,6 @@ func (c *Custom) Run() (result Result, err error) {
 		return
 	}
 	c.Cmd.Wait()
-	result.Msg, result.Ok = internal.PostCustomData(c.Endpoint(), c.UrlParams, custom)
+	result.Msg, result.Ok = utils.PostCustomData(c.Endpoint(), c.UrlParams, custom)
 	return
 }

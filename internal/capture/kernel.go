@@ -2,7 +2,8 @@ package capture
 
 import (
 	"os"
-	"shell/internal"
+
+	"shell/internal/utils"
 )
 
 type Kernel struct {
@@ -15,7 +16,7 @@ func (k *Kernel) Run() (result Result, err error) {
 		return
 	}
 	defer kernel.Close()
-	k.Cmd, err = internal.CommandStartInBackgroundToWriter(kernel, internal.KernelParam)
+	k.Cmd, err = utils.CommandStartInBackgroundToWriter(kernel, utils.KernelParam)
 	if err != nil {
 		return
 	}
@@ -25,6 +26,6 @@ func (k *Kernel) Run() (result Result, err error) {
 		return
 	}
 	k.Cmd.Wait()
-	result.Msg, result.Ok = internal.PostData(k.Endpoint(), "kernel", kernel)
+	result.Msg, result.Ok = utils.PostData(k.Endpoint(), "kernel", kernel)
 	return
 }

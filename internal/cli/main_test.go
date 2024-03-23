@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal"
 	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 const (
@@ -26,25 +26,25 @@ const (
 )
 
 func TestFindGCLog(t *testing.T) {
-	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "MyClass"})
+	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
 
-	xlog, err := internal.CommandStartInBackground(internal.Command{"java", "-Xlog:gc=trace:file=gctrace.txt:uptimemillis,pid:filecount=5,filesize=1024", "MyClass"})
+	xlog, err := utils.CommandStartInBackground(utils.Command{"java", "-Xlog:gc=trace:file=gctrace.txt:uptimemillis,pid:filecount=5,filesize=1024", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer xlog.KillAndWait()
 
-	xlog2, err := internal.CommandStartInBackground(internal.Command{"java", "-Xlog:gc:gctrace.log", "MyClass"})
+	xlog2, err := utils.CommandStartInBackground(utils.Command{"java", "-Xlog:gc:gctrace.log", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer xlog2.KillAndWait()
 
-	xloggc, err := internal.CommandStartInBackground(internal.Command{"java", "-Xloggc:garbage-collection.log", "MyClass"})
+	xloggc, err := utils.CommandStartInBackground(utils.Command{"java", "-Xloggc:garbage-collection.log", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,31 +134,31 @@ func TestPostData(t *testing.T) {
 	}
 	defer td.Close()
 
-	msg, ok := internal.PostData(endpoint, "top", top)
+	msg, ok := utils.PostData(endpoint, "top", top)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "df", df)
+	msg, ok = utils.PostData(endpoint, "df", df)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "ns", netstat)
+	msg, ok = utils.PostData(endpoint, "ns", netstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "ps", ps)
+	msg, ok = utils.PostData(endpoint, "ps", ps)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "vmstat", vmstat)
+	msg, ok = utils.PostData(endpoint, "vmstat", vmstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "gc", gc)
+	msg, ok = utils.PostData(endpoint, "gc", gc)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = internal.PostData(endpoint, "td", td)
+	msg, ok = utils.PostData(endpoint, "td", td)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
@@ -253,7 +253,7 @@ func TestProcessLogFile(t *testing.T) {
 }
 
 func TestCaptureCmd(t *testing.T) {
-	_, err := internal.RunCaptureCmd(123, "echo $pid")
+	_, err := utils.RunCaptureCmd(123, "echo $pid")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,18 +305,18 @@ func TestServer(t *testing.T) {
 	config.GlobalConfig.Server = "https://gceasy.io"
 	config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 	config.GlobalConfig.JavaHomePath = "/usr"
-	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
+	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
-	noGC2, err := internal.CommandStartInBackground(internal.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
+	noGC2, err := utils.CommandStartInBackground(utils.Command{"java", "-cp", "../capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer noGC2.KillAndWait()
 
-	s, err := internal.NewServer("localhost", 0)
+	s, err := utils.NewServer("localhost", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

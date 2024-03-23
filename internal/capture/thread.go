@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"shell/internal"
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 const tdOut = "threaddump.out"
@@ -51,7 +51,7 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		}
 	}
 	if t.Pid > 0 && td == nil {
-		if !internal.IsProcessExists(t.Pid) {
+		if !utils.IsProcessExists(t.Pid) {
 			err = fmt.Errorf("process %d does not exist", t.Pid)
 			return
 		}
@@ -64,11 +64,11 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		} else {
 			logger.Log("Collected thread dump...")
 		}
-		err = internal.CommandRun(internal.AppendJavaCoreFiles)
+		err = utils.CommandRun(utils.AppendJavaCoreFiles)
 		if err != nil {
 			return
 		}
-		err = internal.CommandRun(internal.AppendTopHFiles)
+		err = utils.CommandRun(utils.AppendTopHFiles)
 		if err != nil {
 			return
 		}
@@ -81,6 +81,6 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			_ = td.Close()
 		}()
 	}
-	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "td", td)
+	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "td", td)
 	return
 }

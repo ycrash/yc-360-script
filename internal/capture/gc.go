@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"shell/internal"
-	"shell/internal/config"
-	"shell/internal/logger"
 	"sort"
 	"strconv"
 	"strings"
+
+	"shell/internal/config"
+	"shell/internal/logger"
+	"shell/internal/utils"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -42,8 +43,8 @@ func (t *GC) Run() (result Result, err error) {
 		if gcFile == nil {
 			// Garbage collection log: Attempt 5: jstat
 			logger.Log("Trying to capture gc log using jstat...")
-			gcFile, err = internal.CommandCombinedOutputToFile(fileName,
-				internal.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, internal.SudoHooker{PID: t.Pid})
+			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
+				utils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, utils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("jstat failed cause %s", err.Error())
 			}
@@ -51,8 +52,8 @@ func (t *GC) Run() (result Result, err error) {
 		if gcFile == nil {
 			// Garbage collection log: Attempt 6a: jattach
 			logger.Log("Trying to capture gc log using jattach...")
-			gcFile, err = internal.CommandCombinedOutputToFile(fileName,
-				internal.Command{internal.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(t.Pid)}, internal.SudoHooker{PID: t.Pid})
+			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
+				utils.Command{utils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, utils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("jattach failed cause %s", err.Error())
 			}
@@ -61,12 +62,12 @@ func (t *GC) Run() (result Result, err error) {
 			// Garbage collection log: Attempt 6b: tmp jattach
 			logger.Log("Trying to capture gc log using tmp jattach...")
 			var tempPath string
-			tempPath, err = internal.Copy2TempPath()
+			tempPath, err = utils.Copy2TempPath()
 			if err != nil {
 				return
 			}
-			gcFile, err = internal.CommandCombinedOutputToFile(fileName,
-				internal.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(t.Pid)}, internal.SudoHooker{PID: t.Pid})
+			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
+				utils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, utils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("tmp jattach failed cause %s", err.Error())
 			}
@@ -84,7 +85,7 @@ func (t *GC) Run() (result Result, err error) {
 		}()
 	}
 
-	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "gc", gcFile)
+	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "gc", gcFile)
 	absGCPath, err := filepath.Abs(t.GCPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", t.GCPath, err.Error())
@@ -207,7 +208,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	}
 
 	if len(dockerID) > 0 {
-		err = internal.DockerCopy(out, dockerID+":"+gcPath)
+		err = utils.DockerCopy(out, dockerID+":"+gcPath)
 		if err == nil {
 			gc, err = os.Open(out)
 			return
@@ -236,7 +237,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	logName := filepath.Base(gcPath)
 	var fs []string
 	if len(dockerID) > 0 {
-		output, err := internal.DockerExecute(dockerID, "ls", "-1", d)
+		output, err := utils.DockerExecute(dockerID, "ls", "-1", d)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +318,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 		logger.Log("collecting previous gc log %s", preLog)
 		if len(dockerID) > 0 {
 			tmp := filepath.Join(os.TempDir(), out+".pre")
-			err = internal.DockerCopy(tmp, dockerID+":"+preLog)
+			err = utils.DockerCopy(tmp, dockerID+":"+preLog)
 			if err == nil {
 				err = copyFile(gc, tmp, pid)
 			}
@@ -335,7 +336,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	logger.Log("collecting previous gc log %s", curLog)
 	if len(dockerID) > 0 {
 		tmp := filepath.Join(os.TempDir(), out+".cur")
-		err = internal.DockerCopy(tmp, dockerID+":"+curLog)
+		err = utils.DockerCopy(tmp, dockerID+":"+curLog)
 		if err == nil {
 			err = copyFile(gc, tmp, pid)
 		}

@@ -1,7 +1,7 @@
 package capture
 
 import (
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 type Disk struct {
@@ -9,11 +9,11 @@ type Disk struct {
 }
 
 func (t *Disk) Run() (result Result, err error) {
-	df, err := internal.CommandCombinedOutputToFile("disk.out", internal.Disk)
+	df, err := utils.CommandCombinedOutputToFile("disk.out", utils.Disk)
 	if err != nil {
 		return
 	}
 	defer df.Close()
-	result.Msg, result.Ok = internal.PostData(t.endpoint, "df", df)
+	result.Msg, result.Ok = utils.PostData(t.endpoint, "df", df)
 	return
 }

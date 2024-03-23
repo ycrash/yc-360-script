@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"shell/internal"
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 const hdOut = "heap_dump.out"
@@ -159,7 +159,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		logger.Log("failed to sync file %s", e)
 	}
 
-	result.Msg, result.Ok = internal.PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
+	result.Msg, result.Ok = utils.PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
 	return
 }
 
@@ -176,7 +176,7 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 	var output []byte
 
 	// Heap dump: Attempt 1: jcmd
-	output, err = internal.CommandCombinedOutput(internal.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, internal.SudoHooker{PID: t.Pid})
+	output, err = utils.CommandCombinedOutput(utils.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, utils.SudoHooker{PID: t.Pid})
 	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
 		bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -186,9 +186,9 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 		}
 		var e2 error
 		// Heap dump: Attempt 2a: jattach
-		output, e2 = internal.CommandCombinedOutput(internal.Command{internal.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
-			internal.EnvHooker{"pid": strconv.Itoa(t.Pid)},
-			internal.SudoHooker{PID: t.Pid})
+		output, e2 = utils.CommandCombinedOutput(utils.Command{utils.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
+			utils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+			utils.SudoHooker{PID: t.Pid})
 		logger.Log("heap dump output from jattach: %s, %v", output, e2)
 		if e2 != nil ||
 			bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -198,15 +198,15 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 			}
 			err = fmt.Errorf("%v: %v", e2, err)
 			// Heap dump: Attempt 2b: tmp jattach
-			tempPath, e := internal.Copy2TempPath()
+			tempPath, e := utils.Copy2TempPath()
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)
 				return
 			}
 			var e3 error
-			output, e3 = internal.CommandCombinedOutput(internal.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
-				internal.EnvHooker{"pid": strconv.Itoa(t.Pid)},
-				internal.SudoHooker{PID: t.Pid})
+			output, e3 = utils.CommandCombinedOutput(utils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
+				utils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+				utils.SudoHooker{PID: t.Pid})
 			logger.Log("heap dump output from tmp jattach: %s, %v", output, e3)
 			if e3 != nil ||
 				bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -222,8 +222,8 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 				err = fmt.Errorf("%v: %v", e, err)
 				return
 			}
-			command := internal.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), requestedFilePath}
-			e = internal.CommandRun(command)
+			command := utils.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), requestedFilePath}
+			e = utils.CommandRun(command)
 			logger.Info().Str("cmd", strings.Join(command, " ")).Msgf("chown: %s, %v", requestedFilePath, e)
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"shell/internal"
+
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 type PS struct {
@@ -24,13 +25,13 @@ func (t *PS) Run() (result Result, err error) {
 	}
 	defer file.Close()
 
-	m := internal.SCRIPT_SPAN / internal.JAVACORE_INTERVAL
+	m := utils.SCRIPT_SPAN / utils.JAVACORE_INTERVAL
 	for n := 1; n <= m; n++ {
-		_, err = file.WriteString(fmt.Sprintf("\n%s\n", internal.NowString()))
+		_, err = file.WriteString(fmt.Sprintf("\n%s\n", utils.NowString()))
 		if err != nil {
 			return
 		}
-		err = internal.CommandCombinedOutputToWriter(file, internal.PS)
+		err = utils.CommandCombinedOutputToWriter(file, utils.PS)
 		if err != nil {
 			_, err = file.Seek(0, io.SeekStart)
 			if err != nil {
@@ -44,13 +45,13 @@ func (t *PS) Run() (result Result, err error) {
 			if err != nil {
 				return
 			}
-			logger.Log("trying %v, cause %v exit code != 0", internal.PS2, internal.PS)
-			err = internal.CommandCombinedOutputToWriter(file, internal.PS2)
+			logger.Log("trying %v, cause %v exit code != 0", utils.PS2, utils.PS)
+			err = utils.CommandCombinedOutputToWriter(file, utils.PS2)
 			if err != nil {
 				return
 			}
 		}
 	}
-	result.Msg, result.Ok = internal.PostData(t.endpoint, "ps", file)
+	result.Msg, result.Ok = utils.PostData(t.endpoint, "ps", file)
 	return
 }

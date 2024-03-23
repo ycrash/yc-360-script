@@ -6,9 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"shell/internal"
-	"shell/internal/config"
 	"strings"
+
+	"shell/internal/config"
+	"shell/internal/utils"
 
 	"github.com/mattn/go-zglob"
 )
@@ -90,7 +91,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 	}
 
 	if !isCompressed {
-		err = internal.PositionLastLines(src, t.N)
+		err = utils.PositionLastLines(src, t.N)
 		if err != nil {
 			return
 		}
@@ -112,7 +113,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 		dt = dt + "&content-encoding=" + fileExt
 	}
 
-	result.Msg, result.Ok = internal.PostData(t.Endpoint(), dt, dst)
+	result.Msg, result.Ok = utils.PostData(t.Endpoint(), dt, dst)
 
 	return
 }

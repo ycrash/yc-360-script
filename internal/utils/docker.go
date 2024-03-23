@@ -1,7 +1,7 @@
 //go:build !linux
 // +build !linux
 
-package internal
+package utils
 
 func GetDockerID(pid int) (id string, err error) {
 	return

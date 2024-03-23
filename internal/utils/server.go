@@ -1,4 +1,4 @@
-package internal
+package utils
 
 import (
 	"context"
@@ -265,7 +265,7 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 				}
 			}
 		} else if s == "attendance" {
-			msg, ok := attend("api")
+			msg, ok := AttendWithType("api")
 			fmt.Printf(
 				`api attendance task
 Is completed: %t

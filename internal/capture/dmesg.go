@@ -5,9 +5,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"shell/internal/logger"
 
-	"shell/internal"
+	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 type DMesg struct {
@@ -20,7 +20,7 @@ func (t *DMesg) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.DMesg)
+	t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, utils.DMesg)
 	if err != nil {
 		return
 	}
@@ -48,7 +48,7 @@ func (t *DMesg) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.DMesg2)
+		t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, utils.DMesg2)
 		if err != nil {
 			return
 		}
@@ -67,6 +67,6 @@ func (t *DMesg) Run() (result Result, err error) {
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "dmesg", file)
+	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "dmesg", file)
 	return
 }

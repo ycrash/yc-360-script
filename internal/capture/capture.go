@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"shell/internal"
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 type Result struct {
@@ -15,7 +15,7 @@ type Result struct {
 }
 
 type Capture struct {
-	Cmd               internal.CmdManager
+	Cmd               utils.CmdManager
 	endpoint          string
 	wg                sync.WaitGroup
 	mapEndpointParams map[string]string

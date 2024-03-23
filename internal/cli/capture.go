@@ -2,16 +2,16 @@ package cli
 
 import (
 	"bytes"
-	"shell/internal"
 	"shell/internal/config"
+	"shell/internal/utils"
 )
 
-func runGCCaptureCmd(pid int) (path []byte, err error) {
+func RunGCCaptureCmd(pid int) (path []byte, err error) {
 	cmd := config.GlobalConfig.GCCaptureCmd
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = internal.RunCaptureCmd(pid, cmd)
+	path, err = utils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -24,7 +24,7 @@ func runTDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = internal.RunCaptureCmd(pid, cmd)
+	path, err = utils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -37,7 +37,7 @@ func runHDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = internal.RunCaptureCmd(pid, cmd)
+	path, err = utils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -48,7 +48,7 @@ func runHDCaptureCmd(pid int) (path []byte, err error) {
 func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
 	var path []byte
 	if len(*gcPath) == 0 {
-		path, _ = runGCCaptureCmd(pid)
+		path, _ = RunGCCaptureCmd(pid)
 		if len(path) > 0 {
 			*gcPath = string(path)
 		}

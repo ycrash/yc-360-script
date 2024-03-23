@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal"
+	"shell/internal/utils"
 )
 
 func GetOpenedFilesByProcess(pid int) ([]string, error) {
 	pidStr := strconv.Itoa(pid)
-	output, err := internal.CommandCombinedOutput(internal.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
+	output, err := utils.CommandCombinedOutput(utils.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
 
 	openedFiles := []string{}
 	if err != nil {
