@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"archive/zip"
@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-func zipFolder(folder string) (name string, err error) {
+func ZipFolder(folder string) (name string, err error) {
 	name = fmt.Sprintf("%s.zip", folder)
 	file, err := os.Create(name)
 	if err != nil {

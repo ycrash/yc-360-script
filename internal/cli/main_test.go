@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"shell/internal"
+	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
 )
@@ -196,7 +197,7 @@ func TestProcessLogFile(t *testing.T) {
 		if len(out) < 1 {
 			out = fname
 		}
-		gc, err := processGCLogFile(filepath.Join(dir, fname), filepath.Join(dir, out), "", 0)
+		gc, err := capture.ProcessGCLogFile(filepath.Join(dir, fname), filepath.Join(dir, out), "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -237,7 +238,7 @@ func TestProcessLogFile(t *testing.T) {
 		test(t, dir, "gc.log.0.current", "gc.log")
 	})
 	t.Run("gcPath-not-exists", func(t *testing.T) {
-		_, err := processGCLogFile("gc-rotation-logs/0-current/1/gc.log.current", "gc-rotation-logs/0-current/1/gc.log", "", 0)
+		_, err := capture.ProcessGCLogFile("gc-rotation-logs/0-current/1/gc.log.current", "gc-rotation-logs/0-current/1/gc.log", "", 0)
 		if err != nil && errors.Is(err, os.ErrNotExist) && strings.Contains(err.Error(), "can not find the current log file,") {
 		} else {
 			t.Fatal(err)

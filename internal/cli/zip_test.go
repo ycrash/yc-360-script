@@ -1,9 +1,9 @@
-package main
+package cli
 
 import "testing"
 
 func TestZipFolder(t *testing.T) {
-	_, err := zipFolder("zip")
+	_, err := ZipFolder("zip")
 	if err != nil {
 		t.Fatal(err)
 	}
