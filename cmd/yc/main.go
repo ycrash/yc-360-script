@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"shell"
+	"shell/internal"
 	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
@@ -107,7 +107,7 @@ func main() {
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
 	go mainLoop()
-	defer shell.RemoveFromTempPath()
+	defer internal.RemoveFromTempPath()
 
 	select {
 	case <-osSig:
@@ -124,7 +124,7 @@ func validate() {
 	}
 
 	if config.GlobalConfig.ShowVersion {
-		logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
+		logger.Log("yc agent version: " + internal.SCRIPT_VERSION)
 		os.Exit(0)
 	}
 
@@ -160,10 +160,10 @@ func validate() {
 }
 
 func startupLogs() {
-	logger.Log("yc agent version: " + shell.SCRIPT_VERSION)
+	logger.Log("yc agent version: " + internal.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
-	msg, ok := shell.StartupAttend()
+	msg, ok := internal.StartupAttend()
 	logger.Log(
 		`startup attendance task
 Is completed: %t
@@ -178,7 +178,7 @@ func mainLoop() {
 	if config.GlobalConfig.Port > 0 {
 		once.Do(startupLogs)
 		go func() {
-			s, err := shell.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
+			s, err := internal.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
 			if err != nil {
 				logger.Log("WARNING: %s", err)
 				return
@@ -200,7 +200,7 @@ func mainLoop() {
 	} else if len(config.GlobalConfig.Pid) > 0 {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
 		if err != nil {
-			ids, err := shell.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
+			ids, err := internal.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
 			if err == nil {
 				if len(ids) > 0 {
 					for pid := range ids {
@@ -218,7 +218,7 @@ func mainLoop() {
 		} else {
 			fullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 		}
-		shell.RemoveFromTempPath()
+		internal.RemoveFromTempPath()
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
 		once.Do(startupLogs)
@@ -226,7 +226,7 @@ func mainLoop() {
 		os.Exit(1)
 	}
 	for {
-		msg, ok := shell.Attend()
+		msg, ok := internal.Attend()
 		logger.Log(
 			`daily attendance task
 Is completed: %t
@@ -298,7 +298,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 			}
 		}
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
-			_, err := shell.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+			_, err := internal.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
 				logger.Log("WARNING: runCaptureCmd failed %s", err)
 				continue
@@ -323,7 +323,7 @@ func processPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 	return
 }
 
-func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdManager, err error) {
+func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat internal.CmdManager, err error) {
 	if gc != nil {
 		err = gc.Close()
 		if err != nil {
@@ -335,8 +335,8 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat shell.CmdM
 		}
 	}
 	// file deepcode ignore CommandInjection: security vulnerability
-	file, jstat, err = shell.CommandStartInBackgroundToFile(fn,
-		shell.Command{shell.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(pid)}, shell.SudoHooker{PID: pid})
+	file, jstat, err = internal.CommandStartInBackgroundToFile(fn,
+		internal.Command{internal.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(pid)}, internal.SudoHooker{PID: pid})
 	return
 }
 
@@ -438,7 +438,7 @@ func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 			}
 		}
 
-		dockerID, _ = shell.GetDockerID(pid)
+		dockerID, _ = internal.GetDockerID(pid)
 	}
 
 	logger.Log("PID is %d", pid)
@@ -455,11 +455,11 @@ func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 	logger.Log("PROBLEMATIC_PID is: %d", pid)
 
 	// Display the being used in this script
-	logger.Log("SCRIPT_SPAN = %d", shell.SCRIPT_SPAN)
-	logger.Log("JAVACORE_INTERVAL = %d", shell.JAVACORE_INTERVAL)
-	logger.Log("TOP_INTERVAL = %d", shell.TOP_INTERVAL)
-	logger.Log("TOP_DASH_H_INTERVAL = %d", shell.TOP_DASH_H_INTERVAL)
-	logger.Log("VMSTAT_INTERVAL = %d", shell.VMSTAT_INTERVAL)
+	logger.Log("SCRIPT_SPAN = %d", internal.SCRIPT_SPAN)
+	logger.Log("JAVACORE_INTERVAL = %d", internal.JAVACORE_INTERVAL)
+	logger.Log("TOP_INTERVAL = %d", internal.TOP_INTERVAL)
+	logger.Log("TOP_DASH_H_INTERVAL = %d", internal.TOP_DASH_H_INTERVAL)
+	logger.Log("VMSTAT_INTERVAL = %d", internal.VMSTAT_INTERVAL)
 
 	// -------------------------------
 	//     Transmit MetaInfo
@@ -474,7 +474,7 @@ Ignored errors: %v
 --------------------------------
 `, ok, msg, err)
 
-	if pidPassed && !shell.IsProcessExists(pid) {
+	if pidPassed && !internal.IsProcessExists(pid) {
 		defer func() {
 			logger.Log("WARNING: Process %d doesn't exist.", pid)
 			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
@@ -965,7 +965,7 @@ Resp: %s
 `, pterm.RemoveColorFromString(result))
 
 	if agentLogFile != nil {
-		msg, ok = shell.PostData(endpoint, "agentlog", agentLogFile)
+		msg, ok = internal.PostData(endpoint, "agentlog", agentLogFile)
 		err := logger.StopWritingToFile()
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to stop writing to file")
@@ -982,19 +982,19 @@ Resp: %s
 	return
 }
 
-var getOutboundIP = shell.GetOutboundIP
+var getOutboundIP = internal.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func getGCLogFile(pid int) (result string, err error) {
 	var output []byte
-	var command shell.Command
+	var command internal.Command
 	var logFile string
 	dynamicArg := strconv.Itoa(pid)
 	if runtime.GOOS == "windows" {
 		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
 	}
-	command, _ = shell.GC.AddDynamicArg(dynamicArg)
-	output, err = shell.CommandCombinedOutput(command)
+	command, _ = internal.GC.AddDynamicArg(dynamicArg)
+	output, err = internal.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
@@ -1113,7 +1113,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		err = fmt.Errorf("hostname err: %v", e)
 	}
 	var jv string
-	javaVersion, e := shell.CommandCombinedOutput(shell.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+	javaVersion, e := internal.CommandCombinedOutput(internal.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
 	if e != nil {
 		err = fmt.Errorf("javaVersion err: %v, previous err: %v", e, err)
 	} else {
@@ -1121,7 +1121,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		jv = strings.ReplaceAll(jv, "\n", ", ")
 	}
 	var ov string
-	osVersion, e := shell.CommandCombinedOutput(shell.OSVersion)
+	osVersion, e := internal.CommandCombinedOutput(internal.OSVersion)
 	if e != nil {
 		err = fmt.Errorf("osVersion err: %v, previous err: %v", e, err)
 	} else {
@@ -1146,7 +1146,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
 	}
-	msg, ok = shell.PostData(endpoint, "meta", file)
+	msg, ok = internal.PostData(endpoint, "meta", file)
 	return
 }
 

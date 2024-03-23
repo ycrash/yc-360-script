@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"shell"
+	"shell/internal"
 	"shell/internal/logger"
 )
 
@@ -14,7 +14,7 @@ type Top4M3 struct {
 }
 
 func (t *Top4M3) Run() (result Result, err error) {
-	if len(shell.Top4M3) < 1 {
+	if len(internal.Top4M3) < 1 {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = false
 		return
@@ -31,7 +31,7 @@ func (t *Top4M3) Run() (result Result, err error) {
 	}()
 
 	for i := 0; i < 3; i++ {
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(top, shell.Top4M3)
+		t.Cmd, err = internal.CommandStartInBackgroundToWriter(top, internal.Top4M3)
 		if err != nil {
 			return
 		}
@@ -57,6 +57,6 @@ func (t *Top4M3) Run() (result Result, err error) {
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", top)
+	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "top", top)
 	return
 }

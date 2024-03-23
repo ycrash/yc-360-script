@@ -1,14 +1,15 @@
 //go:build linux
 // +build linux
 
-package shell
+package internal
 
 import (
 	"bufio"
 	"bytes"
-	"github.com/mitchellh/go-ps"
 	"strconv"
 	"strings"
+
+	"github.com/mitchellh/go-ps"
 )
 
 func GetDockerID(pid int) (id string, err error) {

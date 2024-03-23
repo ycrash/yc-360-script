@@ -1,4 +1,4 @@
-package shell
+package internal
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"shell/internal/config"
-	"shell/internal/logger"
 	"strconv"
 	"strings"
+
+	"shell/internal/config"
+	"shell/internal/logger"
 )
 
 type Server struct {

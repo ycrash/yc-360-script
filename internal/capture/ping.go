@@ -2,7 +2,7 @@ package capture
 
 import (
 	"os"
-	"shell"
+	"shell/internal"
 )
 
 type Ping struct {
@@ -16,7 +16,7 @@ func (c *Ping) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	c.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.Ping, c.Host))
+	c.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.Append(internal.Ping, c.Host))
 	if err != nil {
 		return
 	}
@@ -26,6 +26,6 @@ func (c *Ping) Run() (result Result, err error) {
 		return
 	}
 	c.Cmd.Wait()
-	result.Msg, result.Ok = shell.PostData(c.Endpoint(), "ping", file)
+	result.Msg, result.Ok = internal.PostData(c.Endpoint(), "ping", file)
 	return
 }

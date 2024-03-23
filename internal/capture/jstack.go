@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"shell"
+	"shell/internal"
 	"shell/internal/logger"
 )
 
@@ -49,10 +49,10 @@ func (t *JStack) Run() (result Result, err error) {
 			// Thread dump: Attempt 1: jstack
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack ...")
-				jstackFile, err = shell.CommandCombinedOutputToFile(
+				jstackFile, err = internal.CommandCombinedOutputToFile(
 					outputFileName,
-					shell.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
-					shell.SudoHooker{PID: t.pid},
+					internal.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
+					internal.SudoHooker{PID: t.pid},
 				)
 				if err != nil {
 					logger.Log("Failed to run jstack with err %v", err)
@@ -61,8 +61,8 @@ func (t *JStack) Run() (result Result, err error) {
 			//  Thread dump: Attempt 2a: jattach via self execution with -tdCaptureMode
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jattach...")
-				jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
-					shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+				jstackFile, err = internal.CommandCombinedOutputToFile(outputFileName,
+					internal.Command{internal.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(t.pid)}, internal.SudoHooker{PID: t.pid})
 				if err != nil {
 					logger.Log("Failed to run jattach with err %v", err)
 				}
@@ -71,10 +71,10 @@ func (t *JStack) Run() (result Result, err error) {
 			// Thread dump: Attempt 2b: jattach via self execution from tmp path with -tdCaptureMode
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jattach in temp path...")
-				tempPath, err := shell.Copy2TempPath()
+				tempPath, err := internal.Copy2TempPath()
 				if err == nil {
-					jstackFile, err = shell.CommandCombinedOutputToFile(outputFileName,
-						shell.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+					jstackFile, err = internal.CommandCombinedOutputToFile(outputFileName,
+						internal.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(t.pid)}, internal.SudoHooker{PID: t.pid})
 					if err != nil {
 						logger.Log("Failed to run jattach with err %v", err)
 					}
@@ -135,9 +135,9 @@ func (t *JStack) Run() (result Result, err error) {
 					return
 				}
 
-				err = shell.CommandCombinedOutputToWriter(jstackFile,
-					shell.Command{path.Join(t.javaHome, "bin/jhsdb"), "jstack", "--pid", strconv.Itoa(t.pid)},
-					shell.SudoHooker{PID: t.pid},
+				err = internal.CommandCombinedOutputToWriter(jstackFile,
+					internal.Command{path.Join(t.javaHome, "bin/jhsdb"), "jstack", "--pid", strconv.Itoa(t.pid)},
+					internal.SudoHooker{PID: t.pid},
 				)
 
 				if err != nil {
@@ -218,11 +218,11 @@ func (t *JStackF) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		err = shell.CommandCombinedOutputToWriter(t.jstack,
-			shell.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+		err = internal.CommandCombinedOutputToWriter(t.jstack,
+			internal.Command{path.Join(t.javaHome, "bin/jstack"), "-F", strconv.Itoa(t.pid)}, internal.SudoHooker{PID: t.pid})
 		if err != nil {
-			err = shell.CommandCombinedOutputToWriter(t.jstack,
-				shell.Command{shell.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, shell.EnvHooker{"pid": strconv.Itoa(t.pid)}, shell.SudoHooker{PID: t.pid})
+			err = internal.CommandCombinedOutputToWriter(t.jstack,
+				internal.Command{internal.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, internal.EnvHooker{"pid": strconv.Itoa(t.pid)}, internal.SudoHooker{PID: t.pid})
 		}
 	}
 	return

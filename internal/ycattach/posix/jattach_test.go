@@ -4,13 +4,14 @@
 package posix
 
 import (
-	"shell"
 	"testing"
 	"time"
+
+	"shell/internal"
 )
 
 func TestCaptureThreadDump(t *testing.T) {
-	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "-cp", "../../capture/testdata/", "MyClass"})
+	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "-cp", "../../capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

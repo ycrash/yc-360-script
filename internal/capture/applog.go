@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"shell"
+	"shell/internal"
 	"shell/internal/config"
 	"strings"
 
@@ -90,7 +90,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 	}
 
 	if !isCompressed {
-		err = shell.PositionLastLines(src, t.N)
+		err = internal.PositionLastLines(src, t.N)
 		if err != nil {
 			return
 		}
@@ -112,7 +112,7 @@ func (t *AppLog) CaptureSingleAppLog(filePath string) (result Result, err error)
 		dt = dt + "&content-encoding=" + fileExt
 	}
 
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), dt, dst)
+	result.Msg, result.Ok = internal.PostData(t.Endpoint(), dt, dst)
 
 	return
 }

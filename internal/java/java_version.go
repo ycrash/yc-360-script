@@ -1,4 +1,4 @@
-package shell
+package java
 
 import (
 	"bufio"
@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"shell/internal"
 )
 
 // JavaVersion represents the New Version supporting the
@@ -53,7 +55,7 @@ func ParseJavaVersionString(version string) JavaVersion {
 }
 
 func GetLocalJavaVersion() (JavaVersion, error) {
-	combinedOutput, err := CommandCombinedOutput(JavaVersionCommand)
+	combinedOutput, err := internal.CommandCombinedOutput(internal.JavaVersionCommand)
 	if err != nil {
 		return JavaVersion{}, errors.New("error while getting java version: " + err.Error())
 	}

@@ -1,4 +1,4 @@
-package shell
+package internal
 
 import (
 	"errors"
@@ -7,10 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"shell/internal/logger"
 	"strings"
 	"sync"
 	"time"
+
+	"shell/internal/logger"
 )
 
 type Command []string

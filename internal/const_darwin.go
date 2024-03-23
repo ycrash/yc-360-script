@@ -1,4 +1,4 @@
-package shell
+package internal
 
 var (
 	NetState            = Command{"netstat", "-an"}

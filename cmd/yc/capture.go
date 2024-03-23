@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"shell"
+	"shell/internal"
 	"shell/internal/config"
 )
 
@@ -11,7 +11,7 @@ func runGCCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = shell.RunCaptureCmd(pid, cmd)
+	path, err = internal.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -24,7 +24,7 @@ func runTDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = shell.RunCaptureCmd(pid, cmd)
+	path, err = internal.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -37,7 +37,7 @@ func runHDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = shell.RunCaptureCmd(pid, cmd)
+	path, err = internal.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"shell"
+	"shell/internal"
 	"shell/internal/logger"
 )
 
@@ -24,13 +24,13 @@ func (t *PS) Run() (result Result, err error) {
 	}
 	defer file.Close()
 
-	m := shell.SCRIPT_SPAN / shell.JAVACORE_INTERVAL
+	m := internal.SCRIPT_SPAN / internal.JAVACORE_INTERVAL
 	for n := 1; n <= m; n++ {
-		_, err = file.WriteString(fmt.Sprintf("\n%s\n", shell.NowString()))
+		_, err = file.WriteString(fmt.Sprintf("\n%s\n", internal.NowString()))
 		if err != nil {
 			return
 		}
-		err = shell.CommandCombinedOutputToWriter(file, shell.PS)
+		err = internal.CommandCombinedOutputToWriter(file, internal.PS)
 		if err != nil {
 			_, err = file.Seek(0, io.SeekStart)
 			if err != nil {
@@ -44,13 +44,13 @@ func (t *PS) Run() (result Result, err error) {
 			if err != nil {
 				return
 			}
-			logger.Log("trying %v, cause %v exit code != 0", shell.PS2, shell.PS)
-			err = shell.CommandCombinedOutputToWriter(file, shell.PS2)
+			logger.Log("trying %v, cause %v exit code != 0", internal.PS2, internal.PS)
+			err = internal.CommandCombinedOutputToWriter(file, internal.PS2)
 			if err != nil {
 				return
 			}
 		}
 	}
-	result.Msg, result.Ok = shell.PostData(t.endpoint, "ps", file)
+	result.Msg, result.Ok = internal.PostData(t.endpoint, "ps", file)
 	return
 }

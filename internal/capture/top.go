@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"shell"
+	"shell/internal"
 	"shell/internal/logger"
 )
 
@@ -18,7 +18,7 @@ type Top struct {
 }
 
 func (t *Top) Run() (result Result, err error) {
-	if len(shell.Top) < 1 {
+	if len(internal.Top) < 1 {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = false
 		return
@@ -33,7 +33,7 @@ func (t *Top) Run() (result Result, err error) {
 			logger.Log("failed to close file %s", e)
 		}
 	}()
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top)
+	t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.Top)
 	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
@@ -46,7 +46,7 @@ func (t *Top) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	if t.Cmd.ExitCode() != 0 && len(shell.Top2) > 0 {
+	if t.Cmd.ExitCode() != 0 && len(internal.Top2) > 0 {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
@@ -61,7 +61,7 @@ func (t *Top) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Top2)
+		t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.Top2)
 		if err != nil {
 			return
 		}
@@ -80,7 +80,7 @@ func (t *Top) Run() (result Result, err error) {
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "top", file)
+	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "top", file)
 	return
 }
 
@@ -91,12 +91,12 @@ type TopH struct {
 }
 
 func (t *TopH) Run() (result Result, err error) {
-	if len(shell.TopH) < 1 {
+	if len(internal.TopH) < 1 {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = false
 		return
 	}
-	if !shell.IsProcessExists(t.Pid) {
+	if !internal.IsProcessExists(t.Pid) {
 		err = fmt.Errorf("process %d does not exist", t.Pid)
 		return
 	}
@@ -116,11 +116,11 @@ func (t *TopH) Run() (result Result, err error) {
 		}
 	}()
 
-	command, err := shell.TopH.AddDynamicArg(strconv.Itoa(t.Pid))
+	command, err := internal.TopH.AddDynamicArg(strconv.Itoa(t.Pid))
 	if err != nil {
 		return
 	}
-	t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, command)
+	t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, command)
 	if err != nil && !errors.Is(err, exec.ErrNotFound) {
 		return
 	}
@@ -133,7 +133,7 @@ func (t *TopH) Run() (result Result, err error) {
 	if err != nil {
 		logger.Log("failed to wait cmd: %s", err.Error())
 	}
-	if t.Cmd.ExitCode() != 0 && len(shell.TopH2) > 0 {
+	if t.Cmd.ExitCode() != 0 && len(internal.TopH2) > 0 {
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			return
@@ -148,7 +148,7 @@ func (t *TopH) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		t.Cmd, err = shell.CommandStartInBackgroundToWriter(file, shell.Append(shell.TopH2, strconv.Itoa(t.Pid)))
+		t.Cmd, err = internal.CommandStartInBackgroundToWriter(file, internal.Append(internal.TopH2, strconv.Itoa(t.Pid)))
 		if err != nil {
 			return
 		}

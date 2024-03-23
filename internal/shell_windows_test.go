@@ -1,6 +1,7 @@
+//go:build windows
 // +build windows
 
-package shell
+package internal
 
 import (
 	"os/exec"

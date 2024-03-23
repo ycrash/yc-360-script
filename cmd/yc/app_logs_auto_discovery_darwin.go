@@ -3,14 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"shell"
 	"strconv"
 	"strings"
+
+	"shell/internal"
 )
 
 func GetOpenedFilesByProcess(pid int) ([]string, error) {
 	pidStr := strconv.Itoa(pid)
-	output, err := shell.CommandCombinedOutput(shell.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
+	output, err := internal.CommandCombinedOutput(internal.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
 
 	openedFiles := []string{}
 	if err != nil {

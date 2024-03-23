@@ -1,12 +1,12 @@
 package capture
 
 import (
-	"shell"
+	"shell/internal"
 	"testing"
 )
 
 func TestHDSub(t *testing.T) {
-	noGC, err := shell.CommandStartInBackground(shell.Command{"java", "MyClass"})
+	noGC, err := internal.CommandStartInBackground(internal.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

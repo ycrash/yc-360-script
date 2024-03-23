@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"shell"
+	"shell/internal"
 	"unicode"
 )
 
@@ -64,7 +64,7 @@ func lastNText(file string, N uint) ([]byte, error) {
 		return nil, err
 	}
 
-	err = shell.PositionLastLines(f, N)
+	err = internal.PositionLastLines(f, N)
 	if err != nil {
 		return nil, err
 	}

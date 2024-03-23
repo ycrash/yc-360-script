@@ -1,4 +1,4 @@
-package shell
+package internal
 
 import (
 	"bytes"
@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"shell/internal/config"
 	"testing"
+
+	"shell/internal/config"
 )
 
 func TestServer(t *testing.T) {

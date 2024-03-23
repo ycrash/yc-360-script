@@ -3,7 +3,7 @@ package capture
 import (
 	"io"
 	"os"
-	"shell"
+	"shell/internal"
 	"shell/internal/logger"
 )
 
@@ -35,7 +35,7 @@ func (t *AccessLog) Run() (result Result, err error) {
 		return
 	}
 
-	result.Msg, result.Ok = shell.PostData(t.Endpoint(), "accessLog", dst)
+	result.Msg, result.Ok = internal.PostData(t.Endpoint(), "accessLog", dst)
 	t.Position = newPosition
 	return
 }

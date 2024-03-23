@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"shell"
+	"shell/internal"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"strconv"
@@ -142,7 +142,7 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (result Result,
 		dt = dt + "&content-encoding=" + fileExt
 	}
 
-	result.Msg, result.Ok = shell.PostData(a.Endpoint(), dt, dst)
+	result.Msg, result.Ok = internal.PostData(a.Endpoint(), dt, dst)
 
 	// Update readStats for next run
 	readStat.fileSize = fileInfo.Size()

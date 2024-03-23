@@ -1,16 +1,17 @@
 //go:build !windows
 // +build !windows
 
-package shell
+package internal
 
 import (
 	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
-	"shell/internal/logger"
 	"strconv"
 	"strings"
+
+	"shell/internal/logger"
 )
 
 type SudoHooker struct {

@@ -1,4 +1,4 @@
-package shell
+package internal
 
 import (
 	"time"
@@ -14,7 +14,6 @@ import (
 //
 // ------------------------------------------------------------------------------
 var (
-
 	SCRIPT_VERSION      = "yc_agent_2.19.4"
 	SCRIPT_SPAN         = 120 // How long the whole script should take. Default=240
 	JAVACORE_INTERVAL   = 30  // How often javacores should be taken. Default=30
