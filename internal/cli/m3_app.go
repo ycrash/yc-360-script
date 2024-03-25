@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -208,7 +209,7 @@ Resp: %s
 
 func uploadGCLogM3(endpoint string, pid int) string {
 	var gcPath string
-	bs, err := RunGCCaptureCmd(pid)
+	bs, err := runGCCaptureCmd(pid)
 	dockerID, _ := utils.GetDockerID(pid)
 	if err == nil && len(bs) > 0 {
 		gcPath = string(bs)
@@ -358,7 +359,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 
 	if !useGlobalConfigAppLogs {
 		// Auto discover app logs
-		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
+		discoveredLogFiles, err := capture.DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
 			logger.Log("Error on auto discovering app logs: %s", err.Error())
 		}
@@ -475,6 +476,68 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	}
 	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
+}
+
+func runGCCaptureCmd(pid int) (path []byte, err error) {
+	cmd := config.GlobalConfig.GCCaptureCmd
+	if len(cmd) < 1 {
+		return
+	}
+	path, err = utils.RunCaptureCmd(pid, cmd)
+	if err != nil {
+		return
+	}
+	path = bytes.TrimSpace(path)
+	return
+}
+
+func runTDCaptureCmd(pid int) (path []byte, err error) {
+	cmd := config.GlobalConfig.TDCaptureCmd
+	if len(cmd) < 1 {
+		return
+	}
+	path, err = utils.RunCaptureCmd(pid, cmd)
+	if err != nil {
+		return
+	}
+	path = bytes.TrimSpace(path)
+	return
+}
+
+func runHDCaptureCmd(pid int) (path []byte, err error) {
+	cmd := config.GlobalConfig.HDCaptureCmd
+	if len(cmd) < 1 {
+		return
+	}
+	path, err = utils.RunCaptureCmd(pid, cmd)
+	if err != nil {
+		return
+	}
+	path = bytes.TrimSpace(path)
+	return
+}
+
+func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
+	var path []byte
+	if len(*gcPath) == 0 {
+		path, _ = runGCCaptureCmd(pid)
+		if len(path) > 0 {
+			*gcPath = string(path)
+		}
+	}
+	if len(*tdPath) == 0 {
+		// Thread dump: Attempt 4: tdCaptureCmd argument (real step is 2 ), adjusting tdPath argument
+		path, _ = runTDCaptureCmd(pid)
+		if len(path) > 0 {
+			*tdPath = string(path)
+		}
+	}
+	if len(*hdPath) == 0 {
+		path, _ = runHDCaptureCmd(pid)
+		if len(path) > 0 {
+			*hdPath = string(path)
+		}
+	}
 }
 
 // CutSuffix returns s without the provided ending suffix string

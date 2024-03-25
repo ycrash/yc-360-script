@@ -398,7 +398,7 @@ func fullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 			return
 		}
 		if config.GlobalConfig.OnlyCapture {
-			name, err := ZipFolder(dname)
+			name, err := utils.ZipFolder(dname)
 			if err != nil {
 				logger.Log("WARNING: Can not zip folder: %s", err)
 				return
@@ -619,7 +619,7 @@ Ignored errors: %v
 
 	if !useGlobalConfigAppLogs {
 		// Auto discover app logs
-		discoveredLogFiles, err := DiscoverOpenedLogFilesByProcess(pid)
+		discoveredLogFiles, err := capture.DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
 			logger.Log("Error on auto discovering app logs: %s", err.Error())
 		}
