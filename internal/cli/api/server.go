@@ -1,4 +1,4 @@
-package utils
+package api
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"shell/internal/config"
 	"shell/internal/logger"
+	"shell/internal/utils"
 )
 
 type Server struct {
@@ -34,6 +35,31 @@ type Resp struct {
 	Msg                 string
 	DashboardReportURLs []string   `json:",omitempty"`
 	Output              [][]string `json:",omitempty"`
+}
+
+func NewServer(address string, port int) (s *Server, err error) {
+	addr := net.JoinHostPort(address, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return
+	}
+	mux := http.NewServeMux()
+	s = &Server{
+		Server: &http.Server{
+			Handler: mux,
+		},
+		ln: ln,
+	}
+	mux.HandleFunc("/action", s.Action)
+	return
+}
+
+func (s *Server) Serve() error {
+	return s.Server.Serve(s.ln)
+}
+
+func (s *Server) Addr() net.Addr {
+	return s.ln.Addr()
 }
 
 func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
@@ -143,7 +169,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 
 	atLeast1PidExist := false
 	for _, pid := range pids {
-		if IsProcessExists(pid) {
+		if utils.IsProcessExists(pid) {
 			atLeast1PidExist = true
 			break
 		}
@@ -218,24 +244,24 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 				var pid int
 				switch id {
 				case "PROCESS_HIGH_CPU":
-					pid, err = GetTopCpu()
+					pid, err = utils.GetTopCpu()
 					if err != nil {
 						return
 					}
 				case "PROCESS_HIGH_MEMORY":
-					pid, err = GetTopMem()
+					pid, err = utils.GetTopMem()
 					if err != nil {
 						return
 					}
 				case "PROCESS_UNKNOWN":
-					pid, err = GetTopCpu()
+					pid, err = utils.GetTopCpu()
 					if err != nil {
 						return
 					}
 					if pid > 0 {
 						result = append(result, pid)
 					}
-					pid, err = GetTopMem()
+					pid, err = utils.GetTopMem()
 					if err != nil {
 						return
 					}
@@ -244,7 +270,7 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 					pid, e = strconv.Atoi(id)
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
-						p2n, e := GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
+						p2n, e := utils.GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
 						if e != nil {
 							continue
 						}
@@ -265,7 +291,7 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 				}
 			}
 		} else if s == "attendance" {
-			msg, ok := AttendWithType("api")
+			msg, ok := utils.AttendWithType("api")
 			fmt.Printf(
 				`api attendance task
 Is completed: %t
@@ -280,29 +306,4 @@ Resp: %s
 		}
 	}
 	return
-}
-
-func NewServer(address string, port int) (s *Server, err error) {
-	addr := net.JoinHostPort(address, strconv.Itoa(port))
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return
-	}
-	mux := http.NewServeMux()
-	s = &Server{
-		Server: &http.Server{
-			Handler: mux,
-		},
-		ln: ln,
-	}
-	mux.HandleFunc("/action", s.Action)
-	return
-}
-
-func (s *Server) Serve() error {
-	return s.Server.Serve(s.ln)
-}
-
-func (s *Server) Addr() net.Addr {
-	return s.ln.Addr()
 }

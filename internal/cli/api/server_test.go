@@ -1,4 +1,4 @@
-package utils
+package api
 
 import (
 	"bytes"
@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"testing"
-
 	"shell/internal/config"
+	"testing"
 )
 
 func TestServer(t *testing.T) {

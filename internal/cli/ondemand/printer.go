@@ -1,4 +1,4 @@
-package cli
+package ondemand
 
 import (
 	"encoding/json"

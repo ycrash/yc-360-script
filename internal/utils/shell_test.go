@@ -13,3 +13,10 @@ func TestNilCmdHolder(t *testing.T) {
 	}()
 	cmdHolder.Wait()
 }
+
+func TestCaptureCmd(t *testing.T) {
+	_, err := RunCaptureCmd(123, "echo $pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+}

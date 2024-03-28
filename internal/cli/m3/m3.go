@@ -1,14 +1,8 @@
-package cli
+package m3
 
 import (
-	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,6 +13,7 @@ import (
 	"time"
 
 	"shell/internal/capture"
+	"shell/internal/cli/ondemand"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/utils"
@@ -67,7 +62,7 @@ func (m3 *M3App) RunSingle() error {
 	}
 
 	finEndpoint := GetM3FinEndpoint(timestamp, pids)
-	resp, err := requestM3Fin(finEndpoint)
+	resp, err := ondemand.RequestFin(finEndpoint)
 
 	if err != nil {
 		logger.Log("WARNING: Request M3 Fin failed, %s", err)
@@ -119,8 +114,8 @@ func GetM3FinEndpoint(timestamp string, pids map[int]string) string {
 
 func GetM3CommonEndpointParameters(timestamp string) string {
 	// Get the server's local time zone
-	serverTimeZone := getServerTimeZone()
-	parameters := fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
+	serverTimeZone := utils.GetServerTimeZone()
+	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
 
 	// Encode the server's time zone as base64
 	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(serverTimeZone))
@@ -165,7 +160,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 
 	logger.Log("Starting collection of top data...")
 	capTop := &capture.Top4M3{}
-	top := goCapture(endpoint, capture.WrapRun(capTop))
+	top := capture.GoCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
 
 	// @Andy: If this is m3 specific, it could be moved to m3 specific file for clarity
@@ -209,12 +204,12 @@ Resp: %s
 
 func uploadGCLogM3(endpoint string, pid int) string {
 	var gcPath string
-	bs, err := runGCCaptureCmd(pid)
+	bs, err := ondemand.RunGCCaptureCmd(pid)
 	dockerID, _ := utils.GetDockerID(pid)
 	if err == nil && len(bs) > 0 {
 		gcPath = string(bs)
 	} else {
-		output, err := getGCLogFile(pid)
+		output, err := ondemand.GetGCLogFile(pid)
 		if err == nil && len(output) > 0 {
 			gcPath = output
 		}
@@ -288,12 +283,29 @@ Resp: %s
 	return gcPath
 }
 
+func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat utils.CmdManager, err error) {
+	if gc != nil {
+		err = gc.Close()
+		if err != nil {
+			return
+		}
+		err = os.Remove(fn)
+		if err != nil {
+			return
+		}
+	}
+	// file deepcode ignore CommandInjection: security vulnerability
+	file, jstat, err = utils.CommandStartInBackgroundToFile(fn,
+		utils.Command{utils.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(pid)}, utils.SudoHooker{PID: pid})
+	return
+}
+
 func uploadThreadDumpM3(endpoint string, pid int, sendPidParam bool) {
 	var threadDump chan capture.Result
 	gcPath := config.GlobalConfig.GCPath
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
-	updatePaths(pid, &gcPath, &tdPath, &hdPath)
+	ondemand.UpdatePaths(pid, &gcPath, &tdPath, &hdPath)
 
 	// endpoint, pid, tdPath
 	// ------------------------------------------------------------------------------
@@ -307,7 +319,7 @@ func uploadThreadDumpM3(endpoint string, pid int, sendPidParam bool) {
 	if sendPidParam {
 		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
 	}
-	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+	threadDump = capture.GoCapture(endpoint, capture.WrapRun(capThreadDump))
 	// -------------------------------
 	//     Log Thread dump
 	// -------------------------------
@@ -338,7 +350,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 		for _, configAppLog := range config.GlobalConfig.AppLogs {
 			searchToken := "$" + appName
 
-			beforeSearchToken, found := cutSuffix(string(configAppLog), searchToken)
+			beforeSearchToken, found := utils.CutSuffix(string(configAppLog), searchToken)
 			if found {
 				appLogs = append(appLogs, config.AppLog(beforeSearchToken))
 			}
@@ -353,7 +365,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 			appLogM3.SetPaths(paths)
 
 			useGlobalConfigAppLogs = true
-			appLogM3Chan = goCapture(endpoint, capture.WrapRun(appLogM3))
+			appLogM3Chan = capture.GoCapture(endpoint, capture.WrapRun(appLogM3))
 		}
 	}
 
@@ -397,7 +409,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 
 		appLogM3.SetPaths(paths)
 
-		appLogM3Chan = goCapture(endpoint, capture.WrapRun(appLogM3))
+		appLogM3Chan = capture.GoCapture(endpoint, capture.WrapRun(appLogM3))
 	}
 
 	logger.Log("Collection of app logs data started.")
@@ -412,51 +424,6 @@ Resps: %s
 --------------------------------
 `, result.Ok, result.Msg)
 	}
-}
-
-func requestM3Fin(endpoint string) (resp []byte, err error) {
-	if config.GlobalConfig.OnlyCapture {
-		err = errors.New("in only capture mode")
-		return
-	}
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
-	}
-	path := config.GlobalConfig.CACertPath
-	if len(path) > 0 {
-		pool := x509.NewCertPool()
-		var ca []byte
-		ca, err = ioutil.ReadFile(path)
-		if err != nil {
-			return
-		}
-		pool.AppendCertsFromPEM(ca)
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-	}
-	req, err := http.NewRequest("POST", endpoint, nil)
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "text")
-	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
-	post, err := httpClient.Do(req)
-	if err == nil {
-		defer post.Body.Close()
-		resp, err = ioutil.ReadAll(post.Body)
-		if err == nil {
-			logger.Log(
-				`yc-fin endpoint: %s
-Resp: %s
-
---------------------------------
-`, endpoint, resp)
-		}
-	}
-	return
 }
 
 func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
@@ -474,81 +441,6 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = processPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
+	_, err = ondemand.ProcessPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
-}
-
-func runGCCaptureCmd(pid int) (path []byte, err error) {
-	cmd := config.GlobalConfig.GCCaptureCmd
-	if len(cmd) < 1 {
-		return
-	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
-	if err != nil {
-		return
-	}
-	path = bytes.TrimSpace(path)
-	return
-}
-
-func runTDCaptureCmd(pid int) (path []byte, err error) {
-	cmd := config.GlobalConfig.TDCaptureCmd
-	if len(cmd) < 1 {
-		return
-	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
-	if err != nil {
-		return
-	}
-	path = bytes.TrimSpace(path)
-	return
-}
-
-func runHDCaptureCmd(pid int) (path []byte, err error) {
-	cmd := config.GlobalConfig.HDCaptureCmd
-	if len(cmd) < 1 {
-		return
-	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
-	if err != nil {
-		return
-	}
-	path = bytes.TrimSpace(path)
-	return
-}
-
-func updatePaths(pid int, gcPath, tdPath, hdPath *string) {
-	var path []byte
-	if len(*gcPath) == 0 {
-		path, _ = runGCCaptureCmd(pid)
-		if len(path) > 0 {
-			*gcPath = string(path)
-		}
-	}
-	if len(*tdPath) == 0 {
-		// Thread dump: Attempt 4: tdCaptureCmd argument (real step is 2 ), adjusting tdPath argument
-		path, _ = runTDCaptureCmd(pid)
-		if len(path) > 0 {
-			*tdPath = string(path)
-		}
-	}
-	if len(*hdPath) == 0 {
-		path, _ = runHDCaptureCmd(pid)
-		if len(path) > 0 {
-			*hdPath = string(path)
-		}
-	}
-}
-
-// CutSuffix returns s without the provided ending suffix string
-// and reports whether it found the suffix.
-// If s doesn't end with suffix, CutSuffix returns s, false.
-// If suffix is the empty string, CutSuffix returns s, true.
-// This is a shim for strings.CutPrefix. Once we upgraded go version to a recent one,
-// this should be replaced with strings.CutPrefix.
-func cutSuffix(s, suffix string) (before string, found bool) {
-	if !strings.HasSuffix(s, suffix) {
-		return s, false
-	}
-	return s[:len(s)-len(suffix)], true
 }
