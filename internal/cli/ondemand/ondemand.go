@@ -354,7 +354,7 @@ Ignored errors: %v
 			for _, configAppLog := range config.GlobalConfig.AppLogs {
 				searchToken := "$" + appName
 
-				beforeSearchToken, found := utils.CutSuffix(string(configAppLog), searchToken)
+				beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
 				if found {
 					appLogsMatchingAppName = append(appLogsMatchingAppName, config.AppLog(beforeSearchToken))
 				}

@@ -350,7 +350,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 		for _, configAppLog := range config.GlobalConfig.AppLogs {
 			searchToken := "$" + appName
 
-			beforeSearchToken, found := utils.CutSuffix(string(configAppLog), searchToken)
+			beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
 			if found {
 				appLogs = append(appLogs, config.AppLog(beforeSearchToken))
 			}
