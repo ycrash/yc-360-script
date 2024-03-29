@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"shell/internal/agent/ondemand"
 	"shell/internal/capture"
-	"shell/internal/cli/ondemand"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/utils"
