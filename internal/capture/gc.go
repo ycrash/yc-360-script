@@ -208,7 +208,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	}
 
 	if len(dockerID) > 0 {
-		err = utils.DockerCopy(out, dockerID+":"+gcPath)
+		err = DockerCopy(out, dockerID+":"+gcPath)
 		if err == nil {
 			gc, err = os.Open(out)
 			return
@@ -237,7 +237,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	logName := filepath.Base(gcPath)
 	var fs []string
 	if len(dockerID) > 0 {
-		output, err := utils.DockerExecute(dockerID, "ls", "-1", d)
+		output, err := DockerExecute(dockerID, "ls", "-1", d)
 		if err != nil {
 			return nil, err
 		}
@@ -318,7 +318,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 		logger.Log("collecting previous gc log %s", preLog)
 		if len(dockerID) > 0 {
 			tmp := filepath.Join(os.TempDir(), out+".pre")
-			err = utils.DockerCopy(tmp, dockerID+":"+preLog)
+			err = DockerCopy(tmp, dockerID+":"+preLog)
 			if err == nil {
 				err = copyFile(gc, tmp, pid)
 			}
@@ -336,7 +336,7 @@ func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *
 	logger.Log("collecting previous gc log %s", curLog)
 	if len(dockerID) > 0 {
 		tmp := filepath.Join(os.TempDir(), out+".cur")
-		err = utils.DockerCopy(tmp, dockerID+":"+curLog)
+		err = DockerCopy(tmp, dockerID+":"+curLog)
 		if err == nil {
 			err = copyFile(gc, tmp, pid)
 		}

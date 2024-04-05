@@ -1,11 +1,12 @@
 //go:build linux
 // +build linux
 
-package utils
+package capture
 
 import (
 	"bufio"
 	"bytes"
+	"shell/internal/utils"
 	"strconv"
 	"strings"
 
@@ -17,7 +18,7 @@ func GetDockerID(pid int) (id string, err error) {
 	if err != nil {
 		return
 	}
-	output, err := CommandCombinedOutput(DockerInfo)
+	output, err := utils.CommandCombinedOutput(utils.DockerInfo)
 	if err != nil {
 		return
 	}
@@ -52,11 +53,11 @@ func getPIDChain(pid int) (pids []int, err error) {
 }
 
 func DockerCopy(dst string, src string) (err error) {
-	err = CommandRun(Append(DockerCP, src, dst))
+	err = utils.CommandRun(utils.Append(utils.DockerCP, src, dst))
 	return
 }
 
 func DockerExecute(args ...string) (output []byte, err error) {
-	output, err = CommandCombinedOutput(Append(DockerExec, args...))
+	output, err = utils.CommandCombinedOutput(utils.Append(utils.DockerExec, args...))
 	return
 }

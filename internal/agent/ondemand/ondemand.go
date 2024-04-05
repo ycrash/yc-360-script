@@ -197,7 +197,7 @@ func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 			}
 		}
 
-		dockerID, _ = utils.GetDockerID(pid)
+		dockerID, _ = capture.GetDockerID(pid)
 	}
 
 	logger.Log("PID is %d", pid)

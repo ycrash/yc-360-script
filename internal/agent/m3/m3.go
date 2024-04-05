@@ -206,7 +206,7 @@ Resp: %s
 func uploadGCLogM3(endpoint string, pid int) string {
 	var gcPath string
 	bs, err := ondemand.RunGCCaptureCmd(pid)
-	dockerID, _ := utils.GetDockerID(pid)
+	dockerID, _ := capture.GetDockerID(pid)
 	if err == nil && len(bs) > 0 {
 		gcPath = string(bs)
 	} else {
