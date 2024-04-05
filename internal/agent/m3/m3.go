@@ -2,6 +2,7 @@ package m3
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -428,7 +429,7 @@ Resps: %s
 }
 
 func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamps, err := utils.ParseM3FinResponse(resp)
+	pids, tags, timestamps, err := ParseM3FinResponse(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -443,5 +444,50 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 		tmp = strings.Trim(t, ",")
 	}
 	_, err = ondemand.ProcessPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
+	return
+}
+
+type M3FinResponse struct {
+	Actions    []string
+	Tags       []string
+	Timestamp  string
+	Timestamps []string
+}
+
+func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []string, err error) {
+	// Init empty slice instead of []int(nil)
+	pids = []int{}
+	tags = []string{}
+	timestamps = []string{}
+
+	r := &M3FinResponse{}
+	err = json.Unmarshal(resp, r)
+	if err != nil {
+		return
+	}
+
+	tags = r.Tags
+	if len(r.Timestamps) > 0 {
+		// If the new "timestamps" field is present
+		timestamps = r.Timestamps
+	} else if r.Timestamp != "" {
+		// If the new "timestamps" is not present,
+		// Use the legacy "timestamp" field
+		timestamps = append(timestamps, r.Timestamp)
+	}
+
+	for _, s := range r.Actions {
+		if strings.HasPrefix(s, "capture ") {
+			ss := strings.Split(s, " ")
+			if len(ss) == 2 {
+				id := ss[1]
+				pid, err := strconv.Atoi(id)
+				if err != nil {
+					continue
+				}
+				pids = append(pids, pid)
+			}
+		}
+	}
 	return
 }
