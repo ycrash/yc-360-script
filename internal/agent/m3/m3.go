@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"shell/internal/agent/common"
 	"shell/internal/agent/ondemand"
 	"shell/internal/capture"
 	"shell/internal/config"
@@ -52,16 +53,17 @@ func (m3 *M3App) RunSingle() error {
 	m3.runLock.Lock()
 	defer m3.runLock.Unlock()
 
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	now, timezone := common.GetAgentCurrentTime()
+	timestamp := now.Format("2006-01-02T15-04-05")
 
-	pids, err := m3.processM3(timestamp, GetM3ReceiverEndpoint(timestamp))
+	pids, err := m3.processM3(timestamp, GetM3ReceiverEndpoint(timestamp, timezone))
 
 	if err != nil {
 		logger.Log("WARNING: processM3 failed, %s", err)
 		return err
 	}
 
-	finEndpoint := GetM3FinEndpoint(timestamp, pids)
+	finEndpoint := GetM3FinEndpoint(timestamp, timezone, pids)
 	resp, err := ondemand.RequestFin(finEndpoint)
 
 	if err != nil {
@@ -84,12 +86,12 @@ func (m3 *M3App) RunSingle() error {
 	return nil
 }
 
-func GetM3ReceiverEndpoint(timestamp string) string {
-	return fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, GetM3CommonEndpointParameters(timestamp))
+func GetM3ReceiverEndpoint(timestamp string, timezone string) string {
+	return fmt.Sprintf("%s/m3-receiver?%s", config.GlobalConfig.Server, GetM3CommonEndpointParameters(timestamp, timezone))
 }
 
-func GetM3FinEndpoint(timestamp string, pids map[int]string) string {
-	parameters := GetM3CommonEndpointParameters(timestamp)
+func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) string {
+	parameters := GetM3CommonEndpointParameters(timestamp, timezone)
 
 	if len(pids) > 0 {
 		var ps, ns strings.Builder
@@ -112,13 +114,12 @@ func GetM3FinEndpoint(timestamp string, pids map[int]string) string {
 	return fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 }
 
-func GetM3CommonEndpointParameters(timestamp string) string {
+func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	// Get the server's local time zone
-	serverTimeZone := utils.GetServerTimeZone()
 	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
 
 	// Encode the server's time zone as base64
-	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(serverTimeZone))
+	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
 	parameters += "&timezoneID=" + timezoneBase64
 
 	return parameters

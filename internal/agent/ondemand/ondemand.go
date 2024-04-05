@@ -15,15 +15,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"shell/internal/agent/common"
 	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/java"
 	"shell/internal/logger"
 	"shell/internal/utils"
 	"strconv"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gentlemanautomaton/cmdline"
@@ -112,7 +114,8 @@ func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 	// -------------------------------------------------------------------
 	//  Create output files
 	// -------------------------------------------------------------------
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
+	now, _ := common.GetAgentCurrentTime()
+	timestamp := now.Format("2006-01-02T15-04-05")
 	var parameters string
 	if len(ts) > 0 {
 		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), ts)
@@ -891,13 +894,12 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	} else {
 		un = current.Username
 	}
-	now := time.Now()
+
+	now, timezoneIANA := common.GetAgentCurrentTime()
 	timestamp := now.Format("2006-01-02T15-04-05")
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
-	// Get the server's local time zone
-	serverTimeZone := utils.GetServerTimeZone()
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, serverTimeZone, cpuCount, jv, ov, tags))
+	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, tags))
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
