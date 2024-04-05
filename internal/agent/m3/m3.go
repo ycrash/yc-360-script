@@ -166,7 +166,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 	logger.Log("Collection of top data started.")
 
 	// @Andy: If this is m3 specific, it could be moved to m3 specific file for clarity
-	pids, err = utils.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+	pids, err = capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 
 	if err == nil && len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?

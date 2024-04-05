@@ -233,7 +233,7 @@ Ignored errors: %v
 --------------------------------
 `, ok, msg, err)
 
-	if pidPassed && !utils.IsProcessExists(pid) {
+	if pidPassed && !capture.IsProcessExists(pid) {
 		defer func() {
 			logger.Log("WARNING: Process %d doesn't exist.", pid)
 			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")

@@ -1,19 +1,20 @@
 //go:build !windows
 // +build !windows
 
-package utils
+package capture
 
 import (
 	"bufio"
 	"bytes"
 	"os"
 	"shell/internal/config"
+	"shell/internal/utils"
 	"strconv"
 	"strings"
 )
 
 func GetTopCpu() (pid int, err error) {
-	output, err := CommandCombinedOutput(ProcessTopCPU)
+	output, err := utils.CommandCombinedOutput(utils.ProcessTopCPU)
 	if err != nil {
 		return
 	}
@@ -52,7 +53,7 @@ Next:
 }
 
 func GetTopMem() (pid int, err error) {
-	output, err := CommandCombinedOutput(ProcessTopMEM)
+	output, err := utils.CommandCombinedOutput(utils.ProcessTopMEM)
 	if err != nil {
 		return
 	}
@@ -91,7 +92,7 @@ Next:
 }
 
 func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
-	output, err := CommandCombinedOutput(M3PS)
+	output, err := utils.CommandCombinedOutput(utils.M3PS)
 	if err != nil {
 		return
 	}

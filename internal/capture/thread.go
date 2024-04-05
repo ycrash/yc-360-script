@@ -51,7 +51,7 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		}
 	}
 	if t.Pid > 0 && td == nil {
-		if !utils.IsProcessExists(t.Pid) {
+		if !IsProcessExists(t.Pid) {
 			err = fmt.Errorf("process %d does not exist", t.Pid)
 			return
 		}

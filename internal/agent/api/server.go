@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"shell/internal/agent/common"
+	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 type Server struct {
@@ -170,7 +170,7 @@ func (s *Server) Action(writer http.ResponseWriter, request *http.Request) {
 
 	atLeast1PidExist := false
 	for _, pid := range pids {
-		if utils.IsProcessExists(pid) {
+		if capture.IsProcessExists(pid) {
 			atLeast1PidExist = true
 			break
 		}
@@ -245,24 +245,24 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 				var pid int
 				switch id {
 				case "PROCESS_HIGH_CPU":
-					pid, err = utils.GetTopCpu()
+					pid, err = capture.GetTopCpu()
 					if err != nil {
 						return
 					}
 				case "PROCESS_HIGH_MEMORY":
-					pid, err = utils.GetTopMem()
+					pid, err = capture.GetTopMem()
 					if err != nil {
 						return
 					}
 				case "PROCESS_UNKNOWN":
-					pid, err = utils.GetTopCpu()
+					pid, err = capture.GetTopCpu()
 					if err != nil {
 						return
 					}
 					if pid > 0 {
 						result = append(result, pid)
 					}
-					pid, err = utils.GetTopMem()
+					pid, err = capture.GetTopMem()
 					if err != nil {
 						return
 					}
@@ -271,7 +271,7 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 					pid, e = strconv.Atoi(id)
 					// "actions": ["capture buggyApp.jar"]
 					if e != nil {
-						p2n, e := utils.GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
+						p2n, e := capture.GetProcessIds(config.ProcessTokens{config.ProcessToken(id)}, nil)
 						if e != nil {
 							continue
 						}

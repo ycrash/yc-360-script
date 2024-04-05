@@ -6,6 +6,7 @@ import (
 	"shell/internal/agent/common"
 	"shell/internal/agent/m3"
 	"shell/internal/agent/ondemand"
+	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/utils"
@@ -40,7 +41,7 @@ func Run() {
 	} else if len(config.GlobalConfig.Pid) > 0 {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
 		if err != nil {
-			ids, err := utils.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
+			ids, err := capture.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
 			if err == nil {
 				if len(ids) > 0 {
 					for pid := range ids {

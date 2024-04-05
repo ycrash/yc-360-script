@@ -96,7 +96,7 @@ func (t *TopH) Run() (result Result, err error) {
 		result.Ok = false
 		return
 	}
-	if !utils.IsProcessExists(t.Pid) {
+	if !IsProcessExists(t.Pid) {
 		err = fmt.Errorf("process %d does not exist", t.Pid)
 		return
 	}
