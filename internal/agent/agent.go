@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"shell/internal/agent/api"
+	"shell/internal/agent/common"
 	"shell/internal/agent/m3"
 	"shell/internal/agent/ondemand"
 	"shell/internal/config"
@@ -65,7 +66,7 @@ func Run() {
 		os.Exit(1)
 	}
 	for {
-		msg, ok := utils.Attend()
+		msg, ok := common.Attend()
 		logger.Log(
 			`daily attendance task
 Is completed: %t
@@ -85,7 +86,7 @@ func startupLogs() {
 	logger.Log("yc agent version: " + utils.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
-	msg, ok := utils.StartupAttend()
+	msg, ok := common.StartupAttend()
 	logger.Log(
 		`startup attendance task
 Is completed: %t

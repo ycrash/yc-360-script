@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"shell/internal/agent/common"
 	"shell/internal/config"
 	"shell/internal/logger"
 	"shell/internal/utils"
@@ -291,7 +292,7 @@ func parseActions(actions []string) (result []interface{}, pid2Name map[int]stri
 				}
 			}
 		} else if s == "attendance" {
-			msg, ok := utils.AttendWithType("api")
+			msg, ok := common.AttendWithType("api")
 			fmt.Printf(
 				`api attendance task
 Is completed: %t
