@@ -3,7 +3,7 @@
 
 package ycattach
 
-import "shell/internal/ycattach/posix"
+import "shell/internal/capture/ycattach/posix"
 
 var Capture = posix.Capture
 var CaptureThreadDump = posix.CaptureThreadDump

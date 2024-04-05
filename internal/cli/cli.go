@@ -15,10 +15,10 @@ import (
 	"syscall"
 
 	"shell/internal/agent"
+	"shell/internal/capture/procps"
+	ycattach "shell/internal/capture/ycattach"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/procps"
-	ycattach "shell/internal/ycattach"
 )
 
 func Run() {

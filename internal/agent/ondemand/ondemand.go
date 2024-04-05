@@ -21,8 +21,8 @@ import (
 
 	"shell/internal/agent/common"
 	"shell/internal/capture"
+	"shell/internal/capture/java"
 	"shell/internal/config"
-	"shell/internal/java"
 	"shell/internal/logger"
 	"shell/internal/utils"
 	"strconv"
