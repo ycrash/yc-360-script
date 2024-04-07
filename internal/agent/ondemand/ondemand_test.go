@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"shell/internal/capture"
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 	"testing"
 	"time"
 )
@@ -22,25 +22,25 @@ func init() {
 }
 
 func TestFindGCLog(t *testing.T) {
-	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
+	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer noGC.KillAndWait()
 
-	xlog, err := utils.CommandStartInBackground(utils.Command{"java", "-Xlog:gc=trace:file=gctrace.txt:uptimemillis,pid:filecount=5,filesize=1024", "MyClass"})
+	xlog, err := executils.CommandStartInBackground(executils.Command{"java", "-Xlog:gc=trace:file=gctrace.txt:uptimemillis,pid:filecount=5,filesize=1024", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer xlog.KillAndWait()
 
-	xlog2, err := utils.CommandStartInBackground(utils.Command{"java", "-Xlog:gc:gctrace.log", "MyClass"})
+	xlog2, err := executils.CommandStartInBackground(executils.Command{"java", "-Xlog:gc:gctrace.log", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer xlog2.KillAndWait()
 
-	xloggc, err := utils.CommandStartInBackground(utils.Command{"java", "-Xloggc:garbage-collection.log", "MyClass"})
+	xloggc, err := executils.CommandStartInBackground(executils.Command{"java", "-Xloggc:garbage-collection.log", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

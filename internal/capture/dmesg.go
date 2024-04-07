@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 
+	"shell/internal/capture/executils"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 type DMesg struct {
@@ -20,7 +20,7 @@ func (t *DMesg) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, utils.DMesg)
+	t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.DMesg)
 	if err != nil {
 		return
 	}
@@ -48,7 +48,7 @@ func (t *DMesg) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, utils.DMesg2)
+		t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.DMesg2)
 		if err != nil {
 			return
 		}

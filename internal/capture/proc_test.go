@@ -1,7 +1,7 @@
 package capture
 
 import (
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 	"testing"
 )
 
@@ -11,7 +11,7 @@ func TestCheckProcessExists(t *testing.T) {
 		t.Fatal("process 65535 should not exists")
 	}
 
-	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "-cp", "./capture/testdata/", "MyClass"})
+	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "-cp", "./capture/testdata/", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

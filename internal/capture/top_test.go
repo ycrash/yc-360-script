@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 func TestTop(t *testing.T) {
@@ -22,7 +22,7 @@ func TestTop(t *testing.T) {
 }
 
 func TestTopH(t *testing.T) {
-	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
+	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +49,12 @@ func TestTop4M3(t *testing.T) {
 }
 
 func TestSkip(t *testing.T) {
-	command, err := utils.NopCommand.AddDynamicArg(strconv.Itoa(100))
+	command, err := executils.NopCommand.AddDynamicArg(strconv.Itoa(100))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("%#v", command)
-	c, err := utils.CommandStartInBackgroundToWriter(os.NewFile(0, os.DevNull), command)
+	c, err := executils.CommandStartInBackgroundToWriter(os.NewFile(0, os.DevNull), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestSkip(t *testing.T) {
 }
 
 func TestNop(t *testing.T) {
-	var a = utils.NopCommand
+	var a = executils.NopCommand
 	if len(a) > 0 {
 		t.Fatal("")
 	}

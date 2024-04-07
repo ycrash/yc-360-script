@@ -7,9 +7,9 @@ import (
 	"shell/internal/agent/m3"
 	"shell/internal/agent/ondemand"
 	"shell/internal/capture"
+	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 	"strconv"
 	"sync"
 )
@@ -59,7 +59,7 @@ func Run() {
 		} else {
 			ondemand.FullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 		}
-		utils.RemoveFromTempPath()
+		executils.RemoveFromTempPath()
 		os.Exit(0)
 	} else if config.GlobalConfig.Port <= 0 && !config.GlobalConfig.M3 {
 		once.Do(startupLogs)
@@ -80,11 +80,11 @@ Resp: %s
 
 func Shutdown() {
 	ondemand.Wg.Wait()
-	utils.RemoveFromTempPath()
+	executils.RemoveFromTempPath()
 }
 
 func startupLogs() {
-	logger.Log("yc agent version: " + utils.SCRIPT_VERSION)
+	logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
 	logger.Log("yc script starting...")
 
 	msg, ok := common.StartupAttend()

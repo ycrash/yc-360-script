@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 type NetStat struct {
@@ -25,8 +25,8 @@ func (t *NetStat) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	file.WriteString(fmt.Sprintf("%s\n", utils.NowString()))
-	err = utils.CommandCombinedOutputToWriter(file, utils.NetState)
+	file.WriteString(fmt.Sprintf("%s\n", executils.NowString()))
+	err = executils.CommandCombinedOutputToWriter(file, executils.NetState)
 	if err != nil {
 		err = netStat(true, true, true, true, false, true, false, file)
 		if err != nil {
@@ -34,8 +34,8 @@ func (t *NetStat) Run() (result Result, err error) {
 		}
 	}
 	t.Wait()
-	file.WriteString(fmt.Sprintf("\n%s\n", utils.NowString()))
-	err = utils.CommandCombinedOutputToWriter(file, utils.NetState)
+	file.WriteString(fmt.Sprintf("\n%s\n", executils.NowString()))
+	err = executils.CommandCombinedOutputToWriter(file, executils.NetState)
 	if err != nil {
 		err = netStat(true, true, true, true, false, true, false, file)
 		if err != nil {

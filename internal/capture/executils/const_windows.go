@@ -1,4 +1,4 @@
-package utils
+package executils
 
 import (
 	_ "embed"

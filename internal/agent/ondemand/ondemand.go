@@ -15,17 +15,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"shell/internal/agent/common"
 	"shell/internal/capture"
+	"shell/internal/capture/executils"
 	"shell/internal/capture/java"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
-	"strconv"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gentlemanautomaton/cmdline"
@@ -71,7 +71,7 @@ func ProcessPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 			}
 		}
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
-			_, err := utils.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
+			_, err := executils.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
 				logger.Log("WARNING: runCaptureCmd failed %s", err)
 				continue
@@ -214,11 +214,11 @@ func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 	logger.Log("PROBLEMATIC_PID is: %d", pid)
 
 	// Display the being used in this script
-	logger.Log("SCRIPT_SPAN = %d", utils.SCRIPT_SPAN)
-	logger.Log("JAVACORE_INTERVAL = %d", utils.JAVACORE_INTERVAL)
-	logger.Log("TOP_INTERVAL = %d", utils.TOP_INTERVAL)
-	logger.Log("TOP_DASH_H_INTERVAL = %d", utils.TOP_DASH_H_INTERVAL)
-	logger.Log("VMSTAT_INTERVAL = %d", utils.VMSTAT_INTERVAL)
+	logger.Log("SCRIPT_SPAN = %d", executils.SCRIPT_SPAN)
+	logger.Log("JAVACORE_INTERVAL = %d", executils.JAVACORE_INTERVAL)
+	logger.Log("TOP_INTERVAL = %d", executils.TOP_INTERVAL)
+	logger.Log("TOP_DASH_H_INTERVAL = %d", executils.TOP_DASH_H_INTERVAL)
+	logger.Log("VMSTAT_INTERVAL = %d", executils.VMSTAT_INTERVAL)
 
 	// -------------------------------
 	//     Transmit MetaInfo
@@ -746,14 +746,14 @@ var goCapture = capture.GoCapture
 
 func GetGCLogFile(pid int) (result string, err error) {
 	var output []byte
-	var command utils.Command
+	var command executils.Command
 	var logFile string
 	dynamicArg := strconv.Itoa(pid)
 	if runtime.GOOS == "windows" {
 		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
 	}
-	command, _ = utils.GC.AddDynamicArg(dynamicArg)
-	output, err = utils.CommandCombinedOutput(command)
+	command, _ = executils.GC.AddDynamicArg(dynamicArg)
+	output, err = executils.CommandCombinedOutput(command)
 	if err != nil {
 		return
 	}
@@ -872,7 +872,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		err = fmt.Errorf("hostname err: %v", e)
 	}
 	var jv string
-	javaVersion, e := utils.CommandCombinedOutput(utils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+	javaVersion, e := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
 	if e != nil {
 		err = fmt.Errorf("javaVersion err: %v, previous err: %v", e, err)
 	} else {
@@ -880,7 +880,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		jv = strings.ReplaceAll(jv, "\n", ", ")
 	}
 	var ov string
-	osVersion, e := utils.CommandCombinedOutput(utils.OSVersion)
+	osVersion, e := executils.CommandCombinedOutput(executils.OSVersion)
 	if e != nil {
 		err = fmt.Errorf("osVersion err: %v, previous err: %v", e, err)
 	} else {
@@ -913,7 +913,7 @@ func RunGCCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
+	path, err = executils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -926,7 +926,7 @@ func RunTDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
+	path, err = executils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}
@@ -939,7 +939,7 @@ func RunHDCaptureCmd(pid int) (path []byte, err error) {
 	if len(cmd) < 1 {
 		return
 	}
-	path, err = utils.RunCaptureCmd(pid, cmd)
+	path, err = executils.RunCaptureCmd(pid, cmd)
 	if err != nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package utils
+package executils
 
 var (
 	NetState            = Command{"netstat", "-an"}

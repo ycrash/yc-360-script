@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
+	"shell/internal/capture/executils"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 const tdOut = "threaddump.out"
@@ -64,11 +64,11 @@ func (t *ThreadDump) Run() (result Result, err error) {
 		} else {
 			logger.Log("Collected thread dump...")
 		}
-		err = utils.CommandRun(utils.AppendJavaCoreFiles)
+		err = executils.CommandRun(executils.AppendJavaCoreFiles)
 		if err != nil {
 			return
 		}
-		err = utils.CommandRun(utils.AppendTopHFiles)
+		err = executils.CommandRun(executils.AppendTopHFiles)
 		if err != nil {
 			return
 		}

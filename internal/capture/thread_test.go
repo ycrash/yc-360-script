@@ -3,11 +3,11 @@ package capture
 import (
 	"testing"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 func TestThread(t *testing.T) {
-	noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
+	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
 	}

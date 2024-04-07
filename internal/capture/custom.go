@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 type Custom struct {
@@ -20,7 +20,7 @@ func (c *Custom) Run() (result Result, err error) {
 		return
 	}
 	defer custom.Close()
-	c.Cmd, err = utils.CommandStartInBackgroundToWriter(custom, c.Command)
+	c.Cmd, err = executils.CommandStartInBackgroundToWriter(custom, c.Command)
 	if err != nil {
 		return
 	}

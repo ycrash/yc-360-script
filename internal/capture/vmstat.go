@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strconv"
 
+	"shell/internal/capture/executils"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 type VMStat struct {
@@ -21,14 +21,14 @@ func (t *VMStat) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	cmd, err := utils.VMState.AddDynamicArg(
-		strconv.Itoa(utils.VMSTAT_INTERVAL),
+	cmd, err := executils.VMState.AddDynamicArg(
+		strconv.Itoa(executils.VMSTAT_INTERVAL),
 		"5")
 	if err != nil {
 		return
 	}
 
-	t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, cmd)
+	t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, cmd)
 	if t.Cmd.IsSkipped() {
 		result.Msg = "skipped capturing VMStat"
 		result.Ok = false
@@ -57,21 +57,21 @@ func (t *VMStat) Run() (result Result, err error) {
 		if err != nil {
 			return
 		}
-		cmd, err = (&utils.Command{
-			utils.WaitCommand,
-			utils.Executable(),
+		cmd, err = (&executils.Command{
+			executils.WaitCommand,
+			executils.Executable(),
 			"-vmstatMode",
-			utils.DynamicArg,
-			utils.DynamicArg,
+			executils.DynamicArg,
+			executils.DynamicArg,
 			`| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`,
 		}).AddDynamicArg(
-			strconv.Itoa(utils.VMSTAT_INTERVAL),
+			strconv.Itoa(executils.VMSTAT_INTERVAL),
 			"5")
 		logger.Info().Strs("cmd", cmd).Err(rErr).Bytes("output", output).Str("failed cmd", oCmd.String()).Msg("vmstat failed, trying to use -vmstatMode")
 		if err != nil {
 			return
 		}
-		t.Cmd, err = utils.CommandStartInBackgroundToWriter(file, cmd)
+		t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, cmd)
 		if err != nil {
 			return
 		}

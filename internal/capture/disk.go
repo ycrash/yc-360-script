@@ -1,7 +1,7 @@
 package capture
 
 import (
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 type Disk struct {
@@ -9,7 +9,7 @@ type Disk struct {
 }
 
 func (t *Disk) Run() (result Result, err error) {
-	df, err := utils.CommandCombinedOutputToFile("disk.out", utils.Disk)
+	df, err := executils.CommandCombinedOutputToFile("disk.out", executils.Disk)
 	if err != nil {
 		return
 	}

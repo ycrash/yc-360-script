@@ -3,7 +3,7 @@ package capture
 import (
 	"os"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 type Kernel struct {
@@ -16,7 +16,7 @@ func (k *Kernel) Run() (result Result, err error) {
 		return
 	}
 	defer kernel.Close()
-	k.Cmd, err = utils.CommandStartInBackgroundToWriter(kernel, utils.KernelParam)
+	k.Cmd, err = executils.CommandStartInBackgroundToWriter(kernel, executils.KernelParam)
 	if err != nil {
 		return
 	}

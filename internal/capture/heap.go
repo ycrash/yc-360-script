@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"shell/internal/capture/executils"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 const hdOut = "heap_dump.out"
@@ -176,7 +176,7 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 	var output []byte
 
 	// Heap dump: Attempt 1: jcmd
-	output, err = utils.CommandCombinedOutput(utils.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, utils.SudoHooker{PID: t.Pid})
+	output, err = executils.CommandCombinedOutput(executils.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, executils.SudoHooker{PID: t.Pid})
 	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
 		bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -186,9 +186,9 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 		}
 		var e2 error
 		// Heap dump: Attempt 2a: jattach
-		output, e2 = utils.CommandCombinedOutput(utils.Command{utils.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
-			utils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
-			utils.SudoHooker{PID: t.Pid})
+		output, e2 = executils.CommandCombinedOutput(executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
+			executils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+			executils.SudoHooker{PID: t.Pid})
 		logger.Log("heap dump output from jattach: %s, %v", output, e2)
 		if e2 != nil ||
 			bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -198,15 +198,15 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 			}
 			err = fmt.Errorf("%v: %v", e2, err)
 			// Heap dump: Attempt 2b: tmp jattach
-			tempPath, e := utils.Copy2TempPath()
+			tempPath, e := executils.Copy2TempPath()
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)
 				return
 			}
 			var e3 error
-			output, e3 = utils.CommandCombinedOutput(utils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
-				utils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
-				utils.SudoHooker{PID: t.Pid})
+			output, e3 = executils.CommandCombinedOutput(executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-hdPath", requestedFilePath, "-hdCaptureMode"},
+				executils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+				executils.SudoHooker{PID: t.Pid})
 			logger.Log("heap dump output from tmp jattach: %s, %v", output, e3)
 			if e3 != nil ||
 				bytes.Index(output, []byte("No such file")) >= 0 ||
@@ -222,8 +222,8 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 				err = fmt.Errorf("%v: %v", e, err)
 				return
 			}
-			command := utils.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), requestedFilePath}
-			e = utils.CommandRun(command)
+			command := executils.Command{"sudo", "chown", fmt.Sprintf("%s:%s", u.Username, u.Username), requestedFilePath}
+			e = executils.CommandRun(command)
 			logger.Info().Str("cmd", strings.Join(command, " ")).Msgf("chown: %s, %v", requestedFilePath, e)
 			if e != nil {
 				err = fmt.Errorf("%v: %v", e, err)

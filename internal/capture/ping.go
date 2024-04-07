@@ -3,7 +3,7 @@ package capture
 import (
 	"os"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 type Ping struct {
@@ -17,7 +17,7 @@ func (c *Ping) Run() (result Result, err error) {
 		return
 	}
 	defer file.Close()
-	c.Cmd, err = utils.CommandStartInBackgroundToWriter(file, utils.Append(utils.Ping, c.Host))
+	c.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.Append(executils.Ping, c.Host))
 	if err != nil {
 		return
 	}

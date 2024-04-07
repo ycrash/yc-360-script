@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 // JavaVersion represents the New Version supporting the
@@ -55,7 +55,7 @@ func ParseJavaVersionString(version string) JavaVersion {
 }
 
 func GetLocalJavaVersion() (JavaVersion, error) {
-	combinedOutput, err := utils.CommandCombinedOutput(utils.JavaVersionCommand)
+	combinedOutput, err := executils.CommandCombinedOutput(executils.JavaVersionCommand)
 	if err != nil {
 		return JavaVersion{}, errors.New("error while getting java version: " + err.Error())
 	}

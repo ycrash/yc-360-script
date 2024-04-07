@@ -10,9 +10,9 @@ import "C"
 import (
 	"os"
 
+	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 func validate() {
@@ -23,7 +23,7 @@ func validate() {
 	}
 
 	if config.GlobalConfig.ShowVersion {
-		logger.Log("yc agent version: " + utils.SCRIPT_VERSION)
+		logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
 		os.Exit(0)
 	}
 

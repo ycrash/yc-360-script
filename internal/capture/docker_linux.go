@@ -6,7 +6,7 @@ package capture
 import (
 	"bufio"
 	"bytes"
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 	"strconv"
 	"strings"
 
@@ -18,7 +18,7 @@ func GetDockerID(pid int) (id string, err error) {
 	if err != nil {
 		return
 	}
-	output, err := utils.CommandCombinedOutput(utils.DockerInfo)
+	output, err := executils.CommandCombinedOutput(executils.DockerInfo)
 	if err != nil {
 		return
 	}
@@ -53,11 +53,11 @@ func getPIDChain(pid int) (pids []int, err error) {
 }
 
 func DockerCopy(dst string, src string) (err error) {
-	err = utils.CommandRun(utils.Append(utils.DockerCP, src, dst))
+	err = executils.CommandRun(executils.Append(executils.DockerCP, src, dst))
 	return
 }
 
 func DockerExecute(args ...string) (output []byte, err error) {
-	output, err = utils.CommandCombinedOutput(utils.Append(utils.DockerExec, args...))
+	output, err = executils.CommandCombinedOutput(executils.Append(executils.DockerExec, args...))
 	return
 }

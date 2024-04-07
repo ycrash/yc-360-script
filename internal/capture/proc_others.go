@@ -7,14 +7,14 @@ import (
 	"bufio"
 	"bytes"
 	"os"
+	"shell/internal/capture/executils"
 	"shell/internal/config"
-	"shell/internal/utils"
 	"strconv"
 	"strings"
 )
 
 func GetTopCpu() (pid int, err error) {
-	output, err := utils.CommandCombinedOutput(utils.ProcessTopCPU)
+	output, err := executils.CommandCombinedOutput(executils.ProcessTopCPU)
 	if err != nil {
 		return
 	}
@@ -53,7 +53,7 @@ Next:
 }
 
 func GetTopMem() (pid int, err error) {
-	output, err := utils.CommandCombinedOutput(utils.ProcessTopMEM)
+	output, err := executils.CommandCombinedOutput(executils.ProcessTopMEM)
 	if err != nil {
 		return
 	}
@@ -92,7 +92,7 @@ Next:
 }
 
 func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
-	output, err := utils.CommandCombinedOutput(utils.M3PS)
+	output, err := executils.CommandCombinedOutput(executils.M3PS)
 	if err != nil {
 		return
 	}

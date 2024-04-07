@@ -16,9 +16,9 @@ import (
 	"shell/internal/agent/common"
 	"shell/internal/agent/ondemand"
 	"shell/internal/capture"
+	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -157,7 +157,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 		return
 	}
 
-	logger.Log("yc agent version: " + utils.SCRIPT_VERSION)
+	logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
 	logger.Log("yc script starting in m3 mode...")
 
 	logger.Log("Starting collection of top data...")
@@ -222,11 +222,11 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	if err != nil {
 		logger.Log("process log file failed %s, err: %s", gcPath, err.Error())
 	}
-	var jstat utils.CmdManager
+	var jstat executils.CmdManager
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
-		gc, jstat, err = utils.CommandStartInBackgroundToFile(fn,
-			utils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, utils.SudoHooker{PID: pid})
+		gc, jstat, err = executils.CommandStartInBackgroundToFile(fn,
+			executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, executils.SudoHooker{PID: pid})
 		if err == nil {
 			gcPath = fn
 			logger.Log("gc log set to %s", gcPath)
@@ -285,7 +285,7 @@ Resp: %s
 	return gcPath
 }
 
-func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat utils.CmdManager, err error) {
+func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat executils.CmdManager, err error) {
 	if gc != nil {
 		err = gc.Close()
 		if err != nil {
@@ -297,8 +297,8 @@ func captureGC(pid int, gc *os.File, fn string) (file *os.File, jstat utils.CmdM
 		}
 	}
 	// file deepcode ignore CommandInjection: security vulnerability
-	file, jstat, err = utils.CommandStartInBackgroundToFile(fn,
-		utils.Command{utils.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(pid)}, utils.SudoHooker{PID: pid})
+	file, jstat, err = executils.CommandStartInBackgroundToFile(fn,
+		executils.Command{executils.Executable(), "-p", strconv.Itoa(pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(pid)}, executils.SudoHooker{PID: pid})
 	return
 }
 

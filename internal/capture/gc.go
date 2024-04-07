@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
+	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
@@ -43,8 +43,8 @@ func (t *GC) Run() (result Result, err error) {
 		if gcFile == nil {
 			// Garbage collection log: Attempt 5: jstat
 			logger.Log("Trying to capture gc log using jstat...")
-			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
-				utils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, utils.SudoHooker{PID: t.Pid})
+			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
+				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, executils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("jstat failed cause %s", err.Error())
 			}
@@ -52,8 +52,8 @@ func (t *GC) Run() (result Result, err error) {
 		if gcFile == nil {
 			// Garbage collection log: Attempt 6a: jattach
 			logger.Log("Trying to capture gc log using jattach...")
-			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
-				utils.Command{utils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, utils.SudoHooker{PID: t.Pid})
+			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
+				executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("jattach failed cause %s", err.Error())
 			}
@@ -62,12 +62,12 @@ func (t *GC) Run() (result Result, err error) {
 			// Garbage collection log: Attempt 6b: tmp jattach
 			logger.Log("Trying to capture gc log using tmp jattach...")
 			var tempPath string
-			tempPath, err = utils.Copy2TempPath()
+			tempPath, err = executils.Copy2TempPath()
 			if err != nil {
 				return
 			}
-			gcFile, err = utils.CommandCombinedOutputToFile(fileName,
-				utils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, utils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, utils.SudoHooker{PID: t.Pid})
+			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
+				executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("tmp jattach failed cause %s", err.Error())
 			}

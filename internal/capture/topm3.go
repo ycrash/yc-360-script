@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
+	"shell/internal/capture/executils"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 type Top4M3 struct {
@@ -14,7 +14,7 @@ type Top4M3 struct {
 }
 
 func (t *Top4M3) Run() (result Result, err error) {
-	if len(utils.Top4M3) < 1 {
+	if len(executils.Top4M3) < 1 {
 		result.Msg = "skipped capturing TopH"
 		result.Ok = false
 		return
@@ -31,7 +31,7 @@ func (t *Top4M3) Run() (result Result, err error) {
 	}()
 
 	for i := 0; i < 3; i++ {
-		t.Cmd, err = utils.CommandStartInBackgroundToWriter(top, utils.Top4M3)
+		t.Cmd, err = executils.CommandStartInBackgroundToWriter(top, executils.Top4M3)
 		if err != nil {
 			return
 		}

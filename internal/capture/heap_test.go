@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal/utils"
+	"shell/internal/capture/executils"
 )
 
 const (
@@ -51,7 +51,7 @@ func TestHeapDump(t *testing.T) {
 
 func testHeapDump(hdPath string, dump bool) func(t *testing.T) {
 	return func(t *testing.T) {
-		noGC, err := utils.CommandStartInBackground(utils.Command{"java", "MyClass"})
+		noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 		if err != nil {
 			t.Fatal(err)
 		}
