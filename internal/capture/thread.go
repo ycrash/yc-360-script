@@ -81,6 +81,6 @@ func (t *ThreadDump) Run() (result Result, err error) {
 			_ = td.Close()
 		}()
 	}
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "td", td)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "td", td)
 	return
 }

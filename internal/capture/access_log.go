@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 const accessLogOut = "accesslog.out"
@@ -36,7 +35,7 @@ func (t *AccessLog) Run() (result Result, err error) {
 		return
 	}
 
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "accessLog", dst)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "accessLog", dst)
 	t.Position = newPosition
 	return
 }

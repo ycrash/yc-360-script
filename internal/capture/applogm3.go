@@ -10,7 +10,6 @@ import (
 
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 
 	"github.com/mattn/go-zglob"
 )
@@ -143,7 +142,7 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (result Result,
 		dt = dt + "&content-encoding=" + fileExt
 	}
 
-	result.Msg, result.Ok = utils.PostData(a.Endpoint(), dt, dst)
+	result.Msg, result.Ok = PostData(a.Endpoint(), dt, dst)
 
 	// Update readStats for next run
 	readStat.fileSize = fileInfo.Size()

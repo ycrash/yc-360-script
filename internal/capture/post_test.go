@@ -1,4 +1,4 @@
-package utils
+package capture
 
 import (
 	"io/ioutil"

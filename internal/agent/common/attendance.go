@@ -5,9 +5,9 @@ import (
 	"net"
 	"time"
 
+	"shell/internal/capture"
 	"shell/internal/config"
 	"shell/internal/logger"
-	"shell/internal/utils"
 )
 
 func sleep4Attendance() {
@@ -25,7 +25,7 @@ func calDuration4Attendance(utc time.Time) (time.Time, time.Duration) {
 }
 
 func sleep4Distribution() {
-	d := calDuration4Distribution(utils.GetOutboundIP())
+	d := calDuration4Distribution(capture.GetOutboundIP())
 	logger.Log("sleep4Distribution %s", d)
 	if d <= 0 {
 		return
@@ -46,13 +46,13 @@ func calDuration4Distribution(ip net.IP) time.Duration {
 
 func AttendWithType(typ string) (string, bool) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&%s",
 		config.GlobalConfig.Server, typ, parameters)
 	if config.GlobalConfig.M3 {
 		endpoint += "&m3=true"
 	}
-	return utils.GetData(endpoint)
+	return capture.GetData(endpoint)
 }
 
 func Attend() (string, bool) {

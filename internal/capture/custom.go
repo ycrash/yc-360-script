@@ -30,6 +30,6 @@ func (c *Custom) Run() (result Result, err error) {
 		return
 	}
 	c.Cmd.Wait()
-	result.Msg, result.Ok = utils.PostCustomData(c.Endpoint(), c.UrlParams, custom)
+	result.Msg, result.Ok = PostCustomData(c.Endpoint(), c.UrlParams, custom)
 	return
 }

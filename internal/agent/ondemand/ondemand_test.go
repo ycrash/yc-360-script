@@ -3,6 +3,7 @@ package ondemand
 import (
 	"fmt"
 	"os"
+	"shell/internal/capture"
 	"shell/internal/utils"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestFindGCLog(t *testing.T) {
 
 func TestPostData(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 
 	t.Run("requestFin", func(t *testing.T) {
@@ -129,31 +130,31 @@ func TestPostData(t *testing.T) {
 	}
 	defer td.Close()
 
-	msg, ok := utils.PostData(endpoint, "top", top)
+	msg, ok := capture.PostData(endpoint, "top", top)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "df", df)
+	msg, ok = capture.PostData(endpoint, "df", df)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "ns", netstat)
+	msg, ok = capture.PostData(endpoint, "ns", netstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "ps", ps)
+	msg, ok = capture.PostData(endpoint, "ps", ps)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "vmstat", vmstat)
+	msg, ok = capture.PostData(endpoint, "vmstat", vmstat)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "gc", gc)
+	msg, ok = capture.PostData(endpoint, "gc", gc)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
-	msg, ok = utils.PostData(endpoint, "td", td)
+	msg, ok = capture.PostData(endpoint, "td", td)
 	if !ok {
 		t.Fatal("post data failed", msg)
 	}
@@ -161,7 +162,7 @@ func TestPostData(t *testing.T) {
 
 func TestWriteMetaInfo(t *testing.T) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
 	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
 	msg, ok, err := writeMetaInfo(11111, "test", endpoint, "tag1")
 	if err != nil || !ok {

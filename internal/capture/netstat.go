@@ -42,6 +42,6 @@ func (t *NetStat) Run() (result Result, err error) {
 			return
 		}
 	}
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "ns", file)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "ns", file)
 	return
 }

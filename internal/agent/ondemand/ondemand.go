@@ -724,7 +724,7 @@ Resp: %s
 `, pterm.RemoveColorFromString(result))
 
 	if agentLogFile != nil {
-		msg, ok = utils.PostData(endpoint, "agentlog", agentLogFile)
+		msg, ok = capture.PostData(endpoint, "agentlog", agentLogFile)
 		err := logger.StopWritingToFile()
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to stop writing to file")
@@ -741,7 +741,7 @@ Resp: %s
 	return
 }
 
-var getOutboundIP = utils.GetOutboundIP
+var getOutboundIP = capture.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func GetGCLogFile(pid int) (result string, err error) {
@@ -904,7 +904,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
 	}
-	msg, ok = utils.PostData(endpoint, "meta", file)
+	msg, ok = capture.PostData(endpoint, "meta", file)
 	return
 }
 

@@ -14,6 +14,6 @@ func (t *Disk) Run() (result Result, err error) {
 		return
 	}
 	defer df.Close()
-	result.Msg, result.Ok = utils.PostData(t.endpoint, "df", df)
+	result.Msg, result.Ok = PostData(t.endpoint, "df", df)
 	return
 }

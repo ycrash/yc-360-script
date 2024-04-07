@@ -129,6 +129,6 @@ func (t *HDSub) Run() (result Result, err error) {
 		logger.Log("failed to sync file %s", e)
 	}
 
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "hdsub", out)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "hdsub", out)
 	return
 }

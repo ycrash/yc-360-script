@@ -36,7 +36,7 @@ func init() {
 		javaHome = jh
 	}
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", GetOutboundIP().String(), timestamp)
 	heapEndpoint = fmt.Sprintf("%s/yc-receiver-heap?%s", host, parameters)
 	endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", host, parameters)
 }

@@ -52,6 +52,6 @@ func (t *PS) Run() (result Result, err error) {
 			}
 		}
 	}
-	result.Msg, result.Ok = utils.PostData(t.endpoint, "ps", file)
+	result.Msg, result.Ok = PostData(t.endpoint, "ps", file)
 	return
 }

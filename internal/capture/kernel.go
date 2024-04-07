@@ -26,6 +26,6 @@ func (k *Kernel) Run() (result Result, err error) {
 		return
 	}
 	k.Cmd.Wait()
-	result.Msg, result.Ok = utils.PostData(k.Endpoint(), "kernel", kernel)
+	result.Msg, result.Ok = PostData(k.Endpoint(), "kernel", kernel)
 	return
 }

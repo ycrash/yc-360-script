@@ -79,6 +79,6 @@ func (t *VMStat) Run() (result Result, err error) {
 		file.Sync()
 	}
 
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "vmstat", file)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "vmstat", file)
 	return
 }

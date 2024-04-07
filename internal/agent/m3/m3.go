@@ -117,7 +117,7 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 
 func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	// Get the server's local time zone
-	parameters := fmt.Sprintf("de=%s&ts=%s", utils.GetOutboundIP().String(), timestamp)
+	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
 
 	// Encode the server's time zone as base64
 	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
@@ -268,7 +268,7 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	// -------------------------------
 	//     Transmit GC Log
 	// -------------------------------
-	msg, ok := utils.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, utils.PositionLast5000Lines)
+	msg, ok := capture.PostCustomDataWithPositionFunc(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gc, capture.PositionLast5000Lines)
 	absGCPath, err := filepath.Abs(gcPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", gcPath, err.Error())

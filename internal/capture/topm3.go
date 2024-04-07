@@ -57,6 +57,6 @@ func (t *Top4M3) Run() (result Result, err error) {
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "top", top)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "top", top)
 	return
 }

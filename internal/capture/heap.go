@@ -159,7 +159,7 @@ func (t *HeapDump) Run() (result Result, err error) {
 		logger.Log("failed to sync file %s", e)
 	}
 
-	result.Msg, result.Ok = utils.PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
+	result.Msg, result.Ok = PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
 	return
 }
 

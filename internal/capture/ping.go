@@ -27,6 +27,6 @@ func (c *Ping) Run() (result Result, err error) {
 		return
 	}
 	c.Cmd.Wait()
-	result.Msg, result.Ok = utils.PostData(c.Endpoint(), "ping", file)
+	result.Msg, result.Ok = PostData(c.Endpoint(), "ping", file)
 	return
 }

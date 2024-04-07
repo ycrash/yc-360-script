@@ -85,7 +85,7 @@ func (t *GC) Run() (result Result, err error) {
 		}()
 	}
 
-	result.Msg, result.Ok = utils.PostData(t.Endpoint(), "gc", gcFile)
+	result.Msg, result.Ok = PostData(t.Endpoint(), "gc", gcFile)
 	absGCPath, err := filepath.Abs(t.GCPath)
 	if err != nil {
 		absGCPath = fmt.Sprintf("path %s: %s", t.GCPath, err.Error())
