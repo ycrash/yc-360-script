@@ -154,7 +154,7 @@ func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 			return
 		}
 		if config.GlobalConfig.OnlyCapture {
-			name, err := utils.ZipFolder(dname)
+			name, err := ZipFolder(dname)
 			if err != nil {
 				logger.Log("WARNING: Can not zip folder: %s", err)
 				return
