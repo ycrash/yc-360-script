@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"shell/internal/config"
 	"testing"
+	"yc-agent/internal/config"
 )
 
 func TestServer(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"shell/internal/logger"
+	"yc-agent/internal/logger"
 )
 
 type Command []string

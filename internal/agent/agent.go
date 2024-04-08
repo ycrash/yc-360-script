@@ -2,16 +2,16 @@ package agent
 
 import (
 	"os"
-	"shell/internal/agent/api"
-	"shell/internal/agent/common"
-	"shell/internal/agent/m3"
-	"shell/internal/agent/ondemand"
-	"shell/internal/capture"
-	"shell/internal/capture/executils"
-	"shell/internal/config"
-	"shell/internal/logger"
 	"strconv"
 	"sync"
+	"yc-agent/internal/agent/api"
+	"yc-agent/internal/agent/common"
+	"yc-agent/internal/agent/m3"
+	"yc-agent/internal/agent/ondemand"
+	"yc-agent/internal/capture"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 func Run() {

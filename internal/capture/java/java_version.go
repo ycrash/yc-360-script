@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 // JavaVersion represents the New Version supporting the

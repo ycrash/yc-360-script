@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/agent/common"
-	"shell/internal/capture"
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/agent/common"
+	"yc-agent/internal/capture"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 type Server struct {

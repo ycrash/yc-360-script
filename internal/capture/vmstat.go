@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strconv"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 type VMStat struct {

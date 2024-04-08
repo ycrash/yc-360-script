@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/logger"
+	"yc-agent/internal/logger"
 )
 
 type SudoHooker struct {

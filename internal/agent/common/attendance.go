@@ -5,9 +5,9 @@ import (
 	"net"
 	"time"
 
-	"shell/internal/capture"
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/capture"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 func sleep4Attendance() {

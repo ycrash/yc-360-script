@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"shell/internal/config"
+	"yc-agent/internal/config"
 
 	"github.com/mattn/go-zglob"
 )

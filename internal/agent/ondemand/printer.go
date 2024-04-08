@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/config"
+	"yc-agent/internal/config"
 
 	"github.com/pterm/pterm"
 )

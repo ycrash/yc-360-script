@@ -10,8 +10,8 @@ import "C"
 import (
 	"os"
 
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 func validate() {

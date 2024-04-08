@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 type DMesg struct {

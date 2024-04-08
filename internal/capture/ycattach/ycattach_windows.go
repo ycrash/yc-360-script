@@ -3,7 +3,7 @@
 
 package ycattach
 
-import "shell/internal/capture/ycattach/windows"
+import "yc-agent/internal/capture/ycattach/windows"
 
 var Capture = windows.Capture
 var CaptureThreadDump = windows.CaptureThreadDump

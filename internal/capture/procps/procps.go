@@ -3,7 +3,7 @@
 
 package procps
 
-import "shell/internal/capture/procps/linux"
+import "yc-agent/internal/capture/procps/linux"
 
 var VMStat = linux.VMStat
 var Top = linux.Top

@@ -1,8 +1,8 @@
 package capture
 
 import (
-	"shell/internal/config"
 	"testing"
+	"yc-agent/internal/config"
 )
 
 func TestPS(t *testing.T) {

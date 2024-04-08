@@ -3,7 +3,7 @@ package capture
 import (
 	"os"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 type Ping struct {

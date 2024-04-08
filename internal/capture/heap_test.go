@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 const (

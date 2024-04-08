@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 func TestTop(t *testing.T) {

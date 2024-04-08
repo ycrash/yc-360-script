@@ -12,10 +12,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"shell/internal/agent"
-	"shell/internal/capture/executils"
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/agent"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 // Run runs the CLI program. It's responsible to validate the process args pre-condition,

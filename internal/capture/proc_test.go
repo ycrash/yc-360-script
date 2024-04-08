@@ -1,8 +1,8 @@
 package capture
 
 import (
-	"shell/internal/capture/executils"
 	"testing"
+	"yc-agent/internal/capture/executils"
 )
 
 func TestCheckProcessExists(t *testing.T) {

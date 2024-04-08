@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 func TestJStack(t *testing.T) {

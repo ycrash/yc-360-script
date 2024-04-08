@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"shell/internal/logger"
+	"yc-agent/internal/logger"
 )
 
 const accessLogOut = "accesslog.out"

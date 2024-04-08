@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 type NetStat struct {

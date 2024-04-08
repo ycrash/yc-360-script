@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/utils"
+	"yc-agent/internal/utils"
 )
 
 func GetOpenedFilesByProcess(pid int) ([]string, error) {

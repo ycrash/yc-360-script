@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 const tdOut = "threaddump.out"

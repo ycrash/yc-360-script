@@ -6,8 +6,8 @@ import (
 	"path"
 	"strconv"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 type HDSub struct {

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 type Result struct {

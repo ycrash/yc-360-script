@@ -2,11 +2,11 @@ package cli
 
 import (
 	"os"
-	"shell/internal/capture/procps"
-	"shell/internal/capture/ycattach"
-	"shell/internal/config"
-	"shell/internal/logger"
 	"strconv"
+	"yc-agent/internal/capture/procps"
+	"yc-agent/internal/capture/ycattach"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 // runRawCaptureModeIfConditionSatisfied runs custom capture mode depending on the args.

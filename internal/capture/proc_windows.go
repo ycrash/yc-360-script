@@ -8,11 +8,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"shell/internal/config"
-	"shell/internal/logger"
-	"shell/internal/utils"
 	"strconv"
 	"strings"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
+	"yc-agent/internal/utils"
 )
 
 func GetTopCpu() (pid int, err error) {

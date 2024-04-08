@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"shell/internal/agent/common"
-	"shell/internal/capture"
-	"shell/internal/capture/executils"
-	"shell/internal/capture/java"
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/agent/common"
+	"yc-agent/internal/capture"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/capture/java"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gentlemanautomaton/cmdline"

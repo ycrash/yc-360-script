@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 
 	"github.com/mattn/go-zglob"
 )

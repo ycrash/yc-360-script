@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"shell/internal/config"
+	"yc-agent/internal/config"
 )
 
 func GetOutboundIP() net.IP {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 type Custom struct {

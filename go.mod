@@ -1,4 +1,4 @@
-module shell
+module yc-agent
 
 go 1.21
 

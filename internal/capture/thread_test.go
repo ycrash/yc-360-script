@@ -3,7 +3,7 @@ package capture
 import (
 	"testing"
 
-	"shell/internal/capture/executils"
+	"yc-agent/internal/capture/executils"
 )
 
 func TestThread(t *testing.T) {

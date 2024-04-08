@@ -1,6 +1,6 @@
 package main
 
-import "shell/internal/cli"
+import "yc-agent/internal/cli"
 
 func main() {
 	cli.Run()

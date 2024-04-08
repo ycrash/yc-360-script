@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"shell/internal/capture/executils"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/logger"
 )
 
 const hdOut = "heap_dump.out"

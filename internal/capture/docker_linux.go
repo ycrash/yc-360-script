@@ -6,9 +6,9 @@ package capture
 import (
 	"bufio"
 	"bytes"
-	"shell/internal/capture/executils"
 	"strconv"
 	"strings"
+	"yc-agent/internal/capture/executils"
 
 	"github.com/mitchellh/go-ps"
 )

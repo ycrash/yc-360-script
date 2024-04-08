@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"shell/internal/capture/executils"
-	"shell/internal/config"
-	"shell/internal/logger"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 
 	"github.com/bmatcuk/doublestar/v4"
 )

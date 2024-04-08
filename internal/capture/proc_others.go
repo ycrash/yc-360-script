@@ -7,10 +7,10 @@ import (
 	"bufio"
 	"bytes"
 	"os"
-	"shell/internal/capture/executils"
-	"shell/internal/config"
 	"strconv"
 	"strings"
+	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
 )
 
 func GetTopCpu() (pid int, err error) {

@@ -3,10 +3,10 @@ package ondemand
 import (
 	"fmt"
 	"os"
-	"shell/internal/capture"
-	"shell/internal/capture/executils"
 	"testing"
 	"time"
+	"yc-agent/internal/capture"
+	"yc-agent/internal/capture/executils"
 )
 
 const (
