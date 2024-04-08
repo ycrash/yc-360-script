@@ -8,83 +8,41 @@ package cli
 
 import "C"
 import (
-	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"shell/internal/agent"
-	"shell/internal/capture/procps"
-	ycattach "shell/internal/capture/ycattach"
+	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
 )
 
+// Run runs the CLI program. It's responsible to validate the process args pre-condition,
+// init core components, run the program in non-primary mode such as top, vmstat, and other capture modes.
+// Finally, it runs the primary feature: yc-agent and wait for completion or abort on a sigterm signal.
 func Run() {
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
-		case "-vmstatMode":
-			ret := procps.VMStat(os.Args[1:]...)
-			os.Exit(ret)
-		case "-topMode":
-			ret := procps.Top(append([]string{"top"}, os.Args[2:]...)...)
-			os.Exit(ret)
-		}
-	}
-	err := config.ParseFlags(os.Args)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	err = logger.Init(config.GlobalConfig.LogFilePath, config.GlobalConfig.LogFileMaxCount,
-		config.GlobalConfig.LogFileMaxSize, config.GlobalConfig.LogLevel)
-	if err != nil {
-		log.Fatal(err.Error())
+	if len(os.Args) < 2 {
+		logger.Log("No arguments are passed.")
+		config.ShowUsage()
+		os.Exit(1)
 	}
 
-	if config.GlobalConfig.GCCaptureMode {
-		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
-		if err != nil {
-			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
-			os.Exit(1)
-		}
-		ret := ycattach.CaptureGCLog(pid)
-		os.Exit(ret)
-	}
-	if config.GlobalConfig.TDCaptureMode {
-		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
-		if err != nil {
-			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
-			os.Exit(1)
-		}
-		ret := ycattach.CaptureThreadDump(pid)
-		os.Exit(ret)
-	}
-	if config.GlobalConfig.HDCaptureMode {
-		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
-		if err != nil {
-			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
-			os.Exit(1)
-		}
-		if len(config.GlobalConfig.HeapDumpPath) <= 0 {
-			logger.Log("-hdPath can not be empty")
-			os.Exit(1)
-		}
-		ret := ycattach.CaptureHeapDump(pid, config.GlobalConfig.HeapDumpPath)
-		os.Exit(ret)
-	}
-	if len(config.GlobalConfig.JCmdCaptureMode) > 0 {
-		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
-		if err != nil {
-			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
-			os.Exit(1)
-		}
-		ret := ycattach.Capture(pid, "jcmd", config.GlobalConfig.JCmdCaptureMode)
-		os.Exit(ret)
+	runRawCaptureModeIfConditionSatisfied()
+
+	initConfig()
+	initLogger()
+
+	runCaptureModeIfConditionSatisfied()
+
+	if config.GlobalConfig.ShowVersion {
+		logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
+		os.Exit(0)
 	}
 
 	validate()
 
+	// The main feature: run agent and wait for either completion or a sigterm signal
 	osSig := make(chan os.Signal, 1)
 	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 

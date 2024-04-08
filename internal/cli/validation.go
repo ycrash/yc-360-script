@@ -10,23 +10,11 @@ import "C"
 import (
 	"os"
 
-	"shell/internal/capture/executils"
 	"shell/internal/config"
 	"shell/internal/logger"
 )
 
 func validate() {
-	if len(os.Args) < 2 {
-		logger.Log("No arguments are passed.")
-		config.ShowUsage()
-		os.Exit(1)
-	}
-
-	if config.GlobalConfig.ShowVersion {
-		logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
-		os.Exit(0)
-	}
-
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
 			logger.Log("'-s' yCrash server URL argument not passed.")
@@ -39,6 +27,7 @@ func validate() {
 			os.Exit(1)
 		}
 	}
+
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
@@ -47,10 +36,12 @@ func validate() {
 		config.ShowUsage()
 		os.Exit(1)
 	}
+
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
 		logger.Log("WARNING: -onlyCapture will be ignored in m3 mode.")
 		config.GlobalConfig.OnlyCapture = false
 	}
+
 	if config.GlobalConfig.AppLogLineCount < 1 {
 		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be a number larger than 0.", config.GlobalConfig.AppLogLineCount)
 		config.ShowUsage()
