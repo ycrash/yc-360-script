@@ -177,9 +177,6 @@ func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl
 		}
 	}
 
-	// TODO:
-	// startupLogs()
-
 	startTime := time.Now()
 	gcPath := config.GlobalConfig.GCPath
 	tdPath := config.GlobalConfig.ThreadDumpPath
