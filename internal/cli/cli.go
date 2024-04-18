@@ -42,13 +42,38 @@ func Run() {
 
 	validate()
 
-	// The main feature: run agent and wait for either completion or a sigterm signal
-	osSig := make(chan os.Signal, 1)
-	signal.Notify(osSig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	err := runToCompletionOrSigterm(agent.Run)
+	if err != nil {
+		logger.Log("Error: %s", err.Error())
+	}
 
-	go agent.Run()
-
-	<-osSig
-	logger.Log("Received kill signal, agent is shutting down...")
+	logger.Log("Agent is shutting down...")
 	agent.Shutdown()
+
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+func runToCompletionOrSigterm(f func() error) error {
+	// Setup OS signal channel
+	osSigChan := make(chan os.Signal, 1)
+	signal.Notify(osSigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+
+	completed := make(chan error)
+	var err error
+
+	go func(completed chan error) {
+		err := f()
+		completed <- err
+	}(completed)
+
+	// Wait for either completion or sigterm signals
+	select {
+	case s := <-osSigChan:
+		logger.Log("Received OS signal: %s", s)
+	case err = <-completed:
+	}
+
+	return err
 }

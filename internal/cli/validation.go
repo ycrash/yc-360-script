@@ -14,6 +14,7 @@ import (
 	"yc-agent/internal/logger"
 )
 
+// TODO: return err instead of os.Exit
 func validate() {
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {

@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"os"
+	"errors"
+	"net"
 	"strconv"
 	"yc-agent/internal/agent/api"
 	"yc-agent/internal/agent/common"
@@ -13,7 +14,9 @@ import (
 	"yc-agent/internal/logger"
 )
 
-func Run() {
+var ErrNothingCanBeDone = errors.New("nothing can be done")
+
+func Run() error {
 	startupLogs()
 
 	onDemandMode := len(config.GlobalConfig.Pid) > 0
@@ -22,12 +25,9 @@ func Run() {
 
 	// Validation: if no mode is specified (neither M3, OnDemand, nor API Mode), abort here
 	if !onDemandMode && !apiMode && !m3Mode {
-		// TODO: improve log message to describe why nothing can be done, what
-		// should the user do instead?
-		logger.Log("WARNING: nothing can be done")
+		logger.Log("WARNING: M3 mode is not enabled. API mode is not enabled. Agent is about to run OnDemand mode but no PID is specified.")
 
-		// TODO: better to return error than exit here
-		os.Exit(1)
+		return ErrNothingCanBeDone
 	}
 
 	// TODO: This is for backward compatibility: API mode can run along with on demand and M3.
@@ -54,6 +54,8 @@ func Run() {
 			}
 		}
 	}
+
+	return nil
 }
 
 func Shutdown() {
@@ -83,6 +85,7 @@ func runAPIMode() {
 	}
 
 	apiServer.ProcessPids = ondemand.ProcessPids
+	logger.Log("Running API mode on %s", net.JoinHostPort(config.GlobalConfig.Address, strconv.Itoa(config.GlobalConfig.Port)))
 
 	err = apiServer.Serve()
 	if err != nil {
@@ -91,31 +94,55 @@ func runAPIMode() {
 }
 
 func runM3Mode() {
+	logger.Log("Running M3 mode")
+
 	m3App := m3.NewM3App()
 	m3App.RunLoop()
 }
 
 func runOnDemandMode() {
-	pid, err := strconv.Atoi(config.GlobalConfig.Pid)
-	if err != nil {
-		ids, err := capture.GetProcessIds(config.ProcessTokens{config.ProcessToken(config.GlobalConfig.Pid)}, nil)
-		if err == nil {
-			if len(ids) > 0 {
-				for pid := range ids {
-					if pid < 1 {
-						continue
-					}
-					ondemand.FullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
-				}
-			} else {
-				logger.Log("failed to find the target process by unique token %s", config.GlobalConfig.Pid)
-			}
-		} else {
-			logger.Log("unexpected error %s", err)
-		}
+	pidStr := config.GlobalConfig.Pid
+	logger.Log("Running OnDemand mode with PID: %s", pidStr)
+
+	pidInt, err := strconv.Atoi(pidStr)
+	pids := []int{}
+
+	if err == nil {
+		pids = append(pids, pidInt)
 	} else {
+		// if pidStr is not an integer, it probably contains a process token, i.e: buggyApp
+		resolvedPids := resolvePidsFromToken(pidStr)
+		pids = append(pids, resolvedPids...)
+	}
+
+	for _, pid := range pids {
 		ondemand.FullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 	}
+}
+
+func resolvePidsFromToken(pidToken string) []int {
+	pids := []int{}
+	resolvedPids, err := capture.GetProcessIds(config.ProcessTokens{config.ProcessToken(pidToken)}, nil)
+
+	if err != nil {
+		logger.Log("unexpected error while resolving PIDs %s", err)
+		return pids
+	}
+
+	if len(resolvedPids) == 0 {
+		logger.Log("failed to find the target process by unique token: %s", config.GlobalConfig.Pid)
+		return pids
+	}
+
+	for resolvedPid := range resolvedPids {
+		if resolvedPid < 1 {
+			continue
+		}
+
+		pids = append(pids, resolvedPid)
+	}
+
+	return pids
 }
 
 func dailyAttendance() {
