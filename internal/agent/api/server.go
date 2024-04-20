@@ -10,12 +10,17 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"yc-agent/internal/agent/common"
+	"yc-agent/internal/agent/ondemand"
 	"yc-agent/internal/capture"
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
+
+// only one thread can run capture process
+var one sync.Mutex
 
 type Server struct {
 	*http.Server
@@ -49,10 +54,28 @@ func NewServer(address string, port int) (s *Server, err error) {
 		Server: &http.Server{
 			Handler: mux,
 		},
-		ln: ln,
+		ProcessPids: ProcessPidsWithMutex,
+		ln:          ln,
 	}
 	mux.HandleFunc("/action", s.Action)
 	return
+}
+
+// ProcessPidsWithMutext runs ProcessPids, synchronized with mutex lock
+// to allow only one function running at a time.
+func ProcessPidsWithMutex(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
+	one.Lock()
+	defer one.Unlock()
+
+	tmp := config.GlobalConfig.Tags
+	if len(tmp) > 0 {
+		ts := strings.Trim(tmp, ",")
+		tmp = strings.Trim(ts+","+tags, ",")
+	} else {
+		tmp = strings.Trim(tags, ",")
+	}
+
+	return ondemand.ProcessPids(pids, pid2Name, hd, tmp, []string{""})
 }
 
 func (s *Server) Serve() error {

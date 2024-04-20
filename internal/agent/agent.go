@@ -84,7 +84,6 @@ func runAPIMode() {
 		return
 	}
 
-	apiServer.ProcessPids = ondemand.ProcessPids
 	logger.Log("Running API mode on %s", net.JoinHostPort(config.GlobalConfig.Address, strconv.Itoa(config.GlobalConfig.Port)))
 
 	err = apiServer.Serve()
@@ -116,7 +115,7 @@ func runOnDemandMode() {
 	}
 
 	for _, pid := range pids {
-		ondemand.FullProcess(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
+		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 	}
 }
 

@@ -35,41 +35,22 @@ import (
 
 var Wg sync.WaitGroup
 
-// only one thread can run capture process
-var one sync.Mutex
-
-func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
-	one.Lock()
-	defer one.Unlock()
-
-	tmp := config.GlobalConfig.Tags
-	if len(tmp) > 0 {
-		ts := strings.Trim(tmp, ",")
-		tmp = strings.Trim(ts+","+tags, ",")
-	} else {
-		tmp = strings.Trim(tags, ",")
-	}
-	return ProcessPidsWithoutLock(pids, pid2Name, hd, tmp, []string{""})
-}
-
-func ProcessPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
+func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
 	if len(pids) <= 0 {
-		logger.Log("No action needed.")
+		logger.Log("Empty pids, no action needed.")
 		return
 	}
-	set := make(map[int]struct{}, len(pids))
+
+	pids = removeDuplicate(pids)
+
 	for i, pid := range pids {
-		if _, ok := set[pid]; ok {
-			continue
-		}
-		set[pid] = struct{}{}
 		name := config.GlobalConfig.AppName
 		if len(pid2Name) > 0 {
-			n, ok := pid2Name[pid]
-			if ok {
+			if n, ok := pid2Name[pid]; ok {
 				name = n
 			}
 		}
+
 		if len(config.GlobalConfig.CaptureCmd) > 0 {
 			_, err := executils.RunCaptureCmd(pid, config.GlobalConfig.CaptureCmd)
 			if err != nil {
@@ -87,16 +68,17 @@ func ProcessPidsWithoutLock(pids []int, pid2Name map[int]string, hd bool, tags s
 				timestamp = timestamps[i]
 			}
 
-			url := FullProcess(pid, name, hd, tags, timestamp)
+			url := FullCapture(pid, name, hd, tags, timestamp)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
 		}
 	}
+
 	return
 }
 
-func FullProcess(pid int, appName string, hd bool, tags string, ts string) (rUrl string) {
+func FullCapture(pid int, appName string, hd bool, tags string, ts string) (rUrl string) {
 	var agentLogFile *os.File
 	var err error
 	defer func() {
@@ -1010,4 +992,16 @@ Resp: %s
 		}
 	}
 	return
+}
+
+func removeDuplicate[T comparable](sliceList []T) []T {
+	allKeys := make(map[T]bool)
+	list := []T{}
+	for _, item := range sliceList {
+		if _, value := allKeys[item]; !value {
+			allKeys[item] = true
+			list = append(list, item)
+		}
+	}
+	return list
 }

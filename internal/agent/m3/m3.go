@@ -443,7 +443,7 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = ondemand.ProcessPidsWithoutLock(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
+	_, err = ondemand.ProcessPids(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
 	return
 }
 
