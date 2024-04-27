@@ -78,86 +78,140 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 	return
 }
 
-func FullCapture(pid int, appName string, hd bool, tags string, ts string) (rUrl string) {
-	var agentLogFile *os.File
+func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) (rUrl string) {
 	var err error
 	defer func() {
 		if err != nil {
 			logger.Error().Err(err).Msg("unexpected error")
 		}
-		if agentLogFile == nil {
-			return
-		}
-		err := logger.StopWritingToFile()
-		if err != nil {
-			logger.Info().Err(err).Msg("Failed to stop writing to file")
-		}
 	}()
+
 	// -------------------------------------------------------------------
-	//  Create output files
+	// A. Init
 	// -------------------------------------------------------------------
-	now, _ := common.GetAgentCurrentTime()
-	timestamp := now.Format("2006-01-02T15-04-05")
+	var endpoint string
 	var parameters string
-	if len(ts) > 0 {
-		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), ts)
-	} else {
-		parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), timestamp)
-	}
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 
-	dname := "yc-" + timestamp
-	if len(config.GlobalConfig.StoragePath) > 0 {
-		dname = filepath.Join(config.GlobalConfig.StoragePath, dname)
-	}
-	err = os.Mkdir(dname, 0777)
-	if err != nil {
-		return
-	}
-	if config.GlobalConfig.DeferDelete {
-		Wg.Add(1)
-		defer func() {
-			defer Wg.Done()
-			err := os.RemoveAll(dname)
-			if err != nil {
-				logger.Log("WARNING: Can not remove the current directory: %s", err)
-				return
+	{
+		var timestamp string
+
+		// A.1 Define yc-server endpoint and parameters
+		{
+			now, _ := common.GetAgentCurrentTime()
+			timestamp = now.Format("2006-01-02T15-04-05")
+
+			if tsParam == "" {
+				tsParam = timestamp
 			}
-		}()
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	defer func() {
-		err := os.Chdir(dir)
-		if err != nil {
-			logger.Log("WARNING: Can not chdir: %s", err)
-			return
+			parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
+			endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 		}
-		if config.GlobalConfig.OnlyCapture {
-			name, err := ZipFolder(dname)
-			if err != nil {
-				logger.Log("WARNING: Can not zip folder: %s", err)
-				return
+
+		// A.2 Setup capture directory: yc-$timestamp
+		{
+			captureDir := "yc-" + timestamp
+			if len(config.GlobalConfig.StoragePath) > 0 {
+				captureDir = filepath.Join(config.GlobalConfig.StoragePath, captureDir)
 			}
-			logger.StdLog("All dumps can be found in %s", name)
-			if logger.Log2File {
-				logger.Log("All dumps can be found in %s", name)
+
+			{
+				err = os.Mkdir(captureDir, 0777)
+				if err != nil {
+					return
+				}
+
+				// Cleanup capture dir
+				if config.GlobalConfig.DeferDelete {
+					Wg.Add(1)
+					defer func() {
+						defer Wg.Done()
+						err := os.RemoveAll(captureDir)
+						if err != nil {
+							logger.Log("WARNING: Can not remove the current directory: %s", err)
+							return
+						}
+					}()
+				}
+			}
+
+			{
+				// Store current dir for later
+				dir, err := os.Getwd()
+				if err != nil {
+					return
+				}
+
+				// Chdir to the capture dir (yc-$timestamp)
+				err = os.Chdir(captureDir)
+				if err != nil {
+					return
+				}
+
+				defer func() {
+					// Chdir to the original dir
+					err := os.Chdir(dir)
+					if err != nil {
+						logger.Log("WARNING: Can not chdir: %s", err)
+						return
+					}
+					if config.GlobalConfig.OnlyCapture {
+						name, err := ZipFolder(captureDir)
+						if err != nil {
+							logger.Log("WARNING: Can not zip folder: %s", err)
+							return
+						}
+						logger.StdLog("All dumps can be found in %s", name)
+						if logger.Log2File {
+							logger.Log("All dumps can be found in %s", name)
+						}
+					}
+				}()
 			}
 		}
-	}()
-	err = os.Chdir(dname)
-	if err != nil {
-		return
 	}
 
+	// A.3 Agent log file
+	var agentLogFile *os.File
 	if !config.GlobalConfig.M3 {
 		agentLogFile, err = logger.StartWritingToFile("agentlog.out")
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to start writing to file")
 		}
+
+		defer func() {
+			if agentLogFile == nil {
+				return
+			}
+			err := logger.StopWritingToFile()
+			if err != nil {
+				logger.Info().Err(err).Msg("Failed to stop writing to file")
+			}
+		}()
 	}
+
+	// A.4 MetaInfo
+	{
+		msg, ok, err := writeMetaInfo(pid, appName, endpoint, tags)
+		logger.Log(
+			`META INFO DATA
+Is transmission completed: %t
+Resp: %s
+Ignored errors: %v
+
+--------------------------------
+`, ok, msg, err)
+	}
+
+	if pid > 0 && !capture.IsProcessExists(pid) {
+		defer func() {
+			logger.Log("WARNING: Process %d doesn't exist.", pid)
+			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
+		}()
+	}
+
+	// -------------------------------------------------------------------
+	// B. Capture and Transmit
+	// -------------------------------------------------------------------
 
 	startTime := time.Now()
 	gcPath := config.GlobalConfig.GCPath
@@ -179,44 +233,27 @@ func FullCapture(pid int, appName string, hd bool, tags string, ts string) (rUrl
 		dockerID, _ = capture.GetDockerID(pid)
 	}
 
-	logger.Log("PID is %d", pid)
-	logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
-	logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
-	logger.Log("APP_NAME is %s", appName)
-	logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
-	logger.Log("GC_LOG is %s", gcPath)
-	if len(dockerID) > 0 {
-		logger.Log("DOCKER_ID is %s", dockerID)
-	}
+	// B.1 Log capture configs
+	{
+		logger.Log("PID is %d", pid)
+		logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
+		logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
+		logger.Log("APP_NAME is %s", appName)
+		logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
+		logger.Log("GC_LOG is %s", gcPath)
+		if len(dockerID) > 0 {
+			logger.Log("DOCKER_ID is %s", dockerID)
+		}
 
-	// Display the PIDs which have been input to the script
-	logger.Log("PROBLEMATIC_PID is: %d", pid)
+		// Display the PIDs which have been input to the script
+		logger.Log("PROBLEMATIC_PID is: %d", pid)
 
-	// Display the being used in this script
-	logger.Log("SCRIPT_SPAN = %d", executils.SCRIPT_SPAN)
-	logger.Log("JAVACORE_INTERVAL = %d", executils.JAVACORE_INTERVAL)
-	logger.Log("TOP_INTERVAL = %d", executils.TOP_INTERVAL)
-	logger.Log("TOP_DASH_H_INTERVAL = %d", executils.TOP_DASH_H_INTERVAL)
-	logger.Log("VMSTAT_INTERVAL = %d", executils.VMSTAT_INTERVAL)
-
-	// -------------------------------
-	//     Transmit MetaInfo
-	// -------------------------------
-	msg, ok, err := writeMetaInfo(pid, appName, endpoint, tags)
-	logger.Log(
-		`META INFO DATA
-Is transmission completed: %t
-Resp: %s
-Ignored errors: %v
-
---------------------------------
-`, ok, msg, err)
-
-	if pidPassed && !capture.IsProcessExists(pid) {
-		defer func() {
-			logger.Log("WARNING: Process %d doesn't exist.", pid)
-			logger.Log("WARNING: You have entered non-existent processId. Please enter valid process id")
-		}()
+		// Display the being used in this script
+		logger.Log("SCRIPT_SPAN = %d", executils.SCRIPT_SPAN)
+		logger.Log("JAVACORE_INTERVAL = %d", executils.JAVACORE_INTERVAL)
+		logger.Log("TOP_INTERVAL = %d", executils.TOP_INTERVAL)
+		logger.Log("TOP_DASH_H_INTERVAL = %d", executils.TOP_DASH_H_INTERVAL)
+		logger.Log("VMSTAT_INTERVAL = %d", executils.VMSTAT_INTERVAL)
 	}
 
 	// ------------------------------------------------------------------------------
@@ -666,44 +703,43 @@ Resp: %s
 	logger.Log("Executed custom commands")
 
 	if config.GlobalConfig.OnlyCapture {
-		if agentLogFile != nil {
-			err := logger.StopWritingToFile()
-			if err != nil {
-				logger.Info().Err(err).Msg("Failed to stop writing to file")
-			}
-			agentLogFile = nil
-		}
 		return
 	}
-	// -------------------------------
-	//     Conclusion
-	// -------------------------------
-	finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
-	resp, err := RequestFin(finEp)
-	if err != nil {
-		logger.Log("post yc-fin err %s", err.Error())
-		err = nil
-	}
 
-	endTime := time.Now()
-	var result string
-	rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
+	// -------------------------------------------------------------------
+	// C. Finishing
+	// -------------------------------------------------------------------
 
-	// A big customer is relying on this stdout.
-	// They probably uses it with their own script / automation.
-	logger.StdLog(`
+	// C.1 /yc-fin
+	{
+		finEp := fmt.Sprintf("%s/yc-fin?%s", config.GlobalConfig.Server, parameters)
+		resp, err := RequestFin(finEp)
+		if err != nil {
+			logger.Log("post yc-fin err %s", err.Error())
+			err = nil
+		}
+
+		endTime := time.Now()
+		var result string
+		rUrl, result = printResult(true, endTime.Sub(startTime).String(), resp)
+
+		// A big customer is relying on this stdout.
+		// They probably uses it with their own script / automation.
+		logger.StdLog(`
 %s
 `, resp)
 
-	logger.Log(`
+		logger.Log(`
 %s
 `, resp)
-	logger.Log(`
+		logger.Log(`
 %s
 `, pterm.RemoveColorFromString(result))
+	}
 
+	// C.2 Transmit agentlog
 	if agentLogFile != nil {
-		msg, ok = capture.PostData(endpoint, "agentlog", agentLogFile)
+		msg, ok := capture.PostData(endpoint, "agentlog", agentLogFile)
 		err := logger.StopWritingToFile()
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to stop writing to file")
@@ -717,6 +753,7 @@ Resp: %s
 --------------------------------
 `, ok, msg)
 	}
+
 	return
 }
 
