@@ -37,16 +37,9 @@ func NewM3App() *M3App {
 }
 
 func (m3 *M3App) RunLoop() {
-	initialRun := true
-
 	for {
-		if initialRun {
-			initialRun = false
-		} else {
-			time.Sleep(config.GlobalConfig.M3Frequency)
-		}
-
 		m3.RunSingle()
+		time.Sleep(config.GlobalConfig.M3Frequency)
 	}
 }
 
