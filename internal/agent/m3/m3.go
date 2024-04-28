@@ -50,31 +50,82 @@ func (m3 *M3App) RunSingle() error {
 	now, timezone := common.GetAgentCurrentTime()
 	timestamp := now.Format("2006-01-02T15-04-05")
 
-	pids, err := m3.processM3(timestamp, GetM3ReceiverEndpoint(timestamp, timezone))
-
+	pids, err := capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	if err != nil {
-		logger.Log("WARNING: processM3 failed, %s", err)
-		return err
+		logger.Log("WARNING: failed to get PID cause %v", err)
+	} else if len(pids) == 0 {
+		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
+			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	}
 
-	finEndpoint := GetM3FinEndpoint(timestamp, timezone, pids)
-	resp, err := ondemand.RequestFin(finEndpoint)
+	// Init directory
+	// TODO: This has a similar functionality with ondemand. It might be good to extract this to a common reusable function.
+	{
+		directoryName := "yc-" + timestamp
+		{
+			err = os.Mkdir(directoryName, 0777)
+			if err != nil {
+				return err
+			}
 
-	if err != nil {
-		logger.Log("WARNING: Request M3 Fin failed, %s", err)
-		return err
+			// Cleanup directory
+			defer func() {
+				err := os.RemoveAll(directoryName)
+				if err != nil {
+					logger.Log("WARNING: Can not remove the current directory: %s", err)
+					return
+				}
+			}()
+		}
+
+		{
+			dir, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+
+			// @Andy: This prevents concurrent uses
+			// Could be eliminated to prevent issues
+			err = os.Chdir(directoryName)
+			if err != nil {
+				return err
+			}
+
+			// Reset Chdir
+			defer os.Chdir(dir)
+		}
 	}
 
-	if len(resp) <= 0 {
-		logger.Log("WARNING: skip empty resp")
-		return err
+	// Capture
+	{
+		err = m3.captureAndTransmit(pids, GetM3ReceiverEndpoint(timestamp, timezone))
+		if err != nil {
+			logger.Log("WARNING: processM3 failed, %s", err)
+			return err
+		}
 	}
 
-	err = processM3FinResponse(resp, pids)
+	// Finish
+	{
+		finEndpoint := GetM3FinEndpoint(timestamp, timezone, pids)
+		resp, err := ondemand.RequestFin(finEndpoint)
 
-	if err != nil {
-		logger.Log("WARNING: processResp failed, %s", err)
-		return err
+		if err != nil {
+			logger.Log("WARNING: Request M3 Fin failed, %s", err)
+			return err
+		}
+
+		if len(resp) <= 0 {
+			logger.Log("WARNING: skip empty resp")
+			return err
+		}
+
+		err = processM3FinResponse(resp, pids)
+
+		if err != nil {
+			logger.Log("WARNING: processResp failed, %s", err)
+			return err
+		}
 	}
 
 	return nil
@@ -119,37 +170,7 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	return parameters
 }
 
-func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]string, err error) {
-	directoryName := "yc-" + timestamp
-	err = os.Mkdir(directoryName, 0777)
-	if err != nil {
-		return
-	}
-
-	// Cleanup directory
-	defer func() {
-		err := os.RemoveAll(directoryName)
-		if err != nil {
-			logger.Log("WARNING: Can not remove the current directory: %s", err)
-			return
-		}
-	}()
-
-	dir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-
-	// Reset Chdir
-	defer os.Chdir(dir)
-
-	// @Andy: This prevents concurrent uses
-	// Could be eliminated to prevent issues
-	err = os.Chdir(directoryName)
-	if err != nil {
-		return
-	}
-
+func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err error) {
 	logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
 	logger.Log("yc script starting in m3 mode...")
 
@@ -158,10 +179,7 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 	top := capture.GoCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
 
-	// @Andy: If this is m3 specific, it could be moved to m3 specific file for clarity
-	pids, err = capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
-
-	if err == nil && len(pids) > 0 {
+	if len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
 		for pid, appName := range pids {
 			logger.Log("uploading gc log for pid %d", pid)
@@ -172,13 +190,6 @@ func (m3 *M3App) processM3(timestamp string, endpoint string) (pids map[int]stri
 
 			logger.Log("Starting collection of app logs data...")
 			m3.uploadAppLogM3(endpoint, pid, appName, gcPath)
-		}
-	} else {
-		if err != nil {
-			logger.Log("WARNING: failed to get PID cause %v", err)
-		} else {
-			logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
-				config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 		}
 	}
 

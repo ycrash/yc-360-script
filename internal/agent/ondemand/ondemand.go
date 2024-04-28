@@ -108,6 +108,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 		}
 
 		// A.2 Setup capture directory: yc-$timestamp
+		// TODO: This has a similar functionality with m3. It might be good to extract this to a common reusable function.
 		{
 			captureDir := "yc-" + timestamp
 			if len(config.GlobalConfig.StoragePath) > 0 {
