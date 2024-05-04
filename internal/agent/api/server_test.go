@@ -12,10 +12,7 @@ import (
 )
 
 func TestServer(t *testing.T) {
-	s, err := NewServer("localhost", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewServer("localhost", 0)
 	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
@@ -34,7 +31,7 @@ func TestServer(t *testing.T) {
 		defer s.Close()
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
-		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,10 +57,7 @@ func TestServer(t *testing.T) {
 }
 
 func TestServerCmdActions(t *testing.T) {
-	s, err := NewServer("localhost", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewServer("localhost", 0)
 	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
@@ -82,7 +76,7 @@ func TestServerCmdActions(t *testing.T) {
 		defer s.Close()
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "date", "capture 2341", "echo $pid"] }`)
-		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,10 +102,7 @@ func TestServerCmdActions(t *testing.T) {
 }
 
 func TestServerForward(t *testing.T) {
-	s, err := NewServer("localhost", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewServer("localhost", 0)
 	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
@@ -126,10 +117,7 @@ func TestServerForward(t *testing.T) {
 		close(errCh)
 	}()
 
-	rs, err := NewServer("localhost", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rs := NewServer("localhost", 0)
 	rs.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log("ok", pids)
 		return
@@ -149,12 +137,12 @@ func TestServerForward(t *testing.T) {
 		defer rs.Close()
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/action", s.Addr().String()), buf)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/action", s.Addr()), buf)
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Close = true
-		req.Header.Add("ycrash-forward", fmt.Sprintf("http://%s/action", rs.Addr().String()))
+		req.Header.Add("ycrash-forward", fmt.Sprintf("http://%s/action", rs.Addr()))
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -185,10 +173,7 @@ func TestServerForward(t *testing.T) {
 }
 
 func TestAttendanceAPI(t *testing.T) {
-	s, err := NewServer("localhost", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewServer("localhost", 0)
 	s.ProcessPids = func(pids []int, pid2Name map[int]string, hd bool, tags string) (rUrls []string, err error) {
 		t.Log(pids)
 		return
@@ -208,7 +193,7 @@ func TestAttendanceAPI(t *testing.T) {
 		config.GlobalConfig.Server = "https://test.gceasy.io"
 		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
 		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "attendance"] }`)
-		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr().String()), "text", buf)
+		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			t.Fatal(err)
 		}

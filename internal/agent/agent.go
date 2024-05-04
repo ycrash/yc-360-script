@@ -78,15 +78,10 @@ Resp: %s
 }
 
 func runAPIMode() {
-	apiServer, err := api.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
-	if err != nil {
-		logger.Log("WARNING: %s", err)
-		return
-	}
-
+	apiServer := api.NewServer(config.GlobalConfig.Address, config.GlobalConfig.Port)
 	logger.Log("Running API mode on %s", net.JoinHostPort(config.GlobalConfig.Address, strconv.Itoa(config.GlobalConfig.Port)))
 
-	err = apiServer.Serve()
+	err := apiServer.Serve()
 	if err != nil {
 		logger.Log("WARNING: %s", err)
 	}
