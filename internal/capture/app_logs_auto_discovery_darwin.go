@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"yc-agent/internal/utils"
+	"yc-agent/internal/capture/executils"
 )
 
 func GetOpenedFilesByProcess(pid int) ([]string, error) {
 	pidStr := strconv.Itoa(pid)
-	output, err := utils.CommandCombinedOutput(utils.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
+	output, err := executils.CommandCombinedOutput(executils.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
 
 	openedFiles := []string{}
 	if err != nil {

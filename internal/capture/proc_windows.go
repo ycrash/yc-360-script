@@ -10,13 +10,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
-	"yc-agent/internal/utils"
 )
 
 func GetTopCpu() (pid int, err error) {
-	output, err := utils.CommandCombinedOutput(utils.ProcessTopCPU)
+	output, err := executils.CommandCombinedOutput(executils.ProcessTopCPU)
 	if err != nil {
 		return
 	}
@@ -55,7 +55,7 @@ Next:
 }
 
 func GetTopMem() (pid int, err error) {
-	output, err := utils.CommandCombinedOutput(utils.ProcessTopMEM)
+	output, err := executils.CommandCombinedOutput(executils.ProcessTopMEM)
 	if err != nil {
 		return
 	}
@@ -102,7 +102,7 @@ type CIMProcess struct {
 type CIMProcessList []CIMProcess
 
 func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
-	output, err := utils.CommandCombinedOutput(utils.M3PS)
+	output, err := executils.CommandCombinedOutput(executils.M3PS)
 	if err != nil {
 		return
 	}
