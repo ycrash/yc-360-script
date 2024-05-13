@@ -1,5 +1,5 @@
-//go:build darwin || linux
-// +build darwin linux
+//go:build darwin || linux || aix
+// +build darwin linux aix
 
 package posix
 
