@@ -61,16 +61,20 @@ func (m3 *M3App) RunSingle() error {
 	// Init directory
 	// TODO: This has a similar functionality with ondemand. It might be good to extract this to a common reusable function.
 	{
-		directoryName := "yc-" + timestamp
+		captureDir := "yc-" + timestamp
+		if len(config.GlobalConfig.StoragePath) > 0 {
+			captureDir = filepath.Join(config.GlobalConfig.StoragePath, captureDir)
+		}
+
 		{
-			err = os.Mkdir(directoryName, 0777)
+			err = os.Mkdir(captureDir, 0777)
 			if err != nil {
 				return err
 			}
 
 			// Cleanup directory
 			defer func() {
-				err := os.RemoveAll(directoryName)
+				err := os.RemoveAll(captureDir)
 				if err != nil {
 					logger.Log("WARNING: Can not remove the current directory: %s", err)
 					return
@@ -86,7 +90,7 @@ func (m3 *M3App) RunSingle() error {
 
 			// @Andy: This prevents concurrent uses
 			// Could be eliminated to prevent issues
-			err = os.Chdir(directoryName)
+			err = os.Chdir(captureDir)
 			if err != nil {
 				return err
 			}
