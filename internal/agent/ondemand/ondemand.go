@@ -400,10 +400,17 @@ Ignored errors: %v
 		}
 
 		// To exclude GC log files from app logs discovery
-		pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
-		globFiles, globErr := doublestar.FilepathGlob(pattern, doublestar.WithFilesOnly(), doublestar.WithNoFollow())
-		if globErr != nil {
-			logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
+		globFiles := []string{}
+
+		// Need to check gcPath not empty. Otherwise, empty pattern will return an unexpected result: [".", "."]
+		if gcPath != "" {
+			pattern := capture.GetGlobPatternFromGCPath(gcPath, pid)
+
+			var globErr error
+			globFiles, globErr = doublestar.FilepathGlob(pattern, doublestar.WithFilesOnly(), doublestar.WithNoFollow())
+			if globErr != nil {
+				logger.Log("App logs Auto discovery: Error on creating Glob pattern %s", pattern)
+			}
 		}
 
 		paths := config.AppLogs{}
