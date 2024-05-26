@@ -384,7 +384,6 @@ Ignored errors: %v
 			if len(appLogsMatchingAppName) > 0 {
 				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, N: config.GlobalConfig.AppLogLineCount}))
 				useGlobalConfigAppLogs = true
-				fmt.Println(appLogsMatchingAppName)
 			}
 		} else {
 			appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
