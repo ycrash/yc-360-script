@@ -73,13 +73,15 @@ func (m3 *M3App) RunSingle() error {
 			}
 
 			// Cleanup directory
-			defer func() {
-				err := os.RemoveAll(captureDir)
-				if err != nil {
-					logger.Log("WARNING: Can not remove the current directory: %s", err)
-					return
-				}
-			}()
+			if config.GlobalConfig.DeferDelete {
+				defer func() {
+					err := os.RemoveAll(captureDir)
+					if err != nil {
+						logger.Log("WARNING: Can not remove the current directory: %s", err)
+						return
+					}
+				}()
+			}
 		}
 
 		{
@@ -357,14 +359,25 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 	if len(config.GlobalConfig.AppLogs) > 0 {
 		appLogs := config.AppLogs{}
 
+		appLogsContainDollarSign := false
 		for _, configAppLog := range config.GlobalConfig.AppLogs {
-			searchToken := "$" + appName
-
-			beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
-			if found {
-				appLogs = append(appLogs, config.AppLog(beforeSearchToken))
+			if strings.Contains(string(configAppLog), "$") {
+				appLogsContainDollarSign = true
+				break
 			}
+		}
 
+		if appLogsContainDollarSign {
+			for _, configAppLog := range config.GlobalConfig.AppLogs {
+				searchToken := "$" + appName
+
+				beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
+				if found {
+					appLogs = append(appLogs, config.AppLog(beforeSearchToken))
+				}
+			}
+		} else {
+			appLogs = config.GlobalConfig.AppLogs
 		}
 
 		if len(appLogs) > 0 {
