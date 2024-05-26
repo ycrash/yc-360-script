@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -84,13 +83,20 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (result Result,
 	}
 	defer src.Close()
 
-	readStat := a.readStats[filePath]
+	readStat, statExist := a.readStats[filePath]
 	readStat.filePath = filePath
 
+	if !statExist {
+		// First time seeing this file. Let's not upload the whole file.
+		// Instead, set the initial position to the end and return
+		// so that the next run will read from there.
+		readStat.fileSize = fileInfo.Size()
+		readStat.readPosition = fileInfo.Size()
+		a.readStats[filePath] = readStat
+		return
+	}
+
 	fileBaseName := filepath.Base(filePath)
-	fileExt := filepath.Ext(filePath)          // .zip, .log
-	fileExt = strings.TrimPrefix(fileExt, ".") // zip, log
-	isCompressed := isCompressedFileExt(fileExt)
 
 	// Initialize a counter variable
 	counter := 1
@@ -138,9 +144,6 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (result Result,
 	}
 
 	dt := "applog&logName=" + fileBaseName + "&pid=" + strconv.Itoa(pid)
-	if isCompressed {
-		dt = dt + "&content-encoding=" + fileExt
-	}
 
 	result.Msg, result.Ok = PostData(a.Endpoint(), dt, dst)
 
