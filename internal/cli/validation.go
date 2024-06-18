@@ -1,31 +1,25 @@
 package cli
 
-// Change History
-// Dec' 02, 2019: Zhi : Initial Draft
-// Dec' 05, 2019: Ram : Passing JAVA_HOME as parameter to the program instead of hard-coding in the program.
-//                      Changed yc end point
-//                      Changed minor changes to messages printed on the screen
-
 import "C"
 import (
+	"errors"
 	"os"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
-// TODO: return err instead of os.Exit
-func validate() {
+var ErrInvalidArgumentCantContinue = errors.New("cli: invalid argument")
+
+func validate() error {
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
 			logger.Log("'-s' yCrash server URL argument not passed.")
-			config.ShowUsage()
-			os.Exit(1)
+			return ErrInvalidArgumentCantContinue
 		}
 		if len(config.GlobalConfig.ApiKey) < 1 {
 			logger.Log("'-k' yCrash API Key argument not passed.")
-			config.ShowUsage()
-			os.Exit(1)
+			return ErrInvalidArgumentCantContinue
 		}
 	}
 
@@ -34,8 +28,7 @@ func validate() {
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
-		config.ShowUsage()
-		os.Exit(1)
+		return ErrInvalidArgumentCantContinue
 	}
 
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
@@ -45,7 +38,8 @@ func validate() {
 
 	if config.GlobalConfig.AppLogLineCount < 1 {
 		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be a number larger than 0.", config.GlobalConfig.AppLogLineCount)
-		config.ShowUsage()
-		os.Exit(1)
+		return ErrInvalidArgumentCantContinue
 	}
+
+	return nil
 }

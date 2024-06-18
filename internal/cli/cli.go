@@ -1,11 +1,5 @@
 package cli
 
-// Change History
-// Dec' 02, 2019: Zhi : Initial Draft
-// Dec' 05, 2019: Ram : Passing JAVA_HOME as parameter to the program instead of hard-coding in the program.
-//                      Changed yc end point
-//                      Changed minor changes to messages printed on the screen
-
 import "C"
 import (
 	"os"
@@ -37,12 +31,16 @@ func Run() {
 
 	if config.GlobalConfig.ShowVersion {
 		logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
-		os.Exit(0)
+		return
 	}
 
-	validate()
+	err := validate()
+	if err == ErrInvalidArgumentCantContinue {
+		config.ShowUsage()
+		os.Exit(1)
+	}
 
-	err := runToCompletionOrSigterm(agent.Run)
+	err = runToCompletionOrSigterm(agent.Run)
 	if err != nil {
 		logger.Log("Error: %s", err.Error())
 	}
