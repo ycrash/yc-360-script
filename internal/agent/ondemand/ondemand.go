@@ -606,7 +606,7 @@ Resp:
 		result := <-appLogs
 		logger.Log(
 			`APPLOGS DATA
-Ok (at least one success): %t
+Ok (at least one transmitted): %t
 Resps:
 %s
 

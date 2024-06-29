@@ -441,7 +441,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 		result := <-appLogM3Chan
 		logger.Log(
 			`APPLOGS DATA
-Ok (at least one success): %t
+Ok (at least one transmitted): %t
 Resps: %s
 
 --------------------------------
