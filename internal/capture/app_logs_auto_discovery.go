@@ -24,7 +24,7 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	for _, filePath := range openedFiles {
 		fileBaseName := filepath.Base(filePath)
 		if matchLogPattern(fileBaseName) {
-			last1000Text, err := lastNText(filePath, 1000)
+			last1000Text, err := getLastNBytes(filePath, 1000)
 			if err != nil {
 				continue
 			}
@@ -57,18 +57,40 @@ func matchLogPattern(s string) bool {
 	return match
 }
 
-func lastNText(file string, N uint) ([]byte, error) {
-	f, err := os.Open(file)
+func getLastNBytes(filename string, n int64) ([]byte, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Get the file size
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+
+	// Determine the offset
+	offset := size - n
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Seek to the offset
+	_, err = file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
 
-	err = PositionLastLines(f, N)
-	if err != nil {
+	// Read the last n bytes (or less if the file is smaller)
+	bytes := make([]byte, min(n, size))
+	_, err = file.Read(bytes)
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
-	return io.ReadAll(f)
+	return bytes, nil
 }
 
 func IsHumanReadable(b []byte) bool {
