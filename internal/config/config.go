@@ -164,7 +164,7 @@ func ParseFlags(args []string) error {
 	flagSet.Parse(args[1:])
 
 	defer func() {
-		for len(GlobalConfig.Server) > 2 && strings.HasSuffix(GlobalConfig.Server, "/") {
+		if len(GlobalConfig.Server) > 2 && strings.HasSuffix(GlobalConfig.Server, "/") {
 			GlobalConfig.Server = GlobalConfig.Server[:len(GlobalConfig.Server)-1]
 		}
 	}()
