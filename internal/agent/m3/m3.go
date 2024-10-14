@@ -196,6 +196,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err e
 
 			logger.Log("Starting collection of app logs data...")
 			m3.uploadAppLogM3(endpoint, pid, appName, gcPath)
+
+			if healthCheckCfg, ok := config.GlobalConfig.HealthChecks[appName]; ok {
+				uploadHealthCheck(endpoint, appName, healthCheckCfg)
+			}
 		}
 	}
 
@@ -443,6 +447,25 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 			`APPLOGS DATA
 Ok (at least one transmitted): %t
 Resps: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+}
+
+func uploadHealthCheck(endpoint, appName string, healthCheckCfg config.HealthCheck) {
+	capHealthCheck := &capture.HealthCheck{
+		AppName: appName,
+		Cfg:     healthCheckCfg,
+	}
+	chanHealthCheck := capture.GoCapture(endpoint, capture.WrapRun(capHealthCheck))
+
+	if chanHealthCheck != nil {
+		result := <-chanHealthCheck
+		logger.Log(
+			`HEALTH CHECK DATA
+Is transmission completed: %t
+Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)

@@ -84,7 +84,7 @@ type Options struct {
 type HealthChecks map[string]HealthCheck
 type HealthCheck struct {
 	Endpoint    string `yaml:"endpoint"`
-	HttpBody    string `yaml:"httpBody"`
+	HTTPBody    string `yaml:"httpBody"`
 	TimeoutSecs int    `yaml:"timeoutSecs"`
 }
 
