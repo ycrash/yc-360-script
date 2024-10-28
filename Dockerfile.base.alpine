@@ -1,8 +1,8 @@
 # build
-FROM golang:1.21.1-alpine AS builder
+FROM golang:1.22.8-alpine AS builder
 
-RUN apk update \
- && apk add \
+RUN apk add --no-cache \
+    clang \
     curl \
     git \
     wget \
@@ -15,6 +15,6 @@ RUN apk update \
 
 ENV PATH=${PATH}:/usr/local/go/bin
 
-WORKDIR  /opt/workspace/yc-agent-repo
+WORKDIR  /opt/workspace/yc-agent
 
 ENTRYPOINT ["/bin/sh"]
