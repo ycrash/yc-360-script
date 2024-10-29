@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -97,13 +98,15 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 
 		// A.1 Define yc-server endpoint and parameters
 		{
-			now, _ := common.GetAgentCurrentTime()
+			now, timezone := common.GetAgentCurrentTime()
 			timestamp = now.Format("2006-01-02T15-04-05")
 
 			if tsParam == "" {
 				tsParam = timestamp
 			}
-			parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
+			//parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
+			timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
+			parameters = fmt.Sprintf("de=%s&ts=%s&timezoneId=%s", getOutboundIP().String(), tsParam, timezoneBase64)
 			endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 		}
 
