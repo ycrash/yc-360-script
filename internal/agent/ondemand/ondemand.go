@@ -119,11 +119,12 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 			}
 
 			{
-				err = os.Mkdir(captureDir, 0777)
-				if err != nil {
-					return
+				if !config.GlobalConfig.M3 {
+					err = os.Mkdir(captureDir, 0777)
+					if err != nil {
+						return
+					}
 				}
-
 				// Cleanup capture dir
 				if config.GlobalConfig.DeferDelete {
 					Wg.Add(1)
@@ -146,9 +147,11 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 				}
 
 				// Chdir to the capture dir (yc-$timestamp)
-				err = os.Chdir(captureDir)
-				if err != nil {
-					return
+				if !config.GlobalConfig.M3 {
+					err = os.Chdir(captureDir)
+					if err != nil {
+						return
+					}
 				}
 
 				defer func() {
