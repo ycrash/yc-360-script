@@ -162,6 +162,11 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 
 	parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
 
+	/// append pod name
+	if config.GlobalConfig.Kubernetes {
+		parameters += "&pod=" + getPodName()
+	}
+	///
 	return fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
 }
 
@@ -534,4 +539,19 @@ func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []st
 		}
 	}
 	return
+}
+
+// /
+// / When YC Agent is deployed as a side car, then the hostname is podname
+func getPodName() string {
+	var podName = ""
+	if config.GlobalConfig.Kubernetes {
+		hostname, e := os.Hostname()
+		if e != nil {
+			logger.Log("error while getting hostname%s", e.Error())
+		}
+		podName = hostname
+		logger.Log("Podname: %s", podName)
+	}
+	return podName
 }

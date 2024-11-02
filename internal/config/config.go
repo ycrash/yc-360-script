@@ -78,6 +78,8 @@ type Options struct {
 
 	StoragePath string `yaml:"storagePath" usage:"The storage path to save the captured files"`
 
+	Kubernetes bool `yaml:"kubernetes" usage:"pass true for Kubernetes field"`
+
 	HealthChecks HealthChecks `yaml:"healthChecks"`
 }
 
