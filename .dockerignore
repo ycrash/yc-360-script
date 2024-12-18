@@ -1,0 +1,11 @@
+.git
+docs/
+.dccache
+.gitignore
+# .dockerignore
+README.md
+Makefile
+Dockerfile*
+cmd/yc/yc
+cmd/yc/*.yaml
+cmd/yc/*.yml

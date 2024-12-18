@@ -1,5 +1,5 @@
 # build
-FROM golang:1.22.8-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 RUN apk add --no-cache \
     clang \
@@ -10,9 +10,8 @@ RUN apk add --no-cache \
     gcc \
     make \
     musl musl-dev \
-    ncurses ncurses-dev ncurses-libs ncurses-static \
-    openjdk11
-
+    ncurses ncurses-dev ncurses-libs ncurses-static
+    
 ENV PATH=${PATH}:/usr/local/go/bin
 
 WORKDIR  /opt/workspace/yc-agent

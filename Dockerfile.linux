@@ -1,0 +1,22 @@
+FROM golang:1.23-alpine AS builder
+WORKDIR /app
+RUN apk add --no-cache \
+    clang \
+    gcc  \
+    make \
+    musl musl-dev \
+    ncurses ncurses-dev ncurses-libs ncurses-static 
+COPY . .
+ENV PATH=${PATH}:/usr/local/go/bin 
+WORKDIR /app/cmd/yc
+RUN go build -ldflags="-s -w" -o yc
+
+FROM scratch AS final
+COPY --from=builder /app/cmd/yc/yc /yc
+ENTRYPOINT ["/yc"]
+
+### command to build yc file
+## If ARM64
+# docker buildx build -f Dockerfile.linux --target final -o type=local,dest=./bin/linux/arm64 .
+## If x86_64
+# docker buildx build -f Dockerfile.linux --target final -o type=local,dest=./bin/linux/amd64 .
