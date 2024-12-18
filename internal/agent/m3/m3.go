@@ -166,7 +166,7 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 
 	parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
 
-	/// append pod name
+	/// append pod name and namespace in Kubernetes
 	if config.GlobalConfig.Kubernetes {
 		podName := getPodName()
 		//parameters += "&pod=" + podName
@@ -174,8 +174,10 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 		if ns != "" {
 			//	parameters += "&ns=" + ns
 			parameters += "&pod=" + ns + "_" + podName
+			logger.Log("Namespace -> %s", ns)
+			logger.Log("OS-> %s", runtime.GOOS)
+			logger.Log("Architecture-> %s", runtime.GOARCH)
 		}
-		logger.Log("what is pod in GlobalConfig.Kubernetes %s", podName)
 	}
 	///
 	return fmt.Sprintf("%s/m3-fin?%s", config.GlobalConfig.Server, parameters)
