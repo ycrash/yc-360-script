@@ -175,8 +175,10 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 			//	parameters += "&ns=" + ns
 			parameters += "&pod=" + ns + "_" + podName
 			logger.Log("Namespace -> %s", ns)
-			logger.Log("OS-> %s", runtime.GOOS)
-			logger.Log("Architecture-> %s", runtime.GOARCH)
+			logger.Log("Podname -> %s", podName)
+			logger.Log("OS -> %s", runtime.GOOS)
+			logger.Log("Architecture -> %s", runtime.GOARCH)
+			logger.Log("CPUs -> %d", runtime.NumCPU())
 		}
 	}
 	///
@@ -418,7 +420,7 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 		// Auto discover app logs
 		discoveredLogFiles, err := capture.DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
-			logger.Log("Error on auto discovering app logs: %s", err.Error())
+			logger.Log("Error on auto discovering app logs -> %s", err.Error())
 		}
 
 		// To exclude GC log files from app logs discovery
@@ -561,10 +563,10 @@ func getPodName() string {
 	if config.GlobalConfig.Kubernetes {
 		hostname, e := os.Hostname()
 		if e != nil {
-			logger.Log("error while getting hostname%s", e.Error())
+			logger.Log("Error while getting hostname -> %s", e.Error())
 		}
 		podName = hostname
-		logger.Log("Podname: %s", podName)
+		// logger.Log("Podname: %s", podName)
 	}
 	return podName
 }
@@ -574,32 +576,32 @@ func getPodName() string {
 func getMatchingNamespace(podName string) string {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		logger.Log("error while configuring kube cluster->%s", err.Error())
+		logger.Log("Error while configuring cluster -> %s", err.Error())
 		return ""
 	}
 
 	// Create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		logger.Log("error while creating new configfor kubernetes->%s", err.Error())
+		logger.Log("Error while creating new config for cluster -> %s", err.Error())
 		return ""
 	}
 
 	// get all the namespaces
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		logger.Log("Error listing namespaces: %v", err)
+		logger.Log("Error listing namespaces -> %v", err)
 	}
 
 	// iterate through all the namespaces
 	for _, ns := range namespaces.Items {
-		logger.Log("namespaces -> %s", ns)
+		// logger.Log("namespaces -> %s", ns)
 		// pass the podname to get a proper match, if error nil means the passed podname
 		// exists in the collection of pods for that namepace
 		// then, return that namespace
 		_, err := clientset.CoreV1().Pods(ns.Name).Get(context.TODO(), podName, metav1.GetOptions{})
 		if err == nil {
-			fmt.Printf("Pod '%s' found in namespace: %s\n", podName, ns.Name)
+			// fmt.Printf("Pod '%s' found in namespace: %s\n", podName, ns.Name)
 			return ns.Name
 		}
 	}
