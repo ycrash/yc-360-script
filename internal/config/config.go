@@ -80,7 +80,14 @@ type Options struct {
 
 	Kubernetes bool `yaml:"kubernetes" usage:"pass true for Kubernetes field"`
 
-	HealthChecks HealthChecks `yaml:"healthChecks"`
+	HealthChecks  HealthChecks `yaml:"healthChecks"`
+	BoomiUser     string       `yaml:"boomiUser" usage:"username for Boomi account"`
+	BoomiPassword string       `yaml:"boomiPassword" usage:"password for Boomi account"`
+	Boomi         bool         `yaml:"boomi" usage:"pass true for Boomi field to capture boomi detail"`
+	BoomiUrl      string       `yaml:"boomiUrl" usage:"url for Boomi server"`
+	BoomiAcctId   string       `yaml:"boomiAcctId" usage:"account id for Boomi server"`
+	Period        uint         `yaml:"period" usage:"time frame in hours to fetch Boomi execution records"`
+	AtomId        string       `yaml:"atomId" usage:"boomi atom id to filter the atom"`
 }
 
 type HealthChecks map[string]HealthCheck
