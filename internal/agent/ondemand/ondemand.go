@@ -263,6 +263,17 @@ Ignored errors: %v
 		logger.Log("VMSTAT_INTERVAL = %d", executils.VMSTAT_INTERVAL)
 	}
 
+	{
+		////// capture boomi details
+		boomi := config.GlobalConfig.Boomi
+		if boomi {
+			now, _ := common.GetAgentCurrentTime()
+			timestamp := now.Format("2006-01-02T15-04-05")
+			logger.Log("CAPTURING BOOMI DETAILS..%s->", config.GlobalConfig.BoomiUrl)
+			capture.CaptureBoomiDetails(endpoint, timestamp, pid)
+		}
+	}
+
 	// ------------------------------------------------------------------------------
 	//   				Capture gc
 	// ------------------------------------------------------------------------------
