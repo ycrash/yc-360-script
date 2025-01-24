@@ -428,13 +428,19 @@ func (b *BoomiExecutionOutput) WriteAtomQueryDetails(atomQueryResult AtomQueryRe
 		return nil
 	}
 
+	// get configured atom id
+	atomId := config.GlobalConfig.AtomId
+	logger.Log("configured atom id %s->", atomId)
+
 	for _, atomQuery := range atomQueryResult.Result {
+		if atomId == atomQuery.ID {
+			boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID)
+			_, err := b.file.WriteString(boomiData)
 
-		boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID)
-		_, err := b.file.WriteString(boomiData)
-
-		if err != nil {
-			return fmt.Errorf("error while writing boomi execution output: %w", err)
+			if err != nil {
+				return fmt.Errorf("error while writing boomi execution output: %w", err)
+			}
+			break
 		}
 	}
 
@@ -729,6 +735,16 @@ func getAtomConnectorDetails(accountID string, username string, password string)
 	}
 
 	logger.Log("atom connector result status code %d", resp.StatusCode())
+
+}
+
+// use the following URL to download the container id
+// https://api.boomi.com/mdm/api/rest/v1/<account_id/clouds
+// this will return a similar response like this
+// <mdm:Clouds>
+// <mdm:Cloud cloudId="47ff4c06-8bef-431e-a30f-2f4dec0ffca8" containerId="acd927c3-a249-4a47-b217-ef9cbf99d187" name="Singapore Hub Cloud"/>
+// </mdm:Clouds>
+func downloadAtomLog() {
 
 }
 
