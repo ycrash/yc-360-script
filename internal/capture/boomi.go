@@ -375,7 +375,7 @@ func (b *BoomiExecutionOutput) WriteAtomDetailsHeader() error {
 	}
 	// add boomi.out header
 
-	atomDetailsHeader := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s\n", "type", "name", "status", "atom_type", "host_name", "date_installed", "version", "atom_force_resatrt", "atom_id")
+	atomDetailsHeader := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", "type", "name", "status", "atom_type", "host_name", "date_installed", "version", "atom_force_resatrt", "atom_id", "config")
 	_, err2 := b.file.WriteString(atomDetailsHeader)
 
 	return err2
@@ -434,13 +434,20 @@ func (b *BoomiExecutionOutput) WriteAtomQueryDetails(atomQueryResult AtomQueryRe
 
 	for _, atomQuery := range atomQueryResult.Result {
 		if atomId == atomQuery.ID {
-			boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID)
+			boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID, "Y")
 			_, err := b.file.WriteString(boomiData)
 
 			if err != nil {
 				return fmt.Errorf("error while writing boomi execution output: %w", err)
 			}
-			break
+			//break
+		} else {
+			boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID, "N")
+			_, err := b.file.WriteString(boomiData)
+
+			if err != nil {
+				return fmt.Errorf("error while writing boomi execution output: %w", err)
+			}
 		}
 	}
 
