@@ -12,7 +12,7 @@ require (
 	github.com/pterm/pterm v0.12.79
 	github.com/rs/zerolog v1.33.0
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/thlib/go-timezone-local v0.0.3
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.32.0
