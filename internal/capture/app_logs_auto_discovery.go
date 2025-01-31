@@ -9,6 +9,18 @@ import (
 	"unicode"
 )
 
+// logPatterns contains precompiled regex patterns so they are compiled once at startup rather than each function call.
+var logPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`.*\.log$`),    // Matches *.log
+	regexp.MustCompile(`.*log.*\..*`), // Matches *log*.*
+}
+
+// DiscoverOpenedLogFilesByProcess returns a list of file paths for log files that are
+// opened by the given process identified by pid. A file is considered a log file if:
+// - its name matches any of the precompiled log patterns,
+// - and if its last 1000 bytes contain mostly ASCII characters.
+//
+// If the runtime is not Linux, it returns an empty slice with no error.
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	if runtime.GOOS != "linux" {
 		return []string{}, nil
@@ -29,34 +41,27 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 				continue
 			}
 
-			if IsHumanReadable(last1000Text) {
+			if IsMostlyASCII(last1000Text) {
 				openedLogFiles = append(openedLogFiles, filePath)
 			}
 		}
 	}
 
-	return openedLogFiles, err
+	return openedLogFiles, nil
 }
 
+// matchLogPattern checks if the filename matches any of the precompiled log patterns.
 func matchLogPattern(s string) bool {
-	patterns := []string{
-		".*\\.log",     // *.log
-		".*log.*\\..*", // *log*.*
-	}
-
-	match := false
-
-	// if matches one of the pattern above, return true
-	for _, pattern := range patterns {
-		m, _ := regexp.MatchString(pattern, s)
-		if m {
+	for _, pattern := range logPatterns {
+		if pattern.MatchString(s) {
 			return true
 		}
 	}
-
-	return match
+	return false
 }
 
+// getLastNBytes opens the file at filename and returns up to the last n bytes. If the file
+// is smaller than n bytes, the entire file contents are returned.
 func getLastNBytes(filename string, n int64) ([]byte, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -93,7 +98,9 @@ func getLastNBytes(filename string, n int64) ([]byte, error) {
 	return bytes, nil
 }
 
-func IsHumanReadable(b []byte) bool {
+// IsMostlyASCII determines if more than 70% of the bytes in b are ASCII.
+// It returns true if the proportion of ASCII characters is greater than 0.7, and false otherwise.
+func IsMostlyASCII(b []byte) bool {
 	ASCIICount := 0
 
 	for i := 0; i < len(b); i++ {
