@@ -366,7 +366,7 @@ Ignored errors: %v
 	var appLog chan capture.Result
 	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
 		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
-		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, N: config.GlobalConfig.AppLogLineCount}))
+		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
@@ -399,11 +399,11 @@ Ignored errors: %v
 			}
 
 			if len(appLogsMatchingAppName) > 0 {
-				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, N: config.GlobalConfig.AppLogLineCount}))
+				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, LineLimit: config.GlobalConfig.AppLogLineCount}))
 				useGlobalConfigAppLogs = true
 			}
 		} else {
-			appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, N: config.GlobalConfig.AppLogLineCount}))
+			appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
 			useGlobalConfigAppLogs = true
 		}
 	}
@@ -448,7 +448,7 @@ Ignored errors: %v
 			}
 		}
 
-		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, N: config.GlobalConfig.AppLogLineCount}))
+		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, LineLimit: config.GlobalConfig.AppLogLineCount}))
 	}
 
 	// ------------------------------------------------------------------------------
