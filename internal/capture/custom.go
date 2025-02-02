@@ -7,6 +7,8 @@ import (
 	"yc-agent/internal/capture/executils"
 )
 
+// Custom represents capturing with custom command.
+// Deprecated. No longer supported.
 type Custom struct {
 	Capture
 	Index     int
@@ -14,6 +16,8 @@ type Custom struct {
 	Command   []string
 }
 
+// Run runs the capture by calling the specified command
+// Deprecated. No longer supported.
 func (c *Custom) Run() (result Result, err error) {
 	custom, err := os.Create(fmt.Sprintf("custom%d.out", c.Index))
 	if err != nil {
