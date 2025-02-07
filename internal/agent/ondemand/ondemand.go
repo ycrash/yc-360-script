@@ -299,10 +299,8 @@ Ignored errors: %v
 		//                   Capture netstat x2
 		// ------------------------------------------------------------------------------
 		//  Collect the first netstat: date at the top, data, and then a blank line
-		logger.Log("Collecting the first netstat snapshot...")
-		capNetStat = capture.NewNetStat()
+		capNetStat = &capture.NetStat{}
 		netStat = goCapture(endpoint, capture.WrapRun(capNetStat))
-		logger.Log("First netstat snapshot complete.")
 
 		// ------------------------------------------------------------------------------
 		//                   Capture top
@@ -458,15 +456,6 @@ Ignored errors: %v
 		Pid:      pid,
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}))
-
-	// ------------------------------------------------------------------------------
-	//                Capture final netstat
-	// ------------------------------------------------------------------------------
-	if capNetStat != nil {
-		logger.Log("Collecting the final netstat snapshot...")
-		capNetStat.Done()
-		logger.Log("Final netstat snapshot complete.")
-	}
 
 	// stop started tasks
 	if capTop != nil {
