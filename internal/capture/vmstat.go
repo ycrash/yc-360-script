@@ -92,6 +92,13 @@ func (v *VMStat) executeCommand(w io.Writer, cmd []string) error {
 
 	command.Wait()
 
+	// Bug: Fallback detection is unreliable
+	//
+	// The fallback mechanism triggers on non-zero exit codes, but fails to detect
+	// actual vmstat failures due to how pipes work. The command:
+	// 	vmstat ... | awk ...
+	// will return exit code 0 (success) even when dmesg fails, because the exit
+	// code comes from 'awk' rather than 'vmstat'.
 	if command.ExitCode() == 0 || runtime.GOOS != "linux" {
 		return nil
 	}
