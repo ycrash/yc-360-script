@@ -1,167 +1,170 @@
 package capture
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"strconv"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
 )
 
+const topOutputPath = "top.out"
+
+// Top captures system "top" data.
 type Top struct {
 	Capture
 }
 
-func (t *Top) Run() (result Result, err error) {
-	if len(executils.Top) < 1 {
-		result.Msg = "skipped capturing TopH"
-		result.Ok = false
-		return
+// Run implements the capture by creating the output file, capturing output,
+// and then uploading the captured file.
+func (t *Top) Run() (Result, error) {
+	// If the primary top command isn’t configured, skip capturing.
+	if len(executils.Top) == 0 {
+		return Result{Msg: "skipped capturing Top", Ok: false}, nil
 	}
-	file, err := os.Create("top.out")
+
+	capturedFile, err := t.CaptureToFile()
 	if err != nil {
-		return
+		return Result{Msg: err.Error(), Ok: false}, err
 	}
-	defer func() {
-		e := file.Close()
-		if e != nil && !errors.Is(e, os.ErrClosed) {
-			logger.Log("failed to close file %s", e)
-		}
-	}()
-	t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.Top)
-	if err != nil && !errors.Is(err, exec.ErrNotFound) {
-		return
-	}
-	if t.Cmd.IsSkipped() {
-		result.Msg = "skipped capturing Top"
-		result.Ok = false
-		return
-	}
-	err = t.Cmd.Wait()
-	if err != nil {
-		logger.Log("failed to wait cmd: %s", err.Error())
-	}
-	if t.Cmd.ExitCode() != 0 && len(executils.Top2) > 0 {
-		_, err = file.Seek(0, io.SeekStart)
-		if err != nil {
-			return
-		}
-		output, rErr := ioutil.ReadAll(file)
-		oCmd := t.Cmd
-		err = file.Truncate(0)
-		if err != nil {
-			return
-		}
-		_, err = file.Seek(0, io.SeekStart)
-		if err != nil {
-			return
-		}
-		t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.Top2)
-		if err != nil {
-			return
-		}
-		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
-		if t.Cmd.IsSkipped() {
-			result.Msg = "skipped capturing Top"
-			result.Ok = false
-			return
-		}
-		err = t.Cmd.Wait()
-		if err != nil {
-			logger.Log("failed to wait cmd: %s", err.Error())
-		}
-	}
-	e := file.Sync()
-	if e != nil && !errors.Is(e, os.ErrClosed) {
-		logger.Log("failed to sync file %s", e)
-	}
-	result.Msg, result.Ok = PostData(t.Endpoint(), "top", file)
-	return
+	defer capturedFile.Close()
+
+	return t.UploadCapturedFile(capturedFile), nil
 }
 
+// CaptureToFile captures the ps to a file and returns it
+func (t *Top) CaptureToFile() (*os.File, error) {
+	file, err := os.Create(topOutputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output file: %w", err)
+	}
+
+	if err := t.captureOutput(file); err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	if err := file.Sync(); err != nil {
+		logger.Log("failed to sync file: %v", err)
+	}
+
+	return file, nil
+}
+
+// captureOutput executes the primary top command. If that fails and a fallback
+// command is available, it resets the file and retries.
+func (t *Top) captureOutput(f *os.File) error {
+	// Try the primary top command.
+	if err := executils.CommandCombinedOutputToWriter(f, executils.Top); err != nil {
+		// If a fallback exists, try it.
+		if executils.Top2 != nil && len(executils.Top2) > 0 {
+			// Reset file before retrying.
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			if err := f.Truncate(0); err != nil {
+				return err
+			}
+			logger.Log("primary top command failed, trying fallback: %v", executils.Top2)
+			if errFallback := executils.CommandCombinedOutputToWriter(f, executils.Top2); errFallback != nil {
+				return fmt.Errorf("both top commands failed: %w", errFallback)
+			}
+		} else {
+			return err
+		}
+	}
+	return nil
+}
+
+// UploadCapturedFile sends the file data to the endpoint using the service key "top".
+func (t *Top) UploadCapturedFile(file *os.File) Result {
+	msg, ok := PostData(t.Endpoint(), "top", file)
+	return Result{Msg: msg, Ok: ok}
+}
+
+// TopH captures "top -H" (threads) data for a specific process.
 type TopH struct {
 	Capture
 	Pid int
-	N   int
+	N   int // used to distinguish output files (e.g. topdashH.1.out, topdashH.2.out, …)
 }
 
-func (t *TopH) Run() (result Result, err error) {
-	if len(executils.TopH) < 1 {
-		result.Msg = "skipped capturing TopH"
-		result.Ok = false
-		return
+// Run captures the "top -H "output (with fallback if needed)
+// and then returns a Result.
+// (Note that unlike Top, TopH does not upload the captured file.)
+func (t *TopH) Run() (Result, error) {
+	// If the primary topH command isn’t configured, skip capturing.
+	if len(executils.TopH) == 0 {
+		return Result{Msg: "skipped capturing TopH", Ok: false}, nil
 	}
-	if !IsProcessExists(t.Pid) {
-		err = fmt.Errorf("process %d does not exist", t.Pid)
-		return
-	}
-	logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
-	file, err := os.Create(fmt.Sprintf("topdashH.%d.out", t.N))
-	if err != nil {
-		return
-	}
-	defer func() {
-		e := file.Sync()
-		if e != nil && !errors.Is(e, os.ErrClosed) {
-			logger.Log("failed to sync file %s", e)
-		}
-		e = file.Close()
-		if e != nil && !errors.Is(e, os.ErrClosed) {
-			logger.Log("failed to close file %s", e)
-		}
-	}()
 
+	// Check that the process exists.
+	if !IsProcessExists(t.Pid) {
+		return Result{}, fmt.Errorf("process %d does not exist", t.Pid)
+	}
+
+	logger.Log("Collection of top dash H data started for PID %d.", t.Pid)
+
+	capturedFile, err := t.CaptureToFile()
+	if err != nil {
+		return Result{Msg: err.Error(), Ok: false}, err
+	}
+	defer capturedFile.Close()
+
+	// In the original implementation the file was not uploaded.
+	// Return a success result indicating that the file was created.
+	return Result{Msg: fmt.Sprintf("captured top dash H data to %s", capturedFile.Name()), Ok: true}, nil
+}
+
+// CaptureToFile creates an output file named "topdashH.<N>.out", writes the
+// command output into it (with fallback if needed), syncs the file and returns it.
+func (t *TopH) CaptureToFile() (*os.File, error) {
+	fileName := fmt.Sprintf("topdashH.%d.out", t.N)
+	file, err := os.Create(fileName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output file: %w", err)
+	}
+
+	if err := t.captureOutput(file); err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	if err := file.Sync(); err != nil {
+		logger.Log("failed to sync file: %v", err)
+	}
+	return file, nil
+}
+
+// captureOutput builds and executes the primary topH command (adding the dynamic
+// PID argument). If that fails and a fallback command is available, it resets the file and retries.
+func (t *TopH) captureOutput(f *os.File) error {
+	// Build the primary command with the process PID.
 	command, err := executils.TopH.AddDynamicArg(strconv.Itoa(t.Pid))
 	if err != nil {
-		return
+		return err
 	}
-	t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, command)
-	if err != nil && !errors.Is(err, exec.ErrNotFound) {
-		return
-	}
-	if t.Cmd.IsSkipped() {
-		result.Msg = "skipped capturing TopH"
-		result.Ok = false
-		return
-	}
-	err = t.Cmd.Wait()
-	if err != nil {
-		logger.Log("failed to wait cmd: %s", err.Error())
-	}
-	if t.Cmd.ExitCode() != 0 && len(executils.TopH2) > 0 {
-		_, err = file.Seek(0, io.SeekStart)
-		if err != nil {
-			return
-		}
-		output, rErr := ioutil.ReadAll(file)
-		oCmd := t.Cmd
-		err = file.Truncate(0)
-		if err != nil {
-			return
-		}
-		_, err = file.Seek(0, io.SeekStart)
-		if err != nil {
-			return
-		}
-		t.Cmd, err = executils.CommandStartInBackgroundToWriter(file, executils.Append(executils.TopH2, strconv.Itoa(t.Pid)))
-		if err != nil {
-			return
-		}
-		logger.Log("trying %q, cause %q exit code != 0, read err %s %v", t.Cmd.String(), oCmd, output, rErr)
-		if t.Cmd.IsSkipped() {
-			result.Msg = "skipped capturing TopH"
-			result.Ok = false
-			return
-		}
-		err = t.Cmd.Wait()
-		if err != nil {
-			logger.Log("failed to wait cmd: %s", err.Error())
+
+	if err := executils.CommandCombinedOutputToWriter(f, command); err != nil {
+		// Try fallback if available.
+		if executils.TopH2 != nil && len(executils.TopH2) > 0 {
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			if err := f.Truncate(0); err != nil {
+				return err
+			}
+			logger.Log("primary top dash H command failed, trying fallback: %v", executils.TopH2)
+			// Append the PID to the fallback command.
+			fallbackCmd := executils.Append(executils.TopH2, strconv.Itoa(t.Pid))
+			if errFallback := executils.CommandCombinedOutputToWriter(f, fallbackCmd); errFallback != nil {
+				return fmt.Errorf("both top dash H commands failed: %w", errFallback)
+			}
+		} else {
+			return err
 		}
 	}
-	return
+	return nil
 }
