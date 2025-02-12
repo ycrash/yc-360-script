@@ -165,6 +165,9 @@ func CaptureBoomiDetails(endpoint string, timestamp string, pid int) {
 	atomConnectorURL := "https://api.boomi.com/api/rest/v1/" + accountID + "/Connector/query"
 	atomConnectorRecord, err := fetchAtomConnectorDetails(boomiUserName, boomiPassword, atomConnectorURL)
 
+	//// download atom log
+	downloadAtomLog(boomiUserName, boomiPassword, accountID)
+
 	//// write atom details header
 	output.WriteAtomConnectorDetailsHeader()
 	output.WriteAtomConnectorDetails(atomConnectorRecord)
@@ -527,7 +530,7 @@ func makeBoomiRequest(queryToken string, username string, password string, boomi
 			}
 
 			// Print the body content
-			fmt.Printf("Request Body: %s\n", string(bodyBytes))
+			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
 			req.Body = ioutil.NopCloser(bytes.NewReader(bodyBytes))
@@ -640,7 +643,7 @@ func makeAtomConnectorsRequest(queryToken string, username string, password stri
 			}
 
 			// Print the body content
-			fmt.Printf("Request Body: %s\n", string(bodyBytes))
+			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
 			req.Body = ioutil.NopCloser(bytes.NewReader(bodyBytes))
@@ -723,7 +726,7 @@ func getAtomQueryDetails(accountID string, username string, password string) Ato
 		return atomQueryResult
 	}
 
-	logger.Log("Atom Query details Result %v", atomQueryResult)
+	//logger.Log("Atom Query details Result %v", atomQueryResult)
 
 	return atomQueryResult
 }
@@ -751,7 +754,134 @@ func getAtomConnectorDetails(accountID string, username string, password string)
 // <mdm:Clouds>
 // <mdm:Cloud cloudId="47ff4c06-8bef-431e-a30f-2f4dec0ffca8" containerId="acd927c3-a249-4a47-b217-ef9cbf99d187" name="Singapore Hub Cloud"/>
 // </mdm:Clouds>
-func downloadAtomLog() {
+func downloadAtomLog(username, password, boomiAcctId string) {
+	logger.Log("now downloading atom log..")
+	var period = config.GlobalConfig.Period
+	if period == 0 {
+		period = 3
+	}
+	_, endTimeStr := getStartAndEndTime(period)
+
+	atomId := config.GlobalConfig.AtomId
+
+	req := `{
+		"atomId": "{{.AtomId}}",
+		"logDate":"{{.LogDate}}"
+	}`
+
+	type FilterData struct {
+		LogDate string
+		AtomId  string
+	}
+
+	var result bytes.Buffer
+	data := FilterData{
+		LogDate: endTimeStr,
+		AtomId:  atomId,
+	}
+
+	t, err := template.New("filter").Parse(req)
+	if err != nil {
+		logger.Log("error while parsing the boomi download atom request template string %s", err.Error())
+	}
+	err = t.Execute(&result, data)
+	if err != nil {
+		logger.Log("error while applying template with value %s", err.Error())
+	}
+
+	client := resty.New()
+	boomiURL := "https://api.boomi.com/api/rest/v1/" + boomiAcctId + "/AtomLog"
+	logger.Log("boomi atom log req string %s", result.String())
+
+	resp, err := client.R().
+		SetBasicAuth(username, password).
+		SetHeader(BoomiRequestContentType, BoomiRequestApplicationJSON).
+		SetBody(result.String()).
+		Post(boomiURL)
+
+	logger.Log("boomi atom download log response code %d", resp.StatusCode())
+	if resp.StatusCode() != 202 {
+		logger.Log("Boomi API responded with non 202, aborting...")
+		return
+	}
+
+	type BoomiAtomLogQueryResult struct {
+		Type       string `json:"@type"`
+		Url        string `json:"url"`
+		Message    string `json:"message"`
+		StatusCode int    `json:"statusCode"`
+	}
+
+	// unmarshal the JSON response into the struct
+	var queryResult BoomiAtomLogQueryResult
+	jsonErr := json.Unmarshal(resp.Body(), &queryResult)
+	if jsonErr != nil {
+		logger.Log("Error unmarshalling Boomi atom download log response as JSON: %w", jsonErr)
+	}
+	logger.Log("got atom log download url->%s", queryResult.Url)
+
+	// client2 := resty.New()
+	// client2.SetDebug(true)
+
+	// // Set a custom User-Agent to mimic a real browser
+	// client2.SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+
+	// // Create the HTTP client
+
+	// // Open the file to write the content
+	// outFile, err := os.Create(atomId + ".zip")
+	// if err != nil {
+	// 	fmt.Println("Error creating the file:", err)
+	// 	return
+	// }
+	// defer outFile.Close()
+
+	if queryResult.Url != "" {
+		// 	// got the download url, now download the log file
+		_, err := client.R().
+			SetBasicAuth(username, password).
+			SetOutput(atomId).
+			Get(queryResult.Url)
+
+		if err != nil {
+			logger.Log("error while get operation in boomi atom log download.. aborting")
+			return
+		}
+
+		// 	logger.Log("boomi atom download url response code-> %d", resp.StatusCode())
+		// 	if resp.StatusCode() != 202 {
+		// 		logger.Log("error while downloading boomi atom log.. aborting")
+		// 		return
+		// 	}
+
+		// client := &http.Client{}
+		// req, err := http.NewRequest("POST", queryResult.Url, nil)
+		// if err != nil {
+		// 	fmt.Println("Error creating the request:", err)
+		// 	return
+		// }
+		// auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		// req.Header.Set("Authorization", "Basic "+auth)
+		// resp, err := client.Do(req)
+		// if err != nil {
+		// 	fmt.Println("Error sending the request:", err)
+		// 	return
+		// }
+		// defer resp.Body.Close()
+		// outFile, err := os.Create("downloaded-file.zip")
+		// if err != nil {
+		// 	fmt.Println("Error creating the file:", err)
+		// 	return
+		// }
+		// defer outFile.Close()
+		// _, err = io.Copy(outFile, resp.Body)
+		// if err != nil {
+		// 	fmt.Println("Error writing to the file:", err)
+		// 	return
+		// }
+
+		fmt.Println("File downloaded successfully ")
+	}
 
 }
 
