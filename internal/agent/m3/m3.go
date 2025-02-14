@@ -355,6 +355,8 @@ func uploadThreadDumpM3(endpoint string, pid int, sendPidParam bool) {
 	if sendPidParam {
 		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
 	}
+	capThreadDump.SetEndpointParam("cpuCount", strconv.Itoa(runtime.NumCPU()))
+	
 	threadDump = capture.GoCapture(endpoint, capture.WrapRun(capThreadDump))
 	// -------------------------------
 	//     Log Thread dump
