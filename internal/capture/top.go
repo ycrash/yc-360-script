@@ -57,24 +57,41 @@ func (t *Top) CaptureToFile() (*os.File, error) {
 // command is available, it resets the file and retries.
 func (t *Top) captureOutput(f *os.File) error {
 	// Try the primary top command.
-	if err := executils.CommandCombinedOutputToWriter(f, executils.Top); err != nil {
-		// If a fallback exists, try it.
-		if executils.Top2 != nil && len(executils.Top2) > 0 {
-			// Reset file before retrying.
-			if _, err := f.Seek(0, io.SeekStart); err != nil {
-				return err
-			}
-			if err := f.Truncate(0); err != nil {
-				return err
-			}
-			logger.Log("primary top command failed, trying fallback: %v", executils.Top2)
-			if errFallback := executils.CommandCombinedOutputToWriter(f, executils.Top2); errFallback != nil {
-				return fmt.Errorf("both top commands failed: %w", errFallback)
-			}
-		} else {
+	var err error
+	t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, executils.Top)
+	if err != nil {
+		return err
+	}
+
+	err = t.Cmd.Wait()
+	if err != nil {
+		logger.Log("failed to wait cmd: %s", err.Error())
+	}
+
+	// If a fallback exists, try it.
+	if t.Cmd.ExitCode() != 0 && executils.Top2 != nil && len(executils.Top2) > 0 {
+		// Reset file before retrying.
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
+		if err := f.Truncate(0); err != nil {
+			return err
+		}
+
+		logger.Log("primary top command failed, trying fallback: %v", executils.Top2)
+		t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, executils.Top2)
+		if err != nil {
+			return err
+		}
+
+		err = t.Cmd.Wait()
+		if err != nil {
+			return fmt.Errorf("both top commands failed: %w", err)
+		}
+	} else {
+		return err
 	}
+
 	return nil
 }
 
