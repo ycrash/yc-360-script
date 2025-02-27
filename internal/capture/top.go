@@ -164,24 +164,43 @@ func (t *TopH) captureOutput(f *os.File) error {
 		return err
 	}
 
-	if err := executils.CommandCombinedOutputToWriter(f, command); err != nil {
-		// Try fallback if available.
-		if executils.TopH2 != nil && len(executils.TopH2) > 0 {
-			if _, err := f.Seek(0, io.SeekStart); err != nil {
-				return err
-			}
-			if err := f.Truncate(0); err != nil {
-				return err
-			}
-			logger.Log("primary top dash H command failed, trying fallback: %v", executils.TopH2)
-			// Append the PID to the fallback command.
-			fallbackCmd := executils.Append(executils.TopH2, strconv.Itoa(t.Pid))
-			if errFallback := executils.CommandCombinedOutputToWriter(f, fallbackCmd); errFallback != nil {
-				return fmt.Errorf("both top dash H commands failed: %w", errFallback)
-			}
-		} else {
+	t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, command)
+	if err != nil {
+		return err
+	}
+
+	err = t.Cmd.Wait()
+	if err != nil {
+		logger.Log("failed to wait cmd: %s", err.Error())
+	}
+
+	// If a fallback exists, try it.
+	if t.Cmd.ExitCode() != 0 && executils.TopH2 != nil && len(executils.TopH2) > 0 {
+		// Reset write position
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
+		if err := f.Truncate(0); err != nil {
+			return err
+		}
+
+		logger.Log("primary top dash H command failed, trying fallback: %v", executils.TopH2)
+
+		// Append the PID to the fallback command.
+		fallbackCmd := executils.Append(executils.TopH2, strconv.Itoa(t.Pid))
+
+		t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, fallbackCmd)
+		if err != nil {
+			return err
+		}
+
+		err = t.Cmd.Wait()
+		if err != nil {
+			return fmt.Errorf("both top dash H commands failed: %w", err)
+		}
+	} else {
+		return err
 	}
+
 	return nil
 }
