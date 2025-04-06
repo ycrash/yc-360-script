@@ -3,6 +3,7 @@ package capture
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 func GetOpenedFilesByProcess(pid int) ([]string, error) {
 	openedFiles := []string{}
 	pidStr := strconv.Itoa(pid)
-	output, err := executils.CommandCombinedOutput(executils.Command{"lsof", "-a", "-Fn", "-p", pidStr, "-R", "/"})
+	output, err := executils.CommandCombinedOutput(executils.Command{"lsof", "-Fn", "-p", pidStr})
 
 	if err != nil {
 		return openedFiles, err
@@ -25,10 +26,17 @@ func GetOpenedFilesByProcess(pid int) ([]string, error) {
 			continue
 		}
 
-		cut, _ := strings.CutPrefix(line, "n")
+		path := strings.TrimPrefix(line, "n")
+		if path == "" {
+			continue
+		}
 
-		openedFiles = append(openedFiles, cut)
+		openedFiles = append(openedFiles, path)
 	}
 
-	return openedFiles, err
+	if err := s.Err(); err != nil {
+		return openedFiles, fmt.Errorf("scanner error reading lsof output: %w", err)
+	}
+
+	return openedFiles, nil
 }

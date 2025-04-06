@@ -22,7 +22,7 @@ var logPatterns = []*regexp.Regexp{
 //
 // If the runtime is not Linux, it returns an empty slice with no error.
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return []string{}, nil
 	}
 
