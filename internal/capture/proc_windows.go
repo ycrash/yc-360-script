@@ -93,6 +93,13 @@ Next:
 	return
 }
 
+type ParsedToken struct {
+	stringToken string
+	intToken    int
+	isIntToken  bool
+	appName     string
+}
+
 type CIMProcess struct {
 	ProcessName string
 	CommandLine string
@@ -119,46 +126,71 @@ func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (
 	logger.Debug().Msgf("m3_windows GetProcessIds excludes: %v", excludes)
 	logger.Debug().Msgf("m3_windows GetProcessIds cimProcessList: %v", cimProcessList)
 
-NextProcess:
+	// 1. Preprocess excludes - identify excluded processes
+	excludedProcesses := make(map[int]bool)
+	// exclude self Pid in case some of the cmdline args matches
+	excludedProcesses[os.Getpid()] = true
 	for _, cimProcess := range cimProcessList {
 		for _, exclude := range excludes {
 			if strings.Contains(cimProcess.CommandLine, string(exclude)) {
-				continue NextProcess
+				excludedProcesses[cimProcess.ProcessId] = true
+				break
 			}
 		}
+	}
 
-		for _, t := range tokens {
-			token := string(t)
-			var appName string
-			index := strings.Index(token, "$")
-			if index >= 0 {
-				appName = token[index+1:]
-				token = token[:index]
+	// 2. Preprocess tokens - parse once, before entering loop for performance consideration
+	parsedTokens := make([]ParsedToken, 0, len(tokens))
+	for _, t := range tokens {
+		tokenStr := string(t)
+
+		// Extract app name if present
+		var appName string
+		index := strings.Index(tokenStr, "$")
+		if index >= 0 {
+			// E.g: 1234$BuggyApp
+			appName = tokenStr[index+1:] // e.g: BuggyApp
+			tokenStr = tokenStr[:index]  // e.g: 1234
+		}
+
+		// Check if token is an integer
+		intVal, err := strconv.Atoi(tokenStr)
+		isIntToken := err == nil && intVal > 0
+
+		parsedTokens = append(parsedTokens, ParsedToken{
+			stringToken: tokenStr,
+			intToken:    intVal,
+			isIntToken:  isIntToken,
+			appName:     appName,
+		})
+	}
+
+	// 3. Process matching
+	for _, token := range parsedTokens {
+		for _, cimProcess := range cimProcessList {
+			// Skip excluded processes
+			if excludedProcesses[cimProcess.ProcessId] {
+				continue
 			}
 
-			if cimProcessContainsToken(cimProcess, token) {
-				if _, ok := pids[cimProcess.ProcessId]; !ok {
-					pids[cimProcess.ProcessId] = appName
+			matched := false
+
+			if token.isIntToken && cimProcess.ProcessId == token.intToken {
+				// Integer token matching process ID
+				matched = true
+			} else if strings.Contains(cimProcess.CommandLine, token.stringToken) {
+				// String token matching command line
+				matched = true
+			}
+
+			if matched {
+				if _, exists := pids[cimProcess.ProcessId]; !exists {
+					pids[cimProcess.ProcessId] = token.appName
 				}
-				continue NextProcess
 			}
 		}
 	}
+
 	logger.Debug().Msgf("m3_windows GetProcessIds pids: %v", pids)
-
 	return
-}
-
-func cimProcessContainsToken(cimProcess CIMProcess, token string) bool {
-	if strings.Contains(cimProcess.CommandLine, token) {
-		return true
-	} else {
-		// token can be an int
-		tokenInt, _ := strconv.Atoi(token)
-		if tokenInt > 0 && cimProcess.ProcessId == tokenInt {
-			return true
-		}
-	}
-
-	return false
 }
