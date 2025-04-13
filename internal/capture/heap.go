@@ -32,135 +32,194 @@ type HeapDump struct {
 	dump     bool
 }
 
+// NewHeapDump creates a new HeapDump instance with the provided parameters.
 func NewHeapDump(javaHome string, pid int, hdPath string, dump bool) *HeapDump {
-	return &HeapDump{JavaHome: javaHome, Pid: pid, hdPath: hdPath, dump: dump}
+	return &HeapDump{
+		JavaHome: javaHome,
+		Pid:      pid,
+		hdPath:   hdPath,
+		dump:     dump,
+	}
 }
 
-func (t *HeapDump) Run() (result Result, err error) {
+// Run executes the heap dump capture process and uploads the captured file
+// to the specified endpoint.
+func (t *HeapDump) Run() (Result, error) {
 	var hd *os.File
+	var err error
+
+	// Try pre-captured heap dump first
 	if len(t.hdPath) > 0 {
-		var hdf *os.File
-		hdf, err = os.Open(t.hdPath)
-		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("failed to open hdPath(%s) err: %s. Trying to open in the Docker container...", t.hdPath, err.Error())
-			hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
-		}
-		if err != nil {
-			logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
-		} else {
-			logger.Log("copying heap dump data %s", t.hdPath)
+		hd, err = t.getPreCapturedDumpFile()
+	} else if t.Pid > 0 && t.dump {
+		var actualDumpPath string
+		// Then try capturing a new heap dump
+		hd, actualDumpPath, err = t.captureDumpFile()
+
+		// Cleanup the actual dump file after we're done with it
+		if actualDumpPath != "" {
 			defer func() {
-				err := hdf.Close()
+				err := os.Remove(actualDumpPath)
 				if err != nil {
-					logger.Log("failed to close hd file %s cause err: %s", t.hdPath, err.Error())
+					logger.Trace().Err(err).Str("file", actualDumpPath).Msg("failed to rm hd file")
 				}
 			}()
-			hd, err = os.Create(hdOut)
-			if err != nil {
-				return
-			}
-			defer func() {
-				err := hd.Close()
-				if err != nil {
-					logger.Log("failed to close hd file %s cause err: %s", hdOut, err.Error())
-				}
-				err = os.Remove(hdOut)
-				if err != nil {
-					logger.Log("failed to rm hd file %s cause err: %s", hdOut, err.Error())
-				}
-			}()
-			_, err = io.Copy(hd, hdf)
-			if err != nil {
-				return
-			}
-			_, err = hd.Seek(0, 0)
-			if err != nil {
-				return
-			}
-			logger.Log("copied heap dump data %s", t.hdPath)
 		}
 	}
-	if t.Pid > 0 && hd == nil && t.dump {
-		logger.Log("capturing heap dump data")
-		var dir string
-		dir, err = os.Getwd()
-		if err != nil {
-			return
-		}
-		fp := filepath.Join(dir, fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
-		actualDumpPath := fp
-		actualDumpPath, err = t.heapDump(fp)
-		if err != nil {
-			fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
-			actualDumpPath, err = t.heapDump(fp)
-			if err != nil {
-				return
-			}
-		}
-		defer func() {
-			err := os.Remove(actualDumpPath)
-			if err != nil {
-				logger.Trace().Err(err).Str("file", actualDumpPath).Msg("failed to rm hd file")
-			}
-		}()
-		hd, err = os.Open(actualDumpPath)
-		if err != nil && runtime.GOOS == "linux" {
-			logger.Log("Failed to %s. Trying to open in the Docker container...", err.Error())
-			actualDumpPath = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", actualDumpPath)
-			hd, err = os.Open(actualDumpPath)
-		}
-		if err != nil {
-			err = fmt.Errorf("failed to open heap dump file: %w", err)
-			return
-		}
-		defer func() {
-			err := hd.Close()
-			if err != nil {
-				logger.Log("failed to close hd file %s cause err: %s", actualDumpPath, err.Error())
-			}
-		}()
-		logger.Log("captured heap dump data, zipping...")
-	}
+
 	if hd == nil {
 		if errors.Is(err, os.ErrNotExist) {
 			err = nil
 		}
-		result.Msg = "skipped heap dump"
-		return
+		return Result{Msg: "skipped heap dump"}, nil
 	}
-	zipfile, err := os.Create(hdZip)
+
+	defer func() {
+		err := hd.Close()
+		if err != nil {
+			logger.Log("failed to close hd file %s cause err: %s", hdOut, err.Error())
+		}
+		err = os.Remove(hdOut)
+		if err != nil {
+			logger.Log("failed to rm hd file %s cause err: %s", hdOut, err.Error())
+		}
+	}()
+
+	logger.Log("captured heap dump data, zipping...")
+
+	zipfile, err := t.CreateZipFile(hd)
 	if err != nil {
-		err = fmt.Errorf("failed to create zip file: %w", err)
-		return
+		return Result{Msg: "skipped heap dump"}, err
 	}
+
 	defer func() {
 		if err := zipfile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 			logger.Debug().Err(err).Msg("failed to close zip file")
 		}
 	}()
+
+	result := t.UploadCapturedFile(zipfile)
+	return result, nil
+}
+
+// getPreCapturedDumpFile handles the case when a heap dump is pre-captured (using the hdPath field)
+func (t *HeapDump) getPreCapturedDumpFile() (*os.File, error) {
+	hdf, err := os.Open(t.hdPath)
+
+	// Fallback, try to open the file in the Docker container
+	if err != nil && runtime.GOOS == "linux" {
+		logger.Log("failed to open hdPath(%s) err: %s. Trying to open in the Docker container...", t.hdPath, err.Error())
+		hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
+	}
+
+	if err != nil {
+		logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
+		return nil, err
+	}
+
+	logger.Log("copying heap dump data %s", t.hdPath)
+
+	defer func() {
+		err := hdf.Close()
+		if err != nil {
+			logger.Log("failed to close hd file %s cause err: %s", t.hdPath, err.Error())
+		}
+	}()
+
+	hd, err := os.Create(hdOut)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = io.Copy(hd, hdf)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = hd.Seek(0, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Log("copied heap dump data %s", t.hdPath)
+	return hd, nil
+}
+
+// captureDumpFile handles the case when a heap dump needs to be captured (using the Pid field)
+// and returns both the file handle and the actual dump path
+func (t *HeapDump) captureDumpFile() (*os.File, string, error) {
+	logger.Log("capturing heap dump data")
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+
+	fp := filepath.Join(dir, fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
+	actualDumpPath, err := t.heapDump(fp)
+	if err != nil {
+		// Fallback if the heap dump failed
+		// Retry with a temp file, hopefully writeable
+		fp = filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", hdOut, t.Pid, time.Now().Unix()))
+		actualDumpPath, err = t.heapDump(fp)
+
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	hd, err := os.Open(actualDumpPath)
+	if err != nil && runtime.GOOS == "linux" {
+		// Fallback, try to open the file in the Docker container
+		logger.Log("Failed to %s. Trying to open in the Docker container...", err.Error())
+		actualDumpPath = filepath.Join("/proc", strconv.Itoa(t.Pid), "root", actualDumpPath)
+		hd, err = os.Open(actualDumpPath)
+	}
+
+	if err != nil {
+		return nil, actualDumpPath, fmt.Errorf("failed to open heap dump file: %w", err)
+	}
+
+	return hd, actualDumpPath, nil
+}
+
+func (t *HeapDump) CreateZipFile(hd *os.File) (*os.File, error) {
+	zipfile, err := os.Create(hdZip)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zip file: %w", err)
+	}
+
 	writer := zip.NewWriter(bufio.NewWriter(zipfile))
 	out, err := writer.Create(hdOut)
 	if err != nil {
-		err = fmt.Errorf("failed to create zip file: %w", err)
-		return
+		return nil, fmt.Errorf("failed to create zip file: %w", err)
 	}
+
 	_, err = io.Copy(out, hd)
 	if err != nil {
-		err = fmt.Errorf("failed to zip heap dump file: %w", err)
-		return
+		return nil, fmt.Errorf("failed to zip heap dump file: %w", err)
 	}
+
 	err = writer.Close()
 	if err != nil {
-		err = fmt.Errorf("failed to finish zipping heap dump file: %w", err)
-		return
+		return nil, fmt.Errorf("failed to finish zipping heap dump file: %w", err)
 	}
+
 	e := zipfile.Sync()
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		logger.Log("failed to sync file %s", e)
 	}
 
-	result.Msg, result.Ok = PostData(t.endpoint, "hd&Content-Encoding=zip", zipfile)
-	return
+	return zipfile, nil
+}
+
+func (t *HeapDump) UploadCapturedFile(file *os.File) Result {
+	msg, ok := PostData(t.Endpoint(), "hd&Content-Encoding=zip", file)
+
+	return Result{
+		Msg: msg,
+		Ok:  ok,
+	}
 }
 
 // heapDump runs the JDK tool (jcmd, jattach, etc) to capture the heap dump to the requested file.
