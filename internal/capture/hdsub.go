@@ -2,6 +2,8 @@ package capture
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path"
 	"strconv"
@@ -10,125 +12,155 @@ import (
 	"yc-agent/internal/logger"
 )
 
+const hdsubOutputPath = "hdsub.out"
+
+// HDSub handles the capture of Java heap and VM data for a specified process.
 type HDSub struct {
 	Capture
 	JavaHome string
 	Pid      int
 }
 
-func (t *HDSub) Run() (result Result, err error) {
-	fn := "hdsub.out"
-	out, err := os.Create(fn)
+// Run executes the heap dump capture process and uploads the captured file
+// to the specified endpoint.
+func (t *HDSub) Run() (Result, error) {
+	capturedFile, err := t.CaptureToFile()
 	if err != nil {
-		return
+		return Result{Msg: err.Error(), Ok: false}, err
 	}
-	defer func() {
-		e := out.Sync()
-		if e != nil && !errors.Is(e, os.ErrClosed) {
-			logger.Log("failed to sync file %s", e)
-		}
-		e = out.Close()
-		if e != nil && !errors.Is(e, os.ErrClosed) {
-			logger.Log("failed to close file %s", e)
-		}
-	}()
-	_, err = out.WriteString("GC.class_histogram:\n")
+	defer capturedFile.Close()
+
+	result := t.UploadCapturedFile(capturedFile)
+	return result, nil
+}
+
+// CaptureToFile captures Java heap and VM data to a file.
+// It returns the file handle for the captured data.
+func (t *HDSub) CaptureToFile() (*os.File, error) {
+	file, err := os.Create(hdsubOutputPath)
 	if err != nil {
-		logger.Log("failed to write file %s", err)
-	}
-	err = executils.CommandCombinedOutputToWriter(out,
-		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.class_histogram -all"}, executils.SudoHooker{PID: t.Pid})
-	if err != nil {
-		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
-		err = executils.CommandCombinedOutputToWriter(out,
-			executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram -all"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-		if err != nil {
-			logger.Log("Failed to capture GC.class_histogram with err %v.. Trying to capture using tmp jattach...", err)
-			var tempPath string
-			tempPath, err = executils.Copy2TempPath()
-			if err == nil {
-				err = executils.CommandCombinedOutputToWriter(out,
-					executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.class_histogram -all"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-			}
-			if err != nil {
-				logger.Log("Failed to capture GC.class_histogram with err %v.", err)
-			}
-		}
-	}
-	_, err = out.WriteString("\nVM.system_properties:\n")
-	if err != nil {
-		logger.Log("failed to write file %s", err)
-	}
-	err = executils.CommandCombinedOutputToWriter(out,
-		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.system_properties"}, executils.SudoHooker{PID: t.Pid})
-	if err != nil {
-		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
-		err = executils.CommandCombinedOutputToWriter(out,
-			executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-		if err != nil {
-			logger.Log("Failed to capture VM.system_properties with err %v. Trying to capture using tmp jattach...", err)
-			var tempPath string
-			tempPath, err = executils.Copy2TempPath()
-			if err == nil {
-				err = executils.CommandCombinedOutputToWriter(out,
-					executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.system_properties"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-			}
-			if err != nil {
-				logger.Log("Failed to capture VM.system_properties with err %v.", err)
-			}
-		}
-	}
-	_, err = out.WriteString("\nGC.heap_info:\n")
-	if err != nil {
-		logger.Log("failed to write file %s", err)
-	}
-	err = executils.CommandCombinedOutputToWriter(out,
-		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_info"}, executils.SudoHooker{PID: t.Pid})
-	if err != nil {
-		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
-		err = executils.CommandCombinedOutputToWriter(out,
-			executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-		if err != nil {
-			logger.Log("Failed to capture GC.heap_info with err %v. Trying to capture using tmp jattach...", err)
-			var tempPath string
-			tempPath, err = executils.Copy2TempPath()
-			if err == nil {
-				err = executils.CommandCombinedOutputToWriter(out,
-					executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "GC.heap_info"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-			}
-			if err != nil {
-				logger.Log("Failed to capture GC.heap_info with err %v.", err)
-			}
-		}
-	}
-	_, err = out.WriteString("\nVM.flags:\n")
-	if err != nil {
-		logger.Log("failed to write file %s", err)
-	}
-	err = executils.CommandCombinedOutputToWriter(out,
-		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), "VM.flags"}, executils.SudoHooker{PID: t.Pid})
-	if err != nil {
-		logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
-		err = executils.CommandCombinedOutputToWriter(out,
-			executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-		if err != nil {
-			logger.Log("Failed to capture VM.flags with err %v. Trying to capture using tmp jattach...", err)
-			var tempPath string
-			tempPath, err = executils.Copy2TempPath()
-			if err == nil {
-				err = executils.CommandCombinedOutputToWriter(out,
-					executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", "VM.flags"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-			}
-			if err != nil {
-				logger.Log("Failed to capture VM.flags with err %v.", err)
-			}
-		}
-	}
-	e := out.Sync()
-	if e != nil && !errors.Is(e, os.ErrClosed) {
-		logger.Log("failed to sync file %s", e)
+		return nil, fmt.Errorf("failed to create output file: %w", err)
 	}
 
-	result.Msg, result.Ok = PostData(t.Endpoint(), "hdsub", out)
-	return
+	// Capture each section of data
+	if err := t.captureClassHistogram(file); err != nil {
+		logger.Log("Failed to capture class histogram: %v", err)
+	}
+
+	if err := t.captureSystemProperties(file); err != nil {
+		logger.Log("Failed to capture system properties: %v", err)
+	}
+
+	if err := t.captureHeapInfo(file); err != nil {
+		logger.Log("Failed to capture heap info: %v", err)
+	}
+
+	if err := t.captureVMFlags(file); err != nil {
+		logger.Log("Failed to capture VM flags: %v", err)
+	}
+
+	if err := t.syncFile(file); err != nil {
+		logger.Log("warning: failed to sync file: %v", err)
+	}
+
+	return file, nil
+}
+
+// captureClassHistogram captures GC.class_histogram data to the writer.
+func (t *HDSub) captureClassHistogram(w io.Writer) error {
+	if _, err := w.Write([]byte("GC.class_histogram:\n")); err != nil {
+		return fmt.Errorf("failed to write section header: %w", err)
+	}
+
+	return t.executeJcmd(w, "GC.class_histogram -all")
+}
+
+// captureSystemProperties captures VM.system_properties data to the writer.
+func (t *HDSub) captureSystemProperties(w io.Writer) error {
+	if _, err := w.Write([]byte("\nVM.system_properties:\n")); err != nil {
+		return fmt.Errorf("failed to write section header: %w", err)
+	}
+
+	return t.executeJcmd(w, "VM.system_properties")
+}
+
+// captureHeapInfo captures GC.heap_info data to the writer.
+func (t *HDSub) captureHeapInfo(w io.Writer) error {
+	if _, err := w.Write([]byte("\nGC.heap_info:\n")); err != nil {
+		return fmt.Errorf("failed to write section header: %w", err)
+	}
+
+	return t.executeJcmd(w, "GC.heap_info")
+}
+
+// captureVMFlags captures VM.flags data to the writer.
+func (t *HDSub) captureVMFlags(w io.Writer) error {
+	if _, err := w.Write([]byte("\nVM.flags:\n")); err != nil {
+		return fmt.Errorf("failed to write section header: %w", err)
+	}
+
+	return t.executeJcmd(w, "VM.flags")
+}
+
+// executeJcmd executes the jcmd command with the given parameters, falling back to
+// jattach if needed.
+func (t *HDSub) executeJcmd(w io.Writer, command string) error {
+	// Try using jcmd first
+	err := executils.CommandCombinedOutputToWriter(w,
+		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), command},
+		executils.SudoHooker{PID: t.Pid})
+
+	if err == nil {
+		return nil
+	}
+
+	logger.Log("Failed to run jcmd with err %v. Trying to capture using jattach...", err)
+
+	// Try using jattach as fallback
+	err = executils.CommandCombinedOutputToWriter(w,
+		executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
+		executils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+		executils.SudoHooker{PID: t.Pid})
+
+	if err == nil {
+		return nil
+	}
+
+	logger.Log("Failed to capture %s with err %v. Trying to capture using tmp jattach...", command, err)
+
+	// Try using temp jattach as last resort
+	tempPath, err := executils.Copy2TempPath()
+	if err != nil {
+		return fmt.Errorf("failed to create temp jattach: %w", err)
+	}
+
+	err = executils.CommandCombinedOutputToWriter(w,
+		executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
+		executils.EnvHooker{"pid": strconv.Itoa(t.Pid)},
+		executils.SudoHooker{PID: t.Pid})
+
+	if err != nil {
+		return fmt.Errorf("failed to capture %s: %w", command, err)
+	}
+
+	return nil
+}
+
+// UploadCapturedFile uploads the captured file to the configured endpoint.
+func (t *HDSub) UploadCapturedFile(file *os.File) Result {
+	msg, ok := PostData(t.Endpoint(), "hdsub", file)
+
+	return Result{
+		Msg: msg,
+		Ok:  ok,
+	}
+}
+
+// syncFile ensures all file data is written to disk.
+func (t *HDSub) syncFile(file *os.File) error {
+	err := file.Sync()
+	if err != nil && !errors.Is(err, os.ErrClosed) {
+		return err
+	}
+	return nil
 }
