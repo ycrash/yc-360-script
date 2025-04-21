@@ -1,6 +1,6 @@
-﻿# Building the yCrash Agent on Linux and macOS
+﻿# Building the yCrash Agent on Linux
 
-This guide outlines the steps to build the yCrash agent in both Linux and macOS environments. You have two options for building the agent:
+This guide outlines the steps to build the yCrash agent in Linux environment. You have two options for building the agent:
 
 1) Build via Dockerized Environment (Recommended)  
 2) Build on Bare Metal
@@ -85,7 +85,7 @@ If you prefer building the agent directly on your local system, ensure the follo
 - ncurses-libs
 - ncurses-static
 
-> 📌 **Note**: Package names may vary slightly depending on your Linux distribution or macOS package manager (e.g., Homebrew).
+> 📌 **Note**: Package names may vary slightly depending on your Linux distribution.
 
 ### Build Steps:
 #### Step 1:  Navigate to the cmd/yc directory inside the repository:
