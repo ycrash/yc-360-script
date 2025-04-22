@@ -27,6 +27,7 @@ type Options struct {
 	HeapDump       bool   `yaml:"hd" usage:"Capture heap dump, default is false"`
 	HeapDumpPath   string `yaml:"hdPath" usage:"The heap dump file to be uploaded while it exists"`
 	ThreadDumpPath string `yaml:"tdPath" usage:"The thread dump file to be uploaded while it exists"`
+	TDCaptureDuration time.Duration `yaml:"tdCaptureDuration" usage:"Total duration to capture thread dumps (e.g., 10m, 30s)"`
 	GCPath         string `yaml:"gcPath" usage:"The gc log file to be uploaded while it exists"`
 	JavaHomePath   string `yaml:"j" usage:"The java home path to be used. Default will try to use os env 'JAVA_HOME' if 'JAVA_HOME' is not empty, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
 	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder created during analyse"`
@@ -168,6 +169,7 @@ func defaultConfig() Config {
 			PingHost:        "google.com",
 			DeferDelete:     true,
 			AppLogLineCount: 2000,
+			TDCaptureDuration: 0 * time.Second, // Setting here 0 seconds as default since handling it in jstack.go
 		},
 	}
 }

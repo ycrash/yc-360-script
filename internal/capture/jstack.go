@@ -9,11 +9,27 @@ import (
 	"time"
 
 	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
-const count = 3
-const timeToSleep = 10 * time.Second
+var count = 3
+var timeToSleep = 10 * time.Second
+
+func setTDDuration() {
+	if config.GlobalConfig.TDCaptureDuration > 0 {
+		
+		duration := config.GlobalConfig.TDCaptureDuration
+		if duration < 30*time.Second {
+			duration = 30 * time.Second
+		}
+		count = int(duration / (30 * time.Second))
+		if count < 1 {
+			count = 1
+		}
+		timeToSleep = 30 * time.Second
+	}
+}
 
 type JStack struct {
 	Capture
@@ -26,6 +42,9 @@ func NewJStack(javaHome string, pid int) *JStack {
 }
 
 func (t *JStack) Run() (result Result, err error) {
+	
+	setTDDuration()
+	
 	b1 := make(chan int, count)
 	b2 := make(chan int, count)
 	e1 := make(chan error, count)
