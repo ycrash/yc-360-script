@@ -13,42 +13,40 @@ import (
 	"yc-agent/internal/logger"
 )
 
-var count = 3
-var timeToSleep = 10 * time.Second
-
-func setTDDuration() {
-	if config.GlobalConfig.TDCaptureDuration > 0 {
-		
-		duration := config.GlobalConfig.TDCaptureDuration
-		if duration < 30*time.Second {
-			duration = 30 * time.Second
-		}
-		count = int(duration / (30 * time.Second))
-		if count < 1 {
-			count = 1
-		}
-		timeToSleep = 30 * time.Second
-	}
-}
+const defaultCount = 3
+const defaultTimeToSleep = 10 * time.Second
 
 type JStack struct {
 	Capture
-	javaHome string
-	pid      int
+	javaHome    string
+	pid         int
+	count       int
+	timeToSleep time.Duration
 }
 
 func NewJStack(javaHome string, pid int) *JStack {
-	return &JStack{javaHome: javaHome, pid: pid}
+	j := &JStack{javaHome: javaHome, pid: pid}
+	j.count = defaultCount
+	j.timeToSleep = defaultTimeToSleep
+
+	if config.GlobalConfig.TDCaptureDuration > 0 {
+		// minimum duration is 30 seconds
+		duration := max(config.GlobalConfig.TDCaptureDuration, 30*time.Second)
+
+		// minimum count is 1
+		j.count = max(int(duration/(30*time.Second)), 1)
+
+		j.timeToSleep = 30 * time.Second
+	}
+
+	return j
 }
 
 func (t *JStack) Run() (result Result, err error) {
-	
-	setTDDuration()
-	
-	b1 := make(chan int, count)
-	b2 := make(chan int, count)
-	e1 := make(chan error, count)
-	e2 := make(chan error, count)
+	b1 := make(chan int, t.count)
+	b2 := make(chan int, t.count)
+	e1 := make(chan error, t.count)
+	e2 := make(chan error, t.count)
 	defer func() {
 		close(b1)
 		close(b2)
@@ -193,7 +191,7 @@ func (t *JStack) Run() (result Result, err error) {
 		}
 	}()
 
-	for n := 1; n <= count; n++ {
+	for n := 1; n <= t.count; n++ {
 		b2 <- n
 		b1 <- n
 		err = <-e1
@@ -205,9 +203,9 @@ func (t *JStack) Run() (result Result, err error) {
 			logger.Warn().Err(err).Msg("Failed to run top h with err")
 		}
 
-		if n < count {
-			logger.Log("sleeping for %v for next capture of thread dump ...", timeToSleep)
-			time.Sleep(timeToSleep)
+		if n < t.count {
+			logger.Log("sleeping for %v for next capture of thread dump ...", t.timeToSleep)
+			time.Sleep(t.timeToSleep)
 		}
 	}
 
