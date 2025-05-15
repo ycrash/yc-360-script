@@ -60,16 +60,16 @@ func (t *Top) captureOutput(f *os.File) error {
 	var err error
 	t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, executils.Top)
 	if err != nil {
-		return err
-	}
-
-	err = t.Cmd.Wait()
-	if err != nil {
-		logger.Log("failed to wait cmd: %s", err.Error())
+		logger.Log("primary top command failed with err: %s", err.Error())
+	} else {
+		err = t.Cmd.Wait()
+		if err != nil {
+			logger.Log("primary top failed during wait cmd: %s", err.Error())
+		}
 	}
 
 	// If a fallback exists, try it.
-	if t.Cmd.ExitCode() != 0 && executils.Top2 != nil && len(executils.Top2) > 0 {
+	if (err != nil || t.Cmd.ExitCode() != 0) && executils.Top2 != nil && len(executils.Top2) > 0 {
 		// Reset file before retrying.
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return err
