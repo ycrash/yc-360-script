@@ -1,11 +1,13 @@
 package capture
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
@@ -13,7 +15,7 @@ import (
 
 const (
 	vmstatOutputPath = "vmstat.out"
-	vmstatInterval   = "5" // Default interval in seconds
+	vmstatCount      = 5 // Default count
 )
 
 // VMStat handles the capture of vmstat data.
@@ -59,7 +61,7 @@ func (v *VMStat) captureOutput(f *os.File) error {
 	// The first vmstat command to try
 	cmd, err := executils.VMState.AddDynamicArg(
 		strconv.Itoa(executils.VMSTAT_INTERVAL),
-		vmstatInterval,
+		strconv.Itoa(vmstatCount),
 	)
 
 	if err != nil {
@@ -80,7 +82,11 @@ func (v *VMStat) captureOutput(f *os.File) error {
 
 // executeCommand starts and monitors a command writing to the specified writer.
 func (v *VMStat) executeCommand(w io.Writer, cmd []string) error {
-	command, err := executils.CommandStartInBackgroundToWriter(w, cmd)
+	// Create a buffer to capture the output
+	var outputBuffer bytes.Buffer
+	multiWriter := io.MultiWriter(w, &outputBuffer)
+
+	command, err := executils.CommandStartInBackgroundToWriter(multiWriter, cmd)
 	if err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
@@ -92,18 +98,51 @@ func (v *VMStat) executeCommand(w io.Writer, cmd []string) error {
 
 	command.Wait()
 
-	// Bug: Fallback detection is unreliable
-	//
-	// The fallback mechanism triggers on non-zero exit codes, but fails to detect
-	// actual vmstat failures due to how pipes work. The command:
-	// 	vmstat ... | awk ...
-	// will return exit code 0 (success) even when dmesg fails, because the exit
-	// code comes from 'awk' rather than 'vmstat'.
-	if command.ExitCode() == 0 || runtime.GOOS != "linux" {
-		return nil
+	if command.ExitCode() != 0 {
+		return fmt.Errorf("vmstat: command failed with exit code: %d", command.ExitCode())
 	}
 
-	return fmt.Errorf("command failed with exit code: %d", command.ExitCode())
+	// Validate the vmstat output with detailed error message
+	valid, errMsg := validateVMStatOutput(outputBuffer.String())
+	if !valid {
+		return fmt.Errorf("vmstat: result validation failed: %s", errMsg)
+	}
+
+	return nil
+}
+
+// validateVMStatOutput checks vmstat output and returns validation status with error description
+func validateVMStatOutput(output string) (bool, string) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// Check we have expected line count (2 header + vmstat count)
+	if len(lines) != 2+vmstatCount {
+		return false, fmt.Sprintf("Expected %d lines, got %d lines", 2+vmstatCount, len(lines))
+	}
+
+	// First header line should contain "-memory-"
+	if !strings.Contains(lines[0], "-memory-") {
+		return false, "First header line missing expected '-memory-' section"
+	}
+
+	// Second header line should contain "free" and "buff"
+	if !strings.Contains(lines[1], "free") {
+		return false, "Second header line missing expected 'free' column"
+	}
+
+	if !strings.Contains(lines[1], "buff") {
+		return false, "Second header line missing expected 'buff' column"
+	}
+
+	// All data lines shouldn't be empty
+	for i := 2; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "" {
+			return false, fmt.Sprintf("Data line %d is empty", i-1)
+		}
+	}
+
+	// All validations passed
+	return true, ""
 }
 
 // fallbackCommand attempts to run VMStat with an alternative approach when the initial command fails.
@@ -120,7 +159,7 @@ func (v *VMStat) fallbackCommand(file *os.File) error {
 		`| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`,
 	}).AddDynamicArg(
 		strconv.Itoa(executils.VMSTAT_INTERVAL),
-		vmstatInterval,
+		strconv.Itoa(vmstatCount),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build fallback command: %w", err)
