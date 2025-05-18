@@ -815,7 +815,6 @@ func GetGCLogFile(pid int) (result string, err error) {
 			logFile = string(matches[1])
 		}
 	}
-	logger.Log("After Attempt 1.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
@@ -832,7 +831,6 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
-	logger.Log("After Attempt 2.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
@@ -846,7 +844,6 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
-	logger.Log("After Attempt 3.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
@@ -865,7 +862,6 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
-	logger.Log("After Attempt 4.what is logFile->%s", logFile)
 
 	//// unni added on 16-05-2025 for fixing garbage collection log detection issue
 	logger.Log("1.what is logFile->%s", logFile)
