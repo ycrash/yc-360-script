@@ -784,8 +784,27 @@ func GetGCLogFile(pid int) (result string, err error) {
 	command, _ = executils.GC.AddDynamicArg(dynamicArg)
 	output, err = executils.CommandCombinedOutput(command)
 	if err != nil {
-		logger.Log("err in get gc %s", err.Error())
-		return
+		logger.Log("GetGCLogFile: err in getting process cmdline: %s, output: %s", err.Error(), string(output))
+		logger.Log("GetGCLogFile: falling back to gopsutil")
+
+		// Try fallback with gopsutil library
+		p, errFallback := ps.NewProcess(int32(pid))
+		if errFallback != nil {
+			logger.Log("GetGCLogFile: fallback gopsutil err in getting process: %s", errFallback.Error())
+			return
+		}
+
+		cmdLineStr, errFallbackCmdline := p.Cmdline()
+		if errFallbackCmdline != nil {
+			logger.Log("GetGCLogFile: fallback gopsutil err in getting process cmdline: %s", errFallbackCmdline.Error())
+			return
+		}
+
+		// Fallback success
+		if cmdLineStr != "" {
+			output = []byte(cmdLineStr)
+			err = nil
+		}
 	}
 
 	if logFile == "" {
@@ -796,6 +815,7 @@ func GetGCLogFile(pid int) (result string, err error) {
 			logFile = string(matches[1])
 		}
 	}
+	logger.Log("After Attempt 1.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
@@ -812,6 +832,7 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
+	logger.Log("After Attempt 2.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
@@ -825,6 +846,7 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
+	logger.Log("After Attempt 3.what is logFile->%s", logFile)
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
@@ -843,6 +865,7 @@ func GetGCLogFile(pid int) (result string, err error) {
 			}
 		}
 	}
+	logger.Log("After Attempt 4.what is logFile->%s", logFile)
 
 	//// unni added on 16-05-2025 for fixing garbage collection log detection issue
 	logger.Log("1.what is logFile->%s", logFile)
