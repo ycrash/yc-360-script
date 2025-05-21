@@ -20,17 +20,17 @@ type Config struct {
 }
 
 type Options struct {
-	Pid            string `yaml:"p" usage:"The process ID or unique token of the target, for example: 3121, or 'buggyApp'"`
-	ApiKey         string `yaml:"k" usage:"The API Key that will be used to make API requests, for example: tier1app@12312-12233-1442134-112"`
-	Server         string `yaml:"s" usage:"The server url that will be used to upload data, for example: https://ycrash.companyname.com"`
-	AppName        string `yaml:"a" usage:"The APP Name of the target"`
-	HeapDump       bool   `yaml:"hd" usage:"Capture heap dump, default is false"`
-	HeapDumpPath   string `yaml:"hdPath" usage:"The heap dump file to be uploaded while it exists"`
-	ThreadDumpPath string `yaml:"tdPath" usage:"The thread dump file to be uploaded while it exists"`
+	Pid               string        `yaml:"p" usage:"The process ID or unique token of the target, for example: 3121, or 'buggyApp'"`
+	ApiKey            string        `yaml:"k" usage:"The API Key that will be used to make API requests, for example: tier1app@12312-12233-1442134-112"`
+	Server            string        `yaml:"s" usage:"The server url that will be used to upload data, for example: https://ycrash.companyname.com"`
+	AppName           string        `yaml:"a" usage:"The APP Name of the target"`
+	HeapDump          bool          `yaml:"hd" usage:"Capture heap dump, default is false"`
+	HeapDumpPath      string        `yaml:"hdPath" usage:"The heap dump file to be uploaded while it exists"`
+	ThreadDumpPath    string        `yaml:"tdPath" usage:"The thread dump file to be uploaded while it exists"`
 	TDCaptureDuration time.Duration `yaml:"tdCaptureDuration" usage:"Total duration to capture thread dumps (e.g., 10m, 30s)"`
-	GCPath         string `yaml:"gcPath" usage:"The gc log file to be uploaded while it exists"`
-	JavaHomePath   string `yaml:"j" usage:"The java home path to be used. Default will try to use os env 'JAVA_HOME' if 'JAVA_HOME' is not empty, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
-	DeferDelete    bool   `yaml:"d" usage:"Delete logs folder created during analyse"`
+	GCPath            string        `yaml:"gcPath" usage:"The gc log file to be uploaded while it exists"`
+	JavaHomePath      string        `yaml:"j" usage:"The java home path to be used. Default will try to use os env 'JAVA_HOME' if 'JAVA_HOME' is not empty, for example: /usr/lib/jvm/java-8-openjdk-amd64"`
+	DeferDelete       bool          `yaml:"d" usage:"Delete logs folder created during analyse"`
 
 	ShowVersion bool   `arg:"version" yaml:"-" usage:"Show the version of this program"`
 	ConfigPath  string `arg:"c" yaml:"-" usage:"The config file path to load"`
@@ -159,16 +159,16 @@ func (p *AppLogs) Set(s string) error {
 func defaultConfig() Config {
 	return Config{
 		Options: Options{
-			VerifySSL:       true,
-			M3Frequency:     3 * time.Minute,
-			Address:         "localhost",
-			Port:            -1,
-			LogFileMaxCount: 7,
-			LogFileMaxSize:  512 * 1024 * 1024,
-			LogLevel:        zerolog.InfoLevel.String(),
-			PingHost:        "google.com",
-			DeferDelete:     true,
-			AppLogLineCount: 2000,
+			VerifySSL:         true,
+			M3Frequency:       3 * time.Minute,
+			Address:           "localhost",
+			Port:              -1,
+			LogFileMaxCount:   7,
+			LogFileMaxSize:    512 * 1024 * 1024,
+			LogLevel:          zerolog.InfoLevel.String(),
+			PingHost:          "google.com",
+			DeferDelete:       true,
+			AppLogLineCount:   10000,
 			TDCaptureDuration: 0 * time.Second, // Setting here 0 seconds as default since handling it in jstack.go
 		},
 	}
