@@ -458,6 +458,14 @@ Ignored errors: %v
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}))
 
+	// ------------------------------------------------------------------------------
+	//   				Capture Extended Data
+	// ------------------------------------------------------------------------------
+	var extendedData chan capture.Result
+	if config.GlobalConfig.EdScript != "" && config.GlobalConfig.EdDataFolder != "" {
+		extendedData = goCapture(endpoint, capture.WrapRun(&capture.ExtendedData{Script: config.GlobalConfig.EdScript, DataFolder: config.GlobalConfig.EdDataFolder}))
+	}
+
 	// stop started tasks
 	if capTop != nil {
 		capTop.Kill()
@@ -689,6 +697,21 @@ Resp: %s
 
 --------------------------------
 `, hdResult.Ok, hdResult.Msg)
+
+	// -------------------------------
+	//     Transmit Extended Data
+	// -------------------------------
+	if top != nil {
+		logger.Log("Reading result from extended data channel")
+		result := <-extendedData
+		logger.Log(
+			`EXTENDED DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
 
 	// ------------------------------------------------------------------------------
 	//  				Execute custom commands
