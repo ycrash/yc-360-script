@@ -51,10 +51,22 @@ func (t *HeapDump) Run() (Result, error) {
 	// Try pre-captured heap dump first
 	if len(t.hdPath) > 0 {
 		hd, err = t.getPreCapturedDumpFile()
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
 	} else if t.Pid > 0 && t.dump {
 		var actualDumpPath string
 		// Then try capturing a new heap dump
 		hd, actualDumpPath, err = t.captureDumpFile()
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
 
 		// Cleanup the actual dump file after we're done with it
 		if actualDumpPath != "" {
@@ -68,9 +80,6 @@ func (t *HeapDump) Run() (Result, error) {
 	}
 
 	if hd == nil {
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
 		return Result{Msg: "skipped heap dump"}, nil
 	}
 
@@ -89,7 +98,10 @@ func (t *HeapDump) Run() (Result, error) {
 
 	zipfile, err := t.CreateZipFile(hd)
 	if err != nil {
-		return Result{Msg: "skipped heap dump"}, err
+		return Result{
+			Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
+			Ok:  false,
+		}, nil
 	}
 
 	defer func() {
