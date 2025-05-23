@@ -352,9 +352,10 @@ Ignored errors: %v
 	//   				Capture thread dumps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:      pid,
-		TdPath:   tdPath,
-		JavaHome: config.GlobalConfig.JavaHomePath,
+		Pid:               pid,
+		TdPath:            tdPath,
+		JavaHome:          config.GlobalConfig.JavaHomePath,
+		TdCaptureDuration: config.GlobalConfig.TDCaptureDuration,
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 

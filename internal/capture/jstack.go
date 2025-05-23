@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"yc-agent/internal/capture/executils"
-	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -27,13 +26,18 @@ func NewJStack(javaHome string, pid int) *JStack {
 	j := &JStack{javaHome: javaHome, pid: pid}
 	j.count = defaultCount
 
-	if config.GlobalConfig.TDCaptureDuration > 0 {
-		// maintain minimum duration
-		duration := max(config.GlobalConfig.TDCaptureDuration, defaultTimeToSleep)
+	return j
+}
 
-		// minimum count is 1
-		j.count = max(int(duration/defaultTimeToSleep), 1)
-	}
+func NewJStackWithCaptureDuration(javaHome string, pid int, duration time.Duration) *JStack {
+	// minimum duration is defaultTimeToSleep
+	effectiveDuration := max(duration, defaultTimeToSleep)
+
+	// minimum count is 1
+	count := max(int(effectiveDuration/defaultTimeToSleep), 1)
+
+	j := NewJStack(javaHome, pid)
+	j.count = count
 
 	return j
 }

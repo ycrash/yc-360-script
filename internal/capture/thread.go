@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
@@ -16,9 +17,10 @@ const tdOut = "threaddump.out"
 // from a running Java process.
 type ThreadDump struct {
 	Capture
-	Pid      int    // Process ID of the target Java process
-	TdPath   string // Path to an existing thread dump file
-	JavaHome string
+	Pid               int    // Process ID of the target Java process
+	TdPath            string // Path to an existing thread dump file
+	JavaHome          string
+	TdCaptureDuration time.Duration
 }
 
 // Run executes the thread dump capture and uploads the captured file
@@ -93,7 +95,14 @@ func (t *ThreadDump) captureFromProcess() (*os.File, error) {
 	}
 
 	logger.Log("Collecting thread dump using JStack...")
-	jstack := NewJStack(t.JavaHome, t.Pid)
+
+	var jstack *JStack
+	if t.TdCaptureDuration != 0 {
+		jstack = NewJStackWithCaptureDuration(t.JavaHome, t.Pid, t.TdCaptureDuration)
+	} else {
+		jstack = NewJStack(t.JavaHome, t.Pid)
+	}
+
 	if _, err := jstack.Run(); err != nil {
 		logger.Log("jstack error: %v", err)
 	} else {
