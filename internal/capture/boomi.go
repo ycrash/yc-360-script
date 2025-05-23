@@ -816,7 +816,7 @@ func downloadAtomLog(username, password, boomiAcctId string) {
 	var queryResult BoomiAtomLogQueryResult
 	jsonErr := json.Unmarshal(resp.Body(), &queryResult)
 	if jsonErr != nil {
-		logger.Log("Error unmarshalling Boomi atom download log response as JSON: %w", jsonErr)
+		logger.Log("Error unmarshalling Boomi atom download log response as JSON: %v", jsonErr)
 	}
 	logger.Log("got atom log download url->%s", queryResult.Url)
 
