@@ -362,7 +362,7 @@ Ignored errors: %v
 	//   				Capture legacy app log
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
-	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
 		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
 	}
@@ -372,7 +372,7 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	var appLogs chan capture.Result
 	useGlobalConfigAppLogs := false
-	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 
 		appLogsContainDollarSign := false
 		for _, configAppLog := range config.GlobalConfig.AppLogs {

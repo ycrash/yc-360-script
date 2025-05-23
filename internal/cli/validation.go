@@ -36,8 +36,8 @@ func validate() error {
 		config.GlobalConfig.OnlyCapture = false
 	}
 
-	if config.GlobalConfig.AppLogLineCount < 1 {
-		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be a number larger than 0.", config.GlobalConfig.AppLogLineCount)
+	if config.GlobalConfig.AppLogLineCount < -1 {
+		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be -1 (all lines), 0 (no logs), or a positive number.", config.GlobalConfig.AppLogLineCount)
 		return ErrInvalidArgumentCantContinue
 	}
 
