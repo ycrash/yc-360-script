@@ -15,10 +15,10 @@ const (
 )
 
 func init() {
-	err := os.Chdir("testdata")
-	if err != nil {
-		panic(err)
-	}
+	// err := os.Chdir("testdata")
+	// if err != nil {
+	// 	panic(err)
+	// }
 }
 
 func TestFindGCLog(t *testing.T) {
@@ -169,4 +169,388 @@ func TestWriteMetaInfo(t *testing.T) {
 		t.Fatal(err, msg)
 	}
 	t.Log(msg, ok)
+}
+
+func TestAllPossibleGCPath(t *testing.T) {
+
+	// Arrange
+
+	var op = "ProcessId java  -Xlog:gc*=info,gc+heap=debug,gc+ref*=debug,gc+ergo*=trace,gc+age*=trace:file=/tmp/gc.log:utctime,pid,level,tags:filecount=2,filesize=100M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	var logFile = ""
+
+	expected := "/tmp/gc.log"
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 1: -Xlog:gc:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 2: -Xlog:gc:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 3: -Xlog:gc+heap=info:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+heap=info:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 4: -Xlog:gc+heap=info:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+ref=debug:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 5: -Xlog:gc+heap=info:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+ref=debug:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 6: -Xlog:gc+age=trace:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+age=trace:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 7: -Xlog:gc*=info,gc+ref*=debug,gc+ergo*=debug:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=info,gc+ref*=debug,gc+ergo*=debug:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 8: -Xlog:gc+heap=debug,gc+age=trace:file=/tmp/gc.log
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+heap=debug,gc+age=trace:file=/tmp/gc.log -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 9: -Xlog:gc*:file=/tmp/gc.log:time,tags
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:time,tags -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 10: -Xlog:gc*:file=/tmp/gc.log:utctime
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:utctime -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 11: -Xlog:gc*:file=/tmp/gc.log:uptime,level
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:uptime,level -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 12: -Xlog:gc*:file=/tmp/gc.log:utctime,pid
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:utctime,pid -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 13: -Xlog:gc*:file=/tmp/gc.log:utctime,pid,level,tags
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:utctime,pid,level,tags -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 14: -Xlog:gc*:file=/tmp/gc.log:uptime,level:filecount=2,filesize=100M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*:file=/tmp/gc.log:uptime,level:filecount=2,filesize=100M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 15: -Xlog:gc*=debug:file=/tmp/gc.log:time,pid,level:filecount=10,filesize=20M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=debug:file=/tmp/gc.log:time,pid,level:filecount=10,filesize=20M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 16: -Xlog:gc*=trace:file=/tmp/gc.log:uptime,tags:filecount=3,filesize=5M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=trace:file=/tmp/gc.log:uptime,tags:filecount=3,filesize=5M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 17: -Xlog:gc+heap=debug,gc+age=trace:file=/tmp/gc.log:utctime,level,filecount=4,filesize=50M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+heap=debug,gc+age=trace:file=/tmp/gc.log:utctime,level,filecount=4,filesize=50M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 18: -Xlog:gc+heap=debug,gc+phases=debug,gc+humongous=debug:file=/tmp/gc.log:uptime,tags:filecount=5,filesize=25M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc+heap=debug,gc+phases=debug,gc+humongous=debug:file=/tmp/gc.log:uptime,tags:filecount=5,filesize=25M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 19: -Xlog:gc+heap=debug,gc+phases=debug,gc+humongous=debug:file=/tmp/gc.log:uptime,tags:filecount=5,filesize=25M
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=info,gc+ref*=debug,gc+ergo*=trace,gc+age*=trace:file=/tmp/gc.log:utctime,pid,level,tags:filecount=2,filesize=100M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
+	// case 20: -Xlog:gc*=info:file=/tmp/gc.log:noforcetty
+
+	op = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=info:file=/tmp/gc.log:noforcetty -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
+
+	logFile = ""
+
+	// Act
+
+	logFile = ExtractGCLogPathFromCmdline(op)
+
+	// Assert
+
+	if logFile != expected {
+
+		t.Fatalf("error %s %s", expected, logFile)
+
+	}
+
 }
