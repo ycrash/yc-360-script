@@ -458,14 +458,6 @@ Ignored errors: %v
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}))
 
-	// ------------------------------------------------------------------------------
-	//   				Capture heap dump
-	// ------------------------------------------------------------------------------
-	heapEp := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
-	capHeapDump.SetEndpoint(heapEp)
-	heapDump := goCapture(heapEp, capture.WrapRun(capHeapDump))
-
 	// stop started tasks
 	if capTop != nil {
 		capTop.Kill()
@@ -682,17 +674,21 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result
 	// -------------------------------
-	if heapDump != nil {
-		logger.Log("Reading result from heapDump channel")
-		result := <-heapDump
-		logger.Log(
-			`HEAP DUMP DATA
+	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
+	capHeapDump.SetEndpoint(ep)
+	hdResult, err := capHeapDump.Run()
+	if err != nil {
+		hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
+		err = nil
+	}
+	logger.Log(
+		`HEAP DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, result.Ok, result.Msg)
-	}
+`, hdResult.Ok, hdResult.Msg)
 
 	// ------------------------------------------------------------------------------
 	//  				Execute custom commands
