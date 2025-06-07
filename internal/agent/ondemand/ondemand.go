@@ -701,7 +701,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Extended Data
 	// -------------------------------
-	if top != nil {
+	if extendedData != nil {
 		logger.Log("Reading result from extended data channel")
 		result := <-extendedData
 		logger.Log(
