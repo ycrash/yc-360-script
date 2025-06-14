@@ -994,6 +994,7 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 	}
 	httpClient := &http.Client{
 		Transport: transport,
+		Timeout:   config.GlobalConfig.HttpClientTimeout,
 	}
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
