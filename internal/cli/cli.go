@@ -30,7 +30,7 @@ func Run() {
 	runCaptureModeIfConditionSatisfied()
 
 	if config.GlobalConfig.ShowVersion {
-		logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
+		logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
 		return
 	}
 
@@ -45,7 +45,7 @@ func Run() {
 		logger.Log("Error: %s", err.Error())
 	}
 
-	logger.Log("Agent is shutting down...")
+	logger.Log("yc-360 script is shutting down...")
 	agent.Shutdown()
 
 	if err != nil {

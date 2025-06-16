@@ -197,8 +197,8 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 }
 
 func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err error) {
-	logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
-	logger.Log("yc script starting in m3 mode...")
+	logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
+	logger.Log("yc-360 script starting in m3 mode...")
 
 	logger.Log("Starting collection of top data...")
 	capTop := &capture.Top4M3{}
@@ -356,7 +356,7 @@ func uploadThreadDumpM3(endpoint string, pid int, sendPidParam bool) {
 		capThreadDump.SetEndpointParam("pid", strconv.Itoa(pid))
 	}
 	capThreadDump.SetEndpointParam("cpuCount", strconv.Itoa(runtime.NumCPU()))
-	
+
 	threadDump = capture.GoCapture(endpoint, capture.WrapRun(capThreadDump))
 	// -------------------------------
 	//     Log Thread dump

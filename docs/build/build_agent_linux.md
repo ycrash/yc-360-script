@@ -1,6 +1,6 @@
-﻿# Building the yCrash Agent on Linux
+﻿# Building the yc-360 Script on Linux
 
-This guide outlines the steps to build the yCrash agent in Linux environment. You have two options for building the agent:
+This guide outlines the steps to build the yc-360 script in Linux environment. You have two options for building the yc-360 script:
 
 1) Build via Dockerized Environment (Recommended)  
 2) Build on Bare Metal
@@ -30,7 +30,7 @@ RUN apk add --no-cache \
 
 ENV PATH=${PATH}:/usr/local/go/bin
 
-WORKDIR /opt/workspace/yc-agent
+WORKDIR /opt/workspace/yc-360-script
 
 ENTRYPOINT ["/bin/sh"]
 ```
@@ -46,23 +46,23 @@ _:
 	echo "default"
 
 alpine:
-	docker build -f Dockerfile.base.alpine -t yc-agent-base:alpine .
+	docker build -f Dockerfile.base.alpine -t yc-360-script-base:alpine .
 
 base: alpine
-	docker rm -f yc-agent-alpine || true
+	docker rm -f yc-360-script-alpine || true
 	docker run --init -d -ti --rm \
-		--name yc-agent-alpine \
-		-v $(CWD):/opt/workspace/yc-agent \
-		yc-agent-base:alpine
+		--name yc-360-script-alpine \
+		-v $(CWD):/opt/workspace/yc-360-script \
+		yc-360-script-base:alpine
 
 shell:
-	docker exec -it yc-agent-alpine /bin/sh
+	docker exec -it yc-360-script-alpine /bin/sh
 
 build:
-	docker exec -it yc-agent-alpine /bin/sh -c "cd cmd/yc && go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/"
+	docker exec -it yc-360-script-alpine /bin/sh -c "cd cmd/yc && go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/"
 ```
-#### Step 3: Build the Agent
-To build the agent using the containerized environment, run the following command:
+#### Step 3: Build the yc-360 script
+To build the yc-360-script using the containerized environment, run the following command:
 ```
 sudo make alpine base build
 ```
@@ -71,7 +71,7 @@ After successful execution, the yc binary will be created in the `../yc-data-scr
 
 ## 2. Build on Bare Metal
 
-If you prefer building the agent directly on your local system, ensure the following packages are installed.
+If you prefer building the yc-360 script directly on your local system, ensure the following packages are installed.
 
 **Required Packages:**
 - go
@@ -92,7 +92,7 @@ If you prefer building the agent directly on your local system, ensure the follo
 ```
 cd ../yc-data-script/cmd/yc
 ```
-#### Step 2: Then run the following command to build the agent:
+#### Step 2: Then run the following command to build the yc-360 script:
 ```
 go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/
 ```

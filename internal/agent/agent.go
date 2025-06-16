@@ -25,7 +25,7 @@ func Run() error {
 
 	// Validation: if no mode is specified (neither M3, OnDemand, nor API Mode), abort here
 	if !onDemandMode && !apiMode && !m3Mode {
-		logger.Log("WARNING: M3 mode is not enabled. API mode is not enabled. Agent is about to run OnDemand mode but no PID is specified.")
+		logger.Log("WARNING: M3 mode is not enabled. API mode is not enabled. The yc-360 script is about to run OnDemand mode but no PID is specified.")
 
 		return ErrNothingCanBeDone
 	}
@@ -64,8 +64,8 @@ func Shutdown() {
 }
 
 func startupLogs() {
-	logger.Log("yc agent version: " + executils.SCRIPT_VERSION)
-	logger.Log("yc script starting...")
+	logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
+	logger.Log("yc-360 script starting...")
 
 	msg, ok := common.StartupAttend()
 	logger.Log(
