@@ -4,6 +4,7 @@ import "C"
 import (
 	"errors"
 	"os"
+	"path/filepath"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -39,6 +40,34 @@ func validate() error {
 	if config.GlobalConfig.AppLogLineCount < -1 {
 		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be -1 (all lines), 0 (no logs), or a positive number.", config.GlobalConfig.AppLogLineCount)
 		return ErrInvalidArgumentCantContinue
+	}
+
+	// Validate edDataFolder is not the current working directory
+	if config.GlobalConfig.EdDataFolder != "" {
+		currentDir, err := os.Getwd()
+		if err != nil {
+			logger.Log("Failed to get current working directory: %v", err)
+			return ErrInvalidArgumentCantContinue
+		}
+
+		edDataFolderAbs, err := filepath.Abs(config.GlobalConfig.EdDataFolder)
+		if err != nil {
+			logger.Log("Failed to resolve edDataFolder path '%s': %v", config.GlobalConfig.EdDataFolder, err)
+			return ErrInvalidArgumentCantContinue
+		}
+
+		currentDirAbs, err := filepath.Abs(currentDir)
+		if err != nil {
+			logger.Log("Failed to resolve current directory path: %v", err)
+			return ErrInvalidArgumentCantContinue
+		}
+
+		if edDataFolderAbs == currentDirAbs {
+			logger.Log("ERROR: edDataFolder cannot be the current working directory")
+			logger.Log("Current directory: %s", currentDirAbs)
+			logger.Log("edDataFolder: %s", edDataFolderAbs)
+			return ErrInvalidArgumentCantContinue
+		}
 	}
 
 	return nil
