@@ -201,6 +201,8 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 	failCount := 0
 	var lastError error
 
+	uploadMsgs := []string{}
+
 	// Filter files with "ed-" prefix
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -224,16 +226,16 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 
 		fileExt := filepath.Ext(fileName)
 		fileExt = strings.TrimPrefix(fileExt, ".") // Remove leading dot from extension
-		fileBaseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 		isCompressed := isCompressedFileExt(fileExt)
 
 		// Build custom post data for extended data
-		data := "ed&fileName=" + fileBaseName
+		data := "ed&fileName=" + fileName
 		if isCompressed {
 			data += "&content-encoding=" + fileExt
 		}
 
 		msg, ok := PostData(ed.Endpoint(), data, file)
+		uploadMsgs = append(uploadMsgs, msg)
 		file.Close()
 
 		if ok {
@@ -246,7 +248,7 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 
 	if failCount > 0 {
 		return Result{
-			Msg: fmt.Sprintf("uploaded %d files, %d failed", successCount, failCount),
+			Msg: fmt.Sprintf("uploaded %d files, %d failed: \n%s", successCount, failCount, strings.Join(uploadMsgs, "\n")),
 			Ok:  successCount > 0, // Consider partial success if at least one file was uploaded
 		}, lastError
 	}
@@ -259,7 +261,7 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 	}
 
 	return Result{
-		Msg: fmt.Sprintf("successfully uploaded %d files", successCount),
+		Msg: fmt.Sprintf("successfully uploaded %d files: \n%s", successCount, strings.Join(uploadMsgs, "\n")),
 		Ok:  true,
 	}, nil
 }
