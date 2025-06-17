@@ -33,11 +33,6 @@ func (ed *ExtendedData) Run() (Result, error) {
 		return Result{Msg: errMsg, Ok: false}, err
 	}
 
-	// Clear existing files in the data folder
-	if err := ed.clearDataFolder(); err != nil {
-		logger.Log("ExtendedData: failed to clear data folder: %v", err)
-	}
-
 	// Execute the custom script with timeout
 	if err := ed.executeScript(); err != nil {
 		// We log the error but continue to upload any files that might have been generated
@@ -54,23 +49,6 @@ func (ed *ExtendedData) Run() (Result, error) {
 
 	// Upload the captured files
 	return ed.uploadCapturedFiles()
-}
-
-// clearDataFolder removes all files from the data folder
-func (ed *ExtendedData) clearDataFolder() error {
-	entries, err := os.ReadDir(ed.DataFolder)
-	if err != nil {
-		return fmt.Errorf("ExtendedData: failed to read data folder: %w", err)
-	}
-
-	for _, entry := range entries {
-		path := filepath.Join(ed.DataFolder, entry.Name())
-		if err := os.RemoveAll(path); err != nil {
-			return fmt.Errorf("ExtendedData: failed to remove %s: %w", path, err)
-		}
-	}
-
-	return nil
 }
 
 // executeScript runs the custom script with a timeout
@@ -200,7 +178,6 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 	successCount := 0
 	failCount := 0
 	var lastError error
-
 	uploadMsgs := []string{}
 
 	// Filter files with "ed-" prefix
