@@ -61,6 +61,14 @@ func NewHeapDump(javaHome string, pid int, hdPath string, dump bool) *HeapDump {
 	}
 }
 
+// getDestHeapDumpFilename returns the appropriate filename based on compression status
+func (t *HeapDump) getDestHeapDumpFilename(isCompressed bool) string {
+	if isCompressed {
+		return hdZip
+	}
+	return hdOut
+}
+
 // Run executes the heap dump capture process and uploads the captured file
 // to the specified endpoint.
 func (t *HeapDump) Run() (Result, error) {
@@ -76,7 +84,7 @@ func (t *HeapDump) Run() (Result, error) {
 			logger.Log("detected pre-compressed heap dump file: %s with encoding: %s", t.hdPath, contentEncoding)
 		}
 
-		hd, err = t.getPreCapturedDumpFile()
+		hd, err = t.getPreCapturedDumpFile(isCompressed)
 		if err != nil {
 			return Result{
 				Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
@@ -109,10 +117,12 @@ func (t *HeapDump) Run() (Result, error) {
 		return Result{Msg: "skipped heap dump"}, nil
 	}
 
+	tempFilename := t.getDestHeapDumpFilename(isCompressed)
+
 	defer func() {
 		err := hd.Close()
 		if err != nil && !errors.Is(err, os.ErrClosed) {
-			logger.Log("failed to close hd file %s cause err: %s", hdOut, err.Error())
+			logger.Log("failed to close hd file %s cause err: %s", tempFilename, err.Error())
 		}
 	}()
 
@@ -143,9 +153,9 @@ func (t *HeapDump) Run() (Result, error) {
 		}()
 
 		defer func() {
-			err = os.Remove(hdOut)
+			err = os.Remove(tempFilename)
 			if err != nil {
-				logger.Log("failed to rm hd file %s cause err: %s", hdOut, err.Error())
+				logger.Log("failed to rm hd file %s cause err: %s", tempFilename, err.Error())
 			}
 		}()
 
@@ -158,7 +168,7 @@ func (t *HeapDump) Run() (Result, error) {
 }
 
 // getPreCapturedDumpFile handles the case when a heap dump is pre-captured (using the hdPath field)
-func (t *HeapDump) getPreCapturedDumpFile() (*os.File, error) {
+func (t *HeapDump) getPreCapturedDumpFile(isCompressed bool) (*os.File, error) {
 	hdf, err := os.Open(t.hdPath)
 
 	// Fallback, try to open the file in the Docker container
@@ -181,7 +191,8 @@ func (t *HeapDump) getPreCapturedDumpFile() (*os.File, error) {
 		}
 	}()
 
-	hd, err := os.Create(hdOut)
+	filename := t.getDestHeapDumpFilename(isCompressed)
+	hd, err := os.Create(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +207,7 @@ func (t *HeapDump) getPreCapturedDumpFile() (*os.File, error) {
 		return nil, err
 	}
 
-	logger.Log("copied heap dump data %s", t.hdPath)
+	logger.Log("copied heap dump data %s to %s", t.hdPath, filename)
 	return hd, nil
 }
 
