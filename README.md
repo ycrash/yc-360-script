@@ -1,12 +1,12 @@
 # yc-360 Script: One Script to Capture 360° Production Artifacts
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/yc--360%20Script-Documentation-green)](https://test.docs.ycrash.io/ycrash-agent/launch-modes/only-capture-mode.html)
+[![Docs](https://img.shields.io/badge/yc--360%20Script-Documentation-green)](https://docs.ycrash.io/yc-360/launch-modes/only-capture-mode.html)
 
 ![img](/docs/images/360-degree.png)
 
 ## What is yc-360 Script?
 
-**yc-360 script** is a simple script that captures 16 different artifacts from your application in a [pristine manner](https://test.docs.ycrash.io/ycrash-agent/features/pristine-capture.html), which are highly useful to troubleshoot production problems. Here is the list of artifacts captured by the script:
+**yc-360 script** is a simple script that captures 16 different artifacts from your application in a [pristine manner](https://docs.ycrash.io/yc-360/features/pristine-capture.html), which are highly useful to troubleshoot production problems. Here is the list of artifacts captured by the script:
 
 | **Artifact**          | **What It Captures**                                                                 |
 |-----------------------|--------------------------------------------------------------------------------------|
@@ -39,7 +39,7 @@
 
 ## Getting Started - How to run the yc-360 Script?
 
-It’s easy to get started with the yc-360 script. Just follow the simple steps provided in our [Getting Started Guide](https://test.docs.ycrash.io/ycrash-agent/launch-modes/only-capture-mode.html). In a matter of seconds, you’ll be able to trigger the script and collect all the critical artifacts needed for troubleshooting.
+It’s easy to get started with the yc-360 script. Just follow the simple steps provided in our [Getting Started Guide](https://docs.ycrash.io/yc-360/launch-modes/only-capture-mode.html). In a matter of seconds, you’ll be able to trigger the script and collect all the critical artifacts needed for troubleshooting.
 
 Whether you're running on Linux, Windows, Mac, Docker, K8, … the guide walks you
 through the setup and execution process.
@@ -61,7 +61,7 @@ Please refer to any one of the following links if you want to build the yc-360-s
 <details>
   <summary><strong>1. What if I Want to Capture Additional Data that yc-360 Script Doesn’t Collect by Default?</strong></summary>
   
-You can extend the functionality using the [`-edScript` argument](https://test.docs.ycrash.io/ycrash-agent/features/extended-data.html). This lets you specify a custom script that yc-360 script will execute as the final step, allowing you to capture additional logs, metrics, or custom files specific to your environment.
+You can extend the functionality using the [`-edScript` argument](https://docs.ycrash.io/yc-360/features/extended-data.html). This lets you specify a custom script that yc-360 script will execute as the final step, allowing you to capture additional logs, metrics, or custom files specific to your environment.
 </details>
 
 <details>
@@ -84,7 +84,7 @@ Absolutely. The yc-360 script is a non-intrusive, read-only script. It doesn’t
 <details>
   <summary><strong>4. Can yc-360 Script be executed in containerized environments like Docker, Kubernetes, or OpenShift?</strong></summary>
 
-Yes, yc-360 script is designed to work seamlessly across all major environments — including bare-metal servers, virtual machines, Docker containers, Kubernetes, and OpenShift. You can execute the script directly inside your containers or use it as part of a sidecar or init container to collect diagnostic data. For detailed guidance on each supported environments, visit [https://test.docs.ycrash.io/ycrash-agent/environment/introduction.html](https://test.docs.ycrash.io/ycrash-agent/environment/introduction.html)
+Yes, yc-360 script is designed to work seamlessly across all major environments — including bare-metal servers, virtual machines, Docker containers, Kubernetes, and OpenShift. You can execute the script directly inside your containers or use it as part of a sidecar or init container to collect diagnostic data. For detailed guidance on each supported environments, visit [https://docs.ycrash.io/yc-360/environment/introduction.html](https://docs.ycrash.io/yc-360/environment/introduction.html)
 </details>
 
 <details>

@@ -783,7 +783,7 @@ Resp: %s
 		}
 		agentLogFile = nil
 		logger.Log(
-			`AGENT LOG DATA
+			`YC-360 SCRIPT LOG DATA
 Is transmission completed: %t
 Resp: %s
 
