@@ -179,7 +179,9 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 	// A.3 Agent log file
 	var agentLogFile *os.File
 	if !config.GlobalConfig.M3 {
-		agentLogFile, err = logger.StartWritingToFile("agentlog.out")
+
+		// Renaming the log file name to yc360Logs from agentlog
+		agentLogFile, err = logger.StartWritingToFile("yc360Logs.out")
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to start writing to file")
 		}
