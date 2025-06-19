@@ -1,6 +1,6 @@
 ﻿# Building the yc-360 Script on Linux
 
-This guide outlines the steps to build the yc-360 script in Linux environment. You have two options for building the yc-360 script:
+This guide outlines the steps to build the yc-360 script in a Linux environment. You have two options for building the script:
 
 1) Build via Dockerized Environment (Recommended)  
 2) Build on Bare Metal
@@ -61,8 +61,8 @@ shell:
 build:
 	docker exec -it yc-360-script-alpine /bin/sh -c "cd cmd/yc && go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/"
 ```
-#### Step 3: Build the yc-360 script
-To build the yc-360-script using the containerized environment, run the following command:
+#### Step 3: Build the yc-360 Script
+To build the script using the containerized environment, run the following command:
 ```
 sudo make alpine base build
 ```
@@ -92,7 +92,7 @@ If you prefer building the yc-360 script directly on your local system, ensure t
 ```
 cd ../yc-data-script/cmd/yc
 ```
-#### Step 2: Then run the following command to build the yc-360 script:
+#### Step 2: Then run the following command to build the yc-360 Script:
 ```
 go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/
 ```

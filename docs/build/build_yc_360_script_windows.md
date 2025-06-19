@@ -1,6 +1,6 @@
 ﻿# Building the yc-360 Script on Windows
 
-This guide provides step-by-step instructions to build the **yc-360 Script** on a Windows machine. The yc-360 script includes Go and C code, so it requires a proper toolchain setup.
+This guide provides step-by-step instructions to build the yc-360 script on a Windows machine. The yc-360 script includes Go and C code, so it requires a proper toolchain setup.
 
 ### Step 1: Download MSYS2
 
@@ -90,7 +90,7 @@ gcc --version
 You should see the installed GCC version:
 ![img](/docs/images/gcc-version.png)
 
-### Step 9: Build yc-360 Script
+### Step 9: Build yCrash yc-360 Script
 Once everything is set up, navigate to the yc-360 script source directory  `yc-data-script/cmd/yc` and run:
 ```
 go build

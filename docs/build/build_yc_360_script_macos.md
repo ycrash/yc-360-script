@@ -9,7 +9,7 @@ Ensure the following packages are installed.
 - go
 - git
 
-## Build yc-360 script
+## Build yc-360 Script
 
 ### Step 1:  Navigate to the `cmd/yc` directory inside the repository:
 ```
