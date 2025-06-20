@@ -1,6 +1,6 @@
-﻿# Building the yCrash Agent on macOS
+﻿# Building the yc-360 Script on macOS
 
-This guide outlines the steps to build the yCrash agent in macOS environments.
+This guide outlines the steps to build the yc-360 script in macOS environments.
 
 ---
 Ensure the following packages are installed.
@@ -9,13 +9,13 @@ Ensure the following packages are installed.
 - go
 - git
 
-## Build yCrash Agent
+## Build yc-360 Script
 
 ### Step 1:  Navigate to the `cmd/yc` directory inside the repository:
 ```
 cd ../yc-data-script/cmd/yc
 ```
-### Step 2: Then run the following command to build the agent:
+### Step 2: Then run the following command to build the yc-360 script:
 ```
 go build -o yc -ldflags='-s -w' -buildvcs=false
 ```

@@ -14,6 +14,6 @@ RUN apk add --no-cache \
     
 ENV PATH=${PATH}:/usr/local/go/bin
 
-WORKDIR  /opt/workspace/yc-agent
+WORKDIR  /opt/workspace/yc-360-script
 
 ENTRYPOINT ["/bin/sh"]

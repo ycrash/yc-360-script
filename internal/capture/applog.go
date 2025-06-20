@@ -23,7 +23,7 @@ var compressedFileExtensions = []string{
 type AppLog struct {
 	Capture
 	Paths     config.AppLogs
-	LineLimit uint
+	LineLimit int
 }
 
 // Run executes the log capture process for all configured paths.
@@ -123,18 +123,15 @@ func generateUniqueLogPath(baseFileName string) string {
 // For compressed files, it copies the entire content.
 // Returns an error if any operation fails.
 func (al *AppLog) copyLogContent(src, dst *os.File, isCompressed bool) error {
-	if !isCompressed {
+	if !isCompressed && al.LineLimit != -1 {
 		// For uncompressed files, we only want the last N lines to avoid
 		// processing extremely large log files
-		if al.LineLimit == 0 {
-			al.LineLimit = 3000
-		}
-		if err := PositionLastLines(src, al.LineLimit); err != nil {
+		if err := PositionLastLines(src, uint(al.LineLimit)); err != nil {
 			return fmt.Errorf("position last lines: %w", err)
 		}
 	}
 
-	// For compressed files, we copy everything since we can't
+	// For compressed files or when LineLimit is -1, we copy everything since we can't
 	// easily position partway through
 
 	if _, err := io.Copy(dst, src); err != nil {

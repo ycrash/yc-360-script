@@ -114,6 +114,7 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 	}
 	httpClient := &http.Client{
 		Transport: transport,
+		Timeout:   config.GlobalConfig.HttpClientTimeout,
 	}
 	err = position(file)
 	if err != nil {
@@ -169,6 +170,7 @@ func GetData(endpoint string) (msg string, ok bool) {
 	}
 	httpClient := &http.Client{
 		Transport: transport,
+		Timeout:   config.GlobalConfig.HttpClientTimeout,
 	}
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {

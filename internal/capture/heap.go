@@ -21,8 +21,46 @@ import (
 	"yc-agent/internal/logger"
 )
 
+// Taken from yc-server
+var compressedHeapExtensions = []string{
+	"zip",
+	"gz",
+	"pigz",
+	"7z",
+	"xz",
+	"z",
+	"lzma",
+	"deflate",
+	"sz",
+	"lz4",
+	"zstd",
+	"bz2",
+	"tgz",
+	"tar",
+	"tar.gz",
+}
+
 const hdOut = "heap_dump.out"
 const hdZip = "heap_dump.zip"
+
+type HeapDumpFile struct {
+	SrcHeapDumpPath string
+	SrcHeapDumpFile *os.File
+
+	DstCompressedPath string
+	DstCompressedFile *os.File
+}
+
+func (h *HeapDumpFile) IsSrcHeapDumpAlreadyCompressed() bool {
+	ext := strings.TrimPrefix(filepath.Ext(h.SrcHeapDumpPath), ".")
+
+	for _, compressedExt := range compressedHeapExtensions {
+		if ext == compressedExt {
+			return true
+		}
+	}
+	return false
+}
 
 type HeapDump struct {
 	Capture
@@ -42,107 +80,141 @@ func NewHeapDump(javaHome string, pid int, hdPath string, dump bool) *HeapDump {
 	}
 }
 
-// Run executes the heap dump capture process and uploads the captured file
-// to the specified endpoint.
 func (t *HeapDump) Run() (Result, error) {
-	var hd *os.File
-	var err error
+	heapDumpFile := &HeapDumpFile{}
 
-	// Try pre-captured heap dump first
 	if len(t.hdPath) > 0 {
-		hd, err = t.getPreCapturedDumpFile()
-	} else if t.Pid > 0 && t.dump {
-		var actualDumpPath string
-		// Then try capturing a new heap dump
-		hd, actualDumpPath, err = t.captureDumpFile()
+		heapDumpFile.SrcHeapDumpPath = t.hdPath
 
-		// Cleanup the actual dump file after we're done with it
-		if actualDumpPath != "" {
-			defer func() {
-				err := os.Remove(actualDumpPath)
-				if err != nil {
-					logger.Trace().Err(err).Str("file", actualDumpPath).Msg("failed to rm hd file")
-				}
-			}()
+		hd, err := os.Open(heapDumpFile.SrcHeapDumpPath)
+
+		// Fallback, try to open the file in the Docker container
+		if err != nil && runtime.GOOS == "linux" {
+			logger.Log("failed to open hdPath(%s) err: %s. Trying to open in the Docker container...", t.hdPath, err.Error())
+			hd, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
 		}
+
+		if err != nil {
+			logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
+			return Result{
+				Msg: fmt.Sprintf("failed to open heap dump file: %s", err.Error()),
+				Ok:  false,
+			}, err
+		}
+
+		heapDumpFile.SrcHeapDumpFile = hd
+
+		// Ensure the source heap dump file is closed when the function exits
+		defer func() {
+			if err := hd.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				logger.Log("failed to close source heap dump file: %s", err.Error())
+			}
+		}()
+	} else if t.Pid > 0 && t.dump {
+		hd, actualDumpPath, err := t.captureDumpFile()
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		heapDumpFile.SrcHeapDumpPath = actualDumpPath
+		heapDumpFile.SrcHeapDumpFile = hd
+
+		// Ensure the captured heap dump file is closed when the function exits
+		defer func() {
+			if err := hd.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				logger.Log("failed to close captured heap dump file: %s", err.Error())
+			}
+		}()
+
+		// because this code creates the file, it's responsible for cleaning it up
+		defer func() {
+			if removeErr := os.Remove(actualDumpPath); removeErr != nil {
+				logger.Log("failed to rm hd file %s cause err: %s", actualDumpPath, removeErr.Error())
+			}
+		}()
 	}
 
-	if hd == nil {
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
+	if heapDumpFile.SrcHeapDumpFile == nil {
 		return Result{Msg: "skipped heap dump"}, nil
 	}
 
-	defer func() {
-		err := hd.Close()
-		if err != nil {
-			logger.Log("failed to close hd file %s cause err: %s", hdOut, err.Error())
-		}
-		err = os.Remove(hdOut)
-		if err != nil {
-			logger.Log("failed to rm hd file %s cause err: %s", hdOut, err.Error())
-		}
-	}()
+	if heapDumpFile.IsSrcHeapDumpAlreadyCompressed() {
+		logger.Log("copying heap dump data %s", t.hdPath)
 
-	logger.Log("captured heap dump data, zipping...")
+		srcExtension := strings.TrimPrefix(filepath.Ext(heapDumpFile.SrcHeapDumpPath), ".")
+		heapDumpFile.DstCompressedPath = "heap_dump." + srcExtension
 
-	zipfile, err := t.CreateZipFile(hd)
-	if err != nil {
-		return Result{Msg: "skipped heap dump"}, err
+		dstCompressedFile, err := os.OpenFile(heapDumpFile.DstCompressedPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("failed creating heap dump in current working directory: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		// Ensure the file is closed when the function exits
+		defer func() {
+			if err := dstCompressedFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				logger.Log("failed to close destination compressed file: %s", err.Error())
+			}
+		}()
+
+		_, err = io.Copy(dstCompressedFile, heapDumpFile.SrcHeapDumpFile)
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("failed copying heap dump data: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		// Sync the file to ensure all data is written to disk
+		err = dstCompressedFile.Sync()
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("failed syncing heap dump file: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		// Reset file position to beginning for reading during upload
+		_, err = dstCompressedFile.Seek(0, 0)
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("failed seeking to beginning of heap dump file: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		heapDumpFile.DstCompressedFile = dstCompressedFile
+		logger.Log("copied heap dump data %s to %s", t.hdPath, heapDumpFile.DstCompressedPath)
+	} else {
+		logger.Log("captured heap dump data, zipping...")
+
+		zipfile, err := t.CreateZipFile(heapDumpFile.SrcHeapDumpFile)
+		if err != nil {
+			return Result{
+				Msg: fmt.Sprintf("capture heap dump failed: %s", err.Error()),
+				Ok:  false,
+			}, nil
+		}
+
+		defer func() {
+			if err := zipfile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				logger.Debug().Err(err).Msg("failed to close zip file")
+			}
+		}()
+
+		heapDumpFile.DstCompressedPath = hdZip
+		heapDumpFile.DstCompressedFile = zipfile
 	}
 
-	defer func() {
-		if err := zipfile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-			logger.Debug().Err(err).Msg("failed to close zip file")
-		}
-	}()
-
-	result := t.UploadCapturedFile(zipfile)
+	// Upload heapDumpFile.DstCompressedFile to the endpoint
+	dstCompressedExtension := strings.TrimPrefix(filepath.Ext(heapDumpFile.DstCompressedPath), ".")
+	result := t.UploadCapturedFile(heapDumpFile.DstCompressedFile, dstCompressedExtension)
 	return result, nil
-}
-
-// getPreCapturedDumpFile handles the case when a heap dump is pre-captured (using the hdPath field)
-func (t *HeapDump) getPreCapturedDumpFile() (*os.File, error) {
-	hdf, err := os.Open(t.hdPath)
-
-	// Fallback, try to open the file in the Docker container
-	if err != nil && runtime.GOOS == "linux" {
-		logger.Log("failed to open hdPath(%s) err: %s. Trying to open in the Docker container...", t.hdPath, err.Error())
-		hdf, err = os.Open(filepath.Join("/proc", strconv.Itoa(t.Pid), "root", t.hdPath))
-	}
-
-	if err != nil {
-		logger.Log("failed to open hdPath(%s) err: %s", t.hdPath, err.Error())
-		return nil, err
-	}
-
-	logger.Log("copying heap dump data %s", t.hdPath)
-
-	defer func() {
-		err := hdf.Close()
-		if err != nil {
-			logger.Log("failed to close hd file %s cause err: %s", t.hdPath, err.Error())
-		}
-	}()
-
-	hd, err := os.Create(hdOut)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = io.Copy(hd, hdf)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = hd.Seek(0, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Log("copied heap dump data %s", t.hdPath)
-	return hd, nil
 }
 
 // captureDumpFile handles the case when a heap dump needs to be captured (using the Pid field)
@@ -189,32 +261,51 @@ func (t *HeapDump) CreateZipFile(hd *os.File) (*os.File, error) {
 		return nil, fmt.Errorf("failed to create zip file: %w", err)
 	}
 
-	writer := zip.NewWriter(bufio.NewWriter(zipfile))
+	bufferedWriter := bufio.NewWriter(zipfile)
+	writer := zip.NewWriter(bufferedWriter)
 	out, err := writer.Create(hdOut)
 	if err != nil {
+		zipfile.Close()
 		return nil, fmt.Errorf("failed to create zip file: %w", err)
 	}
 
 	_, err = io.Copy(out, hd)
 	if err != nil {
+		zipfile.Close()
 		return nil, fmt.Errorf("failed to zip heap dump file: %w", err)
 	}
 
+	// Close zip writer first to write central directory records
 	err = writer.Close()
 	if err != nil {
-		return nil, fmt.Errorf("failed to finish zipping heap dump file: %w", err)
+		zipfile.Close()
+		return nil, fmt.Errorf("failed to close zip writer: %w", err)
 	}
 
-	e := zipfile.Sync()
-	if e != nil && !errors.Is(e, os.ErrClosed) {
-		logger.Log("failed to sync file %s", e)
+	// Flush the buffered writer to ensure all data is written to the file
+	err = bufferedWriter.Flush()
+	if err != nil {
+		zipfile.Close()
+		return nil, fmt.Errorf("failed to flush zip file buffer: %w", err)
+	}
+
+	// Close the file to ensure all data is synced to disk
+	err = zipfile.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to close zip file: %w", err)
+	}
+
+	// Reopen the file for reading to pass to the upload function
+	zipfile, err = os.Open(hdZip)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reopen zip file for upload: %w", err)
 	}
 
 	return zipfile, nil
 }
 
-func (t *HeapDump) UploadCapturedFile(file *os.File) Result {
-	msg, ok := PostData(t.Endpoint(), "hd&Content-Encoding=zip", file)
+func (t *HeapDump) UploadCapturedFile(file *os.File, contentEncoding string) Result {
+	msg, ok := PostData(t.Endpoint(), fmt.Sprintf("hd&Content-Encoding=%s", contentEncoding), file)
 
 	return Result{
 		Msg: msg,

@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -180,7 +179,9 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 	// A.3 Agent log file
 	var agentLogFile *os.File
 	if !config.GlobalConfig.M3 {
-		agentLogFile, err = logger.StartWritingToFile("agentlog.out")
+
+		// Renaming the log file name to yc360Logs from agentlog
+		agentLogFile, err = logger.StartWritingToFile("yc360Logs.out")
 		if err != nil {
 			logger.Info().Err(err).Msg("Failed to start writing to file")
 		}
@@ -352,9 +353,10 @@ Ignored errors: %v
 	//   				Capture thread dumps
 	// ------------------------------------------------------------------------------
 	capThreadDump := &capture.ThreadDump{
-		Pid:      pid,
-		TdPath:   tdPath,
-		JavaHome: config.GlobalConfig.JavaHomePath,
+		Pid:               pid,
+		TdPath:            tdPath,
+		JavaHome:          config.GlobalConfig.JavaHomePath,
+		TdCaptureDuration: config.GlobalConfig.TDCaptureDuration,
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
@@ -362,7 +364,7 @@ Ignored errors: %v
 	//   				Capture legacy app log
 	// ------------------------------------------------------------------------------
 	var appLog chan capture.Result
-	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
 		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
 	}
@@ -372,7 +374,7 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	var appLogs chan capture.Result
 	useGlobalConfigAppLogs := false
-	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount > 0 {
+	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 
 		appLogsContainDollarSign := false
 		for _, configAppLog := range config.GlobalConfig.AppLogs {
@@ -456,6 +458,14 @@ Ignored errors: %v
 		Pid:      pid,
 		JavaHome: config.GlobalConfig.JavaHomePath,
 	}))
+
+	// ------------------------------------------------------------------------------
+	//   				Capture Extended Data
+	// ------------------------------------------------------------------------------
+	var extendedData chan capture.Result
+	if config.GlobalConfig.EdScript != "" && config.GlobalConfig.EdDataFolder != "" {
+		extendedData = goCapture(endpoint, capture.WrapRun(&capture.ExtendedData{Script: config.GlobalConfig.EdScript, DataFolder: config.GlobalConfig.EdDataFolder}))
+	}
 
 	// stop started tasks
 	if capTop != nil {
@@ -689,6 +699,21 @@ Resp: %s
 --------------------------------
 `, hdResult.Ok, hdResult.Msg)
 
+	// -------------------------------
+	//     Transmit Extended Data
+	// -------------------------------
+	if extendedData != nil {
+		logger.Log("Reading result from extended data channel")
+		result := <-extendedData
+		logger.Log(
+			`EXTENDED DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
 	// ------------------------------------------------------------------------------
 	//  				Execute custom commands
 	// ------------------------------------------------------------------------------
@@ -759,7 +784,7 @@ Resp: %s
 		}
 		agentLogFile = nil
 		logger.Log(
-			`AGENT LOG DATA
+			`YC-360 SCRIPT LOG DATA
 Is transmission completed: %t
 Resp: %s
 
@@ -774,17 +799,18 @@ var getOutboundIP = capture.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func GetGCLogFile(pid int) (result string, err error) {
-	var output []byte
+	var cmdLine []byte
 	var command executils.Command
-	var logFile string
 	dynamicArg := strconv.Itoa(pid)
 	if runtime.GOOS == "windows" {
 		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
 	}
+
 	command, _ = executils.GC.AddDynamicArg(dynamicArg)
-	output, err = executils.CommandCombinedOutput(command)
+	cmdLine, err = executils.CommandCombinedOutput(command)
+
 	if err != nil {
-		logger.Log("GetGCLogFile: err in getting process cmdline: %s, output: %s", err.Error(), string(output))
+		logger.Log("GetGCLogFile: err in getting process cmdline: %s, output: %s", err.Error(), string(cmdLine))
 		logger.Log("GetGCLogFile: falling back to gopsutil")
 
 		// Try fallback with gopsutil library
@@ -802,89 +828,13 @@ func GetGCLogFile(pid int) (result string, err error) {
 
 		// Fallback success
 		if cmdLineStr != "" {
-			output = []byte(cmdLineStr)
+			cmdLine = []byte(cmdLineStr)
 			err = nil
 		}
 	}
 
-	if logFile == "" {
-		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
-		re := regexp.MustCompile("-Xloggc:(\\S+)")
-		matches := re.FindSubmatch(output)
-		if len(matches) == 2 {
-			logFile = string(matches[1])
-		}
-	}
+	logFile := ExtractGCLogPathFromCmdline(string(cmdLine))
 
-	if logFile == "" {
-		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
-		// -Xlog[:option]
-		//	option         :=  [<what>][:[<output>][:[<decorators>][:<output-options>]]]
-		// https://openjdk.org/jeps/158
-		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
-		matches := re.FindSubmatch(output)
-		if len(matches) == 2 {
-			logFile = string(matches[1])
-
-			if strings.Contains(logFile, ":") {
-				logFile = java.GetFileFromJEP158(logFile)
-			}
-		}
-	}
-
-	if logFile == "" {
-		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
-		re := regexp.MustCompile("-Xlog:gc:(\\S+)")
-		matches := re.FindSubmatch(output)
-		if len(matches) == 2 {
-			logFile = string(matches[1])
-
-			if strings.Contains(logFile, ":") {
-				logFile = java.GetFileFromJEP158(logFile)
-			}
-		}
-	}
-
-	if logFile == "" {
-		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
-		re := regexp.MustCompile("-Xverbosegclog:(\\S+)")
-		matches := re.FindSubmatch(output)
-		if len(matches) == 2 {
-			logFile = string(matches[1])
-
-			if strings.Contains(logFile, ",") {
-				splitByComma := strings.Split(logFile, ",")
-				// Check if it's in the form of filename,x,y
-				// Take only filename
-				if len(splitByComma) == 3 {
-					logFile = splitByComma[0]
-				}
-			}
-		}
-	}
-
-	//// unni added on 16-05-2025 for fixing garbage collection log detection issue
-	logger.Log("1.what is logFile->%s", logFile)
-	logger.Log("1.what is output->%s", output)
-	if logFile == "" {
-		// Garbage collection log: Attempt 5: -Xlog:gc*=info,gc+heap=debug,gc+ref*=debug,gc+ergo*=trace,gc+age*=trace:file=/opt/workspace/yc-agent/gc.log:utctime
-		re := regexp.MustCompile(`file=([^:]+)`)
-		matches := re.FindSubmatch(output)
-		if len(matches) == 2 {
-			logFile = string(matches[1])
-			logger.Log("gc logFile %s", logFile)
-			// if strings.Contains(logFile, ",") {
-			// 	splitByComma := strings.Split(logFile, ",")
-			// 	// Check if it's in the form of filename,x,y
-			// 	// Take only filename
-			// 	if len(splitByComma) == 3 {
-			// 		logFile = splitByComma[0]
-			// 	}
-			// }
-
-		}
-	}
-	logger.Log("2.what is logFile->%s", logFile)
 	result = strings.TrimSpace(logFile)
 	if result != "" && !filepath.IsAbs(result) {
 		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
@@ -900,23 +850,6 @@ func GetGCLogFile(pid int) (result string, err error) {
 		}
 	}
 
-	return
-}
-
-// combine previous gc log to new gc log
-func copyFile(gc *os.File, file string, pid int) (err error) {
-	logFile, err := os.Open(file)
-	if err != nil && runtime.GOOS == "linux" {
-		logger.Log("Failed to %s. Trying to open in the Docker container...", err)
-		logFile, err = os.Open(filepath.Join("/proc", strconv.Itoa(pid), "root", file))
-	}
-	if err != nil {
-		return
-	}
-	defer func() {
-		_ = logFile.Close()
-	}()
-	_, err = io.Copy(gc, logFile)
 	return
 }
 
@@ -1063,6 +996,7 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 	}
 	httpClient := &http.Client{
 		Transport: transport,
+		Timeout:   config.GlobalConfig.HttpClientTimeout,
 	}
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
@@ -1096,4 +1030,66 @@ func removeDuplicate[T comparable](sliceList []T) []T {
 		}
 	}
 	return list
+}
+
+func ExtractGCLogPathFromCmdline(cmdline string) string {
+	var logFile string
+	cmdlineBytes := []byte(cmdline)
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
+		re := regexp.MustCompile("-Xloggc:(\\S+)")
+		matches := re.FindSubmatch(cmdlineBytes)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 2: -Xlog:gc*:file=<file-path>
+		// -Xlog[:option]
+		//	option         :=  [<what>][:[<output>][:[<decorators>][:<output-options>]]]
+		// https://openjdk.org/jeps/158
+		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		matches := re.FindSubmatch(cmdlineBytes)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFile = java.GetFileFromJEP158(logFile)
+			}
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
+		re := regexp.MustCompile("-Xlog:gc:(\\S+)")
+		matches := re.FindSubmatch(cmdlineBytes)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ":") {
+				logFile = java.GetFileFromJEP158(logFile)
+			}
+		}
+	}
+
+	if logFile == "" {
+		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
+		re := regexp.MustCompile("-Xverbosegclog:(\\S+)")
+		matches := re.FindSubmatch(cmdlineBytes)
+		if len(matches) == 2 {
+			logFile = string(matches[1])
+
+			if strings.Contains(logFile, ",") {
+				splitByComma := strings.Split(logFile, ",")
+				// Check if it's in the form of filename,x,y
+				// Take only filename
+				if len(splitByComma) == 3 {
+					logFile = splitByComma[0]
+				}
+			}
+		}
+	}
+	return logFile
 }

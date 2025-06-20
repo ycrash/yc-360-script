@@ -1,6 +1,6 @@
-﻿# Building the yCrash Agent on Windows
+﻿# Building the yc-360 Script on Windows
 
-This guide provides step-by-step instructions to build the **yCrash agent** on a Windows machine. The agent includes Go and C code, so it requires a proper toolchain setup.
+This guide provides step-by-step instructions to build the yc-360 script on a Windows machine. The yc-360 script includes Go and C code, so it requires a proper toolchain setup.
 
 ### Step 1: Download MSYS2
 
@@ -49,7 +49,7 @@ packman -Su
 > - Linkers, debuggers, and other build utilities
 > - Native Windows headers and runtime libraries
 
-It’s required because the yCrash agent includes C modules, and Go’s `cgo` relies on an available C compiler to build them. Windows doesn’t include a native C compiler by default, so MinGW-w64 fills that gap.
+It’s required because the yc-360 script includes C modules, and Go’s `cgo` relies on an available C compiler to build them. Windows doesn’t include a native C compiler by default, so MinGW-w64 fills that gap.
 
 
 Install it with:
@@ -90,8 +90,8 @@ gcc --version
 You should see the installed GCC version:
 ![img](/docs/images/gcc-version.png)
 
-### Step 9: Build yCrash Agent
-Once everything is set up, navigate to the yCrash agent source directory  `yc-data-script/cmd/yc` and run:
+### Step 9: Build yCrash yc-360 Script
+Once everything is set up, navigate to the yc-360 script source directory  `yc-data-script/cmd/yc` and run:
 ```
 go build
 ```

@@ -102,17 +102,19 @@ func (v *VMStat) executeCommand(w io.Writer, cmd []string) error {
 		return fmt.Errorf("vmstat: command failed with exit code: %d", command.ExitCode())
 	}
 
-	// Validate the vmstat output with detailed error message
-	valid, errMsg := validateVMStatOutput(outputBuffer.String())
-	if !valid {
-		return fmt.Errorf("vmstat: result validation failed: %s", errMsg)
+	if runtime.GOOS == "linux" {
+		// Validate the vmstat output with detailed error message
+		valid, errMsg := validateLinuxVMStatOutput(outputBuffer.String())
+		if !valid {
+			return fmt.Errorf("vmstat: result validation failed: %s", errMsg)
+		}
 	}
 
 	return nil
 }
 
-// validateVMStatOutput checks vmstat output and returns validation status with error description
-func validateVMStatOutput(output string) (bool, string) {
+// validateLinuxVMStatOutput checks vmstat output and returns validation status with error description
+func validateLinuxVMStatOutput(output string) (bool, string) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
 	// Check we have expected line count (2 header + vmstat count)

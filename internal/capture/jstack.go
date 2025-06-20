@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"yc-agent/internal/capture/executils"
-	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -18,26 +17,27 @@ const defaultTimeToSleep = 10 * time.Second
 
 type JStack struct {
 	Capture
-	javaHome    string
-	pid         int
-	count       int
-	timeToSleep time.Duration
+	javaHome string
+	pid      int
+	count    int
 }
 
 func NewJStack(javaHome string, pid int) *JStack {
 	j := &JStack{javaHome: javaHome, pid: pid}
 	j.count = defaultCount
-	j.timeToSleep = defaultTimeToSleep
 
-	if config.GlobalConfig.TDCaptureDuration > 0 {
-		// minimum duration is 30 seconds
-		duration := max(config.GlobalConfig.TDCaptureDuration, 30*time.Second)
+	return j
+}
 
-		// minimum count is 1
-		j.count = max(int(duration/(30*time.Second)), 1)
+func NewJStackWithCaptureDuration(javaHome string, pid int, duration time.Duration) *JStack {
+	// minimum duration is defaultTimeToSleep
+	effectiveDuration := max(duration, defaultTimeToSleep)
 
-		j.timeToSleep = 30 * time.Second
-	}
+	// minimum count is 1
+	count := max(int(effectiveDuration/defaultTimeToSleep), 1)
+
+	j := NewJStack(javaHome, pid)
+	j.count = count
 
 	return j
 }
@@ -204,8 +204,8 @@ func (t *JStack) Run() (result Result, err error) {
 		}
 
 		if n < t.count {
-			logger.Log("sleeping for %v for next capture of thread dump ...", t.timeToSleep)
-			time.Sleep(t.timeToSleep)
+			logger.Log("sleeping for %v for next capture of thread dump ...", defaultTimeToSleep)
+			time.Sleep(defaultTimeToSleep)
 		}
 	}
 
