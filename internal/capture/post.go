@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"yc-agent/internal/config"
 )
@@ -27,6 +28,10 @@ func GetOutboundIP() net.IP {
 
 func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	return PostCustomData(endpoint, "dt="+dt, file)
+}
+
+func PostDataWithTimeout(endpoint, dt string, file *os.File, timeout time.Duration) (msg string, ok bool) {
+	return PostCustomDataWithTimeout(endpoint, "dt="+dt, file, timeout)
 }
 
 func PositionZero(file *os.File) (err error) {
@@ -76,7 +81,15 @@ func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool
 	return PostCustomDataWithPositionFunc(endpoint, params, file, PositionZero)
 }
 
+func PostCustomDataWithTimeout(endpoint, params string, file *os.File, timeout time.Duration) (msg string, ok bool) {
+	return PostCustomDataWithPositionFuncWithTimeout(endpoint, params, file, PositionZero, timeout)
+}
+
 func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, position func(file *os.File) error) (msg string, ok bool) {
+	return PostCustomDataWithPositionFuncWithTimeout(endpoint, params, file, position, config.GlobalConfig.HttpClientTimeout)
+}
+
+func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os.File, position func(file *os.File) error, timeout time.Duration) (msg string, ok bool) {
 	if config.GlobalConfig.OnlyCapture {
 		msg = "in only capture mode"
 		return
@@ -114,7 +127,7 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 	}
 	httpClient := &http.Client{
 		Transport: transport,
-		Timeout:   config.GlobalConfig.HttpClientTimeout,
+		Timeout:   timeout,
 	}
 	err = position(file)
 	if err != nil {

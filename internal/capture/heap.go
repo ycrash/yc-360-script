@@ -305,7 +305,8 @@ func (t *HeapDump) CreateZipFile(hd *os.File) (*os.File, error) {
 }
 
 func (t *HeapDump) UploadCapturedFile(file *os.File, contentEncoding string) Result {
-	msg, ok := PostData(t.Endpoint(), fmt.Sprintf("hd&Content-Encoding=%s", contentEncoding), file)
+	// 0 timeout = no timeout
+	msg, ok := PostDataWithTimeout(t.Endpoint(), fmt.Sprintf("hd&Content-Encoding=%s", contentEncoding), file, 0*time.Second)
 
 	return Result{
 		Msg: msg,
