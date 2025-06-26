@@ -35,8 +35,9 @@ func (ed *ExtendedData) Run() (Result, error) {
 
 	// Execute the custom script with timeout
 	if err := ed.executeScript(); err != nil {
-		// We log the error but continue to upload any files that might have been generated
-		logger.Log("ExtendedData: error while executing custom script: %v", err)
+		errMsg := fmt.Sprintf("ExtendedData: error while executing custom script: %v", err)
+		logger.Log(errMsg)
+		return Result{Msg: errMsg, Ok: false}, err
 	}
 
 	// Copy files from data folder to current directory with "ed-" prefix
