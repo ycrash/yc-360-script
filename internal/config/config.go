@@ -96,6 +96,10 @@ type Options struct {
 
 	CmdTimeout        Duration `yaml:"cmdTimeout" usage:"Command execution timeout duration (e.g., 1m, 30s). Default is 60 seconds."`
 	HttpClientTimeout Duration `yaml:"httpClientTimeout" usage:"HTTP client timeout for API requests (e.g., 1m, 30s). Default is 60 seconds."`
+
+	// Access log
+	AccessLogs       AccessLogs       `yaml:"accessLogs" usage:"Access log file paths"`
+	AccessLogFormats AccessLogFormats `yaml:"accessLogFormats" usage:"Access log formats corresponding to access log files"`
 }
 
 type Command struct {
@@ -205,6 +209,12 @@ func (d Duration) Duration() time.Duration {
 func (d Duration) String() string {
 	return time.Duration(d).String()
 }
+
+type AccessLogPath string
+type AccessLogs []AccessLogPath
+
+type AccessLogFormat string
+type AccessLogFormats []AccessLogFormat
 
 func defaultConfig() Config {
 	return Config{

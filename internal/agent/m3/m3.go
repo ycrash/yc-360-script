@@ -28,15 +28,18 @@ import (
 )
 
 type M3App struct {
-	runLock  sync.Mutex
-	appLogM3 *capture.AppLogM3
+	runLock     sync.Mutex
+	appLogM3    *capture.AppLogM3
+	accessLogM3 *capture.AccessLogM3
 }
 
 func NewM3App() *M3App {
 	appLogM3 := capture.NewAppLogM3()
+	accessLogM3 := capture.NewAccessLogM3()
 
 	return &M3App{
-		appLogM3: appLogM3,
+		appLogM3:    appLogM3,
+		accessLogM3: accessLogM3,
 	}
 }
 
@@ -228,6 +231,9 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err e
 
 			logger.Log("Starting collection of app logs data...")
 			m3.uploadAppLogM3(endpoint, pid, appName, gcPath)
+
+			logger.Log("Starting collection of access logs data...")
+			m3.uploadAccessLogM3(endpoint, pid, appName)
 
 			if healthCheckCfg, ok := config.GlobalConfig.HealthChecks[appName]; ok {
 				uploadHealthCheck(endpoint, appName, healthCheckCfg)
@@ -479,6 +485,80 @@ func (m3 *M3App) uploadAppLogM3(endpoint string, pid int, appName string, gcPath
 		result := <-appLogM3Chan
 		logger.Log(
 			`APPLOGS DATA
+Ok (at least one transmitted): %t
+Resps: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+}
+
+func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
+	var accessLogM3Chan chan capture.Result
+	if len(config.GlobalConfig.AccessLogs) <= 0 {
+		return
+	}
+
+	accessLogEntries := []capture.AccessLogEntry{}
+
+	accessLogPath := ""
+	accessLogFormat := ""
+
+	searchToken := "$" + appName
+
+	// Find the corresponding access log path
+	for _, configAccessLog := range config.GlobalConfig.AccessLogs {
+		if !strings.Contains(string(configAccessLog), "$") {
+			continue
+		}
+
+		beforeSearchToken, found := strings.CutSuffix(string(configAccessLog), searchToken)
+		if found {
+			accessLogPath = beforeSearchToken
+		}
+	}
+
+	// Find the corresponding access log format
+	for _, configAccessLogFmt := range config.GlobalConfig.AccessLogFormats {
+		if !strings.Contains(string(configAccessLogFmt), "$") {
+			continue
+		}
+
+		beforeSearchToken, found := strings.CutSuffix(string(configAccessLogFmt), searchToken)
+		if found {
+			accessLogFormat = beforeSearchToken
+		}
+	}
+
+	if accessLogPath == "" {
+		return
+	}
+
+	if accessLogFormat == "" {
+		logger.Log("WARNING: Access log format is not set for path:%s, app:%s, ignoring", accessLogPath, appName)
+		return
+	}
+
+	accessLogEntries = append(accessLogEntries, capture.AccessLogEntry{
+		Path:   config.AccessLogPath(accessLogPath),
+		Format: config.AccessLogFormat(accessLogFormat),
+	})
+
+	paths := make(map[int][]capture.AccessLogEntry)
+	paths[pid] = accessLogEntries
+
+	accessLogM3 := m3.accessLogM3
+	accessLogM3.SetPaths(paths)
+
+	// Run the capture asynchronously
+	accessLogM3Chan = capture.GoCapture(endpoint, capture.WrapRun(accessLogM3))
+	logger.Log("Collection of access logs data started.")
+
+	// Wait for the result
+	if accessLogM3Chan != nil {
+		result := <-accessLogM3Chan
+		logger.Log(
+			`ACCESSLOGS DATA
 Ok (at least one transmitted): %t
 Resps: %s
 
