@@ -96,7 +96,14 @@ func runM3Mode() {
 
 func runOnDemandMode() {
 	pidStr := config.GlobalConfig.Pid
-	logger.Log("Running OnDemand mode with PID: %s", pidStr)
+	if config.GlobalConfig.OnlyCapture {
+		// OnlyCapture mode is technically the same code path as on demand,
+		// but the artifacts aren't uploaded.
+		// This is only for clarity / avoid confusion in the log.
+		logger.Log("Running OnlyCapture mode with PID: %s", pidStr)
+	} else {
+		logger.Log("Running OnDemand mode with PID: %s", pidStr)
+	}
 
 	pidInt, err := strconv.Atoi(pidStr)
 	pids := []int{}
