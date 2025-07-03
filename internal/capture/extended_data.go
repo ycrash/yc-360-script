@@ -178,7 +178,6 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 
 	successCount := 0
 	failCount := 0
-	var lastError error
 	uploadMsgs := []string{}
 
 	// Filter files with "ed-" prefix
@@ -198,7 +197,6 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 		if err != nil {
 			logger.Log("ExtendedData: failed to open file %s: %v", fileName, err)
 			failCount++
-			lastError = err
 			continue
 		}
 
@@ -220,7 +218,6 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 			successCount++
 		} else {
 			failCount++
-			lastError = fmt.Errorf("upload failed: %s", msg)
 		}
 	}
 
@@ -228,7 +225,7 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 		return Result{
 			Msg: fmt.Sprintf("uploaded %d files, %d failed: \n%s", successCount, failCount, strings.Join(uploadMsgs, "\n")),
 			Ok:  successCount > 0, // Consider partial success if at least one file was uploaded
-		}, lastError
+		}, nil
 	}
 
 	if successCount == 0 {
