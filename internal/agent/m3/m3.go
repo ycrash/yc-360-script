@@ -48,6 +48,8 @@ func (m3 *M3App) RunLoop() {
 }
 
 func (m3 *M3App) RunSingle() error {
+	logger.Debug().Msgf("M3App.RunSingle: running M3 capture")
+
 	m3.runLock.Lock()
 	defer m3.runLock.Unlock()
 
@@ -55,6 +57,8 @@ func (m3 *M3App) RunSingle() error {
 	timestamp := now.Format("2006-01-02T15-04-05")
 
 	pids, err := capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+	logger.Debug().Msgf("M3App.RunSingle: got process IDs: %v", pids)
+
 	if err != nil {
 		logger.Log("WARNING: failed to get PID cause %v", err)
 	} else if len(pids) == 0 {
@@ -69,6 +73,8 @@ func (m3 *M3App) RunSingle() error {
 		if len(config.GlobalConfig.StoragePath) > 0 {
 			captureDir = filepath.Join(config.GlobalConfig.StoragePath, captureDir)
 		}
+
+		logger.Debug().Msgf("M3App.RunSingle: about to create and change directory to %s", captureDir)
 
 		{
 			err = os.Mkdir(captureDir, 0777)
@@ -104,10 +110,14 @@ func (m3 *M3App) RunSingle() error {
 			// Reset Chdir
 			defer os.Chdir(dir)
 		}
+
+		logger.Debug().Msgf("M3App.RunSingle: successfully changed directory to %s", captureDir)
 	}
 
 	// Capture
 	{
+		logger.Debug().Msgf("M3App.RunSingle: about to call captureAndTransmit")
+
 		err = m3.captureAndTransmit(pids, GetM3ReceiverEndpoint(timestamp, timezone))
 		if err != nil {
 			logger.Log("WARNING: processM3 failed, %s", err)
@@ -117,6 +127,8 @@ func (m3 *M3App) RunSingle() error {
 
 	// Finish
 	{
+		logger.Debug().Msgf("M3App.RunSingle: about to call fin endpoint")
+
 		finEndpoint := GetM3FinEndpoint(timestamp, timezone, pids)
 		resp, err := ondemand.RequestFin(finEndpoint)
 
