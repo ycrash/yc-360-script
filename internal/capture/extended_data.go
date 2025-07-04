@@ -223,7 +223,7 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 
 	if failCount > 0 {
 		return Result{
-			Msg: fmt.Sprintf("uploaded %d files, %d failed: \n%s", successCount, failCount, strings.Join(uploadMsgs, "\n")),
+			Msg: fmt.Sprintf("captured %d files, uploaded %d: \n%s", successCount+failCount, successCount, strings.Join(uploadMsgs, "\n")),
 			Ok:  successCount > 0, // Consider partial success if at least one file was uploaded
 		}, nil
 	}
