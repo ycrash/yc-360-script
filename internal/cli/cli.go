@@ -27,6 +27,8 @@ func Run() {
 	initConfig()
 	initLogger()
 
+	logCLIArguments()
+
 	runCaptureModeIfConditionSatisfied()
 
 	if config.GlobalConfig.ShowVersion {
@@ -74,4 +76,8 @@ func runToCompletionOrSigterm(f func() error) error {
 	}
 
 	return err
+}
+
+func logCLIArguments() {
+	logger.Log("CLI Arguments: %v", os.Args)
 }
