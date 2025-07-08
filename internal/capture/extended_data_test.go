@@ -26,18 +26,20 @@ func TestExtendedData_Run_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(testDir)
+	defer os.RemoveAll(scriptDir)
 
 	// Step 2: Define paths
 	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
+	scriptFile := ""
 
 	// Step 3: Create a simple .bat script
 	var scriptContent = ""
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
+		scriptFile = filepath.Join(scriptDir, "test-script.bat")
 	} else {
-		scriptContent = "#!/bin/sh \r\necho test-data > \"" + outputFile + "\"\r\n"
+		scriptContent = "#!/bin/sh\necho test-data > " + outputFile + "\n"
+		scriptFile = filepath.Join(scriptDir, "test-script.sh")
 	}
 
 	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
