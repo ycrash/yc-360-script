@@ -360,6 +360,7 @@ Ignored errors: %v
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
+	useGlobalConfigAppLogs := false
 	// ------------------------------------------------------------------------------
 	//   				Capture legacy app log
 	// ------------------------------------------------------------------------------
@@ -367,13 +368,13 @@ Ignored errors: %v
 	if len(config.GlobalConfig.AppLog) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 		configAppLogs := config.AppLogs{config.AppLog(config.GlobalConfig.AppLog)}
 		appLog = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: configAppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
+		useGlobalConfigAppLogs = true
 	}
 
 	// ------------------------------------------------------------------------------
 	//   				Capture app logs
 	// ------------------------------------------------------------------------------
 	var appLogs chan capture.Result
-	useGlobalConfigAppLogs := false
 	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
 
 		appLogsContainDollarSign := false
