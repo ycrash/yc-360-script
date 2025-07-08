@@ -44,7 +44,7 @@ func Run() {
 
 	err = runToCompletionOrSigterm(agent.Run)
 	if err != nil {
-		logger.Log("Error: %s", err.Error())
+		logger.Err(err).Msg("Error encountered")
 	}
 
 	logger.Log("yc-360 script is shutting down...")

@@ -15,6 +15,7 @@ import (
 )
 
 var ErrNothingCanBeDone = errors.New("nothing can be done")
+var ErrConflictingMode = errors.New("conflicting mode")
 
 func Run() error {
 	startupLogs()
@@ -28,6 +29,14 @@ func Run() error {
 		logger.Log("WARNING: M3 mode is not enabled. API mode is not enabled. The yc-360 script is about to run OnDemand mode but no PID is specified.")
 
 		return ErrNothingCanBeDone
+	}
+
+	// Validation: if ondemand and m3 are both enabled, abort here
+	// Because it causes an issue with capture dir in ondemand.go
+	if onDemandMode && m3Mode {
+		logger.Error().Msg("OnDemand and M3 mode can not run together.")
+
+		return ErrConflictingMode
 	}
 
 	// TODO: This is for backward compatibility: API mode can run along with on demand and M3.
