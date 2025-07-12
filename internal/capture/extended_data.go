@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -219,6 +220,13 @@ func (ed *ExtendedData) uploadCapturedFiles() (Result, error) {
 		} else {
 			failCount++
 		}
+	}
+
+	if config.GlobalConfig.OnlyCapture {
+		return Result{
+			Msg: fmt.Sprintf("captured %d files, uploaded 0, because of running in Only Capture mode.\n", successCount+failCount),
+			Ok:  true,
+		}, nil
 	}
 
 	if failCount > 0 {
