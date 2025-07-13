@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 
 	"github.com/mattn/go-zglob"
 )
@@ -28,30 +30,29 @@ type AppLog struct {
 
 // Run executes the log capture process for all configured paths.
 // It processes each path as a glob pattern, capturing logs from all matching files.
+// Supports files, directories, and glob patterns.
 // Returns a summary Result of all operations and any errors encountered.
 func (al *AppLog) Run() (Result, error) {
+	pathStrings := make([]string, len(al.Paths))
+	for i, path := range al.Paths {
+		pathStrings[i] = string(path)
+	}
+
+	// Expand all paths (files, directories, globs) to individual files
+	expandedPaths, expansionErr := expandPaths(pathStrings)
+
 	var results []Result
 	var errs []error
 
-	// Process each path as a glob pattern to handle wildcard matching
-	for _, path := range al.Paths {
-		matches, err := zglob.Glob(string(path))
-		if err != nil {
-			// Don't fail completely if one pattern is invalid - record error and continue
-			results = append(results, Result{
-				Msg: fmt.Sprintf("invalid glob pattern: %s", path),
-				Ok:  false,
-			})
-			errs = append(errs, err)
-			continue
-		}
+	if expansionErr != nil {
+		logger.Warn().Err(expansionErr).Msg("AppLog: path expansion error")
+	}
 
-		// Process each file that matches the glob pattern
-		for _, match := range matches {
-			r, err := al.CaptureSingleAppLog(match)
-			results = append(results, r)
-			errs = append(errs, err)
-		}
+	// Process each expanded file path
+	for _, filePath := range expandedPaths {
+		r, err := al.CaptureSingleAppLog(filePath)
+		results = append(results, r)
+		errs = append(errs, err)
 	}
 
 	return summarizeResults(results, errs)
@@ -197,4 +198,82 @@ func summarizeResults(results []Result, errs []error) (Result, error) {
 		Msg: buf.String(),
 		Ok:  hasSuccess,
 	}, nil
+}
+
+// expandPaths takes a slice of paths and expands directories to individual files
+// while preserving existing file and glob pattern functionality
+func expandPaths(paths []string) ([]string, error) {
+	var expandedPaths []string
+	var errors []error
+
+	for _, path := range paths {
+		matches, err := zglob.Glob(path)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("invalid glob pattern %s: %w", path, err))
+			continue
+		}
+
+		// For each glob match, check if it's a directory
+		for _, match := range matches {
+			fileInfo, err := os.Stat(match)
+			if err != nil {
+				errors = append(errors, fmt.Errorf("cannot access %s: %w", match, err))
+				continue
+			}
+
+			if fileInfo.IsDir() {
+				dirFiles, err := expandDirectory(match)
+				if err != nil {
+					errors = append(errors, err)
+					continue
+				}
+				expandedPaths = append(expandedPaths, dirFiles...)
+			} else {
+				expandedPaths = append(expandedPaths, match)
+			}
+		}
+	}
+
+	return expandedPaths, combineErrors(errors)
+}
+
+// expandDirectory reads a directory and returns all regular files within it
+func expandDirectory(dirPath string) ([]string, error) {
+	var files []string
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read directory %s: %w", dirPath, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		fullPath := filepath.Join(dirPath, entry.Name())
+		files = append(files, fullPath)
+	}
+
+	return files, nil
+}
+
+// combineErrors combines multiple errors into a single error
+func combineErrors(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+
+	var errorMessages []string
+	for _, err := range errs {
+		if err != nil {
+			errorMessages = append(errorMessages, err.Error())
+		}
+	}
+
+	if len(errorMessages) == 0 {
+		return nil
+	}
+
+	return errors.New(strings.Join(errorMessages, "; "))
 }
