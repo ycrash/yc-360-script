@@ -13,7 +13,7 @@ function Start-yc360 {
     Set-StrictMode -Version Latest
 
     # Version Info
-    $scriptVersion = "2025.06.20.2137"
+    $scriptVersion = "2025.07.28.1950"
     Write-Host "`n[INFO] Starting yc-360 installer... (Version: $scriptVersion)"
 
     try {
@@ -29,13 +29,8 @@ function Start-yc360 {
 
         # Download yc-360
         Write-Host "[INFO] Downloading yc-360..."
-        if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-            & curl.exe -sSL -o $zip_file $url
-        } else {
-            Write-Host "[INFO] 'curl' not found, using Invoke-WebRequest..."
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $url -OutFile $zip_file -UseBasicParsing
-        }
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $zip_file -UseBasicParsing
 
         # Detect architecture
         $arch = $env:PROCESSOR_ARCHITECTURE
@@ -47,6 +42,7 @@ function Start-yc360 {
             "aarch64" { $arch_folder = "arm64" }
             default  { throw "[ERROR] Unsupported architecture: $arch" }
         }
+        Write-Host "[INFO] Detected platform: $platform / architecture: $arch_folder"
 
         # Extract yc.exe (flat layout)
         Write-Host "[INFO] Extracting yc binary..."
@@ -57,6 +53,7 @@ function Start-yc360 {
         } else {
             throw "[ERROR] No extraction tool found (jar or unzip required)"
         }
+        Write-Host "[INFO] yc.exe extracted to: $bin_dir\yc.exe"
 
         # Move binary
         $target = Join-Path $work_dir "$platform\yc.exe"
@@ -69,40 +66,40 @@ function Start-yc360 {
         # Clean up temp folders (except output)
         Remove-Item -Recurse -Force "$work_dir\linux","$work_dir\mac","$work_dir\windows","$zip_file" -ErrorAction SilentlyContinue
 
-        # Detect JAVA_HOME
-        if (-Not $JavaHome) {
-            $javaCmd = Get-Command java -ErrorAction SilentlyContinue
-            if (-not $javaCmd) {
-                Write-Warning "[WARN] Java not found in PATH. Skipping execution."
-                return
+        # Set Java path if not provided
+        if (-not $JavaHome -or $JavaHome -eq "") {
+            $javaPath = Get-Command java -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+            if ($javaPath) {
+                $JavaHome = Split-Path (Split-Path $javaPath -Parent) -Parent
+                Write-Host "[INFO] JavaHome not provided. Using detected JavaHome: $JavaHome"
+            } else {
+                Write-Error "[ERROR] Java not found in PATH and JavaHome was not provided."
+                exit 1
             }
-            $javaPath = $javaCmd.Source
-            $JavaHome = Split-Path -Parent (Split-Path -Parent $javaPath)
-            Write-Host "[INFO] Detected JAVA_HOME: $JavaHome"
+        } else {
+            Write-Host "[INFO] Using provided JavaHome: $JavaHome"
         }
 
-        # Detect PIDs
-        if (-not $TargetPids) {
-            if (Get-Command jps -ErrorAction SilentlyContinue) {
-                $TargetPids = (& jps | Where-Object { $_ -notmatch 'Jps' } | ForEach-Object {
-                    ($_ -split '\s+')[0]
-                }) -join ","
+        # Set PIDs if not provided
+        if (-not $TargetPids -or $TargetPids -eq "") {
+            $javaProcesses = Get-Process java -ErrorAction SilentlyContinue
+            if ($javaProcesses.Count -eq 0) {
+                Write-Error "[ERROR] No running Java processes found, and TargetPids not provided."
+                exit 1
             }
-
-            if (-not $TargetPids) {
-                $javaProcesses = Get-Process | Where-Object { $_.Name -like "java*" }
-                $TargetPids = $javaProcesses.Id -join ","
-            }
-
-            if (-not $TargetPids) {
-                Write-Warning "`n[WARN] No running Java process found. Nothing to capture."
-                return
-            }
+            $TargetPids = ($javaProcesses | Select-Object -ExpandProperty Id) -join ","
+            Write-Host "[INFO] TargetPids not provided. Using detected Java PIDs: $TargetPids"
+        } else {
+            Write-Host "[INFO] Using provided TargetPids: $TargetPids"
         }
 
-        # Execute yc for each PID
+        # Print the detected PIDs
         $pidsArray = $TargetPids -split ','
 
+        Write-Host "`n[INFO] Detected the following Java PIDs to capture:"
+        $pidsArray | ForEach-Object { Write-Host " - $_" }
+
+        # Execute yc for each PID
         foreach ($targetPid in $pidsArray) {
             if (-not $ExtraArgs -or $ExtraArgs.Count -eq 0) {
                 Write-Host "[INFO] Running yc with default: -onlyCapture for PID: $targetPid"
@@ -115,10 +112,24 @@ function Start-yc360 {
 
         # Final cleanup
         Remove-Item -Recurse -Force "$bin_dir" -ErrorAction SilentlyContinue
-        Write-Host "`n[INFO] yc-360 run completed. Output saved in: $work_dir"
+
+        # Navigate to output directory and list contents
+        Set-Location $work_dir
+        Write-Host "`n[INFO] Listing contents of output directory:"
+        Get-ChildItem -Force | Format-Table -AutoSize
+
+        # Open the output folder in File Explorer
+        Start-Process explorer.exe $work_dir
+
+        Write-Host "`n[INFO] Script executed successfully."
 
     } catch {
-        Write-Warning "`n[WARN] Script encountered an error: $_"
+        Write-Host "`n[ERROR] yc-360 script encountered an error."
+        Write-Host "------------------------------------------------------------"
+        Write-Host "Need help? Visit our troubleshooting FAQ page:"
+        Write-Host "https://test.docs.ycrash.io/yc-360/faq/run-yc-360-faq.html"
+        Write-Host "------------------------------------------------------------"
+        Write-Host "`n[ERROR DETAILS] $($_.Exception.Message)"
     }
 }
 

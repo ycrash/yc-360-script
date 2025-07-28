@@ -9,7 +9,7 @@ IFS=$'\n\t'
 trap 'echo "[ERROR] Script interrupted"; exit 1' SIGINT SIGTERM
 trap 'echo "[INFO] Script exited successfully."' EXIT
 
-SCRIPT_VERSION="2025.06.17.2000"
+SCRIPT_VERSION="2025.07.28.1141"
 echo "[INFO] Starting yc-360 installer (version $SCRIPT_VERSION)"
 
 # Setup workspace
@@ -110,9 +110,10 @@ echo "[INFO] Using JAVA_HOME: $user_java_home"
 # Auto-detect PIDs if not supplied
 if [[ -z "$user_pids" ]]; then
     if command -v jps >/dev/null 2>&1; then
-        user_pids=$(jps | grep -v Jps | awk '{print $1}' | xargs || true)
+        user_pids=$(jps | awk '$2 != "Jps" {print $1}' | xargs || true)
     else
-        user_pids=$(pgrep -f 'java' | xargs || true)
+        # Use ps to avoid catching grep or this script
+        user_pids=$(ps -eo pid,comm,args | awk '/[j]ava/ && $2 != "grep" {print $1}' | xargs || true)
     fi
 fi
 
@@ -144,3 +145,16 @@ done
 # Cleanup after run
 rm -rf "$bin_dir" "$work_dir/$platform"
 echo "[INFO] yc-360 run completed. Output saved in: $work_dir"
+
+# Move into the work directory and list files
+cd "$work_dir"
+echo "[INFO] Listing contents of output directory:"
+ls -l
+
+# Trap for any unhandled errors to show FAQ link
+trap 'echo "
+[ERROR] yc-360 script encountered an error.
+------------------------------------------------------------
+Need help? Visit our troubleshooting FAQ page:
+https://test.docs.ycrash.io/yc-360/faq/run-yc-360-faq.html
+------------------------------------------------------------" >&2' ERR
