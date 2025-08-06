@@ -14,7 +14,7 @@ import (
 //
 // ------------------------------------------------------------------------------
 var (
-	SCRIPT_VERSION      = "3.1"
+	SCRIPT_VERSION      = "accesslogm3 (2025.08.06)"
 	SCRIPT_SPAN         = 120 // How long the whole script should take. Default=240
 	JAVACORE_INTERVAL   = 30  // How often javacores should be taken. Default=30
 	TOP_INTERVAL        = 60  // How often top data should be taken. Default=60
