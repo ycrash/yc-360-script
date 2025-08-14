@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -65,10 +67,17 @@ func (a *AccessLogM3) Run() (Result, error) {
 	results := []Result{}
 	errs := []error{}
 
+	now := time.Now()
+	currentDateStr := now.Format("2006-01-02")
+
 	// Loop over process IDs and their associated log path patterns.
 	for pid, paths := range a.Paths {
 		for _, path := range paths {
-			matches, err := zglob.Glob(string(path.Path))
+			// Substitute variable
+			// %t = current date
+			p := strings.ReplaceAll(string(path.Path), "%t", currentDateStr)
+
+			matches, err := zglob.Glob(string(p))
 
 			if err != nil {
 				results = append(results, Result{
