@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -196,7 +197,10 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 	}()
 
 	// execution timer
-	timerDuration := 1 * time.Minute
+	timerDuration := config.GlobalConfig.CmdTimeout
+	if timerDuration == 0 {
+		timerDuration = 60 * time.Second // fallback to default if not configured, or accidentally set to 0
+	}
 	timer := time.NewTimer(timerDuration)
 	select {
 	case <-timer.C:
