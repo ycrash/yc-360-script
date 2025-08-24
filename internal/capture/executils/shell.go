@@ -204,7 +204,7 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 	timer := time.NewTimer(timerDuration)
 	select {
 	case <-timer.C:
-		logger.Log("Timeout happened during the command execution (%ds) [%s]", int(timerDuration/time.Second), c.String())
+		logger.Log("Timeout happened during the command execution (%s) [%s]", timerDuration.String(), c.String())
 		err = c.KillAndWait()
 		if err != nil {
 			logger.Log("Error doing cmd.KillAndWait() invocation: [%s]", err.Error())
