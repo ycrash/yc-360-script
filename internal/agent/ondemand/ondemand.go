@@ -356,7 +356,7 @@ Ignored errors: %v
 		Pid:               pid,
 		TdPath:            tdPath,
 		JavaHome:          config.GlobalConfig.JavaHomePath,
-		TdCaptureDuration: config.GlobalConfig.TDCaptureDuration,
+		TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
 	}
 	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
@@ -997,7 +997,7 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 	}
 	httpClient := &http.Client{
 		Transport: transport,
-		Timeout:   config.GlobalConfig.HttpClientTimeout,
+		Timeout:   config.GlobalConfig.HttpClientTimeout.Duration(),
 	}
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {

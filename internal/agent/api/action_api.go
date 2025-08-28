@@ -176,7 +176,7 @@ func (s *Server) handleYcrashForward(writer http.ResponseWriter, request *http.R
 	fr.Header.Del("ycrash-forward")
 	fr.Close = true
 	client := http.Client{
-		Timeout: config.GlobalConfig.HttpClientTimeout,
+		Timeout: config.GlobalConfig.HttpClientTimeout.Duration(),
 	}
 	r, err := client.Do(fr)
 	if err != nil {

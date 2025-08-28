@@ -86,7 +86,7 @@ func PostCustomDataWithTimeout(endpoint, params string, file *os.File, timeout t
 }
 
 func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, position func(file *os.File) error) (msg string, ok bool) {
-	return PostCustomDataWithPositionFuncWithTimeout(endpoint, params, file, position, config.GlobalConfig.HttpClientTimeout)
+	return PostCustomDataWithPositionFuncWithTimeout(endpoint, params, file, position, config.GlobalConfig.HttpClientTimeout.Duration())
 }
 
 func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os.File, position func(file *os.File) error, timeout time.Duration) (msg string, ok bool) {
@@ -183,7 +183,7 @@ func GetData(endpoint string) (msg string, ok bool) {
 	}
 	httpClient := &http.Client{
 		Transport: transport,
-		Timeout:   config.GlobalConfig.HttpClientTimeout,
+		Timeout:   config.GlobalConfig.HttpClientTimeout.Duration(),
 	}
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {

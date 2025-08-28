@@ -197,7 +197,7 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 	}()
 
 	// execution timer
-	timerDuration := config.GlobalConfig.CmdTimeout
+	timerDuration := config.GlobalConfig.CmdTimeout.Duration()
 	if timerDuration == 0 {
 		timerDuration = 60 * time.Second // fallback to default if not configured, or accidentally set to 0
 	}

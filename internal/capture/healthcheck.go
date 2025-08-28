@@ -150,7 +150,7 @@ func newHTTPClient() *http.Client {
 			DisableKeepAlives:  true,
 			ForceAttemptHTTP2:  true,
 		},
-		Timeout: config.GlobalConfig.HttpClientTimeout,
+		Timeout: config.GlobalConfig.HttpClientTimeout.Duration(),
 	}
 }
 
