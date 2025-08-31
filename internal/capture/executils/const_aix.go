@@ -4,7 +4,7 @@ var (
 	NetState            = Command{"netstat", "-a"}
 	PS                  = Command{"ps", "-ef"}
 	PS2                 = Command{"ps", "-ef"}
-	M3PS                = Command{"ps", "-ef"}
+	PSGetProcessIds     = Command{"ps", "-ef"}
 	Disk                = Command{"df"}
 	Top                 = Command{"topas", "-P"}
 	Top2                = Command{"topas", "-P"}

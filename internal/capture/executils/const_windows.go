@@ -12,7 +12,6 @@ var (
 	NetState = Command{"netstat", "-an"}
 	PS       = Command{"tasklist"}
 	PS2      = Command{"tasklist"}
-	M3PS     = Command{WaitCommand, "PowerShell.exe", "-Command", "Get-CimInstance -Class Win32_Process | ConvertTo-Json"}
 
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
@@ -32,6 +31,7 @@ var (
 	KernelParam         = NopCommand
 	Ping                = Command{WaitCommand, "ping", "-n", "6"}
 	JavaVersionCommand  = Command{"java.exe", "-XshowSettings:java", "-version"}
+	PSGetProcessIds     = Command{WaitCommand, "PowerShell.exe", "-Command", "Get-CimInstance -Class Win32_Process | ConvertTo-Json"}
 
 	SHELL = Command{"cmd.exe", "/c"}
 )

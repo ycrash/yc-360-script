@@ -4,7 +4,6 @@ var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
 	PS2      = Command{"ps", "-eTf"}
-	M3PS     = Command{"ps", "-eLf"}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", "10",
@@ -30,6 +29,7 @@ var (
 	OSVersion           = Command{WaitCommand, "uname", "-a"}
 	KernelParam         = Command{WaitCommand, "sysctl", "-a"}
 	Ping                = Command{WaitCommand, "ping", "-c", "6"}
+	PSGetProcessIds     = Command{"ps", "-eLf"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 
