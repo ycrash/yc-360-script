@@ -109,7 +109,7 @@ type CIMProcess struct {
 type CIMProcessList []CIMProcess
 
 func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
-	output, err := executils.CommandCombinedOutput(executils.M3PS)
+	output, err := executils.CommandCombinedOutput(executils.PSGetProcessIds)
 	if err != nil {
 		return
 	}
