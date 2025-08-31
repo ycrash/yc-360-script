@@ -8,7 +8,6 @@ var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
 	PS2      = Command{"ps", "-eLf"}
-	M3PS     = Command{"ps", "-eLf"}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", strconv.Itoa(TOP_INTERVAL),
@@ -34,6 +33,7 @@ var (
 	OSVersion           = Command{WaitCommand, "uname", "-a"}
 	KernelParam         = Command{WaitCommand, "sysctl", "-a"}
 	JavaVersionCommand  = Command{"java", "-XshowSettings:java", "-version"}
+	PSGetProcessIds     = Command{"ps", "-eLf"}
 
 	SHELL = Command{"/bin/sh", "-c"}
 )
