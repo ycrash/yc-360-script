@@ -6,12 +6,19 @@ package capture
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/config"
 )
+
+type CIMProcess struct {
+	ProcessName string
+	CommandLine string
+	ProcessId   int
+}
 
 func GetTopCpu() (pid int, err error) {
 	output, err := executils.CommandCombinedOutput(executils.ProcessTopCPU)
@@ -50,6 +57,11 @@ Next:
 		}
 	}
 	return
+}
+
+// GetCIMProcesses is not supported on non-Windows platforms
+func GetCIMProcesses(tokens config.ProcessTokens, excludes config.ProcessTokens) ([]CIMProcess, error) {
+	return nil, fmt.Errorf("GetCIMProcesses is only supported on Windows platforms")
 }
 
 func GetTopMem() (pid int, err error) {

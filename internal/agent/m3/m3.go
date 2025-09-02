@@ -220,6 +220,11 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err e
 	top := capture.GoCapture(endpoint, capture.WrapRun(capTop))
 	logger.Log("Collection of top data started.")
 
+	logger.Log("Starting collection of lp data...")
+	capLPM3 := capture.NewLPM3(pids)
+	lpM3Chan := capture.GoCapture(endpoint, capture.WrapRun(capLPM3))
+	logger.Log("Collection of lp data started.")
+
 	if len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
 		for pid, appName := range pids {
@@ -241,17 +246,23 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err e
 		}
 	}
 
-	// Wait for the result of async captures
-	if top != nil {
-		result := <-top
-		logger.Log(
-			`TOP DATA
+	topResult := <-top
+	logger.Log(
+		`TOP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, result.Ok, result.Msg)
-	}
+`, topResult.Ok, topResult.Msg)
+
+	lpM3Result := <-lpM3Chan
+	logger.Log(
+		`LP DATA
+Ok: %t
+Resp: %s
+
+--------------------------------
+`, lpM3Result.Ok, lpM3Result.Msg)
 
 	return
 }
