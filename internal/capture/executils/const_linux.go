@@ -4,6 +4,7 @@ var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
 	PS2      = Command{"ps", "-eTf"}
+	LPM3     = Command{"ps", "-efx", "-p", DynamicArg}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", "10",
