@@ -67,6 +67,7 @@ type Options struct {
 	JCmdCaptureMode string `yaml:"jCmdCaptureMode" usage:"Run in JCmd Capture mode"`
 	VMStatMode      bool   `yaml:"vmstatMode" usage:"Run in vmstat mode"`
 	TopMode         bool   `yaml:"topMode" usage:"Run in top mode"`
+	TestCIMMode     bool   `yaml:"testCIMMode" usage:"Test GetCIMProcesses function and exit"`
 
 	LogFilePath     string `yaml:"logFilePath" usage:"Path to save the log file"`
 	LogFileMaxSize  int64  `yaml:"logFileMaxSize" usage:"Max size of the log files"`
