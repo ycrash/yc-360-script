@@ -8,6 +8,7 @@ var (
 	NetState = Command{"netstat", "-pan"}
 	PS       = Command{"ps", "-eLf"}
 	PS2      = Command{"ps", "-eLf"}
+	LPM3     = Command{"ps", "-fp", DynamicArg}
 	Disk     = Command{"df", "-hk"}
 	Top      = Command{WaitCommand, "top", "-bc",
 		"-d", strconv.Itoa(TOP_INTERVAL),
