@@ -12,6 +12,7 @@ var (
 	NetState = Command{"netstat", "-an"}
 	PS       = Command{"tasklist"}
 	PS2      = Command{"tasklist"}
+	LPM3     = NopCommand
 
 	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
 	Top                 = NopCommand
