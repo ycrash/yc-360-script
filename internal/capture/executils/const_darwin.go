@@ -4,6 +4,7 @@ var (
 	NetState            = Command{"netstat", "-an"}
 	PS                  = Command{"ps", "-ef"}
 	PS2                 = Command{"ps", "-ef"}
+	LPM3                = Command{"ps", "-fp", DynamicArg}
 	PSGetProcessIds     = Command{"ps", "-ef"}
 	Disk                = Command{"df", "-hk"}
 	Top                 = Command{WaitCommand, "/bin/sh", "-c", "for i in {1..3}; do top -l 5 ; sleep 10; done"}
