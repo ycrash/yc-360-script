@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 	"yc-agent/internal/config"
@@ -37,7 +37,7 @@ func TestServer(t *testing.T) {
 		}
 
 		if resp.Body != nil {
-			all, err := ioutil.ReadAll(resp.Body)
+			all, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -82,7 +82,7 @@ func TestServerCmdActions(t *testing.T) {
 		}
 
 		if resp.Body != nil {
-			all, err := ioutil.ReadAll(resp.Body)
+			all, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +149,7 @@ func TestServerForward(t *testing.T) {
 		}
 
 		if resp.Body != nil {
-			all, err := ioutil.ReadAll(resp.Body)
+			all, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -199,7 +199,7 @@ func TestAttendanceAPI(t *testing.T) {
 		}
 
 		if resp.Body != nil {
-			all, err := ioutil.ReadAll(resp.Body)
+			all, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}

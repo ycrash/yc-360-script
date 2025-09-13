@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"os/user"
@@ -988,7 +988,7 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 	if len(path) > 0 {
 		pool := x509.NewCertPool()
 		var ca []byte
-		ca, err = ioutil.ReadFile(path)
+		ca, err = os.ReadFile(path)
 		if err != nil {
 			return
 		}
@@ -1008,7 +1008,7 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 	post, err := httpClient.Do(req)
 	if err == nil {
 		defer post.Body.Close()
-		resp, err = ioutil.ReadAll(post.Body)
+		resp, err = io.ReadAll(post.Body)
 		if err == nil {
 			logger.Log(
 				`yc-fin endpoint: %s

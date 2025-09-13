@@ -1,7 +1,7 @@
 package capture
 
 import (
-	"io/ioutil"
+	"io"
 	"os"
 	"testing"
 )
@@ -16,7 +16,7 @@ func TestLastNLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bytes, err := ioutil.ReadAll(file)
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		t.Fatal(err)
 	}

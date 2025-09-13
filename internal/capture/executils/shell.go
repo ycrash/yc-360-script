@@ -74,44 +74,6 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 	return
 }
 
-func (cmd *Command) addDynamicArg(args ...string) (result Command, err error) {
-	if cmd == nil {
-		err = errors.New("invalid nil Command, please use NopCommand instead")
-		return
-	}
-	if *cmd == nil {
-		return NopCommand, nil
-	}
-	n := 0
-	for _, c := range *cmd {
-		if c == DynamicArg {
-			n++
-		}
-	}
-	if n != len(args) {
-		return *cmd, nil
-	}
-	if (*cmd)[0] == WaitCommand {
-		result = make(Command, 0, len(*cmd)+1)
-		result = append(result, WaitCommand)
-	} else {
-		result = make(Command, 0, len(*cmd))
-	}
-	i := 0
-	for _, c := range *cmd {
-		switch c {
-		case WaitCommand:
-			continue
-		case DynamicArg:
-			result = append(result, args[i])
-			i++
-		default:
-			result = append(result, c)
-		}
-	}
-	return
-}
-
 var Env []string
 
 func NewCommand(cmd Command, hookers ...Hooker) CmdManager {

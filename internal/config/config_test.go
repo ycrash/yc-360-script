@@ -125,7 +125,7 @@ func TestConfig(t *testing.T) {
 		if len(GlobalConfig.ProcessTokens) != 2 {
 			t.Fail()
 		}
-		if GlobalConfig.M3Frequency != 5*time.Minute {
+		if GlobalConfig.M3Frequency != Duration(5*time.Minute) {
 			t.Fail()
 		}
 	})

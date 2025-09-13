@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -117,7 +116,7 @@ func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os
 	path := config.GlobalConfig.CACertPath
 	if len(path) > 0 {
 		pool := x509.NewCertPool()
-		ca, err := ioutil.ReadFile(path)
+		ca, err := os.ReadFile(path)
 		if err != nil {
 			msg = err.Error()
 			return
@@ -148,7 +147,7 @@ func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os
 	}
 
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
 		return
@@ -173,7 +172,7 @@ func GetData(endpoint string) (msg string, ok bool) {
 	path := config.GlobalConfig.CACertPath
 	if len(path) > 0 {
 		pool := x509.NewCertPool()
-		ca, err := ioutil.ReadFile(path)
+		ca, err := os.ReadFile(path)
 		if err != nil {
 			msg = err.Error()
 			return
@@ -198,7 +197,7 @@ func GetData(endpoint string) (msg string, ok bool) {
 	}
 
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		msg = fmt.Sprintf("GetData get resp err %s", err.Error())
 		return

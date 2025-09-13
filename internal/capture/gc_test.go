@@ -3,7 +3,7 @@ package capture
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +30,7 @@ func TestProcessLogFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		gc.Seek(0, 0)
-		all, err := ioutil.ReadAll(gc)
+		all, err := io.ReadAll(gc)
 		if err != nil {
 			t.Fatal(err)
 		}

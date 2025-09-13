@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"strings"
 	"text/template"
@@ -533,7 +533,7 @@ func makeBoomiRequest(queryToken string, username string, password string, boomi
 			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
-			req.Body = ioutil.NopCloser(bytes.NewReader(bodyBytes))
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		}
 
 		return nil
@@ -646,7 +646,7 @@ func makeAtomConnectorsRequest(queryToken string, username string, password stri
 			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
-			req.Body = ioutil.NopCloser(bytes.NewReader(bodyBytes))
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		}
 
 		return nil
