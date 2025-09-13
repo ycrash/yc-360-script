@@ -10,7 +10,7 @@ RUN apk add --no-cache \
     gcc \
     make \
     musl musl-dev \
-    ncurses ncurses-dev ncurses-libs ncurses-static
+    ncurses ncurses-dev ncurses-libs ncurses-static golangci-lint
     
 ENV PATH=${PATH}:/usr/local/go/bin
 
