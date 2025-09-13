@@ -330,8 +330,8 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 	output, err = executils.CommandCombinedOutput(executils.Command{path.Join(t.JavaHome, "/bin/jcmd"), strconv.Itoa(t.Pid), "GC.heap_dump", requestedFilePath}, executils.SudoHooker{PID: t.Pid})
 	logger.Log("heap dump output from jcmd: %s, %v", output, err)
 	if err != nil ||
-		bytes.Index(output, []byte("No such file")) >= 0 ||
-		bytes.Index(output, []byte("Permission denied")) >= 0 {
+		bytes.Contains(output, []byte("No such file")) ||
+		bytes.Contains(output, []byte("Permission denied")) {
 		if len(output) > 1 {
 			err = fmt.Errorf("%w because %s", err, output)
 		}
@@ -342,8 +342,8 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 			executils.SudoHooker{PID: t.Pid})
 		logger.Log("heap dump output from jattach: %s, %v", output, e2)
 		if e2 != nil ||
-			bytes.Index(output, []byte("No such file")) >= 0 ||
-			bytes.Index(output, []byte("Permission denied")) >= 0 {
+			bytes.Contains(output, []byte("No such file")) ||
+			bytes.Contains(output, []byte("Permission denied")) {
 			if len(output) > 1 {
 				e2 = fmt.Errorf("%w because %s", e2, output)
 			}
@@ -360,8 +360,8 @@ func (t *HeapDump) heapDump(requestedFilePath string) (actualDumpPath string, er
 				executils.SudoHooker{PID: t.Pid})
 			logger.Log("heap dump output from tmp jattach: %s, %v", output, e3)
 			if e3 != nil ||
-				bytes.Index(output, []byte("No such file")) >= 0 ||
-				bytes.Index(output, []byte("Permission denied")) >= 0 {
+				bytes.Contains(output, []byte("No such file")) ||
+				bytes.Contains(output, []byte("Permission denied")) {
 				if len(output) > 1 {
 					e3 = fmt.Errorf("%w because %s", e3, output)
 				}

@@ -2,7 +2,6 @@ package capture
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,7 +34,7 @@ func TestProcessLogFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := string(all)
-		if s != fmt.Sprintf("test\ntest") {
+		if s != "test\ntest" {
 			t.Fatal(s)
 		}
 	}

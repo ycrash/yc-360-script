@@ -33,7 +33,7 @@ func TestExtendedData_Run_Success(t *testing.T) {
 	scriptFile := ""
 
 	// Step 3: Create a simple .bat script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 		scriptFile = filepath.Join(scriptDir, "test-script.bat")
@@ -108,7 +108,7 @@ func TestExtendedData_Run_ScriptTimeout(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 3: Create a simple .bat script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {
@@ -177,7 +177,7 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 4: Create a simple .bat or shell script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {
@@ -211,7 +211,7 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
 
 	// // Step 8: Run the script
-	_, err = ed.Run()
+	ed.Run()
 
 	// Step 9: Assert hello.txt still exists
 	if _, err := os.Stat(helloFilePath); os.IsNotExist(err) {
@@ -240,7 +240,7 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 4: Create a simple .bat or shell script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {
@@ -274,7 +274,7 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
 
 	// // Step 8: Run the script
-	result, err := ed.Run()
+	result, _ := ed.Run()
 	if !result.Ok {
 		t.Fatalf("Run not OK: %s", result.Msg)
 	}
@@ -303,7 +303,7 @@ func TestExtendedData_Run_EmptyDataFolder(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 4: Create a simple .bat or shell script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {
@@ -371,7 +371,7 @@ func TestExtendedData_Run_EmptyScript(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 4: Create a simple .bat or shell script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {
@@ -437,7 +437,7 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
 	// Step 3: Create a simple .bat script
-	var scriptContent = ""
+	var scriptContent string
 	if runtime.GOOS == "windows" {
 		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
 	} else {

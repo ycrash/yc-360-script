@@ -236,19 +236,19 @@ func ParseFlags(args []string) error {
 		return err
 	}
 
-	if GlobalConfig.Options.ConfigPath == "" {
+	if GlobalConfig.ConfigPath == "" {
 		return nil
 	}
 
-	file, err := os.Open(GlobalConfig.Options.ConfigPath)
+	file, err := os.Open(GlobalConfig.ConfigPath)
 	if err != nil {
 		dir, _ := os.Getwd()
-		return fmt.Errorf("workdir %s read config file path %s failed: %w", dir, GlobalConfig.Options.ConfigPath, err)
+		return fmt.Errorf("workdir %s read config file path %s failed: %w", dir, GlobalConfig.ConfigPath, err)
 	}
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
 	if err != nil {
-		return fmt.Errorf("decode config file path %s failed: %w", GlobalConfig.Options.ConfigPath, err)
+		return fmt.Errorf("decode config file path %s failed: %w", GlobalConfig.ConfigPath, err)
 	}
 
 	return copyFlagsValue(&GlobalConfig.Options, result)

@@ -138,7 +138,7 @@ func sanitizeAppNameForFileName(name string) string {
 // This ensures consistent logging across multiple outputs.
 func logToFileAndLogger(file *os.File, format string, values ...interface{}) {
 	logger.Log(format, values...)
-	file.WriteString(fmt.Sprintf(format+"\n", values...))
+	fmt.Fprintf(file, format+"\n", values...)
 }
 
 func newHTTPClient() *http.Client {
