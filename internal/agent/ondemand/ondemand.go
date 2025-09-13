@@ -904,7 +904,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	timestamp := now.Format("2006-01-02T15-04-05")
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
-	_, e = file.WriteString(fmt.Sprintf(metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, tags))
+	_, e = fmt.Fprintf(file, metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, tags)
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return
@@ -1039,7 +1039,7 @@ func ExtractGCLogPathFromCmdline(cmdline string) string {
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 1: -Xloggc:<file-path>
-		re := regexp.MustCompile("-Xloggc:(\\S+)")
+		re := regexp.MustCompile(`-Xloggc:(\S+)`)
 		matches := re.FindSubmatch(cmdlineBytes)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
@@ -1051,7 +1051,7 @@ func ExtractGCLogPathFromCmdline(cmdline string) string {
 		// -Xlog[:option]
 		//	option         :=  [<what>][:[<output>][:[<decorators>][:<output-options>]]]
 		// https://openjdk.org/jeps/158
-		re := regexp.MustCompile("-Xlog:gc\\S*:file=(\\S+)")
+		re := regexp.MustCompile(`-Xlog:gc\S*:file=(\S+)`)
 		matches := re.FindSubmatch(cmdlineBytes)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
@@ -1064,7 +1064,7 @@ func ExtractGCLogPathFromCmdline(cmdline string) string {
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 3: -Xlog:gc:<file-path>
-		re := regexp.MustCompile("-Xlog:gc:(\\S+)")
+		re := regexp.MustCompile(`-Xlog:gc:(\S+)`)
 		matches := re.FindSubmatch(cmdlineBytes)
 		if len(matches) == 2 {
 			logFile = string(matches[1])
@@ -1077,7 +1077,7 @@ func ExtractGCLogPathFromCmdline(cmdline string) string {
 
 	if logFile == "" {
 		// Garbage collection log: Attempt 4: -Xverbosegclog:/tmp/buggy-app-gc-log.%pid.log,20,10
-		re := regexp.MustCompile("-Xverbosegclog:(\\S+)")
+		re := regexp.MustCompile(`-Xverbosegclog:(\S+)`)
 		matches := re.FindSubmatch(cmdlineBytes)
 		if len(matches) == 2 {
 			logFile = string(matches[1])

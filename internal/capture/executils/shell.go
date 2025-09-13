@@ -18,7 +18,7 @@ import (
 type Command []string
 
 var NopCommand Command = nil
-var SkippedNopCommandError = errors.New("skipped nop command")
+var ErrSkippedNopCommandError = errors.New("skipped nop command")
 
 const DynamicArg = "<DynamicArg>"
 const WaitCommand = "<WaitCommand>"
@@ -109,7 +109,7 @@ func NewCommand(cmd Command, hookers ...Hooker) CmdManager {
 func CommandCombinedOutput(cmd Command, hookers ...Hooker) ([]byte, error) {
 	c := NewCommand(cmd, hookers...)
 	if c.IsSkipped() {
-		return nil, SkippedNopCommandError
+		return nil, ErrSkippedNopCommandError
 	}
 	return c.CombinedOutput()
 }

@@ -29,15 +29,15 @@ func (c *WaitCmd) SetStdoutAndStderr(writer io.Writer) {
 	if c.Cmd == nil {
 		return
 	}
-	c.Cmd.Stdout = writer
-	c.Cmd.Stderr = writer
+	c.Stdout = writer
+	c.Stderr = writer
 }
 
 func (c *WaitCmd) GetPid() int {
-	if c.Cmd == nil || c.Cmd.Process == nil {
+	if c.Cmd == nil || c.Process == nil {
 		return -1
 	}
-	return c.Cmd.Process.Pid
+	return c.Process.Pid
 }
 
 func (c *WaitCmd) KillAndWait() (err error) {
@@ -45,10 +45,7 @@ func (c *WaitCmd) KillAndWait() (err error) {
 }
 
 func (c *WaitCmd) IsSkipped() bool {
-	if c.Cmd == nil {
-		return true
-	}
-	return false
+	return c.Cmd == nil
 }
 
 func (c *WaitCmd) Wait() (err error) {
@@ -64,7 +61,7 @@ func (c *WaitCmd) ExitCode() (code int) {
 		code = -1
 		return
 	}
-	code = c.Cmd.ProcessState.ExitCode()
+	code = c.ProcessState.ExitCode()
 	return
 }
 
@@ -88,10 +85,10 @@ type Cmd struct {
 }
 
 func (c *Cmd) KillAndWait() (err error) {
-	if c.Cmd == nil || c.Cmd.Process == nil {
+	if c.Cmd == nil || c.Process == nil {
 		return
 	}
-	err = c.Cmd.Process.Kill()
+	err = c.Process.Kill()
 	if err != nil {
 		return
 	}
@@ -100,17 +97,17 @@ func (c *Cmd) KillAndWait() (err error) {
 }
 
 func (c *Cmd) Interrupt() (err error) {
-	if c.Cmd == nil || c.Cmd.Process == nil {
+	if c.Cmd == nil || c.Process == nil {
 		return
 	}
-	err = c.Cmd.Process.Signal(os.Interrupt)
+	err = c.Process.Signal(os.Interrupt)
 	return
 }
 
 func (c *Cmd) Kill() (err error) {
-	if c.Cmd == nil || c.Cmd.Process == nil {
+	if c.Cmd == nil || c.Process == nil {
 		return
 	}
-	err = c.Cmd.Process.Kill()
+	err = c.Process.Kill()
 	return
 }

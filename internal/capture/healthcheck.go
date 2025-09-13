@@ -171,7 +171,7 @@ func (h *HealthCheck) runHTTPHealthCheck(ctx context.Context) (*http.Response, t
 	// Check specifically for timeout errors
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, rtt, fmt.Errorf("Timeout occurred while waiting for a response from %s. The endpoint did not respond within %d seconds",
+			return nil, rtt, fmt.Errorf("timeout occurred while waiting for a response from %s. The endpoint did not respond within %d seconds",
 				h.Cfg.Endpoint,
 				h.Cfg.TimeoutSecs)
 		}

@@ -163,7 +163,7 @@ func CaptureBoomiDetails(endpoint string, timestamp string, pid int) {
 
 	///// get atom connector details
 	atomConnectorURL := "https://api.boomi.com/api/rest/v1/" + accountID + "/Connector/query"
-	atomConnectorRecord, err := fetchAtomConnectorDetails(boomiUserName, boomiPassword, atomConnectorURL)
+	atomConnectorRecord, _ := fetchAtomConnectorDetails(boomiUserName, boomiPassword, atomConnectorURL)
 
 	//// download atom log
 	downloadAtomLog(boomiUserName, boomiPassword, accountID)
@@ -185,7 +185,7 @@ func fetchBoomiExecutionRecords(boomiUserName, boomiPassword, boomiURL string) (
 		resp, err := makeBoomiRequest(queryToken, boomiUserName, boomiPassword, boomiURL)
 
 		if err != nil {
-			return records, fmt.Errorf("Failed to make Boomi request: %w", err)
+			return records, fmt.Errorf("failed to make Boomi request: %w", err)
 		}
 		logger.Log("Response Status Code: %d", resp.StatusCode())
 
@@ -199,7 +199,7 @@ func fetchBoomiExecutionRecords(boomiUserName, boomiPassword, boomiURL string) (
 		var queryResult BoomiExecutionRecordQueryResult
 		jsonErr := json.Unmarshal(resp.Body(), &queryResult)
 		if jsonErr != nil {
-			return records, fmt.Errorf("Error unmarshalling Boomi response as JSON: %w", jsonErr)
+			return records, fmt.Errorf("error unmarshalling Boomi response as JSON: %w", jsonErr)
 		}
 
 		logger.Log("Length of Boomi queryResult.Result->%d", len(queryResult.Result))
@@ -238,11 +238,7 @@ func fetchAtomConnectorDetails(boomiUserName, boomiPassword, boomiURL string) ([
 	stopped := false
 	queryToken := ""
 	for {
-		resp, err := makeAtomConnectorsRequest(queryToken, boomiUserName, boomiPassword, boomiURL)
-
-		if err != nil {
-			//return fmt.Errorf("Failed to make Boomi request: %w", err)
-		}
+		resp, _ := makeAtomConnectorsRequest(queryToken, boomiUserName, boomiPassword, boomiURL)
 		logger.Log("Response Status Code: %d", resp.StatusCode())
 
 		// return if status code is not 200
@@ -255,7 +251,7 @@ func fetchAtomConnectorDetails(boomiUserName, boomiPassword, boomiURL string) ([
 		var queryResult AtomConnectorRecordQueryResult
 		jsonErr := json.Unmarshal(resp.Body(), &queryResult)
 		if jsonErr != nil {
-			return records, fmt.Errorf("Error unmarshalling Boomi response as JSON: %w", jsonErr)
+			return records, fmt.Errorf("error unmarshalling Boomi response as JSON: %w", jsonErr)
 		}
 		logger.Log("Length of Boomi queryResult.Result->%d", len(queryResult.Result))
 		if len(queryResult.Result) <= 0 {
@@ -338,7 +334,7 @@ type BoomiExecutionOutput struct {
 func (b *BoomiExecutionOutput) CreateFile() (*os.File, error) {
 	file, err := os.Create("boomi.out")
 	if err != nil {
-		return nil, fmt.Errorf("Error while creating Boomi output file: %w", err)
+		return nil, fmt.Errorf("error while creating Boomi output file: %w", err)
 	}
 
 	b.file = file
@@ -731,23 +727,6 @@ func getAtomQueryDetails(accountID string, username string, password string) Ato
 	return atomQueryResult
 }
 
-func getAtomConnectorDetails(accountID string, username string, password string) {
-	// Create a new Resty client
-	client := resty.New()
-	connectorURL := "https://api.boomi.com/api/rest/v1/" + accountID + "/Connector/query"
-	resp, err := client.R().
-		SetBasicAuth(username, password).
-		SetHeader(BoomiRequestAccept, BoomiRequestApplicationJSON).
-		Post(connectorURL)
-
-	if err != nil {
-		logger.Log("error while calling atom connector details rest endpoint %s", err.Error())
-	}
-
-	logger.Log("atom connector result status code %d", resp.StatusCode())
-
-}
-
 // use the following URL to download the container id
 // https://api.boomi.com/mdm/api/rest/v1/<account_id/clouds
 // this will return a similar response like this
@@ -793,7 +772,7 @@ func downloadAtomLog(username, password, boomiAcctId string) {
 	boomiURL := "https://api.boomi.com/api/rest/v1/" + boomiAcctId + "/AtomLog"
 	logger.Log("boomi atom log req string %s", result.String())
 
-	resp, err := client.R().
+	resp, _ := client.R().
 		SetBasicAuth(username, password).
 		SetHeader(BoomiRequestContentType, BoomiRequestApplicationJSON).
 		SetBody(result.String()).
@@ -881,86 +860,6 @@ func downloadAtomLog(username, password, boomiAcctId string) {
 		// }
 
 		fmt.Println("File downloaded successfully ")
-	}
-
-}
-
-// downloads the atom diskspace details from the Boomi server
-func getAtomDiskSize(accountID string, atomId string, username string, password string, records []ExecutionRecord) {
-
-	uniqueData := make(map[string]struct{})
-	// Create a slice to store unique values
-	var atomIDResult []string
-	// iterate through all the execution records and store the atom id
-	for _, executionRecord := range records {
-		atomID := executionRecord.AtomID
-		if _, exists := uniqueData[atomID]; !exists {
-			uniqueData[atomID] = struct{}{}             // Add to map
-			atomIDResult = append(atomIDResult, atomID) // Add to slice
-		}
-	}
-
-	logger.Log("atomIDResult->%s", atomIDResult)
-	// Create a new Resty client
-	client := resty.New()
-
-	/// iterate through iterate through the atomIDResult and download the atom diskspace information
-	var atomURL string
-	for _, atmID := range atomIDResult {
-		atomURL = "https://api.boomi.com/api/rest/v1/" + accountID + "/async/AtomDiskSpace/"
-		resp, err := client.R().
-			SetBasicAuth(username, password).
-			SetHeader(BoomiRequestAccept, BoomiRequestApplicationJSON).
-			SetBody(atmID).
-			Post(atomURL)
-
-		if err != nil {
-			logger.Log("error while calling atom asycn rest endpoint %s", err.Error())
-		}
-
-		logger.Log("atom disk space status code %d", resp.StatusCode())
-		// return if status code is not 200
-		if resp.StatusCode() != 202 {
-			logger.Log("Boomi API responded with non 202, aborting...")
-			return
-		}
-
-		// unmarshal the JSON response into the struct
-		var asyncToken AsyncToken
-		jsonErr := json.Unmarshal(resp.Body(), &asyncToken)
-		if jsonErr != nil {
-			return
-		}
-		logger.Log("atom async response->%s", jsonErr)
-
-		/// now call the atom disk space rest endpoint
-		if asyncToken.Token != "" {
-			atomURL = "https://api.boomi.com/api/rest/v1/" + accountID + "/async/AtomDiskSpace/response/" + asyncToken.Token
-
-			resp, err := client.R().
-				SetBasicAuth(username, password).
-				SetHeader(BoomiRequestAccept, BoomiRequestApplicationJSON).
-				Get(atomURL)
-
-			if err != nil {
-				logger.Log("error while applying template with value %s", err.Error())
-			}
-
-			// return if status code is not 200
-			if resp.StatusCode() != 200 {
-				logger.Log("Boomi API responded with non 200, aborting...")
-				return
-			}
-
-			var asyncAtomDiskspaceTokenResult AsyncAtomDiskspaceTokenResult
-			jsonErr := json.Unmarshal(resp.Body(), &asyncAtomDiskspaceTokenResult)
-			if jsonErr != nil {
-				logger.Log("error while unmarshalling response %s", jsonErr.Error())
-				return
-			}
-			logger.Log("asyncAtomDiskspaceTokenResult %v", asyncAtomDiskspaceTokenResult)
-		}
-
 	}
 
 }
