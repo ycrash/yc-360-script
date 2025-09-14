@@ -167,9 +167,9 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 	select {
 	case <-timer.C:
 		logger.Log("Timeout happened during the command execution (%s) [%s]", timerDuration.String(), c.String())
-		err = c.KillAndWait()
+		err = c.Kill()
 		if err != nil {
-			logger.Log("Error doing cmd.KillAndWait() invocation: [%s]", err.Error())
+			logger.Log("Error doing cmd.Kill() invocation: [%s]", err.Error())
 		}
 	case <-channelDone:
 		timer.Stop()
