@@ -3,10 +3,7 @@ package capture
 import (
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 
-	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
 )
 
@@ -59,18 +56,8 @@ func (p *LPM3) CaptureToFile() (*os.File, error) {
 
 // captureOutput handles the actual process status capture process.
 func (p *LPM3) captureOutput(f *os.File) error {
-	strSlice := make([]string, len(p.Pids))
-	i := 0
-	for pid := range p.Pids {
-		strSlice[i] = strconv.Itoa(pid)
-		i++
-	}
-
-	pidsStr := strings.Join(strSlice, ",")
-
-	lpCmd, _ := executils.LPM3.AddDynamicArg(pidsStr)
-	if err := executils.CommandCombinedOutputToWriter(f, lpCmd); err != nil {
-		return err
+	for pid, appName := range p.Pids {
+		fmt.Fprintf(f, "%d,%s\n", pid, appName)
 	}
 
 	return nil
