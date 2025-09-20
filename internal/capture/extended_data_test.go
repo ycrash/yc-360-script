@@ -2,6 +2,8 @@ package capture
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,35 +12,32 @@ import (
 	"time"
 )
 
-// pass a valid ed script and ed data folder
-// then upload file and returns result OK
-// NOTE: It is important to start the http server on port 8080
-// before running the test cases
-func TestExtendedData_Run_Success(t *testing.T) {
-	// Step 1: Create a temporary test directory
-	testDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(testDir)
+// setupMockServer creates a mock HTTP server for testing
+func setupMockServer(t *testing.T) *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
 
+// createTestScript creates a cross-platform test script
+func createTestScript(t *testing.T, outputFile string) (string, string) {
 	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(scriptDir)
+	t.Cleanup(func() { os.RemoveAll(scriptDir) })
 
-	// Step 2: Define paths
-	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := ""
-
-	// Step 3: Create a simple .bat script
 	var scriptContent string
+	var scriptFile string
+
 	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
+		scriptContent = fmt.Sprintf("@echo off\r\necho test-data > \"%s\"\r\n", outputFile)
 		scriptFile = filepath.Join(scriptDir, "test-script.bat")
 	} else {
-		scriptContent = "#!/bin/sh\necho test-data > " + outputFile + "\n"
+		scriptContent = fmt.Sprintf("#!/bin/bash\necho test-data > \"%s\"\n", outputFile)
 		scriptFile = filepath.Join(scriptDir, "test-script.sh")
 	}
 
@@ -47,27 +46,74 @@ func TestExtendedData_Run_Success(t *testing.T) {
 		t.Fatalf("Failed to write script: %v", err)
 	}
 
-	// Step 4: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 5: Absolute path
 	absScriptFile, err := filepath.Abs(scriptFile)
 	if err != nil {
 		t.Fatalf("Failed to get absolute path of script: %v", err)
 	}
 
-	// Step 6: Create the ExtendedData struct
+	return absScriptFile, scriptDir
+}
+
+// createLongRunningScript creates a script that runs for a specified duration
+func createLongRunningScript(t *testing.T, duration time.Duration) (string, string) {
+	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(scriptDir) })
+
+	var scriptContent string
+	var scriptFile string
+
+	if runtime.GOOS == "windows" {
+		scriptContent = fmt.Sprintf("@echo off\r\ntimeout /t %d /nobreak\r\n", int(duration.Seconds()))
+		scriptFile = filepath.Join(scriptDir, "test-script.bat")
+	} else {
+		scriptContent = fmt.Sprintf("#!/bin/bash\nsleep %d\n", int(duration.Seconds()))
+		scriptFile = filepath.Join(scriptDir, "test-script.sh")
+	}
+
+	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
+	if err != nil {
+		t.Fatalf("Failed to write script: %v", err)
+	}
+
+	absScriptFile, err := filepath.Abs(scriptFile)
+	if err != nil {
+		t.Fatalf("Failed to get absolute path of script: %v", err)
+	}
+
+	return absScriptFile, scriptDir
+}
+
+// pass a valid ed script and ed data folder
+// then upload file and returns result OK
+func TestExtendedData_Run_Success(t *testing.T) {
+	// Step 1: Create a temporary test directory
+	testDir, err := os.MkdirTemp("", "extended-batch-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Step 2: Define paths
+	outputFile := filepath.Join(testDir, "output.log")
+
+	// Step 3: Create test script
+	absScriptFile, _ := createTestScript(t, outputFile)
+
+	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
-	// set up http endpoint
-	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
 
-	// Step 7: Run the script
+	// set up mock http server
+	server := setupMockServer(t)
+	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+
+	// Step 5: Run the script
 	result, err := ed.Run()
 	if err != nil {
 		logPath := filepath.Join(testDir, "script_execution.log")
@@ -80,11 +126,10 @@ func TestExtendedData_Run_Success(t *testing.T) {
 		t.Fatalf("Run not OK: %s", result.Msg)
 	}
 
-	// Step 8: Check if output file was created
+	// Step 6: Check if output file was created
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Errorf("Expected output file not created: %v", err)
 	}
-
 }
 
 // sets a timeout and the test case checks whether the
@@ -97,60 +142,26 @@ func TestExtendedData_Run_ScriptTimeout(t *testing.T) {
 	}
 	defer os.RemoveAll(testDir)
 
-	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(testDir)
+	// Step 2: Create a long-running script (5 seconds)
+	absScriptFile, _ := createLongRunningScript(t, 5*time.Second)
 
-	// Step 2: Define paths
-	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
-
-	// Step 3: Create a simple .bat script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh \r\necho test-data > \"" + outputFile + "\"\r\n"
-	}
-
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 4: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 5: Absolute path
-	absScriptFile, err := filepath.Abs(scriptFile)
-	if err != nil {
-		t.Fatalf("Failed to get absolute path of script: %v", err)
-	}
-
-	// Step 6: Create the ExtendedData struct
+	// Step 3: Create the ExtendedData struct with very short timeout
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    1 * time.Millisecond,
+		Timeout:    100 * time.Millisecond, // Very short timeout
 	}
-	// set up http endpoint
 
-	// Step 7: Run the script
+	// Step 4: Run the script and expect timeout
 	_, err = ed.Run()
-	if err == nil || !strings.Contains(err.Error(), "custom script execution timed out") {
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("expected timeout error, got: %v", err)
 	}
-
 }
 
 // the following test checks whether already existing file is not
 // deleted after the extended data is run
 func TestExtendedData_Run_FolderDeleting(t *testing.T) {
-
 	// Step 1: Create a temporary test directory
 	testDir, err := os.MkdirTemp("", "extended-batch-test-*")
 	if err != nil {
@@ -165,55 +176,27 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 		t.Fatalf("Failed to create hello.txt: %v", err)
 	}
 
-	// Step 2: Create another temporary directory for the script
-	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(scriptDir)
-
-	// Step 3: Define paths
+	// Step 2: Define paths
 	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
-	// Step 4: Create a simple .bat or shell script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh\necho test-data > \"" + outputFile + "\"\n"
-	}
+	// Step 3: Create test script
+	absScriptFile, _ := createTestScript(t, outputFile)
 
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 5: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 6: Absolute path
-	absScriptFile, err := filepath.Abs(scriptFile)
-	if err != nil {
-		t.Fatalf("Failed to get absolute path of script: %v", err)
-	}
-
-	// Step 7: Create the ExtendedData struct
+	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
 
-	// set up http endpoint
-	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
+	// set up mock http server
+	server := setupMockServer(t)
+	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
 
-	// // Step 8: Run the script
+	// Step 5: Run the script
 	ed.Run()
 
-	// Step 9: Assert hello.txt still exists
+	// Step 6: Assert hello.txt still exists
 	if _, err := os.Stat(helloFilePath); os.IsNotExist(err) {
 		t.Errorf("hello.txt was expected to exist, but it does not")
 	}
@@ -228,52 +211,24 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 	}
 	defer os.RemoveAll(testDir)
 
-	// Step 2: Create another temporary directory for the script
-	scriptDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(scriptDir)
-
-	// Step 3: Define paths
+	// Step 2: Define paths
 	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
-	// Step 4: Create a simple .bat or shell script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh\necho test-data > \"" + outputFile + "\"\n"
-	}
+	// Step 3: Create test script
+	absScriptFile, _ := createTestScript(t, outputFile)
 
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 5: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 6: Absolute path
-	absScriptFile, err := filepath.Abs(scriptFile)
-	if err != nil {
-		t.Fatalf("Failed to get absolute path of script: %v", err)
-	}
-
-	// Step 7: Create the ExtendedData struct
+	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
 
-	// set up http endpoint
-	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
+	// set up mock http server
+	server := setupMockServer(t)
+	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
 
-	// // Step 8: Run the script
+	// Step 5: Run the script
 	result, _ := ed.Run()
 	if !result.Ok {
 		t.Fatalf("Run not OK: %s", result.Msg)
@@ -282,69 +237,28 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 
 // pass empty data folder and valid ed script
 func TestExtendedData_Run_EmptyDataFolder(t *testing.T) {
-	// Step 1: Create a temporary test directory
-	// testDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	// if err != nil {
-	// 	t.Fatalf("Failed to create temp dir: %v", err)
-	// }
-	// defer os.RemoveAll(testDir)
-
 	testDir := "" // given empty folder
 
-	// Step 2: Create another temporary directory for the script
-	scriptDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(scriptDir)
+	// Step 1: Create test script
+	tempOutputFile := filepath.Join(os.TempDir(), "output.log")
+	absScriptFile, _ := createTestScript(t, tempOutputFile)
 
-	// Step 3: Define paths
-	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
-
-	// Step 4: Create a simple .bat or shell script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh\necho test-data > \"" + outputFile + "\"\n"
-	}
-
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 5: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 6: Absolute path
-	absScriptFile, err := filepath.Abs(scriptFile)
-	if err != nil {
-		t.Fatalf("Failed to get absolute path of script: %v", err)
-	}
-
-	// Step 7: Create the ExtendedData struct
+	// Step 2: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
 
-	// set up http endpoint
-	//ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
-
-	// // Step 8: Run the script
+	// Step 3: Run the script
 	result, err := ed.Run()
 	fmt.Printf("result msg->%s", result.Msg)
 
 	if result.Ok {
-		t.Fatalf("Run not OK: %s", result.Msg)
+		t.Fatalf("Run should not be OK: %s", result.Msg)
 	}
 	if !strings.Contains(result.Msg, "ExtendedData: failed to create data folder") {
-		t.Errorf("extended data folder creation, got: %v", err)
+		t.Errorf("expected data folder creation error, got: %v", err)
 	}
 }
 
@@ -357,119 +271,46 @@ func TestExtendedData_Run_EmptyScript(t *testing.T) {
 	}
 	defer os.RemoveAll(testDir)
 
-	// Step 2: Create another temporary directory for the script
-	// scriptDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	// if err != nil {
-	// 	t.Fatalf("Failed to create temp dir: %v", err)
-	// }
-	// defer os.RemoveAll(scriptDir)
-
-	scriptDir := ""
-
-	// Step 3: Define paths
-	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
-
-	// Step 4: Create a simple .bat or shell script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh\necho test-data > \"" + outputFile + "\"\n"
-	}
-
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 5: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 6: Absolute path
-	// absScriptFile, err := filepath.Abs(scriptFile)
-	// if err != nil {
-	// 	t.Fatalf("Failed to get absolute path of script: %v", err)
-	// }
-
-	// Step 7: Create the ExtendedData struct
+	// Step 2: Create the ExtendedData struct with empty script
 	ed := &ExtendedData{
 		Script:     "",
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
 
-	// set up http endpoint
-	//	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
-
-	// // Step 8: Run the script
+	// Step 3: Run the script
 	result, err := ed.Run()
 	if result.Ok {
-		t.Fatalf("Run  OK: %s", result.Msg)
+		t.Fatalf("Run should not be OK: %s", result.Msg)
 	}
 	if !strings.Contains(result.Msg, "ExtendedData: error while executing custom script:") {
-		t.Errorf("extended data custom script, got: %v", err)
+		t.Errorf("expected custom script error, got: %v", err)
 	}
 }
 
 // given data folder as relative path
 // should generate the output file
 func TestExtendedData_Run_RelativePath(t *testing.T) {
-	// Step 1: Create a temporary test directory
-	// testDir, err := os.MkdirTemp("", "extended-batch-test-*")
-	// if err != nil {
-	// 	t.Fatalf("Failed to create temp dir: %v", err)
-	// }
-	// defer os.RemoveAll(testDir)
+	testDir := "." // given relative path
 
-	testDir := "." //given relative path
-
-	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(testDir)
-
-	// Step 2: Define paths
+	// Step 1: Define paths
 	outputFile := filepath.Join(testDir, "output.log")
-	scriptFile := filepath.Join(scriptDir, "test-script.bat")
 
-	// Step 3: Create a simple .bat script
-	var scriptContent string
-	if runtime.GOOS == "windows" {
-		scriptContent = "@echo off\r\necho test-data > \"" + outputFile + "\"\r\n"
-	} else {
-		scriptContent = "#!/bin/sh \r\necho test-data > \"" + outputFile + "\"\r\n"
-	}
+	// Step 2: Create test script
+	absScriptFile, _ := createTestScript(t, outputFile)
 
-	err = os.WriteFile(scriptFile, []byte(scriptContent), 0777)
-	if err != nil {
-		t.Fatalf("Failed to write script: %v", err)
-	}
-
-	// Step 4: Confirm script file exists
-	if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-		t.Fatalf("Script file does not exist: %s", scriptFile)
-	}
-
-	// Step 5: Absolute path
-	absScriptFile, err := filepath.Abs(scriptFile)
-	if err != nil {
-		t.Fatalf("Failed to get absolute path of script: %v", err)
-	}
-
-	// Step 6: Create the ExtendedData struct
+	// Step 3: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
 		Timeout:    3 * time.Second,
 	}
-	// set up http endpoint
-	ed.SetEndpoint("http://localhost:8080/ycrash-receiver?de=localhost")
 
-	// Step 7: Run the script
+	// set up mock http server
+	server := setupMockServer(t)
+	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+
+	// Step 4: Run the script
 	result, err := ed.Run()
 	if err != nil {
 		logPath := filepath.Join(testDir, "script_execution.log")
@@ -482,8 +323,20 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 		t.Fatalf("Run not OK: %s", result.Msg)
 	}
 
-	// Step 8: Check if output file was created
+	// Step 5: Check if output file was created
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Errorf("Expected output file not created: %v", err)
+	}
+
+	// Clean up the output file created in current directory
+	os.Remove(outputFile)
+	os.Remove(filepath.Join(testDir, "script_execution.log"))
+
+	// Clean up any ed-* files created in current directory
+	entries, _ := os.ReadDir(".")
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "ed-") {
+			os.Remove(entry.Name())
+		}
 	}
 }
