@@ -63,18 +63,6 @@ func (t *JStack) Run() (result Result, err error) {
 			outputFileName := fmt.Sprintf("javacore.%d.out", n)
 			var jstackFile *os.File = nil
 
-			// Thread dump: Attempt 1: jstack
-			if jstackFile == nil {
-				logger.Log("Trying to capture thread dump using jstack ...")
-				jstackFile, err = executils.CommandCombinedOutputToFile(
-					outputFileName,
-					executils.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
-					executils.SudoHooker{PID: t.pid},
-				)
-				if err != nil {
-					logger.Log("Failed to run jstack with err %v", err)
-				}
-			}
 			//  Thread dump: Attempt 2a: jattach via self execution with -tdCaptureMode
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jattach...")
@@ -99,7 +87,20 @@ func (t *JStack) Run() (result Result, err error) {
 					logger.Log("Failed to Copy2TempPath with err %v", err)
 				}
 			}
-
+			
+			// Thread dump: Attempt 1: jstack
+			if jstackFile == nil {
+				logger.Log("Trying to capture thread dump using jstack ...")
+				jstackFile, err = executils.CommandCombinedOutputToFile(
+					outputFileName,
+					executils.Command{path.Join(t.javaHome, "bin/jstack"), "-l", strconv.Itoa(t.pid)},
+					executils.SudoHooker{PID: t.pid},
+				)
+				if err != nil {
+					logger.Log("Failed to run jstack with err %v", err)
+				}
+			}
+			
 			// Thread dump: Attempt 5: jstack -F
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack -F ...")
