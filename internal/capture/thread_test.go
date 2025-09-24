@@ -7,6 +7,8 @@ import (
 )
 
 func TestThread(t *testing.T) {
+	skipIfNoJava(t)
+
 	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)

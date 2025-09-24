@@ -8,6 +8,8 @@ import (
 )
 
 func TestJStack(t *testing.T) {
+	skipIfNoJava(t)
+
 	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +26,7 @@ func TestJStack(t *testing.T) {
 //
 //	Cannot connect to core dump or remote debug server. Use jhsdb jstack instead
 func TestJStackF_Run(t *testing.T) {
+	skipIfNoJava(t)
 	t.Skip(" -F option used. Cannot connect to core dump or remote debug server. Use jhsdb jstack instead")
 	noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 	if err != nil {

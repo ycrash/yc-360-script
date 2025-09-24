@@ -51,6 +51,8 @@ func TestHeapDump(t *testing.T) {
 
 func testHeapDump(hdPath string, dump bool) func(t *testing.T) {
 	return func(t *testing.T) {
+		skipIfNoJava(t)
+
 		noGC, err := executils.CommandStartInBackground(executils.Command{"java", "MyClass"})
 		if err != nil {
 			t.Fatal(err)
@@ -71,6 +73,8 @@ func testHeapDump(hdPath string, dump bool) func(t *testing.T) {
 }
 
 func testHeapDumpWithInvalidPid(t *testing.T) {
+	skipIfNoJava(t)
+
 	var err error
 	capHeapDump := NewHeapDump(javaHome, 65535, "", true)
 	capHeapDump.SetEndpoint(heapEndpoint)
