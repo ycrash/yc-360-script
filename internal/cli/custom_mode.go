@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
+	"yc-agent/internal/capture"
 	"yc-agent/internal/capture/procps"
 	"yc-agent/internal/capture/ycattach"
 	"yc-agent/internal/config"
@@ -29,6 +32,10 @@ func runRawCaptureModeIfConditionSatisfied() {
 // runCaptureModeIfConditionSatisfied runs capture mode depending on the config.
 // Capture mode can be run after parsing the config flags.
 func runCaptureModeIfConditionSatisfied() {
+	if config.GlobalConfig.TestCIMMode {
+		runTestCIMMode()
+		os.Exit(0)
+	}
 	if config.GlobalConfig.GCCaptureMode {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
 		if err != nil {
@@ -68,5 +75,38 @@ func runCaptureModeIfConditionSatisfied() {
 		}
 		ret := ycattach.Capture(pid, "jcmd", config.GlobalConfig.JCmdCaptureMode)
 		os.Exit(ret)
+	}
+}
+
+// runTestCIMMode tests the GetCIMProcesses function and prints the results
+func runTestCIMMode() {
+	fmt.Println("Testing GetCIMProcesses function...")
+	fmt.Printf("Process tokens: %v\n", config.GlobalConfig.ProcessTokens)
+	fmt.Printf("Exclude tokens: %v\n", config.GlobalConfig.ExcludeProcessTokens)
+	fmt.Println()
+
+	processes, err := capture.GetCIMProcesses(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+	if err != nil {
+		fmt.Printf("Error calling GetCIMProcesses: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Found %d matching processes:\n", len(processes))
+	if len(processes) == 0 {
+		fmt.Println("No processes found matching the criteria.")
+		return
+	}
+
+	// Print results in JSON format for better readability
+	jsonData, err := json.MarshalIndent(processes, "", "  ")
+	if err != nil {
+		fmt.Printf("Error marshaling to JSON: %v\n", err)
+		// Fallback to simple format
+		for i, process := range processes {
+			fmt.Printf("%d. ProcessId: %d, ProcessName: %s, CommandLine: %s\n",
+				i+1, process.ProcessId, process.ProcessName, process.CommandLine)
+		}
+	} else {
+		fmt.Println(string(jsonData))
 	}
 }

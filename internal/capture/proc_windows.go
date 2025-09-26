@@ -108,38 +108,8 @@ type CIMProcess struct {
 
 type CIMProcessList []CIMProcess
 
-func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
-	output, err := executils.CommandCombinedOutput(executils.PSGetProcessIds)
-	if err != nil {
-		return
-	}
-
-	cimProcessList := CIMProcessList{}
-	err = json.Unmarshal(output, &cimProcessList)
-	if err != nil {
-		return
-	}
-
-	pids = map[int]string{}
-
-	logger.Debug().Msgf("m3_windows GetProcessIds tokens: %v", tokens)
-	logger.Debug().Msgf("m3_windows GetProcessIds excludes: %v", excludes)
-	logger.Debug().Msgf("m3_windows GetProcessIds cimProcessList: %v", cimProcessList)
-
-	// 1. Preprocess excludes - identify excluded processes
-	excludedProcesses := make(map[int]bool)
-	// exclude self Pid in case some of the cmdline args matches
-	excludedProcesses[os.Getpid()] = true
-	for _, cimProcess := range cimProcessList {
-		for _, exclude := range excludes {
-			if strings.Contains(cimProcess.CommandLine, string(exclude)) {
-				excludedProcesses[cimProcess.ProcessId] = true
-				break
-			}
-		}
-	}
-
-	// 2. Preprocess tokens - parse once, before entering loop for performance consideration
+// parseTokens parses process tokens and extracts app names
+func parseTokens(tokens config.ProcessTokens) []ParsedToken {
 	parsedTokens := make([]ParsedToken, 0, len(tokens))
 	for _, t := range tokens {
 		tokenStr := string(t)
@@ -164,8 +134,51 @@ func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (
 			appName:     appName,
 		})
 	}
+	return parsedTokens
+}
 
-	// 3. Process matching
+// ProcessWithAppName represents a CIM process with its associated app name
+type ProcessWithAppName struct {
+	CIMProcess
+	AppName string
+}
+
+// getFilteredCIMProcesses contains the common logic for filtering processes based on tokens and excludes
+// Returns both the filtered processes and their associated app names
+func getFilteredCIMProcesses(tokens config.ProcessTokens, excludes config.ProcessTokens) ([]ProcessWithAppName, error) {
+	output, err := executils.CommandCombinedOutput(executils.PSGetProcessIds)
+	if err != nil {
+		return nil, err
+	}
+
+	cimProcessList := CIMProcessList{}
+	err = json.Unmarshal(output, &cimProcessList)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Debug().Msgf("m3_windows getFilteredCIMProcesses tokens: %v", tokens)
+	logger.Debug().Msgf("m3_windows getFilteredCIMProcesses excludes: %v", excludes)
+	logger.Debug().Msgf("m3_windows getFilteredCIMProcesses cimProcessList: %v", cimProcessList)
+
+	// 1. Preprocess excludes - identify excluded processes
+	excludedProcesses := make(map[int]bool)
+	// exclude self Pid in case some of the cmdline args matches
+	excludedProcesses[os.Getpid()] = true
+	for _, cimProcess := range cimProcessList {
+		for _, exclude := range excludes {
+			if strings.Contains(cimProcess.CommandLine, string(exclude)) {
+				excludedProcesses[cimProcess.ProcessId] = true
+				break
+			}
+		}
+	}
+
+	// 2. Parse tokens once for performance
+	parsedTokens := parseTokens(tokens)
+
+	// 3. Process matching - collect matched processes with their app names
+	matchedProcesses := make(map[int]string) // ProcessId -> AppName
 	for _, token := range parsedTokens {
 		for _, cimProcess := range cimProcessList {
 			// Skip excluded processes
@@ -184,13 +197,57 @@ func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (
 			}
 
 			if matched {
-				if _, exists := pids[cimProcess.ProcessId]; !exists {
-					pids[cimProcess.ProcessId] = token.appName
+				if _, exists := matchedProcesses[cimProcess.ProcessId]; !exists {
+					matchedProcesses[cimProcess.ProcessId] = token.appName
 				}
 			}
 		}
 	}
 
+	// 4. Build result list with app names
+	var result []ProcessWithAppName
+	for _, cimProcess := range cimProcessList {
+		if appName, matched := matchedProcesses[cimProcess.ProcessId]; matched {
+			result = append(result, ProcessWithAppName{
+				CIMProcess: cimProcess,
+				AppName:    appName,
+			})
+		}
+	}
+
+	logger.Debug().Msgf("m3_windows getFilteredCIMProcesses result: %v", result)
+	return result, nil
+}
+
+// GetCIMProcesses returns filtered CIM processes based on tokens and excludes
+func GetCIMProcesses(tokens config.ProcessTokens, excludes config.ProcessTokens) ([]CIMProcess, error) {
+	processesWithAppNames, err := getFilteredCIMProcesses(tokens, excludes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract just the CIMProcess part
+	result := make([]CIMProcess, len(processesWithAppNames))
+	for i, processWithAppName := range processesWithAppNames {
+		result[i] = processWithAppName.CIMProcess
+	}
+
+	return result, nil
+}
+
+func GetProcessIds(tokens config.ProcessTokens, excludes config.ProcessTokens) (pids map[int]string, err error) {
+	processesWithAppNames, err := getFilteredCIMProcesses(tokens, excludes)
+	if err != nil {
+		return nil, err
+	}
+
+	pids = make(map[int]string)
+
+	// Directly use the app names from the filtered results - no need to re-match!
+	for _, processWithAppName := range processesWithAppNames {
+		pids[processWithAppName.ProcessId] = processWithAppName.AppName
+	}
+
 	logger.Debug().Msgf("m3_windows GetProcessIds pids: %v", pids)
-	return
+	return pids, nil
 }
