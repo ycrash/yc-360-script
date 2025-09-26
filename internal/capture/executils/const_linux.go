@@ -19,7 +19,7 @@ var (
 		"-n", "1",
 		"-p"}
 	Top4M3              = Command{WaitCommand, Executable(), "-topMode", "-bc", "-n", "1"}
-	VMState             = Command{WaitCommand, "vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
+	VMState             = Command{WaitCommand, "set -eo pipefail; vmstat", DynamicArg, DynamicArg, `| awk '{cmd="(date +'%H:%M:%S')"; cmd | getline now; print now $0; fflush(); close(cmd)}'`}
 	DMesg               = Command{"/bin/sh", "-c", "dmesg -T --level=emerg,alert,crit,err,warn | tail -20"}
 	DMesg2              = Command{"/bin/sh", "-c", "dmesg --level=emerg,alert,crit,err,warn | tail -20 | awk '{gsub(/\\\\[[^]]*\\\\]/,\"\"); print strftime(\"[%%a %%b %%d %%H:%%M:%%S %%Y]\", systime()-$(NF-1)), $0}'"}
 	GC                  = Command{"ps", "-f", "-p", DynamicArg}
