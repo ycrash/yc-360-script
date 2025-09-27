@@ -2,8 +2,6 @@ package capture
 
 import (
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,16 +9,6 @@ import (
 	"testing"
 	"time"
 )
-
-// setupMockServer creates a mock HTTP server for testing
-func setupMockServer(t *testing.T) *httptest.Server {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}))
-	t.Cleanup(server.Close)
-	return server
-}
 
 // createTestScript creates a cross-platform test script
 func createTestScript(t *testing.T, outputFile string) (string, string) {
