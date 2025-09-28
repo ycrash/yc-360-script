@@ -8,6 +8,8 @@ import (
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
+
+	psv3 "github.com/shirou/gopsutil/v3/process"
 )
 
 const lsM3OutputPath = "lp.out"
@@ -85,7 +87,27 @@ func (p *LPM3) captureOutput(f *os.File) error {
 		_, err = f.Write(bytes)
 		return err
 	} else {
-		return nil
+		logicalProcesses := []LogicalProcess{}
+
+		for pid := range p.Pids {
+			process, err := psv3.NewProcess(int32(pid))
+
+			if err != nil {
+				continue
+			}
+
+			psName, _ := process.Name()
+			cmdLine, _ := process.Cmdline()
+			logicalProcesses = append(logicalProcesses, LogicalProcess{ProcessName: psName, ProcessId: pid, CommandLine: cmdLine})
+		}
+
+		bytes, err := json.Marshal(logicalProcesses)
+		if err != nil {
+			return err
+		}
+
+		_, err = f.Write(bytes)
+		return err
 	}
 }
 
