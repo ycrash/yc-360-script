@@ -1,9 +1,12 @@
 package capture
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -13,6 +16,12 @@ const lsM3OutputPath = "lp.out"
 type LPM3 struct {
 	Capture
 	Pids map[int]string
+}
+
+type LogicalProcess struct {
+	ProcessName string
+	CommandLine string
+	ProcessId   int
 }
 
 // NewLPM3 creates a new LPM3 capture instance.
@@ -56,11 +65,28 @@ func (p *LPM3) CaptureToFile() (*os.File, error) {
 
 // captureOutput handles the actual process status capture process.
 func (p *LPM3) captureOutput(f *os.File) error {
-	for pid, appName := range p.Pids {
-		fmt.Fprintf(f, "%d,%s\n", pid, appName)
-	}
+	if runtime.GOOS == "windows" {
+		processes, err := GetCIMProcesses(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+		if err != nil {
+			return err
+		}
 
-	return nil
+		logicalProcesses := []LogicalProcess{}
+
+		for _, process := range processes {
+			logicalProcesses = append(logicalProcesses, LogicalProcess{ProcessName: process.ProcessName, ProcessId: process.ProcessId, CommandLine: process.CommandLine})
+		}
+
+		bytes, err := json.Marshal(logicalProcesses)
+		if err != nil {
+			return err
+		}
+
+		_, err = f.Write(bytes)
+		return err
+	} else {
+		return nil
+	}
 }
 
 // UploadCapturedFile uploads the captured file to the configured endpoint.
