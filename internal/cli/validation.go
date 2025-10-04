@@ -4,7 +4,9 @@ import "C"
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -24,12 +26,49 @@ func validate() error {
 		}
 	}
 
-	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
+	// .NET runtime validation
+	if config.GlobalConfig.AppRuntime == "dotnet" {
+		// Platform check - .NET capture only supported on Windows
+		if runtime.GOOS != "windows" {
+			logger.Log(".NET capture is only supported on Windows. Current OS: %s", runtime.GOOS)
+			logger.Log("Please use -appRuntime=java for non-Windows platforms")
+			return ErrInvalidArgumentCantContinue
+		}
+
+		// Tool path resolution and validation
+		toolPath := config.GlobalConfig.DotnetToolPath
+		if toolPath == "" {
+			// Auto-discover: use relative path relying on OS PATH resolution
+			if runtime.GOOS == "windows" {
+				toolPath = "yc-360-tool-dotnet.exe"
+			} else {
+				toolPath = "yc-360-tool-dotnet"
+			}
+		}
+
+		// Check if tool exists (using exec.LookPath for PATH resolution)
+		resolvedPath, err := exec.LookPath(toolPath)
+		if err != nil {
+			logger.Log("yc-360-tool-dotnet executable not found: %s", toolPath)
+			logger.Log("Please ensure yc-360-tool-dotnet.exe is in the same directory as yc.exe or in your system PATH")
+			logger.Log("Alternatively, specify the path using -dotnetToolPath argument")
+			return ErrInvalidArgumentCantContinue
+		}
+
+		// Store the resolved path back to config for use in capture modules
+		config.GlobalConfig.DotnetToolPath = resolvedPath
+		logger.Log("Using .NET diagnostic tool at: %s", resolvedPath)
 	}
-	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
-		return ErrInvalidArgumentCantContinue
+
+	// Java-specific validation - skip if using .NET runtime
+	if config.GlobalConfig.AppRuntime != "dotnet" {
+		if len(config.GlobalConfig.JavaHomePath) < 1 {
+			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
+		}
+		if len(config.GlobalConfig.JavaHomePath) < 1 {
+			logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
+			return ErrInvalidArgumentCantContinue
+		}
 	}
 
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
