@@ -318,8 +318,20 @@ Ignored errors: %v
 			GCPath:   gcPath,
 		}))
 
-		// Capture thread dumps (will be assigned later)
-		// Capture hdsub log (will be assigned later)
+		// Capture thread dumps
+		capThreadDump := &capture.ThreadDump{
+			Pid:               pid,
+			TdPath:            tdPath,
+			JavaHome:          config.GlobalConfig.JavaHomePath,
+			TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
+		}
+		threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+
+		// Capture hdsub log
+		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.HDSub{
+			Pid:      pid,
+			JavaHome: config.GlobalConfig.JavaHomePath,
+		}))
 	}
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
@@ -384,19 +396,6 @@ Ignored errors: %v
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
 	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
-
-	// ------------------------------------------------------------------------------
-	//   				Capture thread dumps (Java only)
-	// ------------------------------------------------------------------------------
-	if config.GlobalConfig.AppRuntime != "dotnet" {
-		capThreadDump := &capture.ThreadDump{
-			Pid:               pid,
-			TdPath:            tdPath,
-			JavaHome:          config.GlobalConfig.JavaHomePath,
-			TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
-		}
-		threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
-	}
 
 	useGlobalConfigAppLogs := false
 	// ------------------------------------------------------------------------------
@@ -489,16 +488,6 @@ Ignored errors: %v
 		}
 
 		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, LineLimit: config.GlobalConfig.AppLogLineCount}))
-	}
-
-	// ------------------------------------------------------------------------------
-	//   				Capture hdsub log (Java only)
-	// ------------------------------------------------------------------------------
-	if config.GlobalConfig.AppRuntime != "dotnet" {
-		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.HDSub{
-			Pid:      pid,
-			JavaHome: config.GlobalConfig.JavaHomePath,
-		}))
 	}
 
 	// ------------------------------------------------------------------------------
