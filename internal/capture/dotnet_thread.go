@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-
-	"yc-agent/internal/logger"
 )
 
-const dotnetThreadOutputPath = "dotnet_thread.out"
+const dotnetThreadOutputPath = "dotnet_thread_%d.json"
 
 // DotnetThread captures .NET thread dump.
 type DotnetThread struct {
@@ -19,13 +17,6 @@ type DotnetThread struct {
 // Run implements the capture by creating the output file, capturing thread dump,
 // and then uploading the captured file.
 func (d *DotnetThread) Run() (Result, error) {
-	logger.Log("Starting .NET thread dump capture for PID %d", d.Pid)
-
-	// Check that the process exists
-	if !IsProcessExists(d.Pid) {
-		return Result{}, fmt.Errorf("process %d does not exist", d.Pid)
-	}
-
 	capturedFile, err := d.CaptureToFile()
 	if err != nil {
 		return Result{Msg: err.Error(), Ok: false}, err
@@ -44,12 +35,11 @@ func (d *DotnetThread) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, dotnetThreadOutputPath)
+	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetThreadOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET thread dump: %w", err)
 	}
 
-	logger.Log(".NET thread dump capture completed for PID %d", d.Pid)
 	return file, nil
 }
 

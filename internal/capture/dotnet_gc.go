@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-
-	"yc-agent/internal/logger"
 )
 
-const dotnetGCOutputPath = "dotnet_gc.out"
+const dotnetGCOutputPath = "dotnet_gc_%d.json"
 
 // DotnetGC captures .NET garbage collection events.
 type DotnetGC struct {
@@ -20,13 +18,6 @@ type DotnetGC struct {
 // Run implements the capture by creating the output file, capturing GC events,
 // and then uploading the captured file.
 func (d *DotnetGC) Run() (Result, error) {
-	logger.Log("Starting .NET GC capture for PID %d (duration: %d seconds)", d.Pid, d.Duration)
-
-	// Check that the process exists
-	if !IsProcessExists(d.Pid) {
-		return Result{}, fmt.Errorf("process %d does not exist", d.Pid)
-	}
-
 	capturedFile, err := d.CaptureToFile()
 	if err != nil {
 		return Result{Msg: err.Error(), Ok: false}, err
@@ -46,12 +37,11 @@ func (d *DotnetGC) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, dotnetGCOutputPath)
+	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetGCOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET GC events: %w", err)
 	}
 
-	logger.Log(".NET GC capture completed for PID %d", d.Pid)
 	return file, nil
 }
 

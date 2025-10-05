@@ -12,7 +12,6 @@ import (
 // executeDotnetTool runs the yc-360-tool-dotnet executable with the given arguments
 // and captures the output to a file. Returns the file handle and any error.
 func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
-	// Get the resolved tool path from configuration
 	toolPath := config.GlobalConfig.DotnetToolPath
 	if toolPath == "" {
 		return nil, fmt.Errorf("dotnet tool path not configured")

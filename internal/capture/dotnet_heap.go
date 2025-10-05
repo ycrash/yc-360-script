@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-
-	"yc-agent/internal/logger"
 )
 
-const dotnetHeapOutputPath = "dotnet_heap.out"
+const dotnetHeapOutputPath = "dotnet_heap_%d.json"
 
 // DotnetHeap captures .NET heap statistics.
 type DotnetHeap struct {
@@ -19,13 +17,6 @@ type DotnetHeap struct {
 // Run implements the capture by creating the output file, capturing heap statistics,
 // and then uploading the captured file.
 func (d *DotnetHeap) Run() (Result, error) {
-	logger.Log("Starting .NET heap statistics capture for PID %d", d.Pid)
-
-	// Check that the process exists
-	if !IsProcessExists(d.Pid) {
-		return Result{}, fmt.Errorf("process %d does not exist", d.Pid)
-	}
-
 	capturedFile, err := d.CaptureToFile()
 	if err != nil {
 		return Result{Msg: err.Error(), Ok: false}, err
@@ -44,12 +35,11 @@ func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, dotnetHeapOutputPath)
+	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetHeapOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET heap statistics: %w", err)
 	}
 
-	logger.Log(".NET heap statistics capture completed for PID %d", d.Pid)
 	return file, nil
 }
 

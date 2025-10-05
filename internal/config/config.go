@@ -100,8 +100,9 @@ type Options struct {
 	// Access log
 	AccessLogs       AccessLogs       `yaml:"accessLogs" usage:"Access log file paths"`
 	AccessLogFormats AccessLogFormats `yaml:"accessLogFormats" usage:"Access log formats corresponding to access log files"`
+
 	// Dotnet runtime support
-	AppRuntime     string `yaml:"appRuntime" usage:"Application runtime: java (default) or dotnet"`
+	AppRuntime     string `yaml:"appRuntime" usage:"Target application runtime: java (default) or dotnet"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
 }
 
