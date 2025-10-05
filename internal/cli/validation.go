@@ -28,40 +28,31 @@ func validate() error {
 
 	// .NET runtime validation
 	if config.GlobalConfig.AppRuntime == "dotnet" {
-		// Platform check - .NET capture only supported on Windows
 		if runtime.GOOS != "windows" {
-			logger.Log(".NET capture is only supported on Windows. Current OS: %s", runtime.GOOS)
-			logger.Log("Please use -appRuntime=java for non-Windows platforms")
+			logger.Warn().Str("os", runtime.GOOS).Msg(".NET capture is only supported on Windows")
 			return ErrInvalidArgumentCantContinue
 		}
 
 		// Tool path resolution and validation
 		toolPath := config.GlobalConfig.DotnetToolPath
 		if toolPath == "" {
-			// Auto-discover: use relative path relying on OS PATH resolution
 			if runtime.GOOS == "windows" {
 				toolPath = "yc-360-tool-dotnet.exe"
 			} else {
 				toolPath = "yc-360-tool-dotnet"
 			}
+			config.GlobalConfig.DotnetToolPath = toolPath
 		}
 
 		// Check if tool exists (using exec.LookPath for PATH resolution)
-		resolvedPath, err := exec.LookPath(toolPath)
+		_, err := exec.LookPath(toolPath)
 		if err != nil {
-			logger.Log("yc-360-tool-dotnet executable not found: %s", toolPath)
-			logger.Log("Please ensure yc-360-tool-dotnet.exe is in the same directory as yc.exe or in your system PATH")
-			logger.Log("Alternatively, specify the path using -dotnetToolPath argument")
+			logger.Warn().Str("path", toolPath).Msgf("%s executable not found", toolPath)
+			logger.Warn().Msgf("Please ensure %s is in the same directory as yc-360-script or in your system PATH", toolPath)
+			logger.Warn().Msg("Alternatively, specify the path using -dotnetToolPath argument")
 			return ErrInvalidArgumentCantContinue
 		}
-
-		// Store the resolved path back to config for use in capture modules
-		config.GlobalConfig.DotnetToolPath = resolvedPath
-		logger.Log("Using .NET diagnostic tool at: %s", resolvedPath)
-	}
-
-	// Java-specific validation - skip if using .NET runtime
-	if config.GlobalConfig.AppRuntime != "dotnet" {
+	} else if config.GlobalConfig.AppRuntime == "java" {
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 		}

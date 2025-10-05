@@ -98,7 +98,7 @@ type Options struct {
 	HttpClientTimeout Duration `yaml:"httpClientTimeout" usage:"HTTP client timeout for API requests (e.g., 1m, 30s). Default is 60 seconds."`
 
 	// Dotnet runtime support
-	AppRuntime     string `yaml:"appRuntime" usage:"Application runtime: java (default) or dotnet"`
+	AppRuntime     string `yaml:"appRuntime" usage:"Target application runtime: java (default) or dotnet"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
 }
 
