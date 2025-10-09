@@ -186,6 +186,16 @@ func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// Set implements flag.Value interface for better CLI error messages
+func (d *Duration) Set(s string) error {
+	duration, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration format '%s': %w (expected format like '1m', '30s', '1h30m')", s, err)
+	}
+	*d = Duration(duration)
+	return nil
+}
+
 // Duration converts back to time.Duration when needed
 func (d Duration) Duration() time.Duration {
 	return time.Duration(d)
@@ -291,10 +301,8 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) (err error) {
 			}
 			x = reflect.ValueOf(b)
 		} else if fieldType.Type == reflect.TypeOf(Duration(0)) {
-			// Handle Duration fields - convert from *time.Duration to Duration
-			timeDurationPtr := s.(*time.Duration)
-			duration := Duration(*timeDurationPtr)
-			x = reflect.ValueOf(duration)
+			durationPtr := s.(*Duration)
+			x = reflect.ValueOf(*durationPtr)
 		} else {
 			x = reflect.ValueOf(s).Elem()
 		}
@@ -328,7 +336,7 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			result[i] = flagSet.String(name, strconv.FormatBool(field.Bool()), usage)
 			continue
 		}
-		switch v := field.Interface().(type) {
+		switch field.Interface().(type) {
 		case ProcessTokens:
 			var tokens ProcessTokens
 			flagSet.Var(&tokens, name, usage)
@@ -340,7 +348,9 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			result[i] = &appLogs
 			continue
 		case Duration:
-			result[i] = flagSet.Duration(name, v.Duration(), usage)
+			durationPtr := field.Addr().Interface().(*Duration)
+			flagSet.Var(durationPtr, name, usage)
+			result[i] = durationPtr
 			continue
 		case HealthChecks:
 			// Ignore this due to nested structure, we don't support this via CLI for now.
