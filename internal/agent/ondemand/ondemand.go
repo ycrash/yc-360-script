@@ -30,7 +30,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gentlemanautomaton/cmdline"
 	"github.com/pterm/pterm"
-	ps "github.com/shirou/gopsutil/v3/process"
+	ps "github.com/shirou/gopsutil/v4/process"
 )
 
 var Wg sync.WaitGroup
