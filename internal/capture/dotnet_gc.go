@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-const dotnetGCOutputPath = "dotnet_gc_%d.json"
+const dotnetGCOutputPath = "gc_output_%d.json"
 
 // DotnetGC captures .NET garbage collection events.
 type DotnetGC struct {
@@ -29,11 +29,17 @@ func (d *DotnetGC) Run() (Result, error) {
 
 // CaptureToFile captures the GC events to a file and returns it.
 func (d *DotnetGC) CaptureToFile() (*os.File, error) {
-	// Build command arguments: --pid <pid> --duration <duration> --gc
+	// Get current working directory
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Build command arguments: -gc <pid> <output_path>
 	args := []string{
-		"--pid", strconv.Itoa(d.Pid),
-		"--duration", strconv.Itoa(d.Duration),
-		"--gc",
+		"-gc",
+		strconv.Itoa(d.Pid),
+		workDir,
 	}
 
 	// Execute the dotnet tool and capture output

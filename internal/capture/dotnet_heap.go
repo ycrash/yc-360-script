@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-const dotnetHeapOutputPath = "dotnet_heap_%d.json"
+const dotnetHeapOutputPath = "heap_stats_%d.json"
 
 // DotnetHeap captures .NET heap statistics.
 type DotnetHeap struct {
@@ -28,10 +28,17 @@ func (d *DotnetHeap) Run() (Result, error) {
 
 // CaptureToFile captures the heap statistics to a file and returns it.
 func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
-	// Build command arguments: --pid <pid> --heap
+	// Get current working directory
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Build command arguments: -hd <pid> <output_path>
 	args := []string{
-		"--pid", strconv.Itoa(d.Pid),
-		"--heap",
+		"-hd",
+		strconv.Itoa(d.Pid),
+		workDir,
 	}
 
 	// Execute the dotnet tool and capture output
