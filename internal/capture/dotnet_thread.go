@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-const dotnetThreadOutputPath = "dotnet_thread_%d.json"
+const dotnetThreadOutputPath = "thread_dump_%d.json"
 
 // DotnetThread captures .NET thread dump.
 type DotnetThread struct {
@@ -28,10 +28,17 @@ func (d *DotnetThread) Run() (Result, error) {
 
 // CaptureToFile captures the thread dump to a file and returns it.
 func (d *DotnetThread) CaptureToFile() (*os.File, error) {
-	// Build command arguments: --pid <pid> --thread
+	// Get current working directory
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Build command arguments: -td <pid> <output_path>
 	args := []string{
-		"--pid", strconv.Itoa(d.Pid),
-		"--thread",
+		"-td",
+		strconv.Itoa(d.Pid),
+		workDir,
 	}
 
 	// Execute the dotnet tool and capture output

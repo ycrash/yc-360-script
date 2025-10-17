@@ -17,40 +17,46 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 		return nil, fmt.Errorf("dotnet tool path not configured")
 	}
 
-	// Create output file
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create output file: %w", err)
-	}
-
 	// Build the command: [toolPath, args...]
 	cmdArgs := append([]string{toolPath}, args...)
 
 	logger.Log("Executing dotnet tool: %v", cmdArgs)
 
 	// Execute the command and capture output to file
-	cmd, err := executils.CommandStartInBackgroundToWriter(file, cmdArgs)
+	cmd, err := executils.CommandStartInBackground(cmdArgs)
 	if err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to start dotnet tool: %w", err)
+		return nil, fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
 	}
 
 	// Wait for command to complete
 	err = cmd.Wait()
 	if err != nil {
-		file.Close()
-		return nil, fmt.Errorf("dotnet tool execution failed: %w", err)
+		return nil, fmt.Errorf("dotnet tool execution failed %v: %w", cmdArgs, err)
 	}
 
 	// Check exit code
 	if cmd.ExitCode() != 0 {
-		file.Close()
-		return nil, fmt.Errorf("dotnet tool exited with code %d", cmd.ExitCode())
+		return nil, fmt.Errorf("dotnet tool %v exited with code %d", cmdArgs, cmd.ExitCode())
 	}
 
-	// Sync the file to ensure all data is written
-	if err := file.Sync(); err != nil {
-		logger.Log("failed to sync file: %v", err)
+	// Validate output file exists
+	fileInfo, err := os.Stat(outputPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("dotnet tool %v completed but expected output file %s was not created", cmdArgs, outputPath)
+		}
+		return nil, fmt.Errorf("failed to check output file %s: %w", outputPath, err)
+	}
+
+	// Validate file has content
+	if fileInfo.Size() == 0 {
+		return nil, fmt.Errorf("dotnet tool %v created empty output file %s", cmdArgs, outputPath)
+	}
+
+	// Open expected output
+	file, err := os.Open(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open output file %s: %w", outputPath, err)
 	}
 
 	return file, nil
