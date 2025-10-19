@@ -42,18 +42,18 @@
 It's easy to get started with the yc-360 script. Just follow the simple steps given below. In a matter of seconds, you’ll be able to trigger the script and collect all the critical artifacts needed for troubleshooting.
 
 <details>
-	<summary><strong>Linux</storng></summary></br>
+	<summary><strong>Linux</strong></summary></br>
 	
 <strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip)
 
-<storng>2. Extract:</storng> Unzip the package and navigate to the linux directory:
+<strong>2. Extract:</strong> Unzip the package and navigate to the linux directory:
 
 ```sh
 unzip yc-360-latest.zip
 cd linux
 ```
 
-<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
+<strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -61,7 +61,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-<storng>INFO:</storng>
+<strong>INFO:</strong>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -69,7 +69,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-<storng>IMPORTANT TIP:<storng>
+<strong>IMPORTANT TIP:<strong>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -79,18 +79,18 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 </details>
 <details>
-	<summary><strong>MacOS</storng></summary></br>
+	<summary><strong>MacOS</strong></summary></br>
 	
-<storng>1. Download:</storng> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+<strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
 
-<storng>2. Extract:</storng> Unzip the package and navigate to the mac directory:
+<strong>2. Extract:</strong> Unzip the package and navigate to the mac directory:
 
 ```sh
 unzip yc-360-latest.zip
 cd mac
 ```
 
-<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
+<strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -98,7 +98,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-<storng>INFO:</storng>
+<strong>INFO:</strong>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -106,7 +106,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-<storng>IMPORTANT TIP:</storng>
+<strong>IMPORTANT TIP:</strong>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -117,17 +117,17 @@ When you execute the below command, the yc-360 script will capture all the artif
 </details>
 
 <details>
-	<summary><strong>Windows</storng></summary></br>
+	<summary><strong>Windows</strong></summary></br>
 	
-<storng>1. Download:</storng> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+<strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
 
-<storng>2. Extract:</storng> Unzip the package and navigate to the windows directory:
+<strong>2. Extract:</strong> Unzip the package and navigate to the windows directory:
 
 ```
 cd windows
 ```
 
-<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
+<strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -135,7 +135,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 .\yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-<storng>INFO:</storng>
+<strong>INFO:</strong>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -143,7 +143,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-<storng>IMPORTANT TIP:</storng>
+<strong>IMPORTANT TIP:</strong>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -153,7 +153,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 </details>
 
 <details>
-	<summary><strong>Docker</storng></summary></br>
+	<summary><strong>Docker</strong></summary></br>
 
 You can run the yc-360 script in a Docker environment using one of the following approaches, depending on your deployment setup and monitoring preferences:
 
@@ -165,7 +165,7 @@ You can run the yc-360 script in a Docker environment using one of the following
 </details>
 
 <details>
-	<summary><strong>Kubernetes</storng></summary></br>
+	<summary><strong>Kubernetes</strong></summary></br>
 	
 You can run the yc-360 script in a Kubernetes environment using one of the following approaches, depending on your deployment setup and monitoring preferences:
 
@@ -175,7 +175,7 @@ You can run the yc-360 script in a Kubernetes environment using one of the follo
 </details>
 
 <details>
-	<summary><strong>OpenShift</storng></summary></br>
+	<summary><strong>OpenShift</strong></summary></br>
 	
 To monitor applications running in OpenShift, deploy the yc-360 script using:
 
@@ -183,7 +183,7 @@ To monitor applications running in OpenShift, deploy the yc-360 script using:
 </details>
 
 <details>
-	<summary><strong>AWS Fargate</storng></summary></br>
+	<summary><strong>AWS Fargate</strong></summary></br>
 	
 You can run the yc-360 script in an AWS Fargate environment using one of the following approaches, depending on your orchestration platform:
 
