@@ -191,13 +191,13 @@ You can analyze the artifacts captured by yc-360-script either manually or throu
 ## FAQ
 
 <details>
-  <summary><strong>1. What if I Want to Capture Additional Data that yc-360 Script Doesn’t Collect by Default?</strong></summary>
+  <summary><strong>1. What if I Want to Capture Additional Data that yc-360 Script Doesn’t Collect by Default?</strong></summary></br>
   
 You can extend the functionality using the [`-edScript` argument](https://docs.ycrash.io/yc-360/features/extended-data.html). This lets you specify a custom script that yc-360 script will execute as the final step, allowing you to capture additional logs, metrics, or custom files specific to your environment.
 </details>
 
 <details>
-  <summary><strong>2. What is the Overhead of Running yc-360 Script?</strong></summary>
+  <summary><strong>2. What is the Overhead of Running yc-360 Script?</strong></summary></br>
 
 The yc-360 script is designed to be lightweight and non-intrusive, ensuring minimal impact on your application's performance. It primarily reads existing system and application data without altering configurations or consuming significant resources. In performance tests conducted on a Linux machine running a Java Spring Boot application, the script demonstrated:
 
