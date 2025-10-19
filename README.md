@@ -42,17 +42,18 @@
 It's easy to get started with the yc-360 script. Just follow the simple steps given below. In a matter of seconds, you’ll be able to trigger the script and collect all the critical artifacts needed for troubleshooting.
 
 <details>
-	<summary><strong>Linux</storng></summary>
-**1. Download:** Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+	<summary><strong>Linux</storng></summary></br>
+	
+<strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip)
 
-**2. Extract:** Unzip the package and navigate to the linux directory:
+<storng>2. Extract:</storng> Unzip the package and navigate to the linux directory:
 
 ```sh
 unzip yc-360-latest.zip
 cd linux
 ```
 
-**3. Execute yc-360 Script:** Run the script with your target application's process ID:
+<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -60,7 +61,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-**INFO:**
+<storng>INFO:</storng>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -68,7 +69,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-**IMPORTANT TIP:**
+<storng>IMPORTANT TIP:<storng>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -78,17 +79,18 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 </details>
 <details>
-	<summary><strong>MacOS</storng></summary>
-**1. Download:** Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+	<summary><strong>MacOS</storng></summary></br>
+	
+<storng>1. Download:</storng> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
 
-**2. Extract:** Unzip the package and navigate to the mac directory:
+<storng>2. Extract:</storng> Unzip the package and navigate to the mac directory:
 
 ```sh
 unzip yc-360-latest.zip
 cd mac
 ```
 
-**3. Execute yc-360 Script:** Run the script with your target application's process ID:
+<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -96,7 +98,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-**INFO:**
+<storng>INFO:</storng>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -104,7 +106,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-**IMPORTANT TIP:**
+<storng>IMPORTANT TIP:</storng>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -115,16 +117,17 @@ When you execute the below command, the yc-360 script will capture all the artif
 </details>
 
 <details>
-	<summary><strong>Windows</storng></summary>
-**1. Download:** Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+	<summary><strong>Windows</storng></summary></br>
+	
+<storng>1. Download:</storng> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
 
-**2. Extract:** Unzip the package and navigate to the windows directory:
+<storng>2. Extract:</storng> Unzip the package and navigate to the windows directory:
 
 ```
 cd windows
 ```
 
-**3. Execute yc-360 Script:** Run the script with your target application's process ID:
+<storng>3. Execute yc-360 Script:</storng> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -132,7 +135,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 .\yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
 ```
 
-**INFO:**
+<storng>INFO:</storng>
 
 + `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
@@ -140,7 +143,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-**IMPORTANT TIP:**
+<storng>IMPORTANT TIP:</storng>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -150,7 +153,8 @@ When you execute the below command, the yc-360 script will capture all the artif
 </details>
 
 <details>
-	<summary><strong>Docker</storng></summary>
+	<summary><strong>Docker</storng></summary></br>
+
 You can run the yc-360 script in a Docker environment using one of the following approaches, depending on your deployment setup and monitoring preferences:
 
 1. [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/docker-container/deployment-options/run-yc-360-script-as-sidecar-container.html) – Run the script in a separate container alongside your application container.
@@ -161,7 +165,8 @@ You can run the yc-360 script in a Docker environment using one of the following
 </details>
 
 <details>
-	<summary><strong>Kubernetes</storng></summary>
+	<summary><strong>Kubernetes</storng></summary></br>
+	
 You can run the yc-360 script in a Kubernetes environment using one of the following approaches, depending on your deployment setup and monitoring preferences:
 
 1. [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/kubernetes/deployment-options/run-as-sidecar-container.html) – Add yc-360 as a separate container in your pod spec.
@@ -170,7 +175,9 @@ You can run the yc-360 script in a Kubernetes environment using one of the follo
 </details>
 
 <details>
-	<summary><strong>OpenShift</storng></summary>
+
+	<summary><strong>OpenShift</storng></summary></br>
+	
 To monitor applications running in OpenShift, deploy the yc-360 script using:
 
 [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/openshift/deployment-options/run-as-sidecar-container.html)– Add yc-360 alongside your application within the pod template.
@@ -201,37 +208,37 @@ These metrics indicate that yc-360 script can safely run in production environme
 </details>
 
 <details>
-  <summary><strong>3. Is it Safe to Run yc-360 Script in Production Environments?</strong></summary>
+  <summary><strong>3. Is it Safe to Run yc-360 Script in Production Environments?</strong></summary></br>
 
 Absolutely. The yc-360 script is a non-intrusive, script. It doesn’t modify any application or system configuration. It only reads and collects diagnostics and is safe to run even in high-availability production environments.
 </details>
 
 <details>
-  <summary><strong>4. Can yc-360 Script be executed in containerized environments like Docker, Kubernetes, or OpenShift?</strong></summary>
+  <summary><strong>4. Can yc-360 Script be executed in containerized environments like Docker, Kubernetes, or OpenShift?</strong></summary></br>
 
 Yes, yc-360 script is designed to work seamlessly across all major environments — including bare-metal servers, virtual machines, Docker containers, Kubernetes, and OpenShift. You can execute the script directly inside your containers or use it as part of a sidecar or init container to collect diagnostic data. For detailed guidance on each supported environments, visit [https://docs.ycrash.io/yc-360/environment/introduction.html](https://docs.ycrash.io/yc-360/environment/introduction.html)
 </details>
 
 <details>
-  <summary><strong>5. What if I don’t have Direct Access to the Production Environment?</strong></summary>
+  <summary><strong>5. What if I don’t have Direct Access to the Production Environment?</strong></summary></br>
 
 That’s exactly what yc-360 script is built for. You can send the script to your customer or operations team and ask them to run it on your behalf. It generates a ZIP file with all the artifacts, which they can send back to you for analysis.
 </details>
 
 <details>
-  <summary><strong>6. How Much Time Does it Take to Run?</strong></summary>
+  <summary><strong>6. How Much Time Does it Take to Run?</strong></summary></br>
 
 In most environments, yc-360 script completes execution in under 30 seconds. However, collecting heap dumps may take longer depending on the heap size and system performance.
 </details>
 
 <details>
-  <summary><strong>7. What Kind of Issues Can yc-360 Script Help Troubleshoot?</strong></summary>
+  <summary><strong>7. What Kind of Issues Can yc-360 Script Help Troubleshoot?</strong></summary></br>
 
 The yc-360 script is effective in diagnosing memory leaks, GC pauses, CPU spikes, thread contention, application freezes, disk pressure, network latency, backend slowness, and more. It provides a 360° snapshot of your application and environment at the time of the issue.
 </details>
 
 <details>
-  <summary><strong>8. Where can I analyze the artifacts generated by the yc-360 script?</strong></summary>
+  <summary><strong>8. Where can I analyze the artifacts generated by the yc-360 script?</strong></summary></br>
 
 You have two options:
 
@@ -242,25 +249,25 @@ For more details, refer to the [Bundle Upload](https://docs.ycrash.io/ycrash-fea
 </details>
 
 <details>
-  <summary><strong>9. How do I Schedule yc-360 Script to Run Periodically?</strong></summary>
+  <summary><strong>9. How do I Schedule yc-360 Script to Run Periodically?</strong></summary></br>
 
 You can schedule the script using cron (Linux/macOS), Task Scheduler (Windows), or Kubernetes CronJobs (in container environments). Just ensure the appropriate execution permission is set for the yc-360 script and Read/Write permissions for the output directory.
 </details>
 
 <details>
-  <summary><strong>10. Is yc-360 Script Customizable?</strong></summary>
+  <summary><strong>10. Is yc-360 Script Customizable?</strong></summary></br>
 
 Yes. The yc-360 script is designed as a modular shell script. You can clone the repository and customize individual collection commands or add/remove specific artifacts based on your organization’s requirements.
 </details>
 
 <details>
-  <summary><strong>11. Is Support Available for yc-360 Script?</strong></summary>
+  <summary><strong>11. Is Support Available for yc-360 Script?</strong></summary></br>
 
 For community support, please use the [GitHub Issues page](https://github.com/ycrash/yc-data-script/issues). For enterprise-grade support and integration assistance, visit [yCrash.io](https://ycrash.io/).
 </details>
 
 <details>
-  <summary><strong>12. How to Build the yc-360-script?</strong></summary>
+  <summary><strong>12. How to Build the yc-360-script?</strong></summary></br>
 
 Please refer to any one of the following links if you want to build the yc-360-script in that corresponding operating system:
 
