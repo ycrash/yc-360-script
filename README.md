@@ -182,12 +182,12 @@ To monitor applications running in OpenShift, deploy the yc-360 script using:
 [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/openshift/deployment-options/run-as-sidecar-container.html)– Add yc-360 alongside your application within the pod template.
 </details>
 
-</details>
+<details>
 	<summary><strong>AWS Fargate</storng></summary></br>
 	
 You can run the yc-360 script in an AWS Fargate environment using one of the following approaches, depending on your orchestration platform:
 
-Fargate on ECS
+Fargate on ECS:
 
 [Run yc-360 Script in Sidecar Container for ECS Fargate](https://docs.ycrash.io/yc-360/aws-fargate/deployment-options/run-as-sidecar-container-ecs.html) – Add yc-360 as a sidecar container in your ECS task definition to automatically capture metrics and logs from your application container.
 </details>
