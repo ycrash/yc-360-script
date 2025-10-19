@@ -69,15 +69,15 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
-<strong>IMPORTANT TIP:<strong>
+<strong>IMPORTANT TIP:</strong>
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
 + To detect memory-related issues, **GC logging** must be enabled for your application. You can enable GC logging by using the JVM arguments listed [here](https://docs.ycrash.io/yc-360/faq/how-to-enable-gc-logs.html).
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
-
 </details>
+
 <details>
 	<summary><strong>MacOS</strong></summary></br>
 	
@@ -113,7 +113,6 @@ When you execute the below command, the yc-360 script will capture all the artif
 + To detect memory-related issues, **GC logging** must be enabled for your application. You can enable GC logging by using the JVM arguments listed [here](https://docs.ycrash.io/yc-360/faq/how-to-enable-gc-logs.html).
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
-
 </details>
 
 <details>
