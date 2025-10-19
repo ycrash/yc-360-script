@@ -271,7 +271,8 @@ For community support, please use the [GitHub Issues page](https://github.com/yc
 
 Please refer to any one of the following links if you want to build the yc-360-script in that corresponding operating system:
 
-1. Build yc-360-script in [Windows](/docs/build/build_yc_360_script_windows.md)
-2. Build yc-360-script in [Linux](/docs/build/build_yc_360_script_linux.md)
-3. Build yc-360-script in [MacOS](/docs/build/build_yc_360_script_macos.md)
+1. Build yc-360-script in [Linux](/docs/build/build_yc_360_script_linux.md)
+2. Build yc-360-script in [MacOS](/docs/build/build_yc_360_script_macos.md)
+3. Build yc-360-script in [Windows](/docs/build/build_yc_360_script_windows.md)
+
 </details>
