@@ -36,6 +36,8 @@ func (al *AppLog) Run() (Result, error) {
 	pathStrings := make([]string, len(al.Paths))
 	for i, path := range al.Paths {
 		pathStrings[i] = string(path)
+
+		logger.Debug().Msgf("AppLog: glob path: %s", string(path))
 	}
 
 	// Expand all paths (files, directories, globs) to individual files
@@ -50,6 +52,8 @@ func (al *AppLog) Run() (Result, error) {
 
 	// Process each expanded file path
 	for _, filePath := range expandedPaths {
+		logger.Debug().Msgf("AppLog: expanded path: %s", string(filePath))
+
 		r, err := al.CaptureSingleAppLog(filePath)
 		results = append(results, r)
 		errs = append(errs, err)

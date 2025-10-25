@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"runtime"
 	"unicode"
+	"yc-agent/internal/logger"
 )
 
 // logPatterns contains precompiled regex patterns so they are compiled once at startup rather than each function call.
@@ -34,6 +35,8 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	}
 
 	for _, filePath := range openedFiles {
+		logger.Debug().Msgf("DiscoverOpenedLogFilesByProcess: opened file by process (pid=%d): %s", pid, string(filePath))
+
 		fileBaseName := filepath.Base(filePath)
 		if matchLogPattern(fileBaseName) {
 			last1000Text, err := getLastNBytes(filePath, 1000)

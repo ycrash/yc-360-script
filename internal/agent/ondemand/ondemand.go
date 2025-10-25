@@ -432,6 +432,7 @@ Ignored errors: %v
 
 		paths := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
+			logger.Debug().Msgf("OnDemand FullCapture: discovered log file: %s", string(f))
 			isGCLog := false
 			for _, fileName := range globFiles {
 				// To exclude discovered gc log such f as /tmp/buggyapp-%p-%t.log
