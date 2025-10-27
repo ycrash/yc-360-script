@@ -17,6 +17,11 @@ type DotnetThread struct {
 // Run implements the capture by creating the output file, capturing thread dump,
 // and then uploading the captured file.
 func (d *DotnetThread) Run() (Result, error) {
+	// Check that the process exists
+	if !IsProcessExists(d.Pid) {
+		return Result{}, fmt.Errorf("process %d does not exist", d.Pid)
+	}
+
 	capturedFile, err := d.CaptureToFile()
 	if err != nil {
 		return Result{Msg: err.Error(), Ok: false}, err
