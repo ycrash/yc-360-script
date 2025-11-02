@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 
 	"yc-agent/internal/capture/executils"
@@ -68,31 +69,47 @@ func (t *Top) captureOutput(f *os.File) error {
 		}
 	}
 
-	// If a fallback exists, try it.
-	if (err != nil || t.Cmd.ExitCode() != 0) && executils.Top2 != nil && len(executils.Top2) > 0 {
-		// Reset file before retrying.
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		if err := f.Truncate(0); err != nil {
-			return err
-		}
-
-		logger.Log("primary top command failed, trying fallback: %v", executils.Top2)
-		t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, executils.Top2)
-		if err != nil {
-			return err
-		}
-
-		err = t.Cmd.Wait()
-		if err != nil {
-			return fmt.Errorf("both top commands failed: %w", err)
-		}
-	} else {
-		return err
+	// Check if command succeeded
+	if err == nil && t.Cmd.ExitCode() == 0 {
+		return nil
 	}
 
-	return nil
+	// Command failed
+	if runtime.GOOS == "windows" {
+		// Windows: PowerShell may return non-zero exit codes even when output is captured successfully.
+		// Check if we have valid output despite the error.
+		if stat, statErr := f.Stat(); statErr == nil && stat.Size() > 0 {
+			logger.Log("top command had non-zero exit code but produced output (%d bytes), considering it successful", stat.Size())
+			return nil
+		}
+
+		return err
+	} else {
+		// Non-Windows: Try fallback command if available
+		if len(executils.Top2) > 0 {
+			// Reset file before retrying.
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			if err := f.Truncate(0); err != nil {
+				return err
+			}
+
+			logger.Log("primary top command failed, trying fallback: %v", executils.Top2)
+			t.Cmd, err = executils.CommandStartInBackgroundToWriter(f, executils.Top2)
+			if err != nil {
+				return err
+			}
+
+			err = t.Cmd.Wait()
+			if err != nil {
+				return fmt.Errorf("both top commands failed: %w", err)
+			}
+			return nil
+		}
+
+		return err
+	}
 }
 
 // UploadCapturedFile sends the file data to the endpoint using the service key "top".
