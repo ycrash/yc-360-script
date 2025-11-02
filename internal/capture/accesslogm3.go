@@ -30,6 +30,7 @@ type AccessLogM3 struct {
 type AccessLogEntry struct {
 	Path   config.AccessLogPath
 	Format config.AccessLogFormat
+	Source config.AccessLogSource
 }
 
 // accessLogM3ReadStat tracks the essential state needed for incremental log reading.
@@ -90,7 +91,7 @@ func (a *AccessLogM3) Run() (Result, error) {
 			}
 
 			for _, match := range matches {
-				r, e := a.CaptureSingleAccessLog(match, pid, string(path.Format))
+				r, e := a.CaptureSingleAccessLog(match, pid, string(path.Format), string(path.Source))
 
 				results = append(results, r)
 				errs = append(errs, e)
@@ -104,7 +105,7 @@ func (a *AccessLogM3) Run() (Result, error) {
 // captureSingleAccessLog processes a single access log file: it opens the file,
 // seeks to the last-read position (or initializes it on the first run),
 // copies new content to a uniquely named destination file, and posts it.
-func (a *AccessLogM3) CaptureSingleAccessLog(filePath string, pid int, format string) (Result, error) {
+func (a *AccessLogM3) CaptureSingleAccessLog(filePath string, pid int, format, source string) (Result, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to stat accesslog %q: %w", filePath, err)
@@ -165,6 +166,11 @@ func (a *AccessLogM3) CaptureSingleAccessLog(filePath string, pid int, format st
 
 	// Write the format header to the destination file)
 	dst.WriteString(format + "\n")
+
+	if source != "" {
+		// Write the source header
+		dst.WriteString("accessLogSource: " + source + "\n")
+	}
 
 	// Copy new content from the source log.
 	bytesCopied, err := io.Copy(dst, src)

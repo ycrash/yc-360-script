@@ -503,6 +503,7 @@ func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
 
 	accessLogPath := ""
 	accessLogFormat := ""
+	accessLogSource := ""
 
 	searchToken := "$" + appName
 
@@ -518,6 +519,10 @@ func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
 		}
 	}
 
+	if accessLogPath == "" {
+		return
+	}
+
 	// Find the corresponding access log format
 	for _, configAccessLogFmt := range config.GlobalConfig.AccessLogFormats {
 		if !strings.Contains(string(configAccessLogFmt), "$") {
@@ -530,18 +535,27 @@ func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
 		}
 	}
 
-	if accessLogPath == "" {
-		return
-	}
-
 	if accessLogFormat == "" {
 		logger.Log("WARNING: Access log format is not set for path:%s, app:%s, ignoring", accessLogPath, appName)
 		return
 	}
 
+	// Find the corresponding access log source
+	for _, configAccessLogSrc := range config.GlobalConfig.AccessLogSources {
+		if !strings.Contains(string(configAccessLogSrc), "$") {
+			continue
+		}
+
+		beforeSearchToken, found := strings.CutSuffix(string(configAccessLogSrc), searchToken)
+		if found {
+			accessLogSource = beforeSearchToken
+		}
+	}
+
 	accessLogEntries = append(accessLogEntries, capture.AccessLogEntry{
 		Path:   config.AccessLogPath(accessLogPath),
 		Format: config.AccessLogFormat(accessLogFormat),
+		Source: config.AccessLogSource(accessLogSource),
 	})
 
 	paths := make(map[int][]capture.AccessLogEntry)

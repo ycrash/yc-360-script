@@ -100,6 +100,7 @@ type Options struct {
 	// Access log
 	AccessLogs       AccessLogs       `yaml:"accessLogs" usage:"Access log file paths"`
 	AccessLogFormats AccessLogFormats `yaml:"accessLogFormats" usage:"Access log formats corresponding to access log files"`
+	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
 }
 
 type Command struct {
@@ -215,6 +216,9 @@ type AccessLogs []AccessLogPath
 
 type AccessLogFormat string
 type AccessLogFormats []AccessLogFormat
+
+type AccessLogSource string
+type AccessLogSources []AccessLogSource
 
 func defaultConfig() Config {
 	return Config{
