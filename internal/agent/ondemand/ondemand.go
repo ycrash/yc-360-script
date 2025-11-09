@@ -386,22 +386,44 @@ Ignored errors: %v
 		}
 
 		if appLogsContainDollarSign {
-			// If any of the appLogs contain '$', choose only the matched appName
-			appLogsMatchingAppName := config.AppLogs{}
+			// If appName is empty, we cannot match $<appName> patterns
+			if appName == "" {
+				logger.Warn().Msgf(`appLogs contain '$<appName>' pattern but appName is not configured. To resolve this, either:
+1. Add -a <appName> argument matching the name in your appLog path
+2. Remove '$<appName>' from the appLog file path
+Falling back to capture all configured appLogs without appName filtering.`)
 
-			for _, configAppLog := range config.GlobalConfig.AppLogs {
-				searchToken := "$" + appName
-
-				beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
-				if found {
-					appLogsMatchingAppName = append(appLogsMatchingAppName, config.AppLog(beforeSearchToken))
+				// Capture all appLogs by stripping the $<appName> suffix
+				allAppLogs := config.AppLogs{}
+				for _, configAppLog := range config.GlobalConfig.AppLogs {
+					logPath := string(configAppLog)
+					// Remove any $<appName> suffix pattern
+					if idx := strings.LastIndex(logPath, "$"); idx != -1 {
+						logPath = logPath[:idx]
+					}
+					allAppLogs = append(allAppLogs, config.AppLog(logPath))
 				}
 
-			}
-
-			if len(appLogsMatchingAppName) > 0 {
-				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, LineLimit: config.GlobalConfig.AppLogLineCount}))
+				appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: allAppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
 				useGlobalConfigAppLogs = true
+			} else {
+				// If any of the appLogs contain '$', choose only the matched appName
+				appLogsMatchingAppName := config.AppLogs{}
+
+				for _, configAppLog := range config.GlobalConfig.AppLogs {
+					searchToken := "$" + appName
+
+					beforeSearchToken, found := strings.CutSuffix(string(configAppLog), searchToken)
+					if found {
+						appLogsMatchingAppName = append(appLogsMatchingAppName, config.AppLog(beforeSearchToken))
+					}
+
+				}
+
+				if len(appLogsMatchingAppName) > 0 {
+					appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: appLogsMatchingAppName, LineLimit: config.GlobalConfig.AppLogLineCount}))
+					useGlobalConfigAppLogs = true
+				}
 			}
 		} else {
 			appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: config.GlobalConfig.AppLogs, LineLimit: config.GlobalConfig.AppLogLineCount}))
