@@ -69,6 +69,7 @@ func (t *JStack) Run() (result Result, err error) {
 				jstackFile, err = executils.CommandCombinedOutputToFile(outputFileName,
 					executils.Command{executils.Executable(), "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.pid)}, executils.SudoHooker{PID: t.pid})
 				if err != nil {
+					os.Remove(outputFileName)
 					logger.Log("Failed to run jattach with err %v", err)
 				}
 			}
@@ -81,13 +82,14 @@ func (t *JStack) Run() (result Result, err error) {
 					jstackFile, err = executils.CommandCombinedOutputToFile(outputFileName,
 						executils.Command{tempPath, "-p", strconv.Itoa(t.pid), "-tdCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.pid)}, executils.SudoHooker{PID: t.pid})
 					if err != nil {
+						os.Remove(outputFileName)
 						logger.Log("Failed to run jattach with err %v", err)
 					}
 				} else {
 					logger.Log("Failed to Copy2TempPath with err %v", err)
 				}
 			}
-			
+
 			// Thread dump: Attempt 1: jstack
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack ...")
@@ -97,10 +99,11 @@ func (t *JStack) Run() (result Result, err error) {
 					executils.SudoHooker{PID: t.pid},
 				)
 				if err != nil {
+					os.Remove(outputFileName)
 					logger.Log("Failed to run jstack with err %v", err)
 				}
 			}
-			
+
 			// Thread dump: Attempt 5: jstack -F
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack -F ...")
@@ -125,9 +128,10 @@ func (t *JStack) Run() (result Result, err error) {
 				}).Run()
 				if err != nil {
 					logger.Log("failed to collect dump using jstack -F : %v", err)
-					e1 <- err
 					_ = jstackFile.Close()
-					return
+					os.Remove(outputFileName)
+					jstackFile = nil
+					e1 <- err
 				}
 			}
 
@@ -159,6 +163,9 @@ func (t *JStack) Run() (result Result, err error) {
 				)
 
 				if err != nil {
+					_ = jstackFile.Close()
+					os.Remove(outputFileName)
+					jstackFile = nil
 					logger.Log("Failed to run jhsdb jstack with err %v", err)
 				}
 			}

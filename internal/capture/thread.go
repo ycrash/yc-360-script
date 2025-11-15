@@ -120,5 +120,23 @@ func (t *ThreadDump) captureFromProcess() (*os.File, error) {
 		return nil, err
 	}
 
-	return os.Open(tdOut)
+	file, err := os.Open(tdOut)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate the file has meaningful content before uploading
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, fmt.Errorf("failed to stat thread dump file: %w", err)
+	}
+
+	// Check if file is too small (less than 100 bytes likely means empty or invalid)
+	if stat.Size() < 100 {
+		file.Close()
+		return nil, fmt.Errorf("thread dump file is too small (%d bytes), likely empty or incomplete", stat.Size())
+	}
+
+	return file, nil
 }
