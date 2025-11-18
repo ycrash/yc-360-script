@@ -33,8 +33,12 @@ func validate() error {
 	}
 
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
-		logger.Log("WARNING: -onlyCapture will be ignored in m3 mode.")
+		logger.Warn().Msg("-onlyCapture will be ignored in m3 mode.")
 		config.GlobalConfig.OnlyCapture = false
+	}
+
+	if len(config.GlobalConfig.ProcessTokens) > 0 && !config.GlobalConfig.M3 {
+		logger.Warn().Msg("ProcessTokens is passed without M3 mode. See https://docs.ycrash.io/yc-360/launch-modes/m3-mode.html")
 	}
 
 	if config.GlobalConfig.AppLogLineCount < -1 {
