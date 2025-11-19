@@ -29,7 +29,7 @@ func Run() {
 
 	logCLIArguments()
 
-	runCaptureModeIfConditionSatisfied()
+	runJattachCaptureModes()
 
 	if config.GlobalConfig.ShowVersion {
 		logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)

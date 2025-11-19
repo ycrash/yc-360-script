@@ -26,9 +26,10 @@ func runRawCaptureModeIfConditionSatisfied() {
 	}
 }
 
-// runCaptureModeIfConditionSatisfied runs capture mode depending on the config.
-// Capture mode can be run after parsing the config flags.
-func runCaptureModeIfConditionSatisfied() {
+// runJattachCaptureModes runs jattach-based capture modes depending on the config.
+// These modes (GC, thread dump, heap dump, jcmd) use jattach for direct Java diagnostics.
+// This function can be run after parsing the config flags and exits immediately upon execution.
+func runJattachCaptureModes() {
 	if config.GlobalConfig.GCCaptureMode {
 		pid, err := strconv.Atoi(config.GlobalConfig.Pid)
 		if err != nil {

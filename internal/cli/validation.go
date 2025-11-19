@@ -13,6 +13,7 @@ import (
 var ErrInvalidArgumentCantContinue = errors.New("cli: invalid argument")
 
 func validate() error {
+	// Server URL and API Key
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
 			logger.Log("'-s' yCrash server URL argument not passed.")
@@ -24,6 +25,7 @@ func validate() error {
 		}
 	}
 
+	// JAVA_HOME
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
@@ -32,6 +34,7 @@ func validate() error {
 		return ErrInvalidArgumentCantContinue
 	}
 
+	// M3
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
 		logger.Warn().Msg("-onlyCapture will be ignored in m3 mode.")
 		config.GlobalConfig.OnlyCapture = false
@@ -41,6 +44,7 @@ func validate() error {
 		logger.Warn().Msg("ProcessTokens is passed without M3 mode. See https://docs.ycrash.io/yc-360/launch-modes/m3-mode.html")
 	}
 
+	// AppLog
 	if config.GlobalConfig.AppLogLineCount < -1 {
 		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be -1 (all lines), 0 (no logs), or a positive number.", config.GlobalConfig.AppLogLineCount)
 		return ErrInvalidArgumentCantContinue
