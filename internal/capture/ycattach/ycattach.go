@@ -1,5 +1,4 @@
 //go:build darwin || linux || aix
-// +build darwin linux aix
 
 package ycattach
 
