@@ -75,21 +75,21 @@ func TestGetLatestFileFromGlobPattern(t *testing.T) {
 		expectedError bool
 	}{
 		{
-			name:    "single file match",
-			pattern: filepath.Join(tmpDir, "app-*.log"),
-			files:   []string{"app-123.log"},
+			name:         "single file match",
+			pattern:      filepath.Join(tmpDir, "app-*.log"),
+			files:        []string{"app-123.log"},
 			expectedFile: "app-123.log",
 		},
 		{
-			name:    "multiple files - returns latest alphabetically",
-			pattern: filepath.Join(tmpDir, "app-*.log"),
-			files:   []string{"app-111.log", "app-222.log", "app-333.log"},
+			name:         "multiple files - returns latest alphabetically",
+			pattern:      filepath.Join(tmpDir, "app-*.log"),
+			files:        []string{"app-111.log", "app-222.log", "app-333.log"},
 			expectedFile: "app-333.log", // Latest alphabetically
 		},
 		{
-			name:    "complex pattern matching",
-			pattern: filepath.Join(tmpDir, "gc-*-*.log"),
-			files:   []string{"gc-2023-10-28.log", "gc-2023-10-29.log", "gc-2023-11-01.log"},
+			name:         "complex pattern matching",
+			pattern:      filepath.Join(tmpDir, "gc-*-*.log"),
+			files:        []string{"gc-2023-10-28.log", "gc-2023-10-29.log", "gc-2023-11-01.log"},
 			expectedFile: "gc-2023-11-01.log",
 		},
 		{
@@ -191,9 +191,9 @@ func TestGC_Run_Integration(t *testing.T) {
 	require.NoError(t, err, "Failed to change to temp directory")
 
 	tests := []struct {
-		name       string
-		setupGC    func() *GC
-		expectOk   bool
+		name     string
+		setupGC  func() *GC
+		expectOk bool
 	}{
 		{
 			name: "GC with valid local file",

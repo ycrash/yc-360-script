@@ -87,7 +87,7 @@ func (t *JStack) Run() (result Result, err error) {
 					logger.Log("Failed to Copy2TempPath with err %v", err)
 				}
 			}
-			
+
 			// Thread dump: Attempt 1: jstack
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack ...")
@@ -100,7 +100,7 @@ func (t *JStack) Run() (result Result, err error) {
 					logger.Log("Failed to run jstack with err %v", err)
 				}
 			}
-			
+
 			// Thread dump: Attempt 5: jstack -F
 			if jstackFile == nil {
 				logger.Log("Trying to capture thread dump using jstack -F ...")
