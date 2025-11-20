@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23'
+          cache: false  # golangci-lint-action handles its own caching
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+      - name: Check for formatting issues
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go code is not formatted:"
+            gofmt -d .
+            exit 1
+          fi
+
+  go-vet:
+    name: go vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+  staticcheck:
+    name: staticcheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+  build:
+    name: Build (Alpine)
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.23-alpine
+
+    steps:
+      - name: Install build dependencies
+        run: apk add --no-cache gcc musl-dev ncurses-dev ncurses-static git
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Build binary
+        run: |
+          cd cmd/yc
+          go build -buildvcs=false -ldflags="-s -w" -o yc
+          ./yc --version || true
+
+  test:
+    name: Test (Ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install Java (for JVM tests)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests with coverage (excluding CGO-dependent packages)
+        run: |
+          go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v 'internal/cli' | grep -v 'internal/capture/procps/linux')
+
+      - name: Display coverage summary
+        run: |
+          go tool cover -func=coverage.out | tail -20
+          echo ""
+          echo "=== Total Coverage ==="
+          go tool cover -func=coverage.out | grep total
+
+
