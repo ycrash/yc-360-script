@@ -18,7 +18,7 @@ func TestProcessResp(t *testing.T) {
 
 func TestM3FinPids(t *testing.T) {
 	var a = func(pids []int) string {
-		if len(pids) <= 0 {
+		if len(pids) == 0 {
 			return ""
 		}
 		var ps strings.Builder

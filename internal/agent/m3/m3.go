@@ -121,11 +121,7 @@ func (m3 *M3App) RunSingle() error {
 	{
 		logger.Debug().Msgf("M3App.RunSingle: about to call captureAndTransmit")
 
-		err = m3.captureAndTransmit(pids, GetM3ReceiverEndpoint(timestamp, timezone))
-		if err != nil {
-			logger.Log("WARNING: processM3 failed, %s", err)
-			return err
-		}
+		m3.captureAndTransmit(pids, GetM3ReceiverEndpoint(timestamp, timezone))
 	}
 
 	// Finish
@@ -140,7 +136,7 @@ func (m3 *M3App) RunSingle() error {
 			return err
 		}
 
-		if len(resp) <= 0 {
+		if len(resp) == 0 {
 			logger.Log("WARNING: skip empty resp")
 			return err
 		}
@@ -184,7 +180,7 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 	/// append pod name and namespace in Kubernetes
 	if config.GlobalConfig.Kubernetes {
 		podName := getPodName()
-		//parameters += "&pod=" + podName
+		// parameters += "&pod=" + podName
 		ns := getMatchingNamespace(podName)
 		if ns != "" {
 			//	parameters += "&ns=" + ns
@@ -211,7 +207,8 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	return parameters
 }
 
-func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) (err error) {
+//nolint:unparam // error return kept for future error handling
+func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 	logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
 	logger.Log("yc-360 script starting in m3 mode...")
 
@@ -263,8 +260,6 @@ Resp: %s
 
 --------------------------------
 `, lpM3Result.Ok, lpM3Result.Msg)
-
-	return
 }
 
 func uploadGCLogM3(endpoint string, pid int) string {
@@ -506,7 +501,7 @@ Resps: %s
 
 func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
 	var accessLogM3Chan chan capture.Result
-	if len(config.GlobalConfig.AccessLogs) <= 0 {
+	if len(config.GlobalConfig.AccessLogs) == 0 {
 		return
 	}
 

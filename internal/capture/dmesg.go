@@ -64,7 +64,6 @@ func (d *DMesg) CaptureToFile() (*os.File, error) {
 // and falling back to the secondary command if needed.
 func (d *DMesg) captureOutput(file *os.File) error {
 	if err := d.captureWithPrimaryCommand(file); err != nil {
-
 		// This fallback mechanism has been here since the beginning.
 		// We keep the same logic with the refactor, but it seems to be not working.
 

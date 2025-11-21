@@ -1,6 +1,34 @@
 version: "2"
+
 linters:
   default: standard
   disable:
-  - errcheck
+    - errcheck  # Too many issues to fix incrementally (50+)
+  enable:
+    - gocyclo
+    - misspell
+    - gocritic
+    - unconvert
+    - unparam
+    - revive
+    - dogsled      # Check for too many blank identifiers
+    - bodyclose    # Check HTTP response body is closed
+    - whitespace   # Check for unnecessary whitespace
+    - wastedassign # Check for wasted assignments
+  settings:
+    gocyclo:
+      min-complexity: 80  # Start lenient, tighten later (default: 30)
+    gocritic:
+      disabled-checks:
+        - ifElseChain  # Stylistic preference, not a bug
+    unparam:
+      check-exported: false  # Only check unexported functions
+    revive:
+      rules:
+        - name: exported
+          disabled: true  # Too many missing comments
+        - name: package-comments
+          disabled: true  # Too many missing package comments
+        - name: var-naming
+          disabled: true  # Would require significant refactoring (ApiKey -> APIKey, etc)
 

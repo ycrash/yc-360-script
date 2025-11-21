@@ -35,7 +35,7 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	}
 
 	for _, filePath := range openedFiles {
-		logger.Debug().Msgf("DiscoverOpenedLogFilesByProcess: opened file by process (pid=%d): %s", pid, string(filePath))
+		logger.Debug().Msgf("DiscoverOpenedLogFilesByProcess: opened file by process (pid=%d): %s", pid, filePath)
 
 		fileBaseName := filepath.Base(filePath)
 		if matchLogPattern(fileBaseName) {

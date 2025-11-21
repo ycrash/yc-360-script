@@ -36,7 +36,7 @@ import (
 var Wg sync.WaitGroup
 
 func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
-	if len(pids) <= 0 {
+	if len(pids) == 0 {
 		logger.Log("Empty pids, no action needed.")
 		return
 	}
@@ -103,7 +103,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 			if tsParam == "" {
 				tsParam = timestamp
 			}
-			//parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
+			// parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
 			timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
 			parameters = fmt.Sprintf("de=%s&ts=%s&timezoneId=%s", getOutboundIP().String(), tsParam, timezoneBase64)
 			endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
@@ -179,7 +179,6 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 	// A.3 Agent log file
 	var agentLogFile *os.File
 	if !config.GlobalConfig.M3 {
-
 		// Renaming the log file name to yc360Logs from agentlog
 		agentLogFile, err = logger.StartWritingToFile("yc360Logs.out")
 		if err != nil {
@@ -376,7 +375,6 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	var appLogs chan capture.Result
 	if len(config.GlobalConfig.AppLogs) > 0 && config.GlobalConfig.AppLogLineCount != 0 {
-
 		appLogsContainDollarSign := false
 		for _, configAppLog := range config.GlobalConfig.AppLogs {
 			if strings.Contains(string(configAppLog), "$") {
@@ -417,7 +415,6 @@ Falling back to capture all configured appLogs without appName filtering.`)
 					if found {
 						appLogsMatchingAppName = append(appLogsMatchingAppName, config.AppLog(beforeSearchToken))
 					}
-
 				}
 
 				if len(appLogsMatchingAppName) > 0 {
@@ -454,7 +451,7 @@ Falling back to capture all configured appLogs without appName filtering.`)
 
 		paths := config.AppLogs{}
 		for _, f := range discoveredLogFiles {
-			logger.Debug().Msgf("OnDemand FullCapture: discovered log file: %s", string(f))
+			logger.Debug().Msgf("OnDemand FullCapture: discovered log file: %s", f)
 			isGCLog := false
 			for _, fileName := range globFiles {
 				// To exclude discovered gc log such f as /tmp/buggyapp-%p-%t.log
@@ -778,7 +775,6 @@ Resp: %s
 		resp, err := RequestFin(finEp)
 		if err != nil {
 			logger.Log("post yc-fin err %s", err.Error())
-			err = nil
 		}
 
 		endTime := time.Now()

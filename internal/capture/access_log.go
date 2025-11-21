@@ -10,6 +10,7 @@ import (
 const accessLogOut = "accesslog.out"
 
 // AccessLog represents struct that captures and uploads the specified log file.
+//
 // Deprecated: use App logs auto discovery instead.
 type AccessLog struct {
 	Capture

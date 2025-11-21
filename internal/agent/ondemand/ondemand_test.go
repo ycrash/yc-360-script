@@ -83,7 +83,6 @@ func TestFindGCLog(t *testing.T) {
 	if f != "garbage-collection.log" {
 		t.Fatal("gc log file should be garbage-collection.log")
 	}
-
 }
 
 func TestPostData(t *testing.T) {

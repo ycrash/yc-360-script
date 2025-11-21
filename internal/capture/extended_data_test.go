@@ -23,7 +23,7 @@ func setupMockServer(t *testing.T) *httptest.Server {
 }
 
 // createTestScript creates a cross-platform test script
-func createTestScript(t *testing.T, outputFile string) (string, string) {
+func createTestScript(t *testing.T, outputFile string) string {
 	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -51,7 +51,7 @@ func createTestScript(t *testing.T, outputFile string) (string, string) {
 		t.Fatalf("Failed to get absolute path of script: %v", err)
 	}
 
-	return absScriptFile, scriptDir
+	return absScriptFile
 }
 
 // createLongRunningScript creates a script that runs for a specified duration
@@ -100,7 +100,7 @@ func TestExtendedData_Run_Success(t *testing.T) {
 	outputFile := filepath.Join(testDir, "output.log")
 
 	// Step 3: Create test script
-	absScriptFile, _ := createTestScript(t, outputFile)
+	absScriptFile := createTestScript(t, outputFile)
 
 	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
@@ -180,7 +180,7 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 	outputFile := filepath.Join(testDir, "output.log")
 
 	// Step 3: Create test script
-	absScriptFile, _ := createTestScript(t, outputFile)
+	absScriptFile := createTestScript(t, outputFile)
 
 	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
@@ -215,7 +215,7 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 	outputFile := filepath.Join(testDir, "output.log")
 
 	// Step 3: Create test script
-	absScriptFile, _ := createTestScript(t, outputFile)
+	absScriptFile := createTestScript(t, outputFile)
 
 	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
@@ -241,7 +241,7 @@ func TestExtendedData_Run_EmptyDataFolder(t *testing.T) {
 
 	// Step 1: Create test script
 	tempOutputFile := filepath.Join(os.TempDir(), "output.log")
-	absScriptFile, _ := createTestScript(t, tempOutputFile)
+	absScriptFile := createTestScript(t, tempOutputFile)
 
 	// Step 2: Create the ExtendedData struct
 	ed := &ExtendedData{
@@ -297,7 +297,7 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 	outputFile := filepath.Join(testDir, "output.log")
 
 	// Step 2: Create test script
-	absScriptFile, _ := createTestScript(t, outputFile)
+	absScriptFile := createTestScript(t, outputFile)
 
 	// Step 3: Create the ExtendedData struct
 	ed := &ExtendedData{

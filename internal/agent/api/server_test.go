@@ -37,18 +37,17 @@ func TestServer(t *testing.T) {
 			testErrCh <- err
 			return
 		}
+		defer resp.Body.Close()
 
-		if resp.Body != nil {
-			all, err := io.ReadAll(resp.Body)
-			if err != nil {
-				testErrCh <- err
-				return
-			}
-			all = bytes.TrimSpace(all)
-			if string(all) != `{"Code":0,"Msg":""}` {
-				testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
-				return
-			}
+		all, err := io.ReadAll(resp.Body)
+		if err != nil {
+			testErrCh <- err
+			return
+		}
+		all = bytes.TrimSpace(all)
+		if string(all) != `{"Code":0,"Msg":""}` {
+			testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
+			return
 		}
 		testErrCh <- nil
 	}()
@@ -91,18 +90,17 @@ func TestServerCmdActions(t *testing.T) {
 			testErrCh <- err
 			return
 		}
+		defer resp.Body.Close()
 
-		if resp.Body != nil {
-			all, err := io.ReadAll(resp.Body)
-			if err != nil {
-				testErrCh <- err
-				return
-			}
-			all = bytes.TrimSpace(all)
-			if !bytes.HasPrefix(all, []byte(`{"Code":0`)) {
-				testErrCh <- fmt.Errorf("unexpected response: %s, %x", string(all), all)
-				return
-			}
+		all, err := io.ReadAll(resp.Body)
+		if err != nil {
+			testErrCh <- err
+			return
+		}
+		all = bytes.TrimSpace(all)
+		if !bytes.HasPrefix(all, []byte(`{"Code":0`)) {
+			testErrCh <- fmt.Errorf("unexpected response: %s, %x", string(all), all)
+			return
 		}
 		testErrCh <- nil
 	}()
@@ -168,18 +166,17 @@ func TestServerForward(t *testing.T) {
 			testErrCh <- err
 			return
 		}
+		defer resp.Body.Close()
 
-		if resp.Body != nil {
-			all, err := io.ReadAll(resp.Body)
-			if err != nil {
-				testErrCh <- err
-				return
-			}
-			all = bytes.TrimSpace(all)
-			if string(all) != `{"Code":0,"Msg":""}` {
-				testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
-				return
-			}
+		all, err := io.ReadAll(resp.Body)
+		if err != nil {
+			testErrCh <- err
+			return
+		}
+		all = bytes.TrimSpace(all)
+		if string(all) != `{"Code":0,"Msg":""}` {
+			testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
+			return
 		}
 		testErrCh <- nil
 	}()
@@ -227,18 +224,17 @@ func TestAttendanceAPI(t *testing.T) {
 			testErrCh <- err
 			return
 		}
+		defer resp.Body.Close()
 
-		if resp.Body != nil {
-			all, err := io.ReadAll(resp.Body)
-			if err != nil {
-				testErrCh <- err
-				return
-			}
-			all = bytes.TrimSpace(all)
-			if string(all) != `{"Code":0,"Msg":""}` {
-				testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
-				return
-			}
+		all, err := io.ReadAll(resp.Body)
+		if err != nil {
+			testErrCh <- err
+			return
+		}
+		all = bytes.TrimSpace(all)
+		if string(all) != `{"Code":0,"Msg":""}` {
+			testErrCh <- fmt.Errorf("unexpected response: %s", string(all))
+			return
 		}
 		testErrCh <- nil
 	}()
