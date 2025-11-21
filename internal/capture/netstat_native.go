@@ -110,7 +110,7 @@ func displaySockInfo(proto string, s []netstat.SockTabEntry, resolve bool, write
 		saddr := lookup(e.LocalAddr)
 		daddr := lookup(e.RemoteAddr)
 		state := e.State.String()
-		if len(state) <= 0 {
+		if len(state) == 0 {
 			state = "CLOSE"
 		}
 		_, err = fmt.Fprintf(writer, "%-5s %-23.23s %-23.23s %-12s %-16s\n", proto, saddr, daddr, state, p)

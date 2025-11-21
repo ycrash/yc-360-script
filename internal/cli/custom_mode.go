@@ -54,7 +54,7 @@ func runJattachCaptureModesIfConditionSatisfied() {
 			logger.Log("invalid -p %s", config.GlobalConfig.Pid)
 			os.Exit(1)
 		}
-		if len(config.GlobalConfig.HeapDumpPath) <= 0 {
+		if len(config.GlobalConfig.HeapDumpPath) == 0 {
 			logger.Log("-hdPath can not be empty")
 			os.Exit(1)
 		}

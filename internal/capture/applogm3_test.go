@@ -88,7 +88,7 @@ func TestAppLogM3_CaptureSingleAppLog_ReadNewContent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call should copy only the appended content.
-	res, err = appLog.CaptureSingleAppLog(filename, 123)
+	_, err = appLog.CaptureSingleAppLog(filename, 123)
 	require.NoError(t, err)
 
 	// Find the new destination file created.
@@ -147,7 +147,7 @@ func TestCaptureSingleAppLog_Truncated(t *testing.T) {
 	require.NoError(t, os.WriteFile(filename, []byte(truncatedContent), 0644))
 
 	// Second call should detect truncation and reset the read position to 0, then copy the new content.
-	res, err = appLog.CaptureSingleAppLog(filename, 123)
+	_, err = appLog.CaptureSingleAppLog(filename, 123)
 	require.NoError(t, err)
 
 	// Find the new destination file.

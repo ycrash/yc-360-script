@@ -39,7 +39,6 @@ func (t *GC) Run() (result Result, err error) {
 	}
 
 	if gcFile == nil && t.Pid > 0 {
-
 		if gcFile == nil {
 			// Garbage collection log: Attempt 5: jstat
 			logger.Log("Trying to capture gc log using jstat...")
@@ -163,7 +162,7 @@ func GetLatestFileFromGlobPattern(globPattern string) (string, error) {
 }
 
 func ProcessGCLogFile(gcPath string, out string, dockerID string, pid int) (gc *os.File, err error) {
-	if len(gcPath) <= 0 {
+	if len(gcPath) == 0 {
 		return
 	}
 

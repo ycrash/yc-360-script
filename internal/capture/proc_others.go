@@ -134,7 +134,7 @@ Next:
 				columns := strings.Split(line, " ")
 				var col []string
 				for _, column := range columns {
-					if len(column) <= 0 {
+					if len(column) == 0 {
 						continue
 					}
 					col = append(col, column)

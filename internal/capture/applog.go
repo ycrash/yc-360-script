@@ -52,7 +52,7 @@ func (al *AppLog) Run() (Result, error) {
 
 	// Process each expanded file path
 	for _, filePath := range expandedPaths {
-		logger.Debug().Msgf("AppLog: expanded path: %s", string(filePath))
+		logger.Debug().Msgf("AppLog: expanded path: %s", filePath)
 
 		r, err := al.CaptureSingleAppLog(filePath)
 		results = append(results, r)

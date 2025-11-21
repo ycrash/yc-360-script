@@ -100,7 +100,7 @@ type AtomConnector struct {
 
 func CaptureBoomiDetails(endpoint string, timestamp string, pid int) {
 	// get Boomi details from the config
-	boomiURL := BoomiURL //config.GlobalConfig.BoomiUrl
+	boomiURL := BoomiURL // config.GlobalConfig.BoomiUrl
 	if boomiURL == "" {
 		logger.Log("Boomi server URL is missing. It is mandatory.")
 		return
@@ -204,7 +204,7 @@ func fetchBoomiExecutionRecords(boomiUserName, boomiPassword, boomiURL string) (
 
 		logger.Log("Length of Boomi queryResult.Result->%d", len(queryResult.Result))
 
-		if len(queryResult.Result) <= 0 {
+		if len(queryResult.Result) == 0 {
 			return records, nil
 		}
 
@@ -254,7 +254,7 @@ func fetchAtomConnectorDetails(boomiUserName, boomiPassword, boomiURL string) ([
 			return records, fmt.Errorf("error unmarshalling Boomi response as JSON: %w", jsonErr)
 		}
 		logger.Log("Length of Boomi queryResult.Result->%d", len(queryResult.Result))
-		if len(queryResult.Result) <= 0 {
+		if len(queryResult.Result) == 0 {
 			return records, nil
 		}
 
@@ -277,7 +277,6 @@ func fetchAtomConnectorDetails(boomiUserName, boomiPassword, boomiURL string) ([
 
 		// assign query token from the current response
 		queryToken = queryResult.QueryToken
-
 	}
 
 	return records, nil
@@ -439,7 +438,7 @@ func (b *BoomiExecutionOutput) WriteAtomQueryDetails(atomQueryResult AtomQueryRe
 			if err != nil {
 				return fmt.Errorf("error while writing boomi execution output: %w", err)
 			}
-			//break
+			// break
 		} else {
 			boomiData := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d,%s,%s\n", atomQuery.Type, atomQuery.Name, atomQuery.Status, atomQuery.AtomType, atomQuery.HostName, atomQuery.DateInstalled, atomQuery.CurrentVersion, atomQuery.ForceRestartTime, atomQuery.ID, "N")
 			_, err := b.file.WriteString(boomiData)
@@ -464,7 +463,6 @@ func (b *BoomiExecutionOutput) WriteAtomConnectorDetails(atomConnectors []AtomCo
 	}
 
 	for _, atomConnector := range atomConnectors {
-
 		boomiData := fmt.Sprintf("%s,%s,%s\n", atomConnector.Type, atomConnector.Name, atomConnector.AtomType)
 		_, err := b.file.WriteString(boomiData)
 
@@ -501,13 +499,11 @@ func convertExecutionDurationToInt(record ExecutionRecord, jobStatus string) int
 // If the query token is NOT empty, it will hit queryMore URL with the query token
 // received from the previous request and finally return the response
 func makeBoomiRequest(queryToken string, username string, password string, boomiURL string) (*resty.Response, error) {
-
 	// Create a new Resty client
 	client := resty.New()
 
 	// Set a hook to log the request
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
-
 		// Log the request body, if any
 		if req.Body != nil {
 			// We need to handle different types of body data
@@ -526,7 +522,7 @@ func makeBoomiRequest(queryToken string, username string, password string, boomi
 			}
 
 			// Print the body content
-			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
+			// fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
 			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -614,13 +610,11 @@ func makeBoomiRequest(queryToken string, username string, password string, boomi
 // If the query token is NOT empty, it will hit queryMore URL with the query token
 // received from the previous request and finally return the response
 func makeAtomConnectorsRequest(queryToken string, username string, password string, boomiURL string) (*resty.Response, error) {
-
 	// Create a new Resty client
 	client := resty.New()
 
 	// Set a hook to log the request
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
-
 		// Log the request body, if any
 		if req.Body != nil {
 			// We need to handle different types of body data
@@ -639,7 +633,7 @@ func makeAtomConnectorsRequest(queryToken string, username string, password stri
 			}
 
 			// Print the body content
-			//fmt.Printf("Request Body: %s\n", string(bodyBytes))
+			// fmt.Printf("Request Body: %s\n", string(bodyBytes))
 
 			// Reset the request body
 			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -722,7 +716,7 @@ func getAtomQueryDetails(accountID string, username string, password string) Ato
 		return atomQueryResult
 	}
 
-	//logger.Log("Atom Query details Result %v", atomQueryResult)
+	// logger.Log("Atom Query details Result %v", atomQueryResult)
 
 	return atomQueryResult
 }
@@ -861,5 +855,4 @@ func downloadAtomLog(username, password, boomiAcctId string) {
 
 		fmt.Println("File downloaded successfully ")
 	}
-
 }

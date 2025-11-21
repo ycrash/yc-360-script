@@ -78,7 +78,7 @@ func (a *AccessLogM3) Run() (Result, error) {
 			// %t = current date
 			p := strings.ReplaceAll(string(path.Path), "%t", currentDateStr)
 
-			matches, err := zglob.Glob(string(p))
+			matches, err := zglob.Glob(p)
 
 			if err != nil {
 				results = append(results, Result{
