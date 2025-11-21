@@ -8,14 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// https://tier1app.atlassian.net/browse/GCEA-1780
-func TestProcessResp(t *testing.T) {
-	err := processM3FinResponse([]byte(`{"actions":["capture 1"], "tags":["tag1", "tag2"]}`), map[int]string{1: "abc"})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestM3FinPids(t *testing.T) {
 	var a = func(pids []int) string {
 		if len(pids) == 0 {

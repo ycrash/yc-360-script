@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -130,11 +131,26 @@ func TestConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("Improve yaml parse error msg", func(t *testing.T) {
+	t.Run("should return helpful error for malformed YAML", func(t *testing.T) {
+		// The space-issue.yaml has intentional formatting problems (inconsistent indentation)
+		// This test verifies that the parser returns a helpful error message
 		args := []string{"yc", "-c", "testdata/space-issue.yaml"}
 		err := ParseFlags(args)
-		if err != nil {
-			t.Fatal(err)
+
+		// Should return an error for malformed YAML
+		if err == nil {
+			t.Fatal("expected error for malformed YAML file, got nil")
+		}
+
+		// Error message should include the file path for context
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "space-issue.yaml") {
+			t.Errorf("error message should include file path, got: %s", errMsg)
+		}
+
+		// Error message should include line number from YAML parser
+		if !strings.Contains(errMsg, "line") {
+			t.Errorf("error message should include line number, got: %s", errMsg)
 		}
 	})
 }
