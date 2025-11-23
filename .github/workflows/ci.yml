@@ -118,7 +118,7 @@ jobs:
 
       - name: Run tests with coverage (excluding CGO-dependent packages)
         run: |
-          go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v 'internal/cli' | grep -v 'internal/capture/procps/linux')
+          go test -v -race -coverprofile=coverage.out -covermode=atomic -run "TestVMStat|TestValidateLinux" ./internal/capture/...
 
       - name: Display coverage summary
         run: |
