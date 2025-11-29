@@ -1,0 +1,62 @@
+services:
+  # Test Java application (BuggyApp as fixture)
+  buggyapp:
+    image: openjdk:11.0.16-jdk
+    container_name: yc-test-buggyapp
+    volumes:
+      - ./test/fixtures:/fixtures
+    working_dir: /fixtures
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        # Install procps for pgrep (needed by healthcheck)
+        apt-get update -qq && apt-get install -y -qq procps > /dev/null 2>&1
+        # Run buggyapp as web application in foreground with GC logging
+        exec java -Xmx2g -DlogDir=. -DuploadDir=. -XX:+PrintGCDetails -Xloggc:/tmp/gc.log -jar webapp-runner.jar --port 9010 buggyapp.war
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'java.*webapp-runner' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Mock yCrash server for upload testing
+  mock-server:
+    image: golang:1.23-alpine
+    container_name: yc-test-server
+    volumes:
+      - ./test/mock-server:/app
+    working_dir: /app
+    command: go run main.go
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Test runner environment
+  yc-test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: yc-test-runner
+    volumes:
+      - .:/workspace
+      # SECURITY NOTE: Docker socket access required for 'docker exec' commands
+      # to retrieve PID from buggyapp container. This grants full Docker daemon access.
+      # Alternative approach: Run yc binary directly in buggyapp container or use
+      # HTTP-based process discovery to avoid socket mounting.
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    depends_on:
+      buggyapp:
+        condition: service_healthy
+      mock-server:
+        condition: service_healthy
+    environment:
+      BUGGYAPP_HOST: buggyapp
+      MOCK_SERVER_URL: http://mock-server:8080
+    command: ["-c", "sleep infinity"]  # Keep container running for exec commands

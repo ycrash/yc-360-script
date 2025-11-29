@@ -20,3 +20,30 @@ shell:
 
 build:
 	docker exec -it yc-360-script-alpine /bin/sh -c "cd cmd/yc && go build -o yc -ldflags='-s -w' -buildvcs=false && mkdir -p ../../bin/ && mv yc ../../bin/"
+
+# Integration tests (requires Docker)
+.PHONY: test-integration
+test-integration:
+	@echo "Setting up test fixtures..."
+	./test/scripts/setup-fixtures.sh
+	@echo "Starting test environment..."
+	docker compose -f docker-compose.test.yml up -d --build
+	@echo "Waiting for services to be healthy..."
+	sleep 10
+	@echo "Running integration tests..."
+	docker compose -f docker-compose.test.yml exec -T yc-test-runner \
+		go test -v -tags=integration ./test/integration/... -timeout=5m
+	@echo "Stopping test environment..."
+	docker compose -f docker-compose.test.yml down -v
+
+.PHONY: test-integration-local
+test-integration-local:
+	@echo "Running integration tests locally (requires BuggyApp running)..."
+	go test -v -tags=integration ./test/integration/... -timeout=5m
+
+.PHONY: test
+test:
+	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+.PHONY: test-all
+test-all: test test-integration

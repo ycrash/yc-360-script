@@ -1,0 +1,17 @@
+FROM golang:1.23-alpine
+
+RUN apk add --no-cache \
+    gcc musl-dev \
+    ncurses-dev ncurses-static \
+    openjdk11-jre \
+    docker-cli \
+    bash \
+    curl \
+    jq
+
+WORKDIR /workspace
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+ENTRYPOINT ["/bin/bash"]
