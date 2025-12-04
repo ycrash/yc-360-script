@@ -99,8 +99,8 @@ func TestCaptureSingleAppLog_NonCompressed(t *testing.T) {
 	outputContent, err := os.ReadFile(expectedOutputPath)
 	require.NoError(t, err, "should be able to read output file")
 
-	// Only last line should be present due to LineLimit: 2
-	assert.Equal(t, "line3\n", string(outputContent), "should contain only the last line")
+	// Last 2 lines should be present due to LineLimit: 2
+	assert.Equal(t, "line2\nline3\n", string(outputContent), "should contain the last 2 lines")
 }
 
 // TestCaptureSingleAppLog_Compressed tests capturing a compressed log file.

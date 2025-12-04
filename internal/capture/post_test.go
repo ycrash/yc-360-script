@@ -114,10 +114,14 @@ func TestPositionLastLines_EmptyFile(t *testing.T) {
 	require.NoError(t, err, "failed to open empty test file")
 	defer file.Close()
 
-	// Test with empty file - this should return an error due to the current implementation
-	// The function tries to seek -1 from end on an empty file, which is invalid
+	// Test with empty file - should handle gracefully (no error)
 	err = PositionLastLines(file, 5)
-	assert.Error(t, err, "PositionLastLines should return error for empty file due to current implementation")
+	assert.NoError(t, err, "PositionLastLines should handle empty file gracefully")
+
+	// Verify file is positioned at end (nothing to read)
+	bytes, err := io.ReadAll(file)
+	require.NoError(t, err, "failed to read file content")
+	assert.Empty(t, bytes, "empty file should remain empty")
 }
 
 func TestPositionLastLines_EdgeCases(t *testing.T) {
@@ -131,7 +135,7 @@ func TestPositionLastLines_EdgeCases(t *testing.T) {
 			name:           "file with only newlines",
 			content:        "\n\n\n",
 			lines:          2,
-			expectedResult: "\n",
+			expectedResult: "\n\n",
 		},
 		{
 			name:           "file without trailing newline",
@@ -144,6 +148,84 @@ func TestPositionLastLines_EdgeCases(t *testing.T) {
 			content:        "line1\nline2\nline3",
 			lines:          0,
 			expectedResult: "",
+		},
+		{
+			name:           "file with trailing newline - 1 line",
+			content:        "a\nb\nc\n",
+			lines:          1,
+			expectedResult: "c\n",
+		},
+		{
+			name:           "file with trailing newline - 2 lines",
+			content:        "a\nb\nc\n",
+			lines:          2,
+			expectedResult: "b\nc\n",
+		},
+		{
+			name:           "file with trailing newline - 3 lines",
+			content:        "a\nb\nc\n",
+			lines:          3,
+			expectedResult: "a\nb\nc\n",
+		},
+		{
+			name:           "file with trailing newline - more than available",
+			content:        "a\nb\nc\n",
+			lines:          4,
+			expectedResult: "a\nb\nc\n",
+		},
+		{
+			name:           "file without trailing newline - 1 line",
+			content:        "a\nb\nc",
+			lines:          1,
+			expectedResult: "c",
+		},
+		{
+			name:           "file without trailing newline - 2 lines",
+			content:        "a\nb\nc",
+			lines:          2,
+			expectedResult: "b\nc",
+		},
+		{
+			name:           "file without trailing newline - 3 lines",
+			content:        "a\nb\nc",
+			lines:          3,
+			expectedResult: "a\nb\nc",
+		},
+		{
+			name:           "single line with newline",
+			content:        "a\n",
+			lines:          1,
+			expectedResult: "a\n",
+		},
+		{
+			name:           "single line without newline",
+			content:        "a",
+			lines:          1,
+			expectedResult: "a",
+		},
+		{
+			name:           "single newline",
+			content:        "\n",
+			lines:          1,
+			expectedResult: "\n",
+		},
+		{
+			name:           "multiple trailing newlines",
+			content:        "a\n\n\n",
+			lines:          1,
+			expectedResult: "\n",
+		},
+		{
+			name:           "multiple trailing newlines - 2 lines",
+			content:        "a\n\n\n",
+			lines:          2,
+			expectedResult: "\n\n",
+		},
+		{
+			name:           "multiple trailing newlines - 3 lines",
+			content:        "a\n\n\n",
+			lines:          3,
+			expectedResult: "a\n\n\n",
 		},
 	}
 

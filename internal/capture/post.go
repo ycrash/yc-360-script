@@ -42,38 +42,112 @@ func PositionLast5000Lines(file *os.File) (err error) {
 	return PositionLastLines(file, 5000)
 }
 
+// PositionLastLines moves the file offset so that the next read returns the last n lines.
+//
+// Lines are separated by '\n'. If the file does not end with '\n', the final partial
+// line counts as a line. If the file ends with '\n', that newline is treated as the
+// terminator of the last line (not as an extra empty line).
+//
+// If the file has fewer than n lines, the offset is set to the beginning of the file.
+// If n == 0, the offset is set to end-of-file.
+// The function returns an error if any I/O operation fails.
 func PositionLastLines(file *os.File, n uint) (err error) {
-	var cursor int64 = 0
-	stat, err := file.Stat()
+	// n == 0: "last 0 lines" -> position at EOF
+	if n == 0 {
+		_, err := file.Seek(0, io.SeekEnd)
+		if err != nil {
+			return fmt.Errorf("seek to end: %w", err)
+		}
+		return nil
+	}
+
+	// Determine file size
+	fileSize, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return
+		return fmt.Errorf("seek to end: %w", err)
 	}
-	size := stat.Size()
-	char := make([]byte, 1)
-	lines := n
-	for {
-		cursor -= 1
-		_, err = file.Seek(cursor, io.SeekEnd)
+	if fileSize == 0 {
+		// Empty file: position at start
+		_, err := file.Seek(0, io.SeekStart)
 		if err != nil {
-			return
+			return fmt.Errorf("seek to start: %w", err)
 		}
-		_, err = file.Read(char)
-		if err != nil {
-			return
+		return nil
+	}
+
+	// Check whether the file ends with a newline
+	var lastByte [1]byte
+	if _, err := file.ReadAt(lastByte[:], fileSize-1); err != nil {
+		return fmt.Errorf("read last byte: %w", err)
+	}
+	endsWithNewline := lastByte[0] == '\n'
+
+	// To get the last n lines, we count newlines from the end:
+	// - If file ends with '\n': we want to find the (n+1)th newline from EOF,
+	//   then start reading after it. The trailing '\n' is the line terminator
+	//   for the last line, not an extra empty line.
+	// - If file doesn't end with '\n': we want the nth newline from EOF.
+	//
+	// Example: "a\nb\nc\n" with n=1 should give "c\n"
+	//   - We skip the trailing '\n' (line terminator)
+	//   - Find 1 more '\n' before it (the one after 'b')
+	//   - Start after that '\n' → "c\n"
+	//
+	// Example: "a\nb\nc" with n=1 should give "c"
+	//   - No trailing '\n'
+	//   - Find 1 '\n' from the end (the one after 'b')
+	//   - Start after that '\n' → "c"
+	targetNewlines := int(n)
+	if endsWithNewline {
+		targetNewlines = int(n) + 1
+	}
+
+	const bufferSize = 4096
+	buf := make([]byte, bufferSize)
+
+	newlinesSeen := 0
+	position := fileSize // position is the start offset of the next block to read
+
+	for position > 0 && newlinesSeen < targetNewlines {
+		// Determine how much to read
+		blockSize := bufferSize
+		if int64(blockSize) > position {
+			blockSize = int(position)
 		}
-		switch char[0] {
-		case '\r':
-		case '\n':
-			lines--
+
+		// Move to the previous block
+		position -= int64(blockSize)
+
+		// Read block at fixed position without changing the current file offset
+		nRead, err := file.ReadAt(buf[:blockSize], position)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("read chunk at %d: %w", position, err)
 		}
-		if lines == 0 {
-			return
-		}
-		if cursor == -size {
-			_, err = file.Seek(0, io.SeekStart)
-			return
+		chunk := buf[:nRead]
+
+		// Scan this chunk backwards for newline characters
+		for i := len(chunk) - 1; i >= 0; i-- {
+			if chunk[i] == '\n' {
+				newlinesSeen++
+				if newlinesSeen == targetNewlines {
+					// Start just after this newline
+					start := position + int64(i+1)
+					_, err := file.Seek(start, io.SeekStart)
+					if err != nil {
+						return fmt.Errorf("seek to %d: %w", start, err)
+					}
+					return nil
+				}
+			}
 		}
 	}
+
+	// Not enough newline characters: the whole file is within the last n lines
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("seek to start: %w", err)
+	}
+	return nil
 }
 
 func PostCustomData(endpoint, params string, file *os.File) (msg string, ok bool) {
