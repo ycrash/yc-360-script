@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"yc-agent/internal/config"
 )
 
 const dotnetGCOutputPath = "gc_output_%d.json"
@@ -40,11 +41,19 @@ func (d *DotnetGC) CaptureToFile() (*os.File, error) {
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	d.Duration = int(config.GlobalConfig.GcDuration)
+	fmt.Println("GC duration ->" + strconv.Itoa(d.Duration))
+	if d.Duration == 0 {
+		d.Duration = 30 // if duration 0, then set it to 30 seconds (default)
+		fmt.Println("GC duration set to ->" + strconv.Itoa(d.Duration))
+	}
+
 	// Build command arguments: -gc <pid> <output_path>
 	args := []string{
 		"-gc",
 		strconv.Itoa(d.Pid),
 		workDir,
+		strconv.Itoa(d.Duration),
 	}
 
 	// Execute the dotnet tool and capture output

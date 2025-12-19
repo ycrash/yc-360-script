@@ -104,6 +104,7 @@ type Options struct {
 	// Dotnet runtime support
 	AppRuntime     string `yaml:"appRuntime" usage:"Target application runtime: java (default) or dotnet"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
+	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
 
 type Command struct {
