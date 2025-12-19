@@ -72,7 +72,8 @@ func (t *HDSub) captureClassHistogram(w io.Writer) error {
 		return fmt.Errorf("failed to write section header: %w", err)
 	}
 
-	return t.executeJcmd(w, "GC.class_histogram -all")
+	//return t.executeJcmd(w, "GC.class_histogram -all")
+	return t.executeJcmd(w, "GC.class_histogram")
 }
 
 // captureSystemProperties captures VM.system_properties data to the writer.
