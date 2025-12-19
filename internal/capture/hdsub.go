@@ -43,9 +43,9 @@ func (t *HDSub) CaptureToFile() (*os.File, error) {
 	}
 
 	// Capture each section of data
-	if err := t.captureClassHistogram(file); err != nil {
-		logger.Log("Failed to capture class histogram: %v", err)
-	}
+	//if err := t.captureClassHistogram(file); err != nil {
+	//	logger.Log("Failed to capture class histogram: %v", err)
+	//}
 
 	if err := t.captureSystemProperties(file); err != nil {
 		logger.Log("Failed to capture system properties: %v", err)
