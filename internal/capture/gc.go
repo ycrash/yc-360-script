@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/config"
@@ -43,13 +42,8 @@ func (t *GC) Run() (result Result, err error) {
 		if gcFile == nil {
 			// Garbage collection log: Attempt 5: jstat
 			logger.Log("Trying to capture gc log using jstat...")
-
-			//time.Sleep(30 * time.Second)
-			logger.Log("Sleeping for 10 seconds before jstat...")
-			time.Sleep(time.Duration(10) * time.Second)
-			logger.Log("Exectuting jstat...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
-				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, executils.SudoHooker{PID: t.Pid})
+				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "5000", "10"}, executils.SudoHooker{PID: t.Pid})
 			if err != nil {
 				logger.Log("jstat failed cause %s", err.Error())
 			}
