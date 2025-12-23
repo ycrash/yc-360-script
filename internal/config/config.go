@@ -220,6 +220,36 @@ type AccessLogFormats []AccessLogFormat
 type AccessLogSource string
 type AccessLogSources []AccessLogSource
 
+// flag.Value for AccessLogs
+func (a *AccessLogs) String() string {
+	return fmt.Sprintf("%v", *a)
+}
+
+func (a *AccessLogs) Set(s string) error {
+	*a = append(*a, AccessLogPath(s))
+	return nil
+}
+
+// flag.Value for AccessLogFormats
+func (f *AccessLogFormats) String() string {
+	return fmt.Sprintf("%v", *f)
+}
+
+func (f *AccessLogFormats) Set(s string) error {
+	*f = append(*f, AccessLogFormat(s))
+	return nil
+}
+
+// flag.Value for AccessLogSources
+func (s *AccessLogSources) String() string {
+	return fmt.Sprintf("%v", *s)
+}
+
+func (s *AccessLogSources) Set(v string) error {
+	*s = append(*s, AccessLogSource(v))
+	return nil
+}
+
 func defaultConfig() Config {
 	return Config{
 		Options: Options{
@@ -360,6 +390,21 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			var appLogs AppLogs
 			flagSet.Var(&appLogs, name, usage)
 			result[i] = &appLogs
+			continue
+		case AccessLogs:
+			var accessLogs AccessLogs
+			flagSet.Var(&accessLogs, name, usage)
+			result[i] = &accessLogs
+			continue
+		case AccessLogFormats:
+			var formats AccessLogFormats
+			flagSet.Var(&formats, name, usage)
+			result[i] = &formats
+			continue
+		case AccessLogSources:
+			var sources AccessLogSources
+			flagSet.Var(&sources, name, usage)
+			result[i] = &sources
 			continue
 		case Duration:
 			durationPtr := field.Addr().Interface().(*Duration)
