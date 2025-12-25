@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -43,8 +44,12 @@ func (t *HDSub) CaptureToFile() (*os.File, error) {
 	}
 
 	// Capture each section of data
-	if err := t.captureClassHistogram(file); err != nil {
-		logger.Log("Failed to capture class histogram: %v", err)
+	if config.GlobalConfig.MinimalTouch {
+		logger.Log("MinimalTouch mode: skipping GC.class_histogram (CPU-intensive)")
+	} else {
+		if err := t.captureClassHistogram(file); err != nil {
+			logger.Log("Failed to capture class histogram: %v", err)
+		}
 	}
 
 	if err := t.captureSystemProperties(file); err != nil {

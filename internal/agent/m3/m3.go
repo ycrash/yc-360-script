@@ -283,20 +283,34 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	var jstat executils.CmdManager
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
-		gc, jstat, err = executils.CommandStartInBackgroundToFile(fn,
-			executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, executils.SudoHooker{PID: pid})
-		if err == nil {
-			gcPath = fn
-			logger.Log("gc log set to %s", gcPath)
-		} else {
+		// Skip jstat in MinimalTouch mode, but still try jattach fallback
+		if config.GlobalConfig.MinimalTouch {
+			logger.Log("MinimalTouch mode: skipping jstat GC capture for pid %d", pid)
+			// Proceed directly to jattach fallback
 			triedJAttachGC = true
-			logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
 			gc, jstat, err = captureGC(pid, gc, fn)
 			if err == nil {
 				gcPath = fn
 				logger.Log("jattach gc log set to %s", gcPath)
 			} else {
 				defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+			}
+		} else {
+			gc, jstat, err = executils.CommandStartInBackgroundToFile(fn,
+				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, executils.SudoHooker{PID: pid})
+			if err == nil {
+				gcPath = fn
+				logger.Log("gc log set to %s", gcPath)
+			} else {
+				triedJAttachGC = true
+				logger.Log("jstat failed cause %s, Trying to capture gc log using jattach...", err.Error())
+				gc, jstat, err = captureGC(pid, gc, fn)
+				if err == nil {
+					gcPath = fn
+					logger.Log("jattach gc log set to %s", gcPath)
+				} else {
+					defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
+				}
 			}
 		}
 	}

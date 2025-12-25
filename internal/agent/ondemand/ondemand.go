@@ -705,7 +705,11 @@ Resp: %s
 	//     Transmit Heap dump result
 	// -------------------------------
 	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
+	effectiveHd := hd && !config.GlobalConfig.MinimalTouch
+	if hd && config.GlobalConfig.MinimalTouch {
+		logger.Log("MinimalTouch mode: skipping heap dump capture (overriding -hd flag)")
+	}
+	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, effectiveHd)
 	capHeapDump.SetEndpoint(ep)
 	hdResult, err := capHeapDump.Run()
 	if err != nil {

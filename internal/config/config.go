@@ -56,7 +56,8 @@ type Options struct {
 	TDCaptureCmd string `yaml:"tdCaptureCmd" usage:"Thread dump capture command line to be executed"`
 	HDCaptureCmd string `yaml:"hdCaptureCmd" usage:"Heap dump capture command line to be executed"`
 
-	OnlyCapture bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
+	OnlyCapture  bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
+	MinimalTouch bool `yaml:"minimalTouch" usage:"Enable minimal-touch mode: skip CPU-intensive operations"`
 
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`

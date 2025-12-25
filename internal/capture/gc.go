@@ -39,8 +39,10 @@ func (t *GC) Run() (result Result, err error) {
 	}
 
 	if gcFile == nil && t.Pid > 0 {
-		if gcFile == nil {
-			// Garbage collection log: Attempt 5: jstat
+		// Attempt 5: jstat (skip in MinimalTouch mode)
+		if config.GlobalConfig.MinimalTouch {
+			logger.Log("MinimalTouch mode: skipping jstat GC capture (60-second sampling)")
+		} else {
 			logger.Log("Trying to capture gc log using jstat...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
 				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, executils.SudoHooker{PID: t.Pid})
@@ -48,8 +50,9 @@ func (t *GC) Run() (result Result, err error) {
 				logger.Log("jstat failed cause %s", err.Error())
 			}
 		}
+
+		// Attempt 6a: jattach (still enabled in MinimalTouch mode)
 		if gcFile == nil {
-			// Garbage collection log: Attempt 6a: jattach
 			logger.Log("Trying to capture gc log using jattach...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
 				executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
@@ -57,8 +60,9 @@ func (t *GC) Run() (result Result, err error) {
 				logger.Log("jattach failed cause %s", err.Error())
 			}
 		}
+
+		// Attempt 6b: tmp jattach (still enabled in MinimalTouch mode)
 		if gcFile == nil {
-			// Garbage collection log: Attempt 6b: tmp jattach
 			logger.Log("Trying to capture gc log using tmp jattach...")
 			var tempPath string
 			tempPath, err = executils.Copy2TempPath()
