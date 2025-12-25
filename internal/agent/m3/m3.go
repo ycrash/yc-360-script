@@ -209,7 +209,7 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 
 //nolint:unparam // error return kept for future error handling
 func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
-	logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
+	logger.Log("yc-360 script version: %s", executils.SCRIPT_VERSION)
 	logger.Log("yc-360 script starting in m3 mode...")
 
 	logger.Log("Starting collection of top data...")

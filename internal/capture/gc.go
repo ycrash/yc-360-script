@@ -391,14 +391,14 @@ func findLatestFileInRotatingLogFiles(gcPath string) string {
 	}
 
 	if err != nil {
-		logger.Log(err.Error())
+		logger.Log("%s", err.Error())
 	} else {
 		fileInfos := []os.FileInfo{}
 
 		for _, match := range matches {
 			fileInfo, err := os.Lstat(match)
 			if err != nil {
-				logger.Log(err.Error())
+				logger.Log("%s", err.Error())
 			}
 			fileInfos = append(fileInfos, fileInfo)
 		}

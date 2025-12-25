@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache: false  # golangci-lint-action handles its own caching
 
       - name: Run golangci-lint
@@ -45,7 +45,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache: true
 
       - name: Run go vet
@@ -62,7 +62,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache: true
 
       - name: Install staticcheck
@@ -75,7 +75,7 @@ jobs:
     name: Build (Alpine)
     runs-on: ubuntu-latest
     container:
-      image: golang:1.23-alpine
+      image: golang:1.25-alpine
 
     steps:
       - name: Install build dependencies
@@ -101,7 +101,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache: true
 
       - name: Install Java (for JVM tests)

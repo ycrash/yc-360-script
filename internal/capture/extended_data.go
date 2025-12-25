@@ -30,14 +30,14 @@ func (ed *ExtendedData) Run() (Result, error) {
 	// Ensure the data folder exists
 	if err := os.MkdirAll(ed.DataFolder, 0755); err != nil {
 		errMsg := fmt.Sprintf("ExtendedData: failed to create data folder %s: %v", ed.DataFolder, err)
-		logger.Log(errMsg)
+		logger.Log("%s", errMsg)
 		return Result{Msg: errMsg, Ok: false}, err
 	}
 
 	// Execute the custom script with timeout
 	if err := ed.executeScript(); err != nil {
 		errMsg := fmt.Sprintf("ExtendedData: error while executing custom script: %v", err)
-		logger.Log(errMsg)
+		logger.Log("%s", errMsg)
 		return Result{Msg: errMsg, Ok: false}, err
 	}
 
@@ -45,7 +45,7 @@ func (ed *ExtendedData) Run() (Result, error) {
 	err := ed.captureEdFiles()
 	if err != nil {
 		errMsg := fmt.Sprintf("ExtendedData: failed to capture files: %v", err)
-		logger.Log(errMsg)
+		logger.Log("%s", errMsg)
 		return Result{Msg: errMsg, Ok: false}, err
 	}
 
