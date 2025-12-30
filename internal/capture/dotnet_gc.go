@@ -5,9 +5,12 @@ import (
 	"os"
 	"strconv"
 	"yc-agent/internal/config"
+	"yc-agent/internal/logger"
 )
 
 const dotnetGCOutputPath = "gc_output_%d.json"
+
+//const dotnetGCOutputPath = "gc.log"
 
 // DotnetGC captures .NET garbage collection events.
 type DotnetGC struct {
@@ -42,13 +45,12 @@ func (d *DotnetGC) CaptureToFile() (*os.File, error) {
 	}
 
 	d.Duration = int(config.GlobalConfig.GcDuration)
-	fmt.Println("GC duration ->" + strconv.Itoa(d.Duration))
 	if d.Duration == 0 {
 		d.Duration = 30 // if duration 0, then set it to 30 seconds (default)
-		fmt.Println("GC duration set to ->" + strconv.Itoa(d.Duration))
 	}
 
-	// Build command arguments: -gc <pid> <output_path>
+	logger.Log(".net gc duration %d", d.Duration)
+	// Build command arguments: -gc <pid> <output_path> duration
 	args := []string{
 		"-gc",
 		strconv.Itoa(d.Pid),

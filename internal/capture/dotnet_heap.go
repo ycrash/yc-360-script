@@ -8,6 +8,8 @@ import (
 
 const dotnetHeapOutputPath = "heap_stats_%d.json"
 
+//const dotnetHeapOutputPath = "hdsub.out"
+
 // DotnetHeap captures .NET heap statistics.
 type DotnetHeap struct {
 	Capture
