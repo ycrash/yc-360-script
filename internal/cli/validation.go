@@ -34,8 +34,8 @@ func validate() error {
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
 		return ErrInvalidArgumentCantContinue
-
-		// .NET runtime validation
+	}
+	// .NET runtime validation
 	if config.GlobalConfig.AppRuntime == "dotnet" {
 		if runtime.GOOS != "windows" {
 			logger.Warn().Str("os", runtime.GOOS).Msg(".NET capture is only supported on Windows")
