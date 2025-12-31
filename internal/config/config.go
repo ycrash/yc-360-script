@@ -100,7 +100,13 @@ type Options struct {
 	// Access log
 	AccessLogs       AccessLogs       `yaml:"accessLogs" usage:"Access log file paths"`
 	AccessLogFormats AccessLogFormats `yaml:"accessLogFormats" usage:"Access log formats corresponding to access log files"`
+
 	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
+
+	// Dotnet runtime support
+	AppRuntime     string `yaml:"appRuntime" usage:"Target application runtime: java (default) or dotnet"`
+	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
+	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
 
 type Command struct {
@@ -266,6 +272,8 @@ func defaultConfig() Config {
 			TDCaptureDuration: Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
 			CmdTimeout:        Duration(60 * time.Second),
 			HttpClientTimeout: Duration(60 * time.Second),
+			AppRuntime:        "java",
+			DotnetToolPath:    "", // Empty string, will auto-discover during validation
 		},
 	}
 }

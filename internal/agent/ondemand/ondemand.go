@@ -246,8 +246,13 @@ Ignored errors: %v
 		logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
 		logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
 		logger.Log("APP_NAME is %s", appName)
-		logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
-		logger.Log("GC_LOG is %s", gcPath)
+		logger.Log("APP_RUNTIME is %s", config.GlobalConfig.AppRuntime)
+		if config.GlobalConfig.AppRuntime == "java" {
+			logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
+			logger.Log("GC_LOG is %s", gcPath)
+		} else if config.GlobalConfig.AppRuntime == "dotnet" {
+			logger.Log("DOTNET_TOOL_PATH is %s", config.GlobalConfig.DotnetToolPath)
+		}
 		if len(dockerID) > 0 {
 			logger.Log("DOCKER_ID is %s", dockerID)
 		}
@@ -274,15 +279,59 @@ Ignored errors: %v
 		}
 	}
 
-	// ------------------------------------------------------------------------------
-	//   				Capture gc
-	// ------------------------------------------------------------------------------
-	gc := goCapture(endpoint, capture.WrapRun(&capture.GC{
-		Pid:      pid,
-		JavaHome: config.GlobalConfig.JavaHomePath,
-		DockerID: dockerID,
-		GCPath:   gcPath,
-	}))
+	// Runtime-specific captures
+	var gc chan capture.Result
+	var threadDump chan capture.Result
+	var hdsubLog chan capture.Result
+
+	if config.GlobalConfig.AppRuntime == "dotnet" {
+		// ------------------------------------------------------------------------------
+		//   				.NET runtime captures
+		// ------------------------------------------------------------------------------
+		logger.Log("Executing .NET runtime captures...")
+
+		// Capture .NET GC events (30 second duration)
+		gc = goCapture(endpoint, capture.WrapRun(&capture.DotnetGC{
+			Pid:      pid,
+			Duration: 30,
+		}))
+
+		// Capture .NET heap statistics
+		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHeap{
+			Pid: pid,
+		}))
+
+		// Capture .NET thread dump
+		threadDump = goCapture(endpoint, capture.WrapRun(&capture.DotnetThread{
+			Pid: pid,
+		}))
+	} else {
+		// ------------------------------------------------------------------------------
+		//   				Java runtime captures (default)
+		// ------------------------------------------------------------------------------
+		// Capture gc
+		gc = goCapture(endpoint, capture.WrapRun(&capture.GC{
+			Pid:      pid,
+			JavaHome: config.GlobalConfig.JavaHomePath,
+			DockerID: dockerID,
+			GCPath:   gcPath,
+		}))
+
+		// Capture thread dumps
+		capThreadDump := &capture.ThreadDump{
+			Pid:               pid,
+			TdPath:            tdPath,
+			JavaHome:          config.GlobalConfig.JavaHomePath,
+			TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
+		}
+		threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+
+		// Capture hdsub log
+		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.HDSub{
+			Pid:      pid,
+			JavaHome: config.GlobalConfig.JavaHomePath,
+		}))
+	}
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
 	var capTop *capture.Top
@@ -290,7 +339,6 @@ Ignored errors: %v
 	var capVMStat *capture.VMStat
 	var vmstat chan capture.Result
 	var dmesg chan capture.Result
-	var threadDump chan capture.Result
 	var capPS *capture.PS
 	var ps chan capture.Result
 	var disk chan capture.Result
@@ -347,17 +395,6 @@ Ignored errors: %v
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
 	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
-
-	// ------------------------------------------------------------------------------
-	//   				Capture thread dumps
-	// ------------------------------------------------------------------------------
-	capThreadDump := &capture.ThreadDump{
-		Pid:               pid,
-		TdPath:            tdPath,
-		JavaHome:          config.GlobalConfig.JavaHomePath,
-		TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
-	}
-	threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
 
 	useGlobalConfigAppLogs := false
 	// ------------------------------------------------------------------------------
@@ -471,14 +508,6 @@ Falling back to capture all configured appLogs without appName filtering.`)
 
 		appLogs = goCapture(endpoint, capture.WrapRun(&capture.AppLog{Paths: paths, LineLimit: config.GlobalConfig.AppLogLineCount}))
 	}
-
-	// ------------------------------------------------------------------------------
-	//   				Capture hdsub log
-	// ------------------------------------------------------------------------------
-	hdsubLog := goCapture(endpoint, capture.WrapRun(&capture.HDSub{
-		Pid:      pid,
-		JavaHome: config.GlobalConfig.JavaHomePath,
-	}))
 
 	// ------------------------------------------------------------------------------
 	//   				Capture Extended Data
@@ -702,23 +731,25 @@ Resp: %s
 	}
 
 	// -------------------------------
-	//     Transmit Heap dump result
+	//     Transmit Heap dump result (Java only)
 	// -------------------------------
-	ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
-	capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
-	capHeapDump.SetEndpoint(ep)
-	hdResult, err := capHeapDump.Run()
-	if err != nil {
-		hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
-		err = nil
-	}
-	logger.Log(
-		`HEAP DUMP DATA
+	if config.GlobalConfig.AppRuntime != "dotnet" {
+		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
+		capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, hd)
+		capHeapDump.SetEndpoint(ep)
+		hdResult, err := capHeapDump.Run()
+		if err != nil {
+			hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
+			err = nil
+		}
+		logger.Log(
+			`HEAP DUMP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, hdResult.Ok, hdResult.Msg)
+	}
 
 	// -------------------------------
 	//     Transmit Extended Data
