@@ -283,7 +283,7 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	var jstat executils.CmdManager
 	var triedJAttachGC bool
 	if gc == nil || err != nil {
-		// Skip jstat in MinimalTouch mode, but still try jattach fallback
+		// Skip jstat and jattach in MinimalTouch mode (both are CPU-intensive)
 		if config.GlobalConfig.MinimalTouch {
 			logger.Log("MinimalTouch mode: skipping jstat GC capture for pid %d", pid)
 
@@ -299,6 +299,9 @@ func uploadGCLogM3(endpoint string, pid int) string {
 			//	defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
 			//}
 
+			logger.Log("MinimalTouch mode: skipping jstat and jattach GC capture for pid %d (CPU-intensive operations)", pid)
+			triedJAttachGC = true
+			defer logger.Log("WARNING: no -gcPath is passed and MinimalTouch mode skipped jstat/jattach capture")
 		} else {
 			gc, jstat, err = executils.CommandStartInBackgroundToFile(fn,
 				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(pid), "2000", "30"}, executils.SudoHooker{PID: pid})
