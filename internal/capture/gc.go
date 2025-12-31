@@ -51,8 +51,8 @@ func (t *GC) Run() (result Result, err error) {
 			}
 		}
 
-		// Attempt 6a: jattach (still enabled in MinimalTouch mode)
-		if gcFile == nil {
+		// Attempt 6a: jattach (skip in MinimalTouch mode - uses jcmd GC.class_stats which is CPU-intensive)
+		if gcFile == nil && !config.GlobalConfig.MinimalTouch {
 			logger.Log("Trying to capture gc log using jattach...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
 				executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
@@ -61,8 +61,8 @@ func (t *GC) Run() (result Result, err error) {
 			}
 		}
 
-		// Attempt 6b: tmp jattach (still enabled in MinimalTouch mode)
-		if gcFile == nil {
+		// Attempt 6b: tmp jattach (skip in MinimalTouch mode - uses jcmd GC.class_stats which is CPU-intensive)
+		if gcFile == nil && !config.GlobalConfig.MinimalTouch {
 			logger.Log("Trying to capture gc log using tmp jattach...")
 			var tempPath string
 			tempPath, err = executils.Copy2TempPath()
@@ -74,6 +74,10 @@ func (t *GC) Run() (result Result, err error) {
 			if err != nil {
 				logger.Log("tmp jattach failed cause %s", err.Error())
 			}
+		}
+
+		if config.GlobalConfig.MinimalTouch && gcFile == nil {
+			logger.Log("MinimalTouch mode: skipping jattach GC capture for pid %d (uses jcmd GC.class_stats which is CPU-intensive)", t.Pid)
 		}
 
 		if gcFile != nil {
