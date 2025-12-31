@@ -46,7 +46,10 @@ It's easy to get started with the yc-360 script. Just follow the simple steps gi
 	<summary><strong>Linux</strong></summary></br>
 	
 <strong>1. Create a directory for yc-360 script </strong>
-
+```sh
+mkdir -p /opt/workspace/yc-360
+cd /opt/workspace/yc-360
+```
 <strong>2. Download the latest yc-360 script</strong>
 
 ```sh
@@ -89,7 +92,10 @@ When you execute the below command, the yc-360 script will capture all the artif
 	<summary><strong>MacOS</strong></summary></br>
 	
 <strong>1. Create a directory for yc-360 script </strong>
-
+```sh
+mkdir -p /opt/workspace/yc-360
+cd /opt/workspace/yc-360
+```
 <strong>2. Download the latest yc-360 script</strong>
 
 ```sh
