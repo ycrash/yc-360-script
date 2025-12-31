@@ -285,20 +285,6 @@ func uploadGCLogM3(endpoint string, pid int) string {
 	if gc == nil || err != nil {
 		// Skip jstat and jattach in MinimalTouch mode (both are CPU-intensive)
 		if config.GlobalConfig.MinimalTouch {
-			logger.Log("MinimalTouch mode: skipping jstat GC capture for pid %d", pid)
-
-			// As per Mahesh instruction on 31-12-2025 to skip jattach fallback as well
-			//
-			// Proceed directly to jattach fallback
-			//triedJAttachGC = true
-			//gc, jstat, err = captureGC(pid, gc, fn)
-			//if err == nil {
-			//	gcPath = fn
-			//	logger.Log("jattach gc log set to %s", gcPath)
-			//} else {
-			//	defer logger.Log("WARNING: no -gcPath is passed and failed to capture gc log: %s", err.Error())
-			//}
-
 			logger.Log("MinimalTouch mode: skipping jstat and jattach GC capture for pid %d (CPU-intensive operations)", pid)
 			triedJAttachGC = true
 			defer logger.Log("WARNING: no -gcPath is passed and MinimalTouch mode skipped jstat/jattach capture")
