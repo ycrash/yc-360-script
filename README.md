@@ -45,16 +45,22 @@ It's easy to get started with the yc-360 script. Just follow the simple steps gi
 <details>
 	<summary><strong>Linux</strong></summary></br>
 	
-<strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip)
+<strong>1. Create a directory for yc-360 script </strong>
 
-<strong>2. Extract:</strong> Unzip the package and navigate to the linux directory:
+<strong>2. Download the latest yc-360 script</strong>
+
+```sh
+wget https://tier1app.com/dist/ycrash/yc-360-latest.zip
+```
+
+<strong>3. Extract the downloaded zip file </strong>
 
 ```sh
 unzip yc-360-latest.zip
-cd linux
 ```
+<strong>4.</strong> After unzipping, navigate to the <strong>linux</strong> directory. Inside this directory, select the yc-360 script that matches your server's architecture (`amd64` or `arm64`).
 
-<strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
+<strong>5. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
@@ -82,16 +88,22 @@ When you execute the below command, the yc-360 script will capture all the artif
 <details>
 	<summary><strong>MacOS</strong></summary></br>
 	
-<strong>1. Download:</strong> Download the latest version of the yc-360 script from [here](https://tier1app.com/dist/ycrash/yc-360-latest.zip).
+<strong>1. Create a directory for yc-360 script </strong>
 
-<strong>2. Extract:</strong> Unzip the package and navigate to the mac directory:
+<strong>2. Download the latest yc-360 script</strong>
+
+```sh
+wget https://tier1app.com/dist/ycrash/yc-360-latest.zip
+```
+
+<strong>3. Extract the downloaded zip file </strong>
 
 ```sh
 unzip yc-360-latest.zip
-cd mac
 ```
+<strong>4.</strong> After unzipping, navigate to the <strong>mac</strong> directory. Inside this directory, select the yc-360 script that matches your server's architecture (`amd64` or `arm64`).
 
-<strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
+<strong>5. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
