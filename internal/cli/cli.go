@@ -32,7 +32,7 @@ func Run() {
 	logCLIArguments()
 
 	if config.GlobalConfig.ShowVersion {
-		logger.Log("yc-360 script version: " + executils.SCRIPT_VERSION)
+		logger.Log("yc-360 script version: %s", executils.SCRIPT_VERSION)
 		return
 	}
 

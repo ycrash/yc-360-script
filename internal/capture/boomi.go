@@ -128,14 +128,14 @@ func CaptureBoomiDetails(endpoint string, timestamp string, pid int) {
 	output := BoomiExecutionOutput{pid: pid}
 	outputFile, err := output.CreateFile()
 	if err != nil {
-		logger.Log(err.Error())
+		logger.Log("%s", err.Error())
 		return
 	}
 	defer output.CloseFile()
 
 	executionRecords, err := fetchBoomiExecutionRecords(boomiUserName, boomiPassword, boomiURL)
 	if err != nil {
-		logger.Log(err.Error())
+		logger.Log("%s", err.Error())
 		return
 	}
 

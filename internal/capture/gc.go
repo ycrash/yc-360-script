@@ -39,8 +39,10 @@ func (t *GC) Run() (result Result, err error) {
 	}
 
 	if gcFile == nil && t.Pid > 0 {
-		if gcFile == nil {
-			// Garbage collection log: Attempt 5: jstat
+		// Attempt 5: jstat (skip in MinimalTouch mode)
+		if config.GlobalConfig.MinimalTouch {
+			logger.Log("MinimalTouch mode: skipping jstat GC capture (60-second sampling)")
+		} else {
 			logger.Log("Trying to capture gc log using jstat...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
 				executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/jstat"), "-gc", "-t", strconv.Itoa(t.Pid), "2000", "30"}, executils.SudoHooker{PID: t.Pid})
@@ -48,8 +50,9 @@ func (t *GC) Run() (result Result, err error) {
 				logger.Log("jstat failed cause %s", err.Error())
 			}
 		}
-		if gcFile == nil {
-			// Garbage collection log: Attempt 6a: jattach
+
+		// Attempt 6a: jattach (skip in MinimalTouch mode - uses jcmd GC.class_stats which is CPU-intensive)
+		if gcFile == nil && !config.GlobalConfig.MinimalTouch {
 			logger.Log("Trying to capture gc log using jattach...")
 			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
 				executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
@@ -57,8 +60,9 @@ func (t *GC) Run() (result Result, err error) {
 				logger.Log("jattach failed cause %s", err.Error())
 			}
 		}
-		if gcFile == nil {
-			// Garbage collection log: Attempt 6b: tmp jattach
+
+		// Attempt 6b: tmp jattach (skip in MinimalTouch mode - uses jcmd GC.class_stats which is CPU-intensive)
+		if gcFile == nil && !config.GlobalConfig.MinimalTouch {
 			logger.Log("Trying to capture gc log using tmp jattach...")
 			var tempPath string
 			tempPath, err = executils.Copy2TempPath()
@@ -70,6 +74,10 @@ func (t *GC) Run() (result Result, err error) {
 			if err != nil {
 				logger.Log("tmp jattach failed cause %s", err.Error())
 			}
+		}
+
+		if config.GlobalConfig.MinimalTouch && gcFile == nil {
+			logger.Log("MinimalTouch mode: skipping jattach GC capture for pid %d (uses jcmd GC.class_stats which is CPU-intensive)", t.Pid)
 		}
 
 		if gcFile != nil {
@@ -387,14 +395,14 @@ func findLatestFileInRotatingLogFiles(gcPath string) string {
 	}
 
 	if err != nil {
-		logger.Log(err.Error())
+		logger.Log("%s", err.Error())
 	} else {
 		fileInfos := []os.FileInfo{}
 
 		for _, match := range matches {
 			fileInfo, err := os.Lstat(match)
 			if err != nil {
-				logger.Log(err.Error())
+				logger.Log("%s", err.Error())
 			}
 			fileInfos = append(fileInfos, fileInfo)
 		}
