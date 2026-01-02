@@ -45,27 +45,27 @@ func (t *HDSub) CaptureToFile() (*os.File, error) {
 
 	// Capture each section of data
 	if config.GlobalConfig.MinimalTouch {
-		logger.Log("MinimalTouch mode: skipping GC.class_histogram (CPU-intensive)")
+		logger.Log("MinimalTouch mode: skipping hdsub (CPU-intensive)")
 	} else {
 		if err := t.captureClassHistogram(file); err != nil {
 			logger.Log("Failed to capture class histogram: %v", err)
 		}
-	}
 
-	if err := t.captureSystemProperties(file); err != nil {
-		logger.Log("Failed to capture system properties: %v", err)
-	}
+		if err := t.captureSystemProperties(file); err != nil {
+			logger.Log("Failed to capture system properties: %v", err)
+		}
 
-	if err := t.captureHeapInfo(file); err != nil {
-		logger.Log("Failed to capture heap info: %v", err)
-	}
+		if err := t.captureHeapInfo(file); err != nil {
+			logger.Log("Failed to capture heap info: %v", err)
+		}
 
-	if err := t.captureVMFlags(file); err != nil {
-		logger.Log("Failed to capture VM flags: %v", err)
-	}
+		if err := t.captureVMFlags(file); err != nil {
+			logger.Log("Failed to capture VM flags: %v", err)
+		}
 
-	if err := t.syncFile(file); err != nil {
-		logger.Log("warning: failed to sync file: %v", err)
+		if err := t.syncFile(file); err != nil {
+			logger.Log("warning: failed to sync file: %v", err)
+		}
 	}
 
 	return file, nil
