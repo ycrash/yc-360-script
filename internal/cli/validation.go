@@ -35,8 +35,9 @@ func validate() error {
 		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
 		return ErrInvalidArgumentCantContinue
 	}
-	// .NET runtime validation
-	if config.GlobalConfig.AppRuntime == "dotnet" {
+	// Runtime-specific validation
+	switch config.GlobalConfig.AppRuntime {
+	case "dotnet":
 		if runtime.GOOS != "windows" {
 			logger.Warn().Str("os", runtime.GOOS).Msg(".NET capture is only supported on Windows")
 			return ErrInvalidArgumentCantContinue
@@ -61,7 +62,7 @@ func validate() error {
 			logger.Warn().Msg("Alternatively, specify the path using -dotnetToolPath argument")
 			return ErrInvalidArgumentCantContinue
 		}
-	} else if config.GlobalConfig.AppRuntime == "java" {
+	case "java":
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 		}

@@ -10,7 +10,7 @@ import (
 
 const dotnetGCOutputPath = "gc_output_%d.json"
 
-//const dotnetGCOutputPath = "gc.log"
+// const dotnetGCOutputPath = "gc.log"
 
 // DotnetGC captures .NET garbage collection events.
 type DotnetGC struct {

@@ -247,10 +247,11 @@ Ignored errors: %v
 		logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
 		logger.Log("APP_NAME is %s", appName)
 		logger.Log("APP_RUNTIME is %s", config.GlobalConfig.AppRuntime)
-		if config.GlobalConfig.AppRuntime == "java" {
+		switch config.GlobalConfig.AppRuntime {
+		case "java":
 			logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
 			logger.Log("GC_LOG is %s", gcPath)
-		} else if config.GlobalConfig.AppRuntime == "dotnet" {
+		case "dotnet":
 			logger.Log("DOTNET_TOOL_PATH is %s", config.GlobalConfig.DotnetToolPath)
 		}
 		if len(dockerID) > 0 {
@@ -744,7 +745,6 @@ Resp: %s
 		hdResult, err := capHeapDump.Run()
 		if err != nil {
 			hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())
-			err = nil
 		}
 		logger.Log(
 			`HEAP DUMP DATA

@@ -8,7 +8,7 @@ import (
 
 const dotnetThreadOutputPath = "thread_dump_%d.json"
 
-//const dotnetThreadOutputPath = "threaddump.out"
+// const dotnetThreadOutputPath = "threaddump.out"
 
 // DotnetThread captures .NET thread dump.
 type DotnetThread struct {

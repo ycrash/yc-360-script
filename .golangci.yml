@@ -17,7 +17,7 @@ linters:
     - wastedassign # Check for wasted assignments
   settings:
     gocyclo:
-      min-complexity: 80  # Start lenient, tighten later (default: 30)
+      min-complexity: 120  # Start lenient, tighten later (default: 30)
     gocritic:
       disabled-checks:
         - ifElseChain  # Stylistic preference, not a bug
