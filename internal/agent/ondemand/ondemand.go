@@ -2,8 +2,6 @@ package ondemand
 
 import (
 	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -1034,25 +1032,14 @@ func RequestFin(endpoint string) (resp []byte, err error) {
 		err = errors.New("in only capture mode")
 		return
 	}
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+
+	httpClient, err := capture.NewYcrashHTTPClient()
+	if err != nil {
+		return
 	}
-	path := config.GlobalConfig.CACertPath
-	if len(path) > 0 {
-		pool := x509.NewCertPool()
-		var ca []byte
-		ca, err = os.ReadFile(path)
-		if err != nil {
-			return
-		}
-		pool.AppendCertsFromPEM(ca)
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-		Timeout:   config.GlobalConfig.HttpClientTimeout.Duration(),
-	}
+
+	httpClient.Timeout = config.GlobalConfig.HttpClientTimeout.Duration()
+
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
 		return

@@ -3,6 +3,7 @@ package cli
 import "C"
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,7 @@ func validate() error {
 		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
 		return ErrInvalidArgumentCantContinue
 	}
+
 	// Runtime-specific validation
 	switch config.GlobalConfig.AppRuntime {
 	case "dotnet":
@@ -114,6 +116,12 @@ func validate() error {
 			logger.Log("edDataFolder: %s", edDataFolderAbs)
 			return ErrInvalidArgumentCantContinue
 		}
+	}
+
+	// Validate tls cert
+	if (config.GlobalConfig.TLSCertPath != "" && config.GlobalConfig.TLSKeyPath == "") ||
+		(config.GlobalConfig.TLSCertPath == "" && config.GlobalConfig.TLSKeyPath != "") {
+		return fmt.Errorf("both -tlsCertPath and -tlsKeyPath must be specified for mTLS")
 	}
 
 	return nil

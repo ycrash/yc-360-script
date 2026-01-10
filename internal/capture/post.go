@@ -183,25 +183,14 @@ func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os
 	}
 
 	url := fmt.Sprintf("%s&%s", endpoint, params)
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+
+	httpClient, err := NewYcrashHTTPClient()
+	if err != nil {
+		msg = err.Error()
+		return
 	}
-	path := config.GlobalConfig.CACertPath
-	if len(path) > 0 {
-		pool := x509.NewCertPool()
-		ca, err := os.ReadFile(path)
-		if err != nil {
-			msg = err.Error()
-			return
-		}
-		pool.AppendCertsFromPEM(ca)
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
-	}
+	httpClient.Timeout = timeout
+
 	err = position(file)
 	if err != nil {
 		msg = fmt.Sprintf("PostData position err %s", err.Error())
@@ -239,25 +228,14 @@ func GetData(endpoint string) (msg string, ok bool) {
 		msg = "in only capture mode"
 		return
 	}
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+
+	httpClient, err := NewYcrashHTTPClient()
+	if err != nil {
+		msg = err.Error()
+		return
 	}
-	path := config.GlobalConfig.CACertPath
-	if len(path) > 0 {
-		pool := x509.NewCertPool()
-		ca, err := os.ReadFile(path)
-		if err != nil {
-			msg = err.Error()
-			return
-		}
-		pool.AppendCertsFromPEM(ca)
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	httpClient := &http.Client{
-		Transport: transport,
-		Timeout:   config.GlobalConfig.HttpClientTimeout.Duration(),
-	}
+	httpClient.Timeout = config.GlobalConfig.CmdTimeout.Duration()
+
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		msg = fmt.Sprintf("GetData new req err %s", err.Error())
@@ -282,4 +260,41 @@ func GetData(endpoint string) (msg string, ok bool) {
 		ok = true
 	}
 	return
+}
+
+func NewYcrashHTTPClient() (*http.Client, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+	}
+
+	if config.GlobalConfig.CACertPath != "" {
+		pool := x509.NewCertPool()
+		ca, err := os.ReadFile(config.GlobalConfig.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert: %w", err)
+		}
+		if !pool.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("failed to parse CA cert from %s", config.GlobalConfig.CACertPath)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	// Load client certificate for mTLS (optional)
+	if config.GlobalConfig.TLSCertPath != "" && config.GlobalConfig.TLSKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.GlobalConfig.TLSCertPath, config.GlobalConfig.TLSKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TLS client certificate: %w", err)
+		}
+
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
+
+	client := &http.Client{
+		Transport: transport,
+	}
+
+	return client, nil
 }

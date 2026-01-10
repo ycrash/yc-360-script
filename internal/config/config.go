@@ -37,8 +37,10 @@ type Options struct {
 
 	Commands []Command `yaml:"cmds" usage:"Custom commands to be executed"`
 
-	VerifySSL  bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate"`
-	CACertPath string `yaml:"caCertPath" usage:"The CA Cert Path"`
+	VerifySSL   bool   `yaml:"verifySSL" usage:"Verifying the server SSL certificate"`
+	CACertPath  string `yaml:"caCertPath" usage:"The CA Cert Path"`
+	TLSCertPath string `yaml:"tlsCertPath" usage:"Path to TLS client certificate file (PEM format) for yCrash Server authentication"`
+	TLSKeyPath  string `yaml:"tlsKeyPath" usage:"Path to TLS client private key file (PEM format) for yCrash Server authentication"`
 
 	M3                   bool          `arg:"m3" usage:"Run in m3 mode, default is false"`
 	M3Frequency          Duration      `yaml:"m3Frequency" usage:"Frequency of m3 mode, default is 3 minutes"`
