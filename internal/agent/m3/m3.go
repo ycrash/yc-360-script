@@ -530,7 +530,6 @@ func (m3 *M3App) uploadAccessLogM3(endpoint string, pid int, appName string) {
 		if found {
 			accessLogPath = beforeSearchToken
 		}
-		logger.Log("Found access log path: %s", accessLogPath)
 	}
 
 	if accessLogPath == "" {
