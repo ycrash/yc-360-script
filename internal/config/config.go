@@ -469,3 +469,21 @@ func ShowUsage() {
 	flagSet, _ := registerFlags(os.Args[0])
 	flagSet.Usage()
 }
+
+// IsMTLSEnabled returns true if mTLS is configured (both TLSCertPath and TLSKeyPath are set)
+func IsMTLSEnabled() bool {
+	return GlobalConfig.TLSCertPath != "" && GlobalConfig.TLSKeyPath != ""
+}
+
+// GetOrgUnit extracts the organization unit from the ApiKey when mTLS is enabled.
+// Returns empty string if mTLS is not enabled or ApiKey doesn't contain '@'
+func GetOrgUnit() string {
+	if !IsMTLSEnabled() {
+		return ""
+	}
+	idx := strings.Index(GlobalConfig.ApiKey, "@")
+	if idx == -1 {
+		return ""
+	}
+	return GlobalConfig.ApiKey[:idx]
+}

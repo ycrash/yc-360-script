@@ -47,6 +47,9 @@ func calDuration4Distribution(ip net.IP) time.Duration {
 func AttendWithType(typ string) (string, bool) {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
+	if config.IsMTLSEnabled() {
+		parameters += "&orgUnit=" + config.GetOrgUnit()
+	}
 	endpoint := fmt.Sprintf("%s/yc-attendance?type=%s&%s",
 		config.GlobalConfig.Server, typ, parameters)
 	if config.GlobalConfig.M3 {

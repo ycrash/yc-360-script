@@ -104,6 +104,9 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) 
 			// parameters = fmt.Sprintf("de=%s&ts=%s", getOutboundIP().String(), tsParam)
 			timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
 			parameters = fmt.Sprintf("de=%s&ts=%s&timezoneId=%s", getOutboundIP().String(), tsParam, timezoneBase64)
+			if config.IsMTLSEnabled() {
+				parameters += "&orgUnit=" + config.GetOrgUnit()
+			}
 			endpoint = fmt.Sprintf("%s/ycrash-receiver?%s", config.GlobalConfig.Server, parameters)
 		}
 

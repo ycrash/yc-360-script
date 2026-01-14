@@ -204,6 +204,11 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	timezoneBase64 := base64.StdEncoding.EncodeToString([]byte(timezone))
 	parameters += "&timezoneID=" + timezoneBase64
 
+	// Add orgUnit parameter only when mTLS is enabled
+	if config.IsMTLSEnabled() {
+		parameters += "&orgUnit=" + config.GetOrgUnit()
+	}
+
 	return parameters
 }
 
