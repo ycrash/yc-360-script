@@ -225,11 +225,23 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 	if len(pids) > 0 {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
 		for pid, appName := range pids {
-			logger.Log("uploading gc log for pid %d", pid)
-			gcPath := uploadGCLogM3(endpoint, pid)
+			var gcPath string
+			if config.GlobalConfig.AppRuntime == "dotnet" {
+				logger.Log("uploading dotnet gc for pid %d", pid)
+				uploadDotnetGCM3(endpoint, pid)
 
-			logger.Log("uploading thread dump for pid %d", pid)
-			uploadThreadDumpM3(endpoint, pid, true)
+				logger.Log("uploading dotnet thread dump for pid %d", pid)
+				uploadDotnetThreadM3(endpoint, pid)
+
+				logger.Log("uploading dotnet heap stats for pid %d", pid)
+				uploadDotnetHeapM3(endpoint, pid)
+			} else {
+				logger.Log("uploading gc log for pid %d", pid)
+				gcPath = uploadGCLogM3(endpoint, pid)
+
+				logger.Log("uploading thread dump for pid %d", pid)
+				uploadThreadDumpM3(endpoint, pid, true)
+			}
 
 			logger.Log("Starting collection of app logs data...")
 			m3.uploadAppLogM3(endpoint, pid, appName, gcPath)
@@ -728,4 +740,56 @@ func getMatchingNamespace(podName string) string {
 		}
 	}
 	return ""
+}
+
+func uploadDotnetGCM3(endpoint string, pid int) {
+	dotnetGCCapture := &capture.DotnetGC{
+		Pid:      pid,
+		Duration: 30,
+	}
+
+	chanDotnetGCCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetGCCapture))
+
+	result := <-chanDotnetGCCapture
+	logger.Log(
+		`.NET GC LOG DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+}
+
+func uploadDotnetThreadM3(endpoint string, pid int) {
+	dotnetTDCapture := &capture.DotnetThread{
+		Pid: pid,
+	}
+
+	chanDotnetTDCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetTDCapture))
+
+	result := <-chanDotnetTDCapture
+	logger.Log(
+		`.NET THREAD DUMP DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+}
+
+func uploadDotnetHeapM3(endpoint string, pid int) {
+	dotnetHeapCapture := &capture.DotnetHeap{
+		Pid: pid,
+	}
+
+	chanDotnetHeapCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetHeapCapture))
+
+	result := <-chanDotnetHeapCapture
+	logger.Log(
+		`.NET HDSUB DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
 }
