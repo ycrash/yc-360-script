@@ -3,7 +3,6 @@ package cli
 import "C"
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,7 +120,48 @@ func validate() error {
 	// Validate tls cert
 	if (config.GlobalConfig.TLSCertPath != "" && config.GlobalConfig.TLSKeyPath == "") ||
 		(config.GlobalConfig.TLSCertPath == "" && config.GlobalConfig.TLSKeyPath != "") {
-		return fmt.Errorf("both -tlsCertPath and -tlsKeyPath must be specified for mTLS")
+		logger.Error().Msg("both -tlsCertPath and -tlsKeyPath must be specified for mTLS")
+		return ErrInvalidArgumentCantContinue
+	}
+
+	// Convert TLS certificate paths to absolute paths and verify they exist
+	if config.GlobalConfig.CACertPath != "" {
+		absPath, err := filepath.Abs(config.GlobalConfig.CACertPath)
+		if err != nil {
+			logger.Error().Msgf("Failed to resolve caCertPath '%s': %v", config.GlobalConfig.CACertPath, err)
+			return ErrInvalidArgumentCantContinue
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			logger.Error().Msgf("CA certificate file not found at '%s'", absPath)
+			return ErrInvalidArgumentCantContinue
+		}
+		config.GlobalConfig.CACertPath = absPath
+	}
+
+	if config.GlobalConfig.TLSCertPath != "" {
+		absPath, err := filepath.Abs(config.GlobalConfig.TLSCertPath)
+		if err != nil {
+			logger.Error().Msgf("Failed to resolve tlsCertPath '%s': %v", config.GlobalConfig.TLSCertPath, err)
+			return ErrInvalidArgumentCantContinue
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			logger.Error().Msgf("TLS certificate file not found at '%s'", absPath)
+			return ErrInvalidArgumentCantContinue
+		}
+		config.GlobalConfig.TLSCertPath = absPath
+	}
+
+	if config.GlobalConfig.TLSKeyPath != "" {
+		absPath, err := filepath.Abs(config.GlobalConfig.TLSKeyPath)
+		if err != nil {
+			logger.Error().Msgf("Failed to resolve tlsKeyPath '%s': %v", config.GlobalConfig.TLSKeyPath, err)
+			return ErrInvalidArgumentCantContinue
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			logger.Error().Msgf("TLS key file not found at '%s'", absPath)
+			return ErrInvalidArgumentCantContinue
+		}
+		config.GlobalConfig.TLSKeyPath = absPath
 	}
 
 	return nil

@@ -483,7 +483,7 @@ func GetOrgUnit() string {
 	}
 	idx := strings.Index(GlobalConfig.ApiKey, "@")
 	if idx == -1 {
-		return ""
+		return GlobalConfig.ApiKey
 	}
 	return GlobalConfig.ApiKey[:idx]
 }
