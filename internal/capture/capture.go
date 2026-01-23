@@ -60,14 +60,22 @@ func (cap *Capture) Endpoint() string {
 
 func (cap *Capture) getEndpointWithParams() string {
 	pairs := make([]string, len(cap.mapEndpointParams))
+	i := 0
 	for key, value := range cap.mapEndpointParams {
-		pairs = append(pairs, key+"="+value)
+		pairs[i] = key + "=" + value
+		i++
 	}
+
 	endpointParams := strings.Join(pairs, "&")
-	endpointDelimiter := "?"
-	if strings.Contains(cap.endpoint, "?") {
-		endpointDelimiter = "&"
+
+	endpointDelimiter := ""
+	if !strings.HasSuffix(cap.endpoint, "?") && !strings.HasSuffix(cap.endpoint, "&") {
+		endpointDelimiter = "?"
+		if strings.Contains(cap.endpoint, "?") {
+			endpointDelimiter = "&"
+		}
 	}
+
 	return fmt.Sprintf("%s%s%s", cap.endpoint, endpointDelimiter, endpointParams)
 }
 
