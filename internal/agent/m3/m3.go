@@ -747,6 +747,7 @@ func uploadDotnetGCM3(endpoint string, pid int) {
 		Pid:      pid,
 		Duration: 30,
 	}
+	dotnetGCCapture.SetEndpointParam("pid", fmt.Sprintf("%d", pid))
 
 	chanDotnetGCCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetGCCapture))
 
@@ -764,6 +765,7 @@ func uploadDotnetThreadM3(endpoint string, pid int) {
 	dotnetTDCapture := &capture.DotnetThread{
 		Pid: pid,
 	}
+	dotnetTDCapture.SetEndpointParam("pid", fmt.Sprintf("%d", pid))
 
 	chanDotnetTDCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetTDCapture))
 
@@ -781,6 +783,7 @@ func uploadDotnetHeapM3(endpoint string, pid int) {
 	dotnetHeapCapture := &capture.DotnetHeap{
 		Pid: pid,
 	}
+	dotnetHeapCapture.SetEndpointParam("pid", fmt.Sprintf("%d", pid))
 
 	chanDotnetHeapCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetHeapCapture))
 
