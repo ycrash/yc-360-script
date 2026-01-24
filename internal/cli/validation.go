@@ -27,48 +27,24 @@ func validate() error {
 		}
 	}
 
-	// JAVA_HOME
+	// JAVA_HOME validation
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
 		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 	}
 	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
-		return ErrInvalidArgumentCantContinue
+		logger.Warn().Msg("JAVA_HOME not set - Java process captures will fail")
 	}
-	// Runtime-specific validation
-	switch config.GlobalConfig.AppRuntime {
-	case "dotnet":
-		if runtime.GOOS != "windows" {
-			logger.Warn().Str("os", runtime.GOOS).Msg(".NET capture is only supported on Windows")
-			return ErrInvalidArgumentCantContinue
-		}
 
-		// Tool path resolution and validation
+	// .NET tool validation
+	if runtime.GOOS == "windows" {
 		toolPath := config.GlobalConfig.DotnetToolPath
 		if toolPath == "" {
-			if runtime.GOOS == "windows" {
-				toolPath = "yc-360-tool-dotnet.exe"
-			} else {
-				toolPath = "yc-360-tool-dotnet"
-			}
+			toolPath = "yc-360-tool-dotnet.exe"
 			config.GlobalConfig.DotnetToolPath = toolPath
 		}
-
-		// Check if tool exists (using exec.LookPath for PATH resolution)
 		_, err := exec.LookPath(toolPath)
 		if err != nil {
-			logger.Warn().Str("path", toolPath).Msgf("%s executable not found", toolPath)
-			logger.Warn().Msgf("Please ensure %s is in the same directory as yc-360-script or in your system PATH", toolPath)
-			logger.Warn().Msg("Alternatively, specify the path using -dotnetToolPath argument")
-			return ErrInvalidArgumentCantContinue
-		}
-	case "java":
-		if len(config.GlobalConfig.JavaHomePath) < 1 {
-			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
-		}
-		if len(config.GlobalConfig.JavaHomePath) < 1 {
-			logger.Log("'-j' yCrash JAVA_HOME argument not passed.")
-			return ErrInvalidArgumentCantContinue
+			logger.Warn().Str("path", toolPath).Msg(".NET tool not found - .NET process captures will fail")
 		}
 	}
 

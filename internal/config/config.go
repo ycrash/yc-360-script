@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"yc-agent/internal/capture/runtime"
+
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 )
@@ -105,7 +107,6 @@ type Options struct {
 	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
 
 	// Dotnet runtime support
-	AppRuntime     string `yaml:"appRuntime" usage:"Target application runtime: java (default) or dotnet"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
@@ -273,7 +274,6 @@ func defaultConfig() Config {
 			TDCaptureDuration: Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
 			CmdTimeout:        Duration(60 * time.Second),
 			HttpClientTimeout: Duration(60 * time.Second),
-			AppRuntime:        "java",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
 		},
 	}
@@ -466,4 +466,18 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 func ShowUsage() {
 	flagSet, _ := registerFlags(os.Args[0])
 	flagSet.Usage()
+}
+
+// GetAppRuntime returns the detected runtime type for the given process.
+// Returns "dotnet" if .NET runtime is detected, "java" otherwise (default).
+func GetAppRuntime(pid int) string {
+	runtimeInfo, err := runtime.DetectRuntime(pid)
+	if err != nil || runtimeInfo == nil {
+		// Detection failed or not available - default to java
+		return "java"
+	}
+	if runtimeInfo.Runtime == runtime.RuntimeDotNet {
+		return "dotnet"
+	}
+	return "java"
 }
