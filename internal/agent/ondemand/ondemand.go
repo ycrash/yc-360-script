@@ -24,6 +24,7 @@ import (
 	"yc-agent/internal/capture"
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/capture/java"
+	runtimedetect "yc-agent/internal/capture/runtime"
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 
@@ -246,14 +247,6 @@ Ignored errors: %v
 		logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
 		logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
 		logger.Log("APP_NAME is %s", appName)
-		logger.Log("APP_RUNTIME is %s", config.GlobalConfig.AppRuntime)
-		switch config.GlobalConfig.AppRuntime {
-		case "java":
-			logger.Log("JAVA_HOME is %s", config.GlobalConfig.JavaHomePath)
-			logger.Log("GC_LOG is %s", gcPath)
-		case "dotnet":
-			logger.Log("DOTNET_TOOL_PATH is %s", config.GlobalConfig.DotnetToolPath)
-		}
 		if len(dockerID) > 0 {
 			logger.Log("DOCKER_ID is %s", dockerID)
 		}
@@ -285,11 +278,13 @@ Ignored errors: %v
 	var threadDump chan capture.Result
 	var hdsubLog chan capture.Result
 
-	if config.GlobalConfig.AppRuntime == "dotnet" {
+	appRuntime := config.GetAppRuntime(pid)
+
+	if appRuntime == "dotnet" {
 		// ------------------------------------------------------------------------------
 		//   				.NET runtime captures
 		// ------------------------------------------------------------------------------
-		logger.Log("Executing .NET runtime captures...")
+		logger.Log("Executing .NET runtime captures for PID %d...", pid)
 
 		// Capture .NET GC events (30 second duration)
 		gc = goCapture(endpoint, capture.WrapRun(&capture.DotnetGC{
@@ -734,7 +729,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result (Java only)
 	// -------------------------------
-	if config.GlobalConfig.AppRuntime != "dotnet" {
+	if appRuntime != "dotnet" {
 		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 		effectiveHd := hd && !config.GlobalConfig.MinimalTouch
 		if hd && config.GlobalConfig.MinimalTouch {
@@ -930,14 +925,34 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	if e != nil {
 		err = fmt.Errorf("hostname err: %v", e)
 	}
+
+	// Get runtime version
 	var jv string
-	javaVersion, e := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
-	if e != nil {
-		err = fmt.Errorf("javaVersion err: %v, previous err: %v", e, err)
+	appRuntime := config.GetAppRuntime(processId)
+
+	if appRuntime == "dotnet" {
+		// Get .NET version using runtime detection
+		runtimeInfo, runtimeErr := runtimedetect.DetectRuntime(processId)
+		if runtimeErr == nil && runtimeInfo != nil && runtimeInfo.Version != "" {
+			jv = ".NET " + runtimeInfo.Version
+			logger.Log("Using .NET runtime: version %s", runtimeInfo.Version)
+		} else {
+			jv = ".NET (version unknown)"
+			logger.Log("Using .NET runtime: version detection failed")
+		}
 	} else {
-		jv = strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
-		jv = strings.ReplaceAll(jv, "\n", ", ")
+		// Get Java version
+		javaVersion, jvErr := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+		if jvErr != nil {
+			err = fmt.Errorf("javaVersion err: %v, previous err: %v", jvErr, err)
+			logger.Log("Using Java runtime: version detection failed")
+		} else {
+			jv = strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
+			jv = strings.ReplaceAll(jv, "\n", ", ")
+			logger.Log("Using Java runtime: version %s", jv)
+		}
 	}
+
 	var ov string
 	osVersion, e := executils.CommandCombinedOutput(executils.OSVersion)
 	if e != nil {

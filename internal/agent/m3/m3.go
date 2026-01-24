@@ -226,7 +226,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 		// @Andy: Existing code does this synchronously. Why not async like on-demand?
 		for pid, appName := range pids {
 			var gcPath string
-			if config.GlobalConfig.AppRuntime == "dotnet" {
+			appRuntime := config.GetAppRuntime(pid)
+
+			if appRuntime == "dotnet" {
+				logger.Log("Using .NET runtime for pid %d", pid)
 				logger.Log("uploading dotnet gc for pid %d", pid)
 				uploadDotnetGCM3(endpoint, pid)
 
@@ -236,6 +239,7 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 				logger.Log("uploading dotnet heap stats for pid %d", pid)
 				uploadDotnetHeapM3(endpoint, pid)
 			} else {
+				logger.Log("Using Java runtime for pid %d", pid)
 				logger.Log("uploading gc log for pid %d", pid)
 				gcPath = uploadGCLogM3(endpoint, pid)
 
