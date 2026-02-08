@@ -100,3 +100,22 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 
 	return file, nil
 }
+
+// startDotnetToolInBackground starts the yc-360-tool-dotnet executable with the
+// given arguments and returns the running command handle without waiting.
+func startDotnetToolInBackground(args []string) (executils.CmdManager, error) {
+	toolPath := config.GlobalConfig.DotnetToolPath
+	if toolPath == "" {
+		return nil, fmt.Errorf("dotnet tool path not configured")
+	}
+
+	cmdArgs := append([]string{toolPath}, args...)
+	logger.Log("Starting dotnet tool in background: %v", cmdArgs)
+
+	cmd, err := executils.CommandStartInBackground(cmdArgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
+	}
+
+	return cmd, nil
+}
