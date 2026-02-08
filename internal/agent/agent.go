@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 	"yc-agent/internal/agent/api"
 	"yc-agent/internal/agent/common"
 	"yc-agent/internal/agent/m3"
@@ -16,6 +17,9 @@ import (
 
 var ErrNothingCanBeDone = errors.New("nothing can be done")
 var ErrConflictingMode = errors.New("conflicting mode")
+
+var m3AppMu sync.Mutex
+var runningM3App *m3.M3App
 
 func Run() error {
 	startupLogs()
@@ -68,6 +72,13 @@ func Run() error {
 }
 
 func Shutdown() {
+	m3AppMu.Lock()
+	if runningM3App != nil {
+		runningM3App.Shutdown()
+		runningM3App = nil
+	}
+	m3AppMu.Unlock()
+
 	ondemand.Wg.Wait()
 	executils.RemoveFromTempPath()
 }
@@ -100,6 +111,18 @@ func runM3Mode() {
 	logger.Log("Running M3 mode")
 
 	m3App := m3.NewM3App()
+	m3AppMu.Lock()
+	runningM3App = m3App
+	m3AppMu.Unlock()
+
+	defer func() {
+		m3AppMu.Lock()
+		if runningM3App == m3App {
+			runningM3App = nil
+		}
+		m3AppMu.Unlock()
+	}()
+
 	m3App.RunLoop()
 }
 
