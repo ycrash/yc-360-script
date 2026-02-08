@@ -28,18 +28,33 @@ import (
 )
 
 type M3App struct {
-	runLock     sync.Mutex
-	appLogM3    *capture.AppLogM3
-	accessLogM3 *capture.AccessLogM3
+	runLock              sync.Mutex
+	appLogM3             *capture.AppLogM3
+	accessLogM3          *capture.AccessLogM3
+	AsyncDotNetGCCapture *capture.DotnetGCAsync
+	dotnetGCReadySeen    map[int]bool
 }
 
 func NewM3App() *M3App {
 	appLogM3 := capture.NewAppLogM3()
 	accessLogM3 := capture.NewAccessLogM3()
 
+	dotNetGCBaseDir := ""
+	if len(config.GlobalConfig.StoragePath) > 0 {
+		dotNetGCBaseDir = config.GlobalConfig.StoragePath
+	}
+
 	return &M3App{
-		appLogM3:    appLogM3,
-		accessLogM3: accessLogM3,
+		appLogM3:             appLogM3,
+		accessLogM3:          accessLogM3,
+		AsyncDotNetGCCapture: capture.NewDotnetGCAsync(dotNetGCBaseDir),
+		dotnetGCReadySeen:    make(map[int]bool),
+	}
+}
+
+func (m3 *M3App) Shutdown() {
+	if m3.AsyncDotNetGCCapture != nil {
+		m3.AsyncDotNetGCCapture.StopAll("m3 shutdown")
 	}
 }
 
@@ -223,15 +238,37 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 	logger.Log("Collection of lp data started.")
 
 	if len(pids) > 0 {
-		// @Andy: Existing code does this synchronously. Why not async like on-demand?
+		dotnetPIDs := make(map[int]string)
+		runtimeByPid := make(map[int]string)
+		// Classify each discovered PID by runtime once, and build a .NET-only PID subset.
+		// `runtimeByPid` is reused later to avoid calling runtime detection repeatedly.
+		for pid, appName := range pids {
+			appRuntime := config.GetAppRuntime(pid)
+			runtimeByPid[pid] = appRuntime
+			if appRuntime == "dotnet" {
+				dotnetPIDs[pid] = appName
+			}
+		}
+
+		if m3.AsyncDotNetGCCapture != nil {
+			// Reconcile creates/updates async GC capture sessions for current .NET PIDs.
+			// In the per-PID loop below, uploadDotnetGCM3 reads and uploads artifacts from
+			// those reconciled sessions in this same capture cycle.
+			m3.AsyncDotNetGCCapture.Reconcile(dotnetPIDs)
+		}
+
 		for pid, appName := range pids {
 			var gcPath string
-			appRuntime := config.GetAppRuntime(pid)
+			appRuntime := runtimeByPid[pid]
 
 			if appRuntime == "dotnet" {
+				// High-level flow for .NET GC in M3 mode:
+				// 1) Reconcile() starts/keeps one long-running async Dotnet GC collector per active .NET PID.
+				// 2) In the same RunSingle cycle, uploadDotnetGCM3() reads collector output from session log path.
+				// 3) uploadDotnetGCM3() uploads that artifact to m3-receiver as dt=gc&pid=<pid>.
+				// This keeps M3 loop non-blocking while still shipping periodic GC artifacts.
 				logger.Log("Using .NET runtime for pid %d", pid)
-				logger.Log("uploading dotnet gc for pid %d", pid)
-				uploadDotnetGCM3(endpoint, pid)
+				gcPath = m3.uploadDotnetGCM3(endpoint, pid)
 
 				logger.Log("uploading dotnet thread dump for pid %d", pid)
 				uploadDotnetThreadM3(endpoint, pid)
@@ -255,6 +292,16 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 
 			if healthCheckCfg, ok := config.GlobalConfig.HealthChecks[appName]; ok {
 				uploadHealthCheck(endpoint, appName, healthCheckCfg)
+			}
+		}
+
+		// Cleanup stale readiness state:
+		// `dotnetGCReadySeen` tracks whether we already observed and uploaded a "ready" artifact
+		// for a PID in previous cycles. If a PID is no longer a .NET target in this cycle,
+		// remove it so state does not leak across process restarts/PID reuse.
+		for pid := range m3.dotnetGCReadySeen {
+			if _, ok := dotnetPIDs[pid]; !ok {
+				delete(m3.dotnetGCReadySeen, pid)
 			}
 		}
 	}
@@ -746,16 +793,31 @@ func getMatchingNamespace(podName string) string {
 	return ""
 }
 
-func uploadDotnetGCM3(endpoint string, pid int) {
-	dotnetGCCapture := &capture.DotnetGC{
-		Pid:      pid,
-		Duration: 30,
+// uploadDotnetGCM3 uploads .NET async GC capture artifact (if available) for a PID.
+// Relationship with DotnetGCAsync and RunSingle:
+// - DotnetGCAsync session is started/maintained earlier in captureAndTransmit via Reconcile().
+// - This method does NOT start a new collector; it only reads current session artifact and uploads it.
+// - Uploaded destination is M3 receiver endpoint (dt=gc&pid=<pid>), once payload is ready.
+// It also tracks first "ready" observation per PID to control startup warning noise,
+// and returns resolved GC log path used for logging/app-log filtering.
+func (m3 *M3App) uploadDotnetGCM3(endpoint string, pid int) string {
+	if m3.AsyncDotNetGCCapture == nil {
+		return ""
 	}
-	dotnetGCCapture.SetEndpointParam("pid", fmt.Sprintf("%d", pid))
 
-	chanDotnetGCCapture := capture.GoCapture(endpoint, capture.WrapRun(dotnetGCCapture))
+	gcPath, ok := m3.AsyncDotNetGCCapture.LogPath(pid)
+	if !ok {
+		return ""
+	}
 
-	result := <-chanDotnetGCCapture
+	logger.Log("uploading dotnet gc artifact for pid %d from %s", pid, gcPath)
+
+	wasReady := m3.dotnetGCReadySeen[pid]
+	result, uploaded := m3.AsyncDotNetGCCapture.UploadFromSession(endpoint, pid, !wasReady)
+	if uploaded {
+		m3.dotnetGCReadySeen[pid] = true
+	}
+
 	logger.Log(
 		`.NET GC LOG DATA
 Is transmission completed: %t
@@ -763,6 +825,8 @@ Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+
+	return gcPath
 }
 
 func uploadDotnetThreadM3(endpoint string, pid int) {
