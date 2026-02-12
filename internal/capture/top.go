@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 
 	"yc-agent/internal/capture/executils"
@@ -42,8 +43,20 @@ func (t *Top) CaptureToFile() (*os.File, error) {
 	}
 
 	if err := t.captureOutput(file); err != nil {
-		file.Close()
-		return nil, err
+		// On Windows, PowerShell scripts may exit with non-zero status even
+		// when they produce valid output. If the file has content, proceed
+		// with it so it can still be uploaded.
+		if runtime.GOOS == "windows" {
+			if info, statErr := file.Stat(); statErr == nil && info.Size() > 0 {
+				logger.Log("top command failed (%v) but output file has content (%d bytes), proceeding", err, info.Size())
+			} else {
+				file.Close()
+				return nil, err
+			}
+		} else {
+			file.Close()
+			return nil, err
+		}
 	}
 
 	if err := file.Sync(); err != nil {
