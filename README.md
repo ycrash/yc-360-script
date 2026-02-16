@@ -36,7 +36,7 @@
 
 **2. Accelerate Troubleshooting in Customer On-Prem Environments:** In many cases, our application runs on a customer’s infrastructure where we don’t have shell access or real-time visibility. Asking them to send screenshots or partial logs [rarely provides enough context to troubleshoot effectively](https://blog.ycrash.io/key-challenges-in-troubleshooting-applications-at-customer-premise/). The yc-360 script solves this by giving you a simple script that the customer can run themselves. It gathers all the essential artifacts across Application, JVM, system, and network layers - so you get everything you need to troubleshoot the issue thoroughly, even without direct access.
 
-**3. Forecast Production Incidents During Pre-Release Testing:** Before every release, we run performance tests to validate CPU, memory, and response times. But these Macro-Metrics alone don’t reveal deeper risks. yc-360 script enables you to analyze Micro-Metrics like GC throughput, object allocation rate, socket usage, and thread pool behaviors. These overlooked Micro-metrics, signals early signs of instability, giving you a chance to [identify the performance issues before they hit production](https://blog.ycrash.io/micro-metrics-every-performance-engineer-should-validate-before-sign-off/).
+**3. Forecast Production Incidents During Pre-Release Testing:** Before every release, we run performance tests to validate CPU, memory, and response times. But these Macro-Metrics alone don’t reveal deeper risks. yc-360 script enables you to analyze Micro-Metrics like GC throughput, object allocation rate, socket usage, and thread pool behaviors. These overlooked Micro-metrics signal early signs of instability, giving you a chance to [identify the performance issues before they hit production](https://blog.ycrash.io/micro-metrics-every-performance-engineer-should-validate-before-sign-off/).
 
 ## Getting Started - How to run the yc-360 Script?
 
@@ -73,7 +73,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>INFO:</strong>
 
-+ `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
++ `{PID}`: This is the process ID of your Java application. Not sure how to find process ID? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
 + `{JAVA_HOME}`: The directory path where Java is installed in your environment.
 
@@ -119,7 +119,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>INFO:</strong>
 
-+ `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
++ `{PID}`: This is the process ID of your Java application. Not sure how to find process ID? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
 + `{JAVA_HOME}`: The directory path where Java is installed in your environment.
 
@@ -155,7 +155,7 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>INFO:</strong>
 
-+ `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
++ `{PID}`: This is the process ID of your Java application. Not sure how to find process ID? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
 + `{JAVA_HOME}`: The directory path where Java is installed in your environment.
 
@@ -242,7 +242,7 @@ Absolutely. The yc-360 script is a non-intrusive, script. It doesn’t modify an
 <details>
   <summary><strong>4. Can yc-360 Script be executed in containerized environments like Docker, Kubernetes, or OpenShift?</strong></summary></br>
 
-Yes, yc-360 script is designed to work seamlessly across all major environments — including bare-metal servers, virtual machines, Docker containers, Kubernetes, and OpenShift. You can execute the script directly inside your containers or use it as part of a sidecar or init container to collect diagnostic data. For detailed guidance on each supported environments, visit [https://docs.ycrash.io/yc-360/environment/introduction.html](https://docs.ycrash.io/yc-360/environment/introduction.html)
+Yes, yc-360 script is designed to work seamlessly across all major environments — including bare-metal servers, virtual machines, Docker containers, Kubernetes, and OpenShift. You can execute the script directly inside your containers or use it as part of a sidecar or init container to collect diagnostic data. For detailed guidance on each supported environment, visit [https://docs.ycrash.io/yc-360/environment/introduction.html](https://docs.ycrash.io/yc-360/environment/introduction.html)
 </details>
 
 <details>
