@@ -9,7 +9,7 @@ import (
 var topScript []byte
 
 var (
-	NetState = Command{"netstat", "-an"}
+	NetState = Command{"netstat", "-ano"}
 	PS       = Command{"tasklist"}
 	PS2      = Command{"tasklist"}
 
