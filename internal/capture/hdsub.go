@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -74,16 +73,13 @@ func (t *HDSub) CaptureToFile() (*os.File, error) {
 }
 
 func (t *HDSub) isOpenJ9() bool {
+	output, err := executils.CommandCombinedOutput(executils.JavaVersionCommand)
 
-	cmd := executils.JavaVersionCommand
-	output, err := executils.CommandCombinedOutput(cmd, executils.SudoHooker{PID: t.Pid})
-	
 	if err != nil {
 		return false
 	}
 
 	return strings.Contains(string(output), "OpenJ9")
-
 }
 
 // captureClassHistogram captures GC.class_histogram data to the writer.
@@ -91,13 +87,13 @@ func (t *HDSub) captureClassHistogram(w io.Writer) error {
 	if _, err := w.Write([]byte("GC.class_histogram:\n")); err != nil {
 		return fmt.Errorf("failed to write section header: %w", err)
 	}
-	
+
 	cmd := "GC.class_histogram -all"
-	//In openJ9 GC.class_histogram -all is not supported. In case of openJ9 Capture using GC.class_histogram
+	// In openJ9 GC.class_histogram -all is not supported. In case of openJ9 Capture using GC.class_histogram
 	if t.isOpenJ9() {
 		cmd = "GC.class_histogram"
 	}
-	
+
 	return t.executeJcmd(w, cmd)
 }
 
