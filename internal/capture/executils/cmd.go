@@ -4,10 +4,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
 type CmdManager interface {
 	KillAndWait() (err error)
+	GracefulStop(grace time.Duration) error
 	IsSkipped() bool
 	Wait() (err error)
 	Interrupt() (err error)
@@ -42,6 +44,10 @@ func (c *WaitCmd) GetPid() int {
 
 func (c *WaitCmd) KillAndWait() (err error) {
 	return
+}
+
+func (c *WaitCmd) GracefulStop(_ time.Duration) error {
+	return nil
 }
 
 func (c *WaitCmd) IsSkipped() bool {
@@ -92,8 +98,31 @@ func (c *Cmd) KillAndWait() (err error) {
 	if err != nil {
 		return
 	}
+	// Reap the process to release OS resources (file descriptors, exit status).
+	// The result is ignored because exit code is meaningless after a hard kill.
 	_ = c.Cmd.Wait()
 	return
+}
+
+func (c *Cmd) GracefulStop(grace time.Duration) error {
+	if c.Cmd == nil || c.Process == nil {
+		return nil
+	}
+
+	if err := c.Process.Signal(os.Interrupt); err != nil {
+		return c.KillAndWait()
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.Cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(grace):
+		_ = c.Process.Kill()
+		return <-done
+	}
 }
 
 func (c *Cmd) Interrupt() (err error) {

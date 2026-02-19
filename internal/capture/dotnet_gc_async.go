@@ -221,7 +221,7 @@ func (d *DotnetGCAsync) stopLocked(pid int, reason string) error {
 		return nil
 	}
 
-	if err := sess.Cmd.KillAndWait(); err != nil {
+	if err := sess.Cmd.GracefulStop(5 * time.Second); err != nil {
 		logger.Log("WARNING: failed stopping dotnet gc collector pid=%d reason=%s err=%s", pid, reason, err)
 		return err
 	}
