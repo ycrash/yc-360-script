@@ -1,4 +1,4 @@
-//go:build darwin || linux || aix
+//go:build darwin || linux
 
 package ycattach
 
