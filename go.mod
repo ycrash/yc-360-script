@@ -2,6 +2,8 @@ module yc-agent
 
 go 1.25.5
 
+replace atomicgo.dev/keyboard => github.com/andylibrian/atomicgo-keyboard v0.2.10-0.20240609113957-6d13779a8a6d
+
 require (
 	github.com/bmatcuk/doublestar/v4 v4.7.1
 	github.com/cakturk/go-netstat v0.0.0-20200220111822-e5b49efee7a5
