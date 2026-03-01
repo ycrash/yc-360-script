@@ -6,11 +6,11 @@ var (
 	PS2                 = Command{"ps", "-ef"}
 	PSGetProcessIds     = Command{"ps", "-ef"}
 	Disk                = Command{"df"}
-	Top                 = Command{"topas", "-P"}
-	Top2                = Command{"topas", "-P"}
-	TopH                = Command{"topas", "-P"}
-	TopH2               = Command{"topas", "-P"}
-	Top4M3              = Command{"topas", "-P"}
+	Top                 = Command{WaitCommand, "nmon", "-F", "/tmp/yc_nmon_top.csv", "-s", "10", "-c", "3", "-T", "&&", "cat", "/tmp/yc_nmon_top.csv"}
+	Top2                = Command{WaitCommand, "nmon", "-F", "/tmp/yc_nmon_top.csv", "-s", "10", "-c", "3", "-T", "&&", "cat", "/tmp/yc_nmon_top.csv"}
+	TopH                = Command{WaitCommand, "ps", "-mp", DynamicArg, "-o", "THREAD"}
+	TopH2               = Command{WaitCommand, "ps", "-mp"}
+	Top4M3              = Command{WaitCommand, "ps", "-eo", "pid,pcpu,pmem,args"}
 	VMState             = Command{"vmstat", DynamicArg, DynamicArg}
 	DMesg               = Command{"dmesg"}
 	DMesg2              = Command{"dmesg"}
