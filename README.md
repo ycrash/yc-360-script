@@ -175,7 +175,7 @@ The yc-360 script also supports .NET applications. To capture artifacts from a .
 
 **For Example:**
 ```shell
-.\yc -c yc-config.yaml -m3 -appRuntime=dotnet 
+.\yc -onlyCapture -p {PID} -appRuntime=dotnet 
 ```
 Replace {PID} with the process ID of your .NET application.
 
