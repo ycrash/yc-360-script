@@ -169,7 +169,8 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
 
-::: tip NOTE:
+<strong>NOTE:</strong>
+
 The yc-360 script also supports .NET applications. To capture artifacts from a .NET app, append **`-appRuntime=dotnet`** to the command.
 
 **For Example:**
@@ -177,7 +178,7 @@ The yc-360 script also supports .NET applications. To capture artifacts from a .
 .\yc -c yc-config.yaml -m3 -appRuntime=dotnet 
 ```
 Replace {PID} with the process ID of your .NET application.
-:::
+
 </details>
 
 <details>
