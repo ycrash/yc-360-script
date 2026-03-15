@@ -14,9 +14,15 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
 	github.com/thlib/go-timezone-local v0.0.3
+	github.com/tidwall/gjson v1.18.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.32.0
 	k8s.io/client-go v0.32.0
+)
+
+require (
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 )
 
 require (

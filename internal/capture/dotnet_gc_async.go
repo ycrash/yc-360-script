@@ -1,7 +1,6 @@
 package capture
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,31 +16,6 @@ const (
 	dotnetGCDefaultDirName    = "yc-dot-net-gc"
 	dotnetGCTempUploadLogName = "gc.log"
 )
-
-// gcReadState represents the state of a GC artifact read attempt.
-type gcReadState int
-
-const (
-	gcStateMissing gcReadState = iota
-	gcStateEmpty
-	gcStateValid
-	gcStateError
-)
-
-func (s gcReadState) String() string {
-	switch s {
-	case gcStateMissing:
-		return "missing"
-	case gcStateEmpty:
-		return "empty"
-	case gcStateValid:
-		return "valid"
-	case gcStateError:
-		return "error"
-	default:
-		return "unknown"
-	}
-}
 
 type DotnetGCSession struct {
 	PID            int
@@ -236,45 +210,46 @@ func (d *DotnetGCAsync) restartLocked(pid int, appName, reason string) error {
 	return d.ensureStartedLocked(pid, appName)
 }
 
-// UploadFromSession reads a JSON artifact from session output and uploads it.
+// UploadFromSession uploads the last 30 minutes of GC events from a session's
+// output file. A binary search locates the time boundary, then only the
+// matching suffix is streamed to the upload — never loaded fully into memory.
 func (d *DotnetGCAsync) UploadFromSession(endpoint string, pid int, suppressStartupWarnings bool) (Result, bool) {
 	logPath, ok := d.LogPath(pid)
 	if !ok {
 		return Result{Msg: fmt.Sprintf("dotnet gc session not found pid=%d", pid), Ok: false}, false
 	}
 
-	payload, state, err := d.readDotnetGCJSON(logPath)
+	gcLog, err := OpenDotnetGCLog(logPath)
 	if err != nil {
-		return Result{Msg: fmt.Sprintf("failed reading dotnet gc artifact pid=%d path=%s err=%s", pid, logPath, err), Ok: false}, false
-	}
-
-	if payload == nil {
-		switch state {
-		case gcStateMissing, gcStateEmpty:
+		if os.IsNotExist(err) {
 			if suppressStartupWarnings {
-				logger.Debug().Msgf("dotnet gc artifact not ready yet pid=%d path=%s state=%v", pid, logPath, state)
+				logger.Debug().Int("pid", pid).Str("path", logPath).Msg("dotnet gc artifact not ready")
 			} else {
-				logger.Log("WARNING: dotnet gc artifact unavailable pid=%d path=%s state=%v", pid, logPath, state)
+				logger.Warn().Int("pid", pid).Str("path", logPath).Msg("dotnet gc artifact missing")
 			}
-		default:
-			logger.Log("WARNING: invalid dotnet gc JSON pid=%d path=%s", pid, logPath)
+		} else {
+			logger.Warn().Err(err).Int("pid", pid).Str("path", logPath).Msg("dotnet gc artifact unusable")
 		}
-
-		return Result{Msg: fmt.Sprintf("dotnet gc payload unavailable state=%v path=%s", state, logPath), Ok: false}, false
+		return Result{Msg: fmt.Sprintf("dotnet gc payload unavailable path=%s err=%s", logPath, err), Ok: false}, false
 	}
+	defer gcLog.Close()
 
 	gcLogFile, err := os.Create(dotnetGCTempUploadLogName)
 	if err != nil {
-		return Result{Msg: fmt.Sprintf("failed creating %s file pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
+		return Result{Msg: fmt.Sprintf("failed creating %s pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
 	}
 	defer gcLogFile.Close()
 
-	if _, err = gcLogFile.Write(payload); err != nil {
-		return Result{Msg: fmt.Sprintf("failed writing %s payload pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
+	if err = gcLog.CopyLast(gcLogFile, time.Now(), 30*time.Minute); err != nil {
+		return Result{Msg: fmt.Sprintf("failed filtering dotnet gc events pid=%d: %s", pid, err), Ok: false}, false
+	}
+
+	if err = gcLogFile.Sync(); err != nil {
+		return Result{Msg: fmt.Sprintf("failed syncing %s pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
 	}
 
 	if _, err = gcLogFile.Seek(0, 0); err != nil {
-		return Result{Msg: fmt.Sprintf("failed rewinding %s payload pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
+		return Result{Msg: fmt.Sprintf("failed rewinding %s pid=%d: %s", dotnetGCTempUploadLogName, pid, err), Ok: false}, false
 	}
 
 	msg, uploaded := PostCustomData(endpoint, fmt.Sprintf("dt=gc&pid=%d", pid), gcLogFile)
@@ -337,34 +312,4 @@ func resolveDotnetGCBaseDir(baseDir string) (string, error) {
 // ensureDir ensures directory path exists.
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0o755)
-}
-
-// readDotnetGCJSON reads artifact with short retries until non-empty payload is available.
-func (d *DotnetGCAsync) readDotnetGCJSON(gcPath string) ([]byte, gcReadState, error) {
-	delays := []time.Duration{0, 100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond}
-	state := gcStateMissing
-
-	for idx, delay := range delays {
-		if idx > 0 {
-			time.Sleep(delay)
-		}
-
-		payload, err := os.ReadFile(gcPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				state = gcStateMissing
-				continue
-			}
-			return nil, gcStateError, err
-		}
-
-		if len(bytes.TrimSpace(payload)) == 0 {
-			state = gcStateEmpty
-			continue
-		}
-
-		return payload, gcStateValid, nil
-	}
-
-	return nil, state, nil
 }
