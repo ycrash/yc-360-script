@@ -247,7 +247,7 @@ Ignored errors: %v
 		logger.Log("YC_SERVER is %s", config.GlobalConfig.Server)
 		// the following line has been commented as customer reported a security issue
 		// on 06-03-2026
-		//logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
+		// logger.Log("API_KEY is %s", config.GlobalConfig.ApiKey)
 		logger.Log("APP_NAME is %s", appName)
 		if len(dockerID) > 0 {
 			logger.Log("DOCKER_ID is %s", dockerID)
