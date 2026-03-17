@@ -147,21 +147,31 @@ cd windows
 
 <strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
-When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
+When the command is executed, the yc-360 script captures all artifacts from the target application and host. The collected artifacts are compressed into a ZIP file and saved in the directory where the command was executed. The ZIP file is named in the format: **`yc-YYYY-MM-DDTHH-mm-ss.zip`**. For example: **`yc-2024-09-23T14-02-42.zip`**.
 
-```sh
+**For Java applications:**
+
+```shell
 .\yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
+```
+
+**For .NET applications:**
+
+```shell
+.\yc -onlyCapture -appRuntime=dotnet -p {PID}
 ```
 
 <strong>INFO:</strong>
 
-+ `{PID}`: This is the process ID of your Java application. Not sure how to find process Id? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass Unique Token that will uniquely identify the process in container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
++ `{PID}`: The process ID of your target application. Not sure how to find the process ID? [Learn here](https://docs.ycrash.io/yc-360/faq/identifying-process.html). Alternatively, you can pass a Unique Token to uniquely identify the process in a container. [What is Unique Token?](https://docs.ycrash.io/yc-360/faq/what-is-unique-token-in-process.html)
 
-+ `{JAVA_HOME}`: The directory path where Java is installed in your environment.
++ `{JAVA_HOME}`: The directory path where Java is installed in your environment. The **`j`** argument is required for Java applications only. Not applicable for .NET applications.
 
 + `{APPLICATION_NAME}`: Friendly name for the application (displayed in the yCrash dashboard).
 
 <strong>IMPORTANT TIP:</strong>
+
+**For Java applications:**
 
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
@@ -169,15 +179,12 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
 
-<strong>NOTE:</strong>
+--------
+**For .NET applications:**
 
-The yc-360 script also supports .NET applications. To capture artifacts from a .NET app, append **`-appRuntime=dotnet`** to the command.
++ Ensure **Event Tracing for Windows (ETW)** is enabled in your environment. It is required to capture .NET artifacts.
 
-**For Example:**
-```shell
-.\yc -onlyCapture -p {PID} -appRuntime=dotnet 
-```
-Replace {PID} with the process ID of your .NET application.
++ The yc-360 script must be run with **administrator permissions** to capture .NET artifacts.
 
 </details>
 
