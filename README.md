@@ -186,6 +186,8 @@ When the command is executed, the yc-360 script captures all artifacts from the 
 
 + The yc-360 script must be run with **administrator permissions** to capture .NET artifacts.
 
++ Heap dumps are not captured for .NET applications. Instead, the script captures **lightweight heap substitute data** for memory analysis.
+
 </details>
 
 <details>
