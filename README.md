@@ -171,11 +171,11 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>NOTE:</strong>
 
-The yc-360 script also supports .NET applications. To capture artifacts from a .NET app, append **`-appRuntime=dotnet`** to the command.
+The yc-360 script auto-detects the target runtime by default. If you need to override the detected runtime for a .NET app, append **`-appRuntime dotnet`** to the command.
 
 **For Example:**
 ```shell
-.\yc -onlyCapture -p {PID} -appRuntime=dotnet 
+.\yc -onlyCapture -p {PID} -appRuntime dotnet
 ```
 Replace {PID} with the process ID of your .NET application.
 

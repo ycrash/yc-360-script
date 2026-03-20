@@ -10,12 +10,26 @@ import (
 	"yc-agent/internal/logger"
 )
 
-// executeDotnetTool runs the yc-360-tool-dotnet executable with the given arguments
+// ensureDotnetToolResolved lazily resolves DotnetToolPath if it was not set
+// during validation (e.g. when runtime was auto-detected rather than explicit).
+func ensureDotnetToolResolved() (string, error) {
+	if path := config.GlobalConfig.DotnetToolPath; path != "" {
+		return path, nil
+	}
+	resolved, err := config.ResolveDotnetToolPath()
+	if err != nil {
+		return "", err
+	}
+	config.GlobalConfig.DotnetToolPath = resolved
+	return resolved, nil
+}
+
+// executeDotnetTool runs the configured .NET helper executable with the given arguments
 // and captures the output to a file. Returns the file handle and any error.
 func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
-	toolPath := config.GlobalConfig.DotnetToolPath
-	if toolPath == "" {
-		return nil, fmt.Errorf("dotnet tool path not configured")
+	toolPath, err := ensureDotnetToolResolved()
+	if err != nil {
+		return nil, err
 	}
 
 	// Build the command: [toolPath, args...]
@@ -101,12 +115,12 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 	return file, nil
 }
 
-// startDotnetToolInBackground starts the yc-360-tool-dotnet executable with the
+// startDotnetToolInBackground starts the configured .NET helper executable with the
 // given arguments and returns the running command handle without waiting.
 func startDotnetToolInBackground(args []string) (executils.CmdManager, error) {
-	toolPath := config.GlobalConfig.DotnetToolPath
-	if toolPath == "" {
-		return nil, fmt.Errorf("dotnet tool path not configured")
+	toolPath, err := ensureDotnetToolResolved()
+	if err != nil {
+		return nil, err
 	}
 
 	cmdArgs := append([]string{toolPath}, args...)

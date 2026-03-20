@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -107,9 +109,12 @@ type Options struct {
 	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
 
 	// Dotnet runtime support
-	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Path to yc-360-tool-dotnet executable"`
+	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java or dotnet. Default is auto-detect"`
+	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET helper executable. If empty, yc will look for yc-dot-net.exe next to the yc binary"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
+
+const DefaultDotnetToolName = "yc-dot-net.exe"
 
 type Command struct {
 	UrlParams UrlParams `yaml:"urlParams" usage:"[DEPRECATED] This option is no longer in use."`
@@ -274,6 +279,7 @@ func defaultConfig() Config {
 			TDCaptureDuration: Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
 			CmdTimeout:        Duration(60 * time.Second),
 			HttpClientTimeout: Duration(60 * time.Second),
+			AppRuntime:        "",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
 		},
 	}
@@ -468,9 +474,60 @@ func ShowUsage() {
 	flagSet.Usage()
 }
 
+func NormalizeAppRuntime(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func IsValidAppRuntime(value string) bool {
+	switch NormalizeAppRuntime(value) {
+	case "", "java", "dotnet":
+		return true
+	default:
+		return false
+	}
+}
+
+func GetConfiguredAppRuntime() string {
+	return NormalizeAppRuntime(GlobalConfig.AppRuntime)
+}
+
+func ResolveDotnetToolPath() (string, error) {
+	return resolveDotnetToolPath(GlobalConfig.DotnetToolPath)
+}
+
+func resolveDotnetToolPath(configured string) (string, error) {
+	configured = strings.TrimSpace(configured)
+	if configured != "" {
+		resolved, err := exec.LookPath(configured)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve dotnet tool path %q: %w", configured, err)
+		}
+		return resolved, nil
+	}
+
+	exePath, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(exePath), DefaultDotnetToolName)
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate, nil
+		}
+	}
+
+	if resolved, lookErr := exec.LookPath(DefaultDotnetToolName); lookErr == nil {
+		return resolved, nil
+	}
+
+	return "", fmt.Errorf("dotnet tool not found; set -dotnetToolPath or place %s next to the yc binary", DefaultDotnetToolName)
+}
+
 // GetAppRuntime returns the detected runtime type for the given process.
-// Returns "dotnet" if .NET runtime is detected, "java" otherwise (default).
+// Returns the configured override when present.
+// Otherwise returns "dotnet" if .NET runtime is detected, "java" by default.
 func GetAppRuntime(pid int) string {
+	if appRuntime := GetConfiguredAppRuntime(); appRuntime != "" {
+		return appRuntime
+	}
+
 	runtimeInfo, err := runtime.DetectRuntime(pid)
 	if err != nil || runtimeInfo == nil {
 		// Detection failed or not available - default to java

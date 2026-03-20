@@ -250,6 +250,16 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 			}
 		}
 
+		// Eagerly resolve the .NET helper path once per cycle when any .NET
+		// targets exist, so failures surface early rather than per-capture.
+		if len(dotnetPIDs) > 0 {
+			if resolved, err := config.ResolveDotnetToolPath(); err != nil {
+				logger.Warn().Err(err).Msg(".NET helper not found - .NET captures will fail")
+			} else if config.GlobalConfig.DotnetToolPath == "" {
+				config.GlobalConfig.DotnetToolPath = resolved
+			}
+		}
+
 		if m3.AsyncDotNetGCCapture != nil {
 			// Reconcile creates/updates async GC capture sessions for current .NET PIDs.
 			// In the per-PID loop below, uploadDotnetGCM3 reads and uploads artifacts from

@@ -64,7 +64,7 @@ func TestValidate(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("missing JAVA_HOME", func(t *testing.T) {
+	t.Run("missing JAVA_HOME warns only", func(t *testing.T) {
 		config.GlobalConfig = config.Config{
 			Options: config.Options{
 				OnlyCapture:  true,
@@ -75,7 +75,7 @@ func TestValidate(t *testing.T) {
 		os.Unsetenv("JAVA_HOME")
 
 		err := validate()
-		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
+		assert.NoError(t, err)
 	})
 
 	t.Run("JAVA_HOME from environment variable", func(t *testing.T) {
@@ -94,6 +94,33 @@ func TestValidate(t *testing.T) {
 		err := validate()
 		assert.NoError(t, err)
 		assert.Equal(t, "/usr/lib/jvm/java-11", config.GlobalConfig.JavaHomePath)
+	})
+
+	t.Run("dotnet appRuntime skips JAVA_HOME lookup", func(t *testing.T) {
+		config.GlobalConfig = config.Config{
+			Options: config.Options{
+				OnlyCapture:  true,
+				AppRuntime:   "dotnet",
+				JavaHomePath: "",
+			},
+		}
+		os.Unsetenv("JAVA_HOME")
+
+		err := validate()
+		assert.NoError(t, err)
+		assert.Empty(t, config.GlobalConfig.JavaHomePath)
+	})
+
+	t.Run("invalid appRuntime", func(t *testing.T) {
+		config.GlobalConfig = config.Config{
+			Options: config.Options{
+				OnlyCapture: true,
+				AppRuntime:  "python",
+			},
+		}
+
+		err := validate()
+		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
 	})
 
 	t.Run("m3 mode disables onlyCapture", func(t *testing.T) {
