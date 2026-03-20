@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -129,6 +131,44 @@ func TestConfig(t *testing.T) {
 		if GlobalConfig.M3Frequency != Duration(5*time.Minute) {
 			t.Fail()
 		}
+	})
+
+	t.Run("Parse appRuntime override with equals", func(t *testing.T) {
+		originalConfig := GlobalConfig
+		defer func() {
+			GlobalConfig = originalConfig
+		}()
+
+		GlobalConfig = defaultConfig()
+		args := []string{"yc", "-appRuntime=dotnet"}
+		require.NoError(t, ParseFlags(args))
+		assert.Equal(t, "dotnet", GlobalConfig.AppRuntime)
+	})
+
+	t.Run("Parse appRuntime override with space", func(t *testing.T) {
+		originalConfig := GlobalConfig
+		defer func() {
+			GlobalConfig = originalConfig
+		}()
+
+		GlobalConfig = defaultConfig()
+		args := []string{"yc", "-appRuntime", "java"}
+		require.NoError(t, ParseFlags(args))
+		assert.Equal(t, "java", GlobalConfig.AppRuntime)
+	})
+
+	t.Run("GetAppRuntime uses override before autodetect", func(t *testing.T) {
+		originalConfig := GlobalConfig
+		defer func() {
+			GlobalConfig = originalConfig
+		}()
+
+		GlobalConfig = defaultConfig()
+		GlobalConfig.AppRuntime = "dotnet"
+		assert.Equal(t, "dotnet", GetAppRuntime(12345))
+
+		GlobalConfig.AppRuntime = "java"
+		assert.Equal(t, "java", GetAppRuntime(12345))
 	})
 
 	t.Run("should return helpful error for malformed YAML", func(t *testing.T) {

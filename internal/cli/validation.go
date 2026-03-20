@@ -4,7 +4,6 @@ import "C"
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -15,6 +14,13 @@ import (
 var ErrInvalidArgumentCantContinue = errors.New("cli: invalid argument")
 
 func validate() error {
+	appRuntime := config.GetConfiguredAppRuntime()
+	if !config.IsValidAppRuntime(appRuntime) {
+		// Log the raw (un-normalized) value so the user sees exactly what they typed.
+		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet", config.GlobalConfig.AppRuntime)
+		return ErrInvalidArgumentCantContinue
+	}
+
 	// Server URL and API Key
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
@@ -28,24 +34,23 @@ func validate() error {
 	}
 
 	// JAVA_HOME validation
-	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
-	}
-	if len(config.GlobalConfig.JavaHomePath) < 1 {
-		logger.Warn().Msg("JAVA_HOME not set - Java process captures will fail")
+	if appRuntime != "dotnet" {
+		if len(config.GlobalConfig.JavaHomePath) < 1 {
+			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
+		}
+		if len(config.GlobalConfig.JavaHomePath) < 1 {
+			logger.Warn().Msg("JAVA_HOME not set - Java process captures will fail")
+		}
 	}
 
 	// .NET tool validation
-	if runtime.GOOS == "windows" {
-		toolPath := config.GlobalConfig.DotnetToolPath
-		if toolPath == "" {
-			toolPath = "yc-360-tool-dotnet.exe"
-			config.GlobalConfig.DotnetToolPath = toolPath
-		}
-		_, err := exec.LookPath(toolPath)
+	if runtime.GOOS == "windows" && appRuntime == "dotnet" {
+		toolPath, err := config.ResolveDotnetToolPath()
 		if err != nil {
-			logger.Warn().Str("path", toolPath).Msg(".NET tool not found - .NET process captures will fail")
+			logger.Log(".NET tool not found: %v", err)
+			return ErrInvalidArgumentCantContinue
 		}
+		config.GlobalConfig.DotnetToolPath = toolPath
 	}
 
 	// M3

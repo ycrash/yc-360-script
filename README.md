@@ -180,6 +180,7 @@ When the command is executed, the yc-360 script captures all artifacts from the 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
 
 --------
+
 **For .NET applications:**
 
 + Ensure **Event Tracing for Windows (ETW)** is enabled in your environment. It is required to capture .NET artifacts.
@@ -187,6 +188,14 @@ When the command is executed, the yc-360 script captures all artifacts from the 
 + The yc-360 script must be run with **administrator permissions** to capture .NET artifacts.
 
 + Heap dumps are not captured for .NET applications. Instead, the script captures **lightweight heap substitute data** for memory analysis.
+
+The yc-360 script auto-detects the target runtime by default. If you need to override the detected runtime for a .NET app, append **`-appRuntime dotnet`** to the command.
+
+**For Example:**
+```shell
+.\yc -onlyCapture -p {PID} -appRuntime dotnet
+```
+Replace {PID} with the process ID of your .NET application.
 
 </details>
 

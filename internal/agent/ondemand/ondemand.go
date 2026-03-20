@@ -283,6 +283,13 @@ Ignored errors: %v
 	appRuntime := config.GetAppRuntime(pid)
 
 	if appRuntime == "dotnet" {
+		// Eagerly resolve the .NET helper path so failures surface early,
+		// before any capture goroutines are launched.
+		if resolved, err := config.ResolveDotnetToolPath(); err != nil {
+			logger.Warn().Err(err).Msg(".NET helper not found - .NET captures will fail")
+		} else if config.GlobalConfig.DotnetToolPath == "" {
+			config.GlobalConfig.DotnetToolPath = resolved
+		}
 		// ------------------------------------------------------------------------------
 		//   				.NET runtime captures
 		// ------------------------------------------------------------------------------
