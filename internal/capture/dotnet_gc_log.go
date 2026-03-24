@@ -41,6 +41,19 @@ func (d *DotnetGCLog) Close() error { return d.file.Close() }
 // Header returns the validated header line, including the trailing newline.
 func (d *DotnetGCLog) Header() string { return d.header }
 
+// Copy writes the header followed by all complete event lines to w.
+// Bytes appended by a concurrent writer after the call begins are ignored.
+func (d *DotnetGCLog) Copy(w io.Writer) error {
+	fi, err := d.file.Stat()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(d.header)); err != nil {
+		return err
+	}
+	return copyFromOffset(w, d.file, d.eventsOffset, fi.Size())
+}
+
 // CopyLast writes the last window of events ending at now.
 //
 // This is the most common convenience API for callers that want recent GC

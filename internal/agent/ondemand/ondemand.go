@@ -36,7 +36,13 @@ import (
 
 var Wg sync.WaitGroup
 
-func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string) (rUrls []string, err error) {
+// CaptureOptions carries optional context from callers (e.g. M3) that have
+// additional information to pass into FullCapture.
+type CaptureOptions struct {
+	DotnetAsyncGCPaths map[int]string // pid → absolute path to accumulated async GC log
+}
+
+func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string, opts ...CaptureOptions) (rUrls []string, err error) {
 	if len(pids) == 0 {
 		logger.Log("Empty pids, no action needed.")
 		return
@@ -69,7 +75,7 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 				timestamp = timestamps[i]
 			}
 
-			url := FullCapture(pid, name, hd, tags, timestamp)
+			url := FullCapture(pid, name, hd, tags, timestamp, opts...)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -79,7 +85,7 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 	return
 }
 
-func FullCapture(pid int, appName string, hd bool, tags string, tsParam string) (rUrl string) {
+func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, opts ...CaptureOptions) (rUrl string) {
 	var err error
 	defer func() {
 		if err != nil {
@@ -295,11 +301,17 @@ Ignored errors: %v
 		// ------------------------------------------------------------------------------
 		logger.Log("Executing .NET runtime captures for PID %d...", pid)
 
-		// Capture .NET GC events (30 second duration)
-		gc = goCapture(endpoint, capture.WrapRun(&capture.DotnetGC{
+		// Capture .NET GC events: reuse async log if available, otherwise fresh capture.
+		dotnetGC := &capture.DotnetGC{
 			Pid:      pid,
 			Duration: 30,
-		}))
+		}
+		if len(opts) > 0 && opts[0].DotnetAsyncGCPaths != nil {
+			if asyncPath, ok := opts[0].DotnetAsyncGCPaths[pid]; ok {
+				dotnetGC.AsyncLogPath = asyncPath
+			}
+		}
+		gc = goCapture(endpoint, capture.WrapRun(dotnetGC))
 
 		// Capture .NET heap statistics
 		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHeap{

@@ -156,7 +156,7 @@ func (m3 *M3App) RunSingle() error {
 			return err
 		}
 
-		err = processM3FinResponse(resp, pids)
+		err = m3.processM3FinResponse(resp, pids)
 
 		if err != nil {
 			logger.Log("WARNING: processResp failed, %s", err)
@@ -687,7 +687,7 @@ Resp: %s
 	}
 }
 
-func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
+func (m3 *M3App) processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	pids, tags, timestamps, err := ParseM3FinResponse(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
@@ -702,7 +702,23 @@ func processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
 	} else {
 		tmp = strings.Trim(t, ",")
 	}
-	_, err = ondemand.ProcessPids(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps)
+
+	// Collect async GC log paths for .NET PIDs so incident capture
+	// uploads the accumulated log instead of spawning a fresh capture.
+	var opts ondemand.CaptureOptions
+	if m3.AsyncDotNetGCCapture != nil {
+		asyncPaths := make(map[int]string)
+		for _, pid := range pids {
+			if logPath, ok := m3.AsyncDotNetGCCapture.LogPath(pid); ok {
+				asyncPaths[pid] = logPath
+			}
+		}
+		if len(asyncPaths) > 0 {
+			opts.DotnetAsyncGCPaths = asyncPaths
+		}
+	}
+
+	_, err = ondemand.ProcessPids(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps, opts)
 	return
 }
 
