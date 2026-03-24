@@ -1,5 +1,6 @@
-# build
-FROM golang:1.25.5-alpine AS builder
+# syntax=docker/dockerfile:1.6
+
+FROM golang:1.25.8-alpine AS builder
 
 RUN apk add --no-cache \
     clang \
@@ -11,9 +12,21 @@ RUN apk add --no-cache \
     make \
     musl musl-dev \
     ncurses ncurses-dev ncurses-libs ncurses-static golangci-lint
-    
+
 ENV PATH=${PATH}:/usr/local/go/bin
 
-WORKDIR  /opt/workspace/yc-360-script
+WORKDIR /opt/workspace/yc-360-script
 
-ENTRYPOINT ["/bin/sh"]
+# Buildx-provided args
+ARG TARGETOS
+ARG TARGETARCH
+
+COPY . .
+
+RUN cd cmd/yc && \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -o /yc -ldflags="-s -w" -buildvcs=false
+
+# ---- minimal export stage ----
+FROM scratch AS export
+COPY --from=builder /yc /yc
