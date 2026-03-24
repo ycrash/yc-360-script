@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
-FROM golang:1.25.8-alpine AS builder
+ARG GO_VERSION
+FROM golang:${GO_VERSION}-alpine AS builder
 
 RUN apk add --no-cache \
     clang \

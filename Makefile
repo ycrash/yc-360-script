@@ -1,4 +1,5 @@
 CWD := $(shell pwd)
+GO_VERSION := $(shell grep '^go ' go.mod | awk '{print $$2}')
 
 IMAGE_NAME := yc-360-script-base:alpine
 CONTAINER_NAME := yc-360-script-base-alpine
@@ -9,7 +10,7 @@ _:
 	echo "default"
 
 alpine:
-	docker build -f Dockerfile.base.alpine -t $(IMAGE_NAME) .
+	docker build --build-arg GO_VERSION=$(GO_VERSION) -f Dockerfile.base.alpine -t $(IMAGE_NAME) .
 
 base: alpine
 	docker rm -f $(CONTAINER_NAME) || true
@@ -35,6 +36,7 @@ build-all:
 
 	# linux/amd64
 	docker buildx build \
+		--build-arg GO_VERSION=$(GO_VERSION) \
 		--platform linux/amd64 \
 		-f Dockerfile.base.alpine \
 		--target export \
@@ -43,6 +45,7 @@ build-all:
 
 	# linux/arm64
 	docker buildx build \
+		--build-arg GO_VERSION=$(GO_VERSION) \
 		--platform linux/arm64 \
 		-f Dockerfile.base.alpine \
 		--target export \
