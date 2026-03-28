@@ -10,7 +10,7 @@ _:
 	echo "default"
 
 alpine:
-	docker build --build-arg GO_VERSION=$(GO_VERSION) -f Dockerfile.base.alpine -t $(IMAGE_NAME) .
+	docker build --build-arg GO_VERSION=$(GO_VERSION) -f Dockerfile.base.alpine --target builder -t $(IMAGE_NAME) .
 
 base: alpine
 	docker rm -f $(CONTAINER_NAME) || true
