@@ -10,6 +10,35 @@ import (
 	"yc-agent/internal/logger"
 )
 
+// dotnetToolFriendlyError defines a mapping from an error substring to a
+// user-friendly message that helps the operator resolve the problem.
+type dotnetToolFriendlyError struct {
+	substring string
+	message   string
+}
+
+// knownDotnetToolErrors lists recognised error patterns and the guidance
+// that should be shown to the user alongside the original error message.
+var knownDotnetToolErrors = []dotnetToolFriendlyError{
+	{
+		substring: "requires elevation",
+		message:   "administrator privileges are required. Please re-run the command from an elevated Command Prompt or PowerShell (Run as Administrator)",
+	},
+}
+
+// wrapDotnetToolStartError wraps a command-start error, appending a
+// user-friendly message when the error matches a known pattern. The original
+// error message is always preserved for debugging.
+func wrapDotnetToolStartError(err error, cmdArgs []string) error {
+	msg := err.Error()
+	for _, known := range knownDotnetToolErrors {
+		if strings.Contains(msg, known.substring) {
+			return fmt.Errorf("failed to start dotnet tool %v: %s\nOriginal error: %w", cmdArgs, known.message, err)
+		}
+	}
+	return fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
+}
+
 // ensureDotnetToolResolved lazily resolves DotnetToolPath if it was not set
 // during validation (e.g. when runtime was auto-detected rather than explicit).
 func ensureDotnetToolResolved() (string, error) {
@@ -40,7 +69,7 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 	// Execute the command and capture output to file
 	cmd, err := executils.CommandStartInBackground(cmdArgs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
+		return nil, wrapDotnetToolStartError(err, cmdArgs)
 	}
 
 	// Wait for command to complete
@@ -128,7 +157,7 @@ func startDotnetToolInBackground(args []string) (executils.CmdManager, error) {
 
 	cmd, err := executils.CommandStartInBackground(cmdArgs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
+		return nil, wrapDotnetToolStartError(err, cmdArgs)
 	}
 
 	return cmd, nil
