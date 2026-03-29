@@ -530,7 +530,8 @@ func resolveDotnetToolPath(configured string) (string, error) {
 	if configured != "" {
 		resolved, err := exec.LookPath(configured)
 		if err != nil {
-			return "", fmt.Errorf("failed to resolve dotnet tool path %q: %w", configured, err)
+			return "", fmt.Errorf(".NET tool [%s] not found at the specified path %q. Please ensure the path includes the .NET executable [%s]",
+				DefaultDotnetToolName, configured, DefaultDotnetToolName)
 		}
 		return resolved, nil
 	}
