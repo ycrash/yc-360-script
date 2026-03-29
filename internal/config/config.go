@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -287,6 +288,35 @@ func defaultConfig() Config {
 
 var GlobalConfig = defaultConfig()
 
+// configFriendlyError maps a YAML error substring to a user-friendly hint.
+type configFriendlyError struct {
+	substring string
+	hint      string
+}
+
+var knownConfigErrors = []configFriendlyError{
+	{
+		substring: "cannot unmarshal !!map into string",
+		hint:      "string value is required, but a map was found. A value like {STRING} is interpreted as a YAML map, not a string. Use quotes (e.g. '{STRING}')",
+	},
+}
+
+var yamlLineRe = regexp.MustCompile(`line (\d+):`)
+
+func wrapConfigDecodeError(configPath string, err error) error {
+	msg := err.Error()
+	for _, known := range knownConfigErrors {
+		if strings.Contains(msg, known.substring) {
+			lineInfo := ""
+			if m := yamlLineRe.FindStringSubmatch(msg); m != nil {
+				lineInfo = fmt.Sprintf("line %s:", m[1])
+			}
+			return fmt.Errorf("decode config file path %s failed: %s %s\nOriginal error: %w", configPath, lineInfo, known.hint, err)
+		}
+	}
+	return fmt.Errorf("decode config file path %s failed: %w", configPath, err)
+}
+
 func ParseFlags(args []string) error {
 	if len(args) < 2 {
 		return nil
@@ -317,7 +347,7 @@ func ParseFlags(args []string) error {
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
 	if err != nil {
-		return fmt.Errorf("decode config file path %s failed: %w", GlobalConfig.ConfigPath, err)
+		return wrapConfigDecodeError(GlobalConfig.ConfigPath, err)
 	}
 
 	return copyFlagsValue(&GlobalConfig.Options, result)
