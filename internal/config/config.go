@@ -547,7 +547,7 @@ func resolveDotnetToolPath(configured string) (string, error) {
 		return resolved, nil
 	}
 
-	return "", fmt.Errorf("dotnet tool not found; set -dotnetToolPath or place %s next to the yc binary", DefaultDotnetToolName)
+	return "", fmt.Errorf(".NET tool [%s] not found. Set -dotnetToolPath or place %s in the same directory as yc.exe", DefaultDotnetToolName, DefaultDotnetToolName)
 }
 
 // GetAppRuntime returns the detected runtime type for the given process.

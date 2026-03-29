@@ -47,7 +47,7 @@ func validate() error {
 	if runtime.GOOS == "windows" && appRuntime == "dotnet" {
 		toolPath, err := config.ResolveDotnetToolPath()
 		if err != nil {
-			logger.Log(".NET tool not found: %v", err)
+			logger.Error().Msgf("%v", err)
 			return ErrInvalidArgumentCantContinue
 		}
 		config.GlobalConfig.DotnetToolPath = toolPath
