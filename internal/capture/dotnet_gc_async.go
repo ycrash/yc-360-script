@@ -121,7 +121,7 @@ func (d *DotnetGCAsync) ensureStartedLocked(pid int, appName string) error {
 	}
 
 	args := []string{"-gc", strconv.Itoa(pid), d.baseDir, "-1"}
-	cmd, err := startDotnetToolInBackground(args)
+	cmd, err := startDotnetToolInBackground(args, executils.DirHooker{Dir: d.baseDir})
 	if err != nil {
 		return err
 	}

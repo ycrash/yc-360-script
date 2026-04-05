@@ -146,7 +146,7 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 
 // startDotnetToolInBackground starts the configured .NET helper executable with the
 // given arguments and returns the running command handle without waiting.
-func startDotnetToolInBackground(args []string) (executils.CmdManager, error) {
+func startDotnetToolInBackground(args []string, hookers ...executils.Hooker) (executils.CmdManager, error) {
 	toolPath, err := ensureDotnetToolResolved()
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func startDotnetToolInBackground(args []string) (executils.CmdManager, error) {
 	cmdArgs := append([]string{toolPath}, args...)
 	logger.Log("Starting dotnet tool in background: %v", cmdArgs)
 
-	cmd, err := executils.CommandStartInBackground(cmdArgs)
+	cmd, err := executils.CommandStartInBackground(cmdArgs, hookers...)
 	if err != nil {
 		return nil, wrapDotnetToolStartError(err, cmdArgs)
 	}
