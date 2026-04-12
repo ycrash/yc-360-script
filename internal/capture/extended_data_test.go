@@ -37,7 +37,7 @@ func createTestScript(t *testing.T, outputFile string) string {
 		scriptContent = fmt.Sprintf("@echo off\r\necho test-data > \"%s\"\r\n", outputFile)
 		scriptFile = filepath.Join(scriptDir, "test-script.bat")
 	} else {
-		scriptContent = fmt.Sprintf("#!/bin/bash\necho test-data > \"%s\"\n", outputFile)
+		scriptContent = fmt.Sprintf("#!/bin/sh\necho test-data > \"%s\"\n", outputFile)
 		scriptFile = filepath.Join(scriptDir, "test-script.sh")
 	}
 
@@ -69,7 +69,7 @@ func createLongRunningScript(t *testing.T, duration time.Duration) (string, stri
 		scriptContent = fmt.Sprintf("@echo off\r\ntimeout /t %d /nobreak\r\n", int(duration.Seconds()))
 		scriptFile = filepath.Join(scriptDir, "test-script.bat")
 	} else {
-		scriptContent = fmt.Sprintf("#!/bin/bash\nsleep %d\n", int(duration.Seconds()))
+		scriptContent = fmt.Sprintf("#!/bin/sh\nsleep %d\n", int(duration.Seconds()))
 		scriptFile = filepath.Join(scriptDir, "test-script.sh")
 	}
 
@@ -291,15 +291,20 @@ func TestExtendedData_Run_EmptyScript(t *testing.T) {
 // given data folder as relative path
 // should generate the output file
 func TestExtendedData_Run_RelativePath(t *testing.T) {
-	testDir := "." // given relative path
+	// Step 1: Create a temporary test directory
+	testDir, err := os.MkdirTemp("", "extended-batch-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(testDir)
 
-	// Step 1: Define paths
+	// Step 2: Define paths
 	outputFile := filepath.Join(testDir, "output.log")
 
-	// Step 2: Create test script
+	// Step 3: Create test script
 	absScriptFile := createTestScript(t, outputFile)
 
-	// Step 3: Create the ExtendedData struct
+	// Step 4: Create the ExtendedData struct
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
@@ -310,7 +315,7 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 	server := setupMockServer(t)
 	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
 
-	// Step 4: Run the script
+	// Step 5: Run the script
 	result, err := ed.Run()
 	if err != nil {
 		logPath := filepath.Join(testDir, "script_execution.log")
@@ -323,20 +328,8 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 		t.Fatalf("Run not OK: %s", result.Msg)
 	}
 
-	// Step 5: Check if output file was created
+	// Step 6: Check if output file was created
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Errorf("Expected output file not created: %v", err)
-	}
-
-	// Clean up the output file created in current directory
-	os.Remove(outputFile)
-	os.Remove(filepath.Join(testDir, "script_execution.log"))
-
-	// Clean up any ed-* files created in current directory
-	entries, _ := os.ReadDir(".")
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "ed-") {
-			os.Remove(entry.Name())
-		}
 	}
 }
