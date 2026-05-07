@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/config"
@@ -53,10 +54,86 @@ func ensureDotnetToolResolved() (string, error) {
 	return resolved, nil
 }
 
+func tryParsePid(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(value)
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+// extractTargetPidFromArgs supports flexible argument ordering, including:
+//   - "-p 1234" / "--pid 1234"
+//   - "-p=1234" / "--pid=1234"
+//   - positional numeric argument (legacy/fallback)
+func extractTargetPidFromArgs(args []string) (int, bool) {
+	// Prefer explicit pid flags first.
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch {
+		case arg == "-p" || arg == "--pid":
+			if i+1 < len(args) {
+				if pid, ok := tryParsePid(strings.TrimSpace(args[i+1])); ok {
+					return pid, true
+				}
+			}
+		case strings.HasPrefix(arg, "-p="):
+			if pid, ok := tryParsePid(strings.TrimPrefix(arg, "-p=")); ok {
+				return pid, true
+			}
+		case strings.HasPrefix(arg, "--pid="):
+			if pid, ok := tryParsePid(strings.TrimPrefix(arg, "--pid=")); ok {
+				return pid, true
+			}
+		}
+	}
+
+	// Fallback: first positive integer token in args.
+	for _, arg := range args {
+		if pid, ok := tryParsePid(strings.TrimSpace(arg)); ok {
+			return pid, true
+		}
+	}
+	return 0, false
+}
+
+// resolveDotnetToolForArgs picks the best .NET helper binary for the command:
+//   - If user configured DotnetToolPath explicitly, keep using it.
+//   - Else, if a target PID can be extracted from args, prefer architecture-specific
+//     helper (yc-dot-net-x86.exe / yc-dot-net-x64.exe) and fall back to default resolver.
+func resolveDotnetToolForArgs(args []string) (string, error) {
+	if path := config.GlobalConfig.DotnetToolPath; path != "" {
+		return path, nil
+	}
+
+	// Reuse the canonical pid parsed by config flags first (-p can appear anywhere).
+	if pid, ok := tryParsePid(strings.TrimSpace(config.GlobalConfig.Pid)); ok {
+		if tool, found, err := resolveDotnetToolByPid(pid); err != nil {
+			return "", err
+		} else if found {
+			return tool, nil
+		}
+	}
+
+	// Fallback for direct/internal invocations that bypass GlobalConfig parsing.
+	if pid, ok := extractTargetPidFromArgs(args); ok {
+		if tool, found, err := resolveDotnetToolByPid(pid); err != nil {
+			return "", err
+		} else if found {
+			return tool, nil
+		}
+	}
+
+	return ensureDotnetToolResolved()
+}
+
 // executeDotnetTool runs the configured .NET helper executable with the given arguments
 // and captures the output to a file. Returns the file handle and any error.
 func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
-	toolPath, err := ensureDotnetToolResolved()
+	toolPath, err := resolveDotnetToolForArgs(args)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +224,7 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 // startDotnetToolInBackground starts the configured .NET helper executable with the
 // given arguments and returns the running command handle without waiting.
 func startDotnetToolInBackground(args []string, hookers ...executils.Hooker) (executils.CmdManager, error) {
-	toolPath, err := ensureDotnetToolResolved()
+	toolPath, err := resolveDotnetToolForArgs(args)
 	if err != nil {
 		return nil, err
 	}
