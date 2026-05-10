@@ -49,7 +49,7 @@ func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetHeapOutputPath, d.Pid))
+	file, err := executeDotnetTool(d.Pid, args, fmt.Sprintf(dotnetHeapOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET heap statistics: %w", err)
 	}

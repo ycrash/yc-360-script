@@ -111,11 +111,15 @@ type Options struct {
 
 	// Dotnet runtime support
 	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java or dotnet. Default is auto-detect"`
-	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET helper executable. If empty, yc will look for yc-dot-net.exe next to the yc binary"`
+	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET tool executable. If empty, yc will look for yc-dot-net-x86.exe and yc-dot-net-x64.exe next to the yc binary"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
 
-const DefaultDotnetToolName = "yc-dot-net.exe"
+const (
+	DefaultDotnetToolName = "yc-dot-net.exe" // legacy, no-arch-specific
+	DotnetToolNameX86     = "yc-dot-net-x86.exe"
+	DotnetToolNameX64     = "yc-dot-net-x64.exe"
+)
 
 type Command struct {
 	UrlParams UrlParams `yaml:"urlParams" usage:"[DEPRECATED] This option is no longer in use."`
@@ -521,34 +525,73 @@ func GetConfiguredAppRuntime() string {
 	return NormalizeAppRuntime(GlobalConfig.AppRuntime)
 }
 
-func ResolveDotnetToolPath() (string, error) {
-	return resolveDotnetToolPath(GlobalConfig.DotnetToolPath)
+func DotnetToolNameForArch(arch string) string {
+	switch arch {
+	case "x86":
+		return DotnetToolNameX86
+	default:
+		return DotnetToolNameX64
+	}
 }
 
-func resolveDotnetToolPath(configured string) (string, error) {
-	configured = strings.TrimSpace(configured)
-	if configured != "" {
-		resolved, err := exec.LookPath(configured)
-		if err != nil {
-			return "", fmt.Errorf(".NET tool [%s] not found at the specified path %q. Please ensure the path includes the .NET executable [%s]",
-				DefaultDotnetToolName, configured, DefaultDotnetToolName)
-		}
-		return resolved, nil
+// ResolveDotnetToolOverride resolves the user-supplied executable exactly as an executable path/name
+// (absolute path, relative path, or PATH lookup).
+func ResolveDotnetToolOverride() (string, error) {
+	configured := strings.TrimSpace(GlobalConfig.DotnetToolPath)
+	if configured == "" {
+		return "", fmt.Errorf("-dotnetToolPath is not set")
 	}
+	resolved, err := exec.LookPath(configured)
+	if err != nil {
+		return "", fmt.Errorf(".NET tool specified by -dotnetToolPath %q not found: %w", configured, err)
+	}
+	return resolved, nil
+}
 
-	exePath, err := os.Executable()
-	if err == nil {
-		candidate := filepath.Join(filepath.Dir(exePath), DefaultDotnetToolName)
+// ValidateDotnetToolOverride verifies the user-supplied dotnet tool is resolvable.
+func ValidateDotnetToolOverride() error {
+	_, err := ResolveDotnetToolOverride()
+	return err
+}
+
+// ValidateDotnetToolInstall validates the installation of dotnet tools, both archs.
+// Pass if both arch-specific tools are present.
+// Fail if none found, Warn if one arch-specific tool is missing.
+func ValidateDotnetToolInstall() (warnings []string, err error) {
+	_, x86Found := FindDotnetToolNearYcOrPath(DotnetToolNameX86)
+	_, x64Found := FindDotnetToolNearYcOrPath(DotnetToolNameX64)
+
+	switch {
+	case !x86Found && !x64Found:
+		return nil, fmt.Errorf(
+			"no .NET tool binaries found (%s, %s) next to the yc executable or on PATH",
+			DotnetToolNameX86, DotnetToolNameX64,
+		)
+	case !x86Found:
+		return []string{
+			fmt.Sprintf("%s not found - captures of x86 .NET targets will fail", DotnetToolNameX86),
+		}, nil
+	case !x64Found:
+		return []string{
+			fmt.Sprintf("%s not found - captures of x64 .NET targets will fail", DotnetToolNameX64),
+		}, nil
+	}
+	return nil, nil
+}
+
+// FindDotnetToolNearYcOrPath looks for a dotnet tool binary next to the yc executable
+// first, then on PATH.
+func FindDotnetToolNearYcOrPath(toolName string) (string, bool) {
+	if exePath, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exePath), toolName)
 		if _, statErr := os.Stat(candidate); statErr == nil {
-			return candidate, nil
+			return candidate, true
 		}
 	}
-
-	if resolved, lookErr := exec.LookPath(DefaultDotnetToolName); lookErr == nil {
-		return resolved, nil
+	if resolved, err := exec.LookPath(toolName); err == nil {
+		return resolved, true
 	}
-
-	return "", fmt.Errorf(".NET tool [%s] not found. Set -dotnetToolPath or place %s in the same directory as yc.exe", DefaultDotnetToolName, DefaultDotnetToolName)
+	return "", false
 }
 
 // GetAppRuntime returns the detected runtime type for the given process.
