@@ -96,7 +96,7 @@ func (d *DotnetGC) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetGCOutputPath, d.Pid))
+	file, err := executeDotnetTool(d.Pid, args, fmt.Sprintf(dotnetGCOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET GC events: %w", err)
 	}

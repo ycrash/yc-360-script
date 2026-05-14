@@ -26,6 +26,15 @@ var knownDotnetToolErrors = []dotnetToolFriendlyError{
 	},
 }
 
+const DotnetSourceUserOverride = "user-override"
+const DotnetSourceArchMatched = "arch-matched"
+const DotnetSourceDefault = "default"
+
+type DotnetToolResolution struct {
+	Path   string
+	Source string // "user-override", "arch-matched", "default"
+}
+
 // wrapDotnetToolStartError wraps a command-start error, appending a
 // user-friendly message when the error matches a known pattern. The original
 // error message is always preserved for debugging.
@@ -39,30 +48,61 @@ func wrapDotnetToolStartError(err error, cmdArgs []string) error {
 	return fmt.Errorf("failed to start dotnet tool %v: %w", cmdArgs, err)
 }
 
-// ensureDotnetToolResolved lazily resolves DotnetToolPath if it was not set
-// during validation (e.g. when runtime was auto-detected rather than explicit).
-func ensureDotnetToolResolved() (string, error) {
-	if path := config.GlobalConfig.DotnetToolPath; path != "" {
-		return path, nil
+func resolveDotnetToolForPid(pid int) (DotnetToolResolution, error) {
+	// user override
+	if config.GlobalConfig.DotnetToolPath != "" {
+		resolvedPath, err := config.ResolveDotnetToolOverride()
+		if err != nil {
+			return DotnetToolResolution{}, err
+		}
+		return DotnetToolResolution{Path: resolvedPath, Source: DotnetSourceUserOverride}, nil
 	}
-	resolved, err := config.ResolveDotnetToolPath()
-	if err != nil {
-		return "", err
+
+	// arch matched
+	arch, detectErr := detectTargetArch(pid)
+	if detectErr != nil {
+		logger.Warn().Err(detectErr).Int("pid", pid).Msg("could not detect target arch")
 	}
-	config.GlobalConfig.DotnetToolPath = resolved
-	return resolved, nil
+	if arch != "" {
+		name := config.DotnetToolNameForArch(arch)
+		if p, ok := config.FindDotnetToolNearYcOrPath(name); ok {
+			return DotnetToolResolution{Path: p, Source: DotnetSourceArchMatched}, nil
+		}
+
+		return DotnetToolResolution{}, fmt.Errorf(".NET tool for PID %d (%s) not found. expected %s next to yc or on PATH", pid, arch, name)
+	}
+
+	// No arch info — fall back to default tool name
+	if p, ok := config.FindDotnetToolNearYcOrPath(config.DefaultDotnetToolName); ok {
+		if detectErr != nil {
+			logger.Warn().
+				Err(detectErr).
+				Int("pid", pid).
+				Str("path", p).
+				Msg("using legacy .NET tool path because target arch detection failed")
+		}
+		return DotnetToolResolution{Path: p, Source: DotnetSourceDefault}, nil
+	}
+
+	if detectErr != nil {
+		return DotnetToolResolution{}, fmt.Errorf(
+			".NET tool path %q not found near yc or on PATH (target arch detection for PID %d failed: %w)",
+			config.DefaultDotnetToolName, pid, detectErr)
+	}
+	return DotnetToolResolution{}, fmt.Errorf(
+		".NET tool path %q not found near yc or on PATH", config.DefaultDotnetToolName)
 }
 
-// executeDotnetTool runs the configured .NET helper executable with the given arguments
+// executeDotnetTool runs the configured .NET tool executable with the given arguments
 // and captures the output to a file. Returns the file handle and any error.
-func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
-	toolPath, err := ensureDotnetToolResolved()
+func executeDotnetTool(pid int, args []string, outputPath string) (*os.File, error) {
+	toolResolution, err := resolveDotnetToolForPid(pid)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build the command: [toolPath, args...]
-	cmdArgs := append([]string{toolPath}, args...)
+	cmdArgs := append([]string{toolResolution.Path}, args...)
 
 	logger.Log("Executing dotnet tool: %v", cmdArgs)
 
@@ -144,15 +184,15 @@ func executeDotnetTool(args []string, outputPath string) (*os.File, error) {
 	return file, nil
 }
 
-// startDotnetToolInBackground starts the configured .NET helper executable with the
+// startDotnetToolInBackground starts the configured .NET tool executable with the
 // given arguments and returns the running command handle without waiting.
-func startDotnetToolInBackground(args []string, hookers ...executils.Hooker) (executils.CmdManager, error) {
-	toolPath, err := ensureDotnetToolResolved()
+func startDotnetToolInBackground(pid int, args []string, hookers ...executils.Hooker) (executils.CmdManager, error) {
+	toolResolution, err := resolveDotnetToolForPid(pid)
 	if err != nil {
 		return nil, err
 	}
 
-	cmdArgs := append([]string{toolPath}, args...)
+	cmdArgs := append([]string{toolResolution.Path}, args...)
 	logger.Log("Starting dotnet tool in background: %v", cmdArgs)
 
 	cmd, err := executils.CommandStartInBackground(cmdArgs, hookers...)

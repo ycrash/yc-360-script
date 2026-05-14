@@ -45,12 +45,21 @@ func validate() error {
 
 	// .NET tool validation
 	if runtime.GOOS == "windows" && appRuntime == "dotnet" {
-		toolPath, err := config.ResolveDotnetToolPath()
-		if err != nil {
-			logger.Error().Msgf("%v", err)
-			return ErrInvalidArgumentCantContinue
+		if config.GlobalConfig.DotnetToolPath != "" {
+			if err := config.ValidateDotnetToolOverride(); err != nil {
+				logger.Error().Msgf("%v", err)
+				return ErrInvalidArgumentCantContinue
+			}
+		} else {
+			warnings, err := config.ValidateDotnetToolInstall()
+			if err != nil {
+				logger.Error().Msgf("%v", err)
+				return ErrInvalidArgumentCantContinue
+			}
+			for _, w := range warnings {
+				logger.Warn().Msg(w)
+			}
 		}
-		config.GlobalConfig.DotnetToolPath = toolPath
 	}
 
 	// M3

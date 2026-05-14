@@ -49,7 +49,7 @@ func (d *DotnetThread) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(args, fmt.Sprintf(dotnetThreadOutputPath, d.Pid))
+	file, err := executeDotnetTool(d.Pid, args, fmt.Sprintf(dotnetThreadOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET thread dump: %w", err)
 	}
