@@ -2,8 +2,6 @@ module yc-agent
 
 go 1.26.3
 
-toolchain go1.26.3
-
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cakturk/go-netstat v0.0.0-20200220111822-e5b49efee7a5
