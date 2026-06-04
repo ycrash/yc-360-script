@@ -192,6 +192,9 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 			logger.Info().Err(err).Msg("Failed to start writing to file")
 		}
 
+		logger.Log("yc-360 script version: %s", executils.SCRIPT_VERSION)
+		logger.Log("Effective configuration ((default)=matches built-in default, (set)=differs from default):\n%s", config.EffectiveFlags())
+
 		defer func() {
 			if agentLogFile == nil {
 				return

@@ -84,7 +84,6 @@ func Shutdown() {
 }
 
 func startupLogs() {
-	logger.Log("yc-360 script version: %s", executils.SCRIPT_VERSION)
 	logger.Log("yc-360 script starting...")
 
 	msg, ok := common.StartupAttend()

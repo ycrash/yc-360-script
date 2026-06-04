@@ -508,6 +508,55 @@ func ShowUsage() {
 	flagSet.Usage()
 }
 
+// sensitiveFlags lists flag names (yaml/arg tag) whose values must be redacted
+var sensitiveFlags = map[string]bool{
+	"k":             true,
+	"boomiPassword": true,
+}
+
+// EffectiveFlags returns a single-line, comma-delimited listing of every flag
+// and its effective value (CLI + YAML + defaults merged), each formatted as
+// "<name>: <value> (default|set)".
+func EffectiveFlags() string {
+	defCfg := defaultConfig().Options
+	curElem := reflect.ValueOf(&GlobalConfig.Options).Elem()
+	defElem := reflect.ValueOf(&defCfg).Elem()
+	typ := curElem.Type()
+	var entries []string
+	for i := 0; i < typ.NumField(); i++ {
+		fieldType := typ.Field(i)
+		name, ok := fieldType.Tag.Lookup("yaml")
+		if !ok || name == "-" {
+			if name, ok = fieldType.Tag.Lookup("arg"); !ok {
+				continue
+			}
+		}
+
+		// Skip nested structures not expressible as a single flag value.
+		switch curElem.Field(i).Interface().(type) {
+		case HealthChecks, []Command:
+			continue
+		}
+
+		origin := "set"
+		if reflect.DeepEqual(curElem.Field(i).Interface(), defElem.Field(i).Interface()) {
+			origin = "default"
+		}
+		entries = append(entries, fmt.Sprintf("%s: %s (%s)", name, formatFlagValue(name, curElem.Field(i)), origin))
+	}
+	return strings.Join(entries, ", ")
+}
+
+func formatFlagValue(name string, field reflect.Value) string {
+	if sensitiveFlags[name] {
+		if field.Kind() == reflect.String && field.String() == "" {
+			return ""
+		}
+		return "<redacted>"
+	}
+	return fmt.Sprintf("%v", field.Interface())
+}
+
 func NormalizeAppRuntime(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
