@@ -168,7 +168,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 						return
 					}
 					if config.GlobalConfig.OnlyCapture {
-						name, err := ZipFolder(captureDir)
+						name, err := CompressFolder(captureDir)
 						if err != nil {
 							logger.Log("WARNING: Can not zip folder: %s", err)
 							return

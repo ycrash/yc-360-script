@@ -6,6 +6,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cakturk/go-netstat v0.0.0-20200220111822-e5b49efee7a5
 	github.com/gentlemanautomaton/cmdline v0.0.0-20250112024754-4dfcc3d8ef7a
+	github.com/klauspost/compress v1.18.6
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/mattn/go-zglob v0.0.6
 	github.com/mitchellh/go-ps v1.0.0
