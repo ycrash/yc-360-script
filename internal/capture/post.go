@@ -33,6 +33,67 @@ func PostDataWithTimeout(endpoint, dt string, file *os.File, timeout time.Durati
 	return PostCustomDataWithTimeout(endpoint, "dt="+dt, file, timeout)
 }
 
+func PostReaderWithTimeout(endpoint, dt string, body io.Reader, timeout time.Duration) (msg string, ok bool) {
+	return postCustomReaderWithTimeout(endpoint, "dt="+dt, body, timeout)
+}
+
+func postCustomReaderWithTimeout(endpoint, params string, body io.Reader, timeout time.Duration) (msg string, ok bool) {
+	if config.GlobalConfig.OnlyCapture {
+		msg = "in only capture mode"
+		return
+	}
+	if body == nil {
+		msg = "file is not captured"
+		return
+	}
+
+	url := fmt.Sprintf("%s&%s", endpoint, params)
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: !config.GlobalConfig.VerifySSL,
+	}
+	path := config.GlobalConfig.CACertPath
+	if len(path) > 0 {
+		pool := x509.NewCertPool()
+		ca, err := os.ReadFile(path)
+		if err != nil {
+			msg = err.Error()
+			return
+		}
+		pool.AppendCertsFromPEM(ca)
+		transport.TLSClientConfig.RootCAs = pool
+	}
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		msg = fmt.Sprintf("PostData new req err %s", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "text")
+	req.Header.Set("ApiKey", config.GlobalConfig.ApiKey)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		msg = fmt.Sprintf("PostData post err %s", err.Error())
+		return
+	}
+
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		msg = fmt.Sprintf("PostData get resp err %s", err.Error())
+		return
+	}
+	msg = fmt.Sprintf("%s\nstatus code %d\n%s", url, resp.StatusCode, respBody)
+
+	if resp.StatusCode == http.StatusOK {
+		ok = true
+	}
+	return
+}
+
 func PositionZero(file *os.File) (err error) {
 	_, err = file.Seek(0, io.SeekStart)
 	return
