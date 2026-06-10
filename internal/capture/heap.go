@@ -141,9 +141,8 @@ func (t *HeapDump) Run() (Result, error) {
 	// Copy the source dump into the capture directory.
 	contentEncoding, srcCompressed := compressedHeapContentEncoding(srcPath)
 	dstPath := hdOut
-	srcExt := ""
 	if srcCompressed {
-		srcExt = strings.TrimPrefix(filepath.Ext(srcPath), ".")
+		srcExt := strings.TrimPrefix(filepath.Ext(srcPath), ".")
 		dstPath = "heap_dump." + srcExt
 	}
 
