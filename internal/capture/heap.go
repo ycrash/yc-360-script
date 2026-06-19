@@ -119,15 +119,12 @@ func (t *HeapDump) Run() (Result, error) {
 		srcPath = actualDumpPath
 		srcFile = hd
 
-		// Ensure the captured heap dump file is closed when the function exits
+		// Close before removing the captured raw dump.
 		defer func() {
 			if err := hd.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 				logger.Log("failed to close captured heap dump file: %s", err.Error())
 			}
-		}()
 
-		// because this code creates the file, it's responsible for cleaning it up
-		defer func() {
 			if removeErr := os.Remove(actualDumpPath); removeErr != nil {
 				logger.Log("failed to rm hd file %s cause err: %s", actualDumpPath, removeErr.Error())
 			}
