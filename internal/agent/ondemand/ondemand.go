@@ -319,7 +319,7 @@ Ignored errors: %v
 		gc = goCapture(endpoint, capture.WrapRun(dotnetGC))
 
 		// Capture .NET heap statistics
-		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHeap{
+		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHDSub{
 			Pid: pid,
 		}))
 

@@ -6,19 +6,17 @@ import (
 	"strconv"
 )
 
-const dotnetHeapOutputPath = "heap_stats_%d.json"
+const dotnetHDSubOutputPath = "heap_stats_%d.json"
 
-// const dotnetHeapOutputPath = "hdsub.out"
-
-// DotnetHeap captures .NET heap statistics.
-type DotnetHeap struct {
+// DotnetHDSub captures .NET heap statistics.
+type DotnetHDSub struct {
 	Capture
 	Pid int
 }
 
 // Run implements the capture by creating the output file, capturing heap statistics,
 // and then uploading the captured file.
-func (d *DotnetHeap) Run() (Result, error) {
+func (d *DotnetHDSub) Run() (Result, error) {
 	// Check that the process exists
 	if !IsProcessExists(d.Pid) {
 		return Result{}, fmt.Errorf("process %d does not exist", d.Pid)
@@ -34,7 +32,7 @@ func (d *DotnetHeap) Run() (Result, error) {
 }
 
 // CaptureToFile captures the heap statistics to a file and returns it.
-func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
+func (d *DotnetHDSub) CaptureToFile() (*os.File, error) {
 	// Get current working directory
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -49,7 +47,7 @@ func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
 	}
 
 	// Execute the dotnet tool and capture output
-	file, err := executeDotnetTool(d.Pid, args, fmt.Sprintf(dotnetHeapOutputPath, d.Pid))
+	file, err := executeDotnetTool(d.Pid, args, fmt.Sprintf(dotnetHDSubOutputPath, d.Pid))
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture .NET heap statistics: %w", err)
 	}
@@ -58,7 +56,7 @@ func (d *DotnetHeap) CaptureToFile() (*os.File, error) {
 }
 
 // UploadCapturedFile sends the file data to the endpoint using the service key "hdsub".
-func (d *DotnetHeap) UploadCapturedFile(file *os.File) Result {
+func (d *DotnetHDSub) UploadCapturedFile(file *os.File) Result {
 	msg, ok := PostData(d.Endpoint(), "hdsub", file)
 	return Result{Msg: msg, Ok: ok}
 }

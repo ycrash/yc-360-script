@@ -937,7 +937,7 @@ Resp: %s
 }
 
 func uploadDotnetHeapM3(endpoint string, pid int) {
-	dotnetHeapCapture := &capture.DotnetHeap{
+	dotnetHeapCapture := &capture.DotnetHDSub{
 		Pid: pid,
 	}
 	dotnetHeapCapture.SetEndpointParam("pid", fmt.Sprintf("%d", pid))
