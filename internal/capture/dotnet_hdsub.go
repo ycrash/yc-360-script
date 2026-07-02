@@ -39,9 +39,9 @@ func (d *DotnetHDSub) CaptureToFile() (*os.File, error) {
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	// Build command arguments: -hd <pid> <output_path>
+	// Build command arguments: -hdsub <pid> <output_folder>
 	args := []string{
-		"-hd",
+		"-hdsub",
 		strconv.Itoa(d.Pid),
 		workDir,
 	}
