@@ -20,9 +20,9 @@ import (
 // FILE_FLAG_OVERLAPPED so os.NewFile associates it with Go's runtime poller,
 // which makes SetDeadline work for the asynchronous dumpGC/dumpCPUProfile RPCs.
 //
-// Security note: on Windows the named pipe itself is NOT permission-protected
-// (see the requirements' §11.1). The shared-secret token carried in every
-// request is the real access control here, not the pipe's own ACL.
+// Security note: on Windows the named pipe itself is NOT permission-protected.
+// The shared-secret token carried in every request is the real access control
+// here, not the pipe's own ACL.
 
 // ERROR_PIPE_BUSY (231): all pipe instances are busy; wait and retry.
 const errorPipeBusy = syscall.Errno(231)

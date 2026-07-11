@@ -21,8 +21,7 @@ import (
 
 // fakeHook is an in-test stand-in for yc360-node-hook.js: a Unix-socket server
 // speaking the same newline-delimited JSON protocol, used to exercise the real
-// NodeHookClient / discovery code paths without a live Node process. Item #3
-// only needs the ping RPC; item #4 will extend this with the capture RPCs.
+// NodeHookClient / RPC / discovery code paths without a live Node process.
 type fakeHook struct {
 	t   *testing.T
 	ln  net.Listener
@@ -142,6 +141,50 @@ func (fh *fakeHook) handle(conn net.Conn) {
 			"pid": fh.pid, "nodeVersion": "v18.20.8", "platform": runtime.GOOS,
 			"uptimeSec": 12.5, "hookVersion": "0.5.1-poc",
 		}, "")
+	case "dumpProcessOverview":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`{"header":{"processId":1},"callStack":[],"libuv":[]}`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath}, "")
+	case "dumpHeapSummary":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`{"overview":{"used_heap_size":1},"heapSpaceHistogram":[]}`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath}, "")
+	case "dumpGC":
+		durMs := 10.0
+		if d, ok := req.Params["durationMs"].(float64); ok {
+			durMs = d
+		}
+		// The real hook only responds after the window; sleep the (short,
+		// test-sized) duration so the async read-deadline path is exercised.
+		time.Sleep(time.Duration(durMs) * time.Millisecond)
+		writeFakeResp(conn, req.ID, true, map[string]any{
+			"startedAt": "t0", "endedAt": "t1", "durationMs": durMs,
+			"toggledOn": true, "toggledOff": true,
+		}, "")
+	case "dumpCPUProfile":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`{"nodes":[],"samples":[1,2,3],"timeDeltas":[]}`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "totalSamples": 3, "windowSeconds": 1.0}, "")
+	case "dumpEventLoopLag":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`[{"timeLabel":"00:00:01","count":0}]`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "sampleCount": 1, "windowSeconds": req.Params["windowSeconds"]}, "")
+	case "dumpUnhandledRejections":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`[{"reason":"x","stackTrace":null,"epochMs":1}]`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "eventCount": 1, "totalCount": 1, "truncated": false, "windowSeconds": req.Params["windowSeconds"]}, "")
+	case "dumpModuleInventory":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`[{"name":"app.js","version":null,"fileCount":1}]`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "packageCount": 1, "fileCount": 1}, "")
+	case "dumpHandleGrowth":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`[{"statesCount":{"Timeout":1},"totalCount":1,"epochMs":1}]`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "sampleCount": 1, "windowSeconds": req.Params["windowSeconds"], "intervalSeconds": req.Params["intervalSeconds"]}, "")
+	case "dumpGCStats":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`[{"kind":"minor","durationMs":0.3,"epochMs":1}]`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "eventCount": 1, "windowSeconds": req.Params["windowSeconds"]}, "")
 	default:
 		writeFakeResp(conn, req.ID, false, nil, "unknown method: "+req.Method)
 	}
@@ -175,6 +218,167 @@ func TestNodeHookPingRoundTrip(t *testing.T) {
 	}
 	if ping.HookVersion != "0.5.1-poc" || ping.NodeVersion != "v18.20.8" || ping.PID != fh.pid {
 		t.Errorf("unexpected ping: %+v", ping)
+	}
+}
+
+// TestNodeHookCaptureRPCsRoundTrip drives capture RPCs against the
+// fake hook: correct params in, result decoded out, artifact written to outPath.
+func TestNodeHookCaptureRPCsRoundTrip(t *testing.T) {
+	fh := startFakeHook(t, 34590, "tok-abc")
+	client, err := NewNodeHookClient(fh.dir, fh.pid)
+	if err != nil {
+		t.Fatalf("NewNodeHookClient: %v", err)
+	}
+
+	po := filepath.Join(fh.dir, "nodeJsProcessOverview.out")
+	if err := client.DumpProcessOverview(po); err != nil {
+		t.Fatalf("DumpProcessOverview: %v", err)
+	}
+	if !NodeReportValid(po) {
+		t.Errorf("dumpProcessOverview output is not valid JSON")
+	}
+
+	if err := client.DumpHeapSummary(filepath.Join(fh.dir, "hdsub.out")); err != nil {
+		t.Fatalf("DumpHeapSummary: %v", err)
+	}
+
+	gcRes, err := client.DumpGC(20)
+	if err != nil {
+		t.Fatalf("DumpGC: %v", err)
+	}
+	// The result is decoded from the hook's post-window reply, and durationMs is
+	// echoed back — so this also proves the param reached the hook.
+	if !gcRes.ToggledOn || !gcRes.ToggledOff || gcRes.DurationMs != 20 {
+		t.Errorf("unexpected dumpGC result: %+v", gcRes)
+	}
+
+	cpuRes, err := client.DumpCPUProfile(filepath.Join(fh.dir, "cpuprofile.out"), 1)
+	if err != nil {
+		t.Fatalf("DumpCPUProfile: %v", err)
+	}
+	if cpuRes.TotalSamples != 3 {
+		t.Errorf("cpu totalSamples = %d, want 3", cpuRes.TotalSamples)
+	}
+
+	// Diagnostic Report page RPCs.
+	ellRes, err := client.DumpEventLoopLag(filepath.Join(fh.dir, "eventlooplag.out"), 1)
+	if err != nil {
+		t.Fatalf("DumpEventLoopLag: %v", err)
+	}
+	if ellRes.SampleCount != 1 {
+		t.Errorf("event loop lag sampleCount = %d, want 1", ellRes.SampleCount)
+	}
+
+	urRes, err := client.DumpUnhandledRejections(filepath.Join(fh.dir, "rejections.out"), 1)
+	if err != nil {
+		t.Fatalf("DumpUnhandledRejections: %v", err)
+	}
+	if urRes.EventCount != 1 || urRes.Truncated {
+		t.Errorf("unexpected unhandled-rejections result: %+v", urRes)
+	}
+
+	miRes, err := client.DumpModuleInventory(filepath.Join(fh.dir, "modules.out"))
+	if err != nil {
+		t.Fatalf("DumpModuleInventory: %v", err)
+	}
+	if miRes.PackageCount != 1 {
+		t.Errorf("module inventory packageCount = %d, want 1", miRes.PackageCount)
+	}
+
+	hgRes, err := client.DumpHandleGrowth(filepath.Join(fh.dir, "handlegrowth.out"), 4, 2)
+	if err != nil {
+		t.Fatalf("DumpHandleGrowth: %v", err)
+	}
+	if hgRes.SampleCount != 1 {
+		t.Errorf("handle growth sampleCount = %d, want 1", hgRes.SampleCount)
+	}
+
+	gcsRes, err := client.DumpGCStats(filepath.Join(fh.dir, "gcstats.out"), 1)
+	if err != nil {
+		t.Fatalf("DumpGCStats: %v", err)
+	}
+	if gcsRes.EventCount != 1 {
+		t.Errorf("gc stats eventCount = %d, want 1", gcsRes.EventCount)
+	}
+}
+
+// TestNodeDiagnosticWindowValidation proves the windowed RPCs reject out-of-range
+// windows client-side (0 is rejected, not remapped to a default), and that
+// dumpHandleGrowth enforces its interval rules.
+func TestNodeDiagnosticWindowValidation(t *testing.T) {
+	fh := startFakeHook(t, 34591, "tok")
+	client, _ := NewNodeHookClient(fh.dir, fh.pid)
+	x := filepath.Join(fh.dir, "x.out")
+
+	// 0 is rejected, not remapped to a default, for every windowed RPC.
+	if _, err := client.DumpEventLoopLag(x, 0); err == nil {
+		t.Errorf("DumpEventLoopLag(0) should be rejected")
+	}
+	if _, err := client.DumpUnhandledRejections(x, 301); err == nil {
+		t.Errorf("DumpUnhandledRejections(301) should be rejected")
+	}
+	if _, err := client.DumpGCStats(x, 0); err == nil {
+		t.Errorf("DumpGCStats(0) should be rejected")
+	}
+
+	// Handle growth: interval must be >= 1 and strictly less than the window.
+	if _, err := client.DumpHandleGrowth(x, 10, 0); err == nil {
+		t.Errorf("DumpHandleGrowth interval 0 should be rejected")
+	}
+	if _, err := client.DumpHandleGrowth(x, 5, 10); err == nil {
+		t.Errorf("DumpHandleGrowth interval >= window should be rejected")
+	}
+}
+
+func TestNodeHookDumpGCValidation(t *testing.T) {
+	fh := startFakeHook(t, 34592, "tok")
+	client, _ := NewNodeHookClient(fh.dir, fh.pid)
+	if _, err := client.DumpGC(0); err == nil {
+		t.Errorf("DumpGC(0) should be rejected")
+	}
+	if _, err := client.DumpGC(nodeMaxDumpGCMs + 1); err == nil {
+		t.Errorf("DumpGC over cap should be rejected")
+	}
+}
+
+func TestNodeHookCPUProfileValidation(t *testing.T) {
+	fh := startFakeHook(t, 34593, "tok")
+	client, _ := NewNodeHookClient(fh.dir, fh.pid)
+	// 0 is rejected, not remapped to default.
+	if _, err := client.DumpCPUProfile(filepath.Join(fh.dir, "x"), 0); err == nil {
+		t.Errorf("DumpCPUProfile(0) should be rejected")
+	}
+	if _, err := client.DumpCPUProfile(filepath.Join(fh.dir, "x"), 301); err == nil {
+		t.Errorf("DumpCPUProfile(301) should be rejected")
+	}
+}
+
+// TestNodeReportValid covers the JSON well-formedness guard that a process
+// overview (or signal-mode report) must pass before it is treated as a success:
+// a report truncated mid-write by a crash is the exact case it must reject.
+func TestNodeReportValid(t *testing.T) {
+	dir := t.TempDir()
+
+	valid := filepath.Join(dir, "valid.out")
+	os.WriteFile(valid, []byte(`{"header":{"processId":1}}`), 0o644)
+	if !NodeReportValid(valid) {
+		t.Errorf("NodeReportValid = false for well-formed JSON")
+	}
+
+	truncated := filepath.Join(dir, "truncated.out")
+	os.WriteFile(truncated, []byte(`{"header":`), 0o644)
+	if NodeReportValid(truncated) {
+		t.Errorf("NodeReportValid = true for truncated JSON")
+	}
+
+	empty := filepath.Join(dir, "empty.out")
+	os.WriteFile(empty, nil, 0o644)
+	if NodeReportValid(empty) {
+		t.Errorf("NodeReportValid = true for an empty file")
+	}
+
+	if NodeReportValid(filepath.Join(dir, "does-not-exist.out")) {
+		t.Errorf("NodeReportValid = true for a missing file")
 	}
 }
 
