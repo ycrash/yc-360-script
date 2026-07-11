@@ -17,7 +17,7 @@ func validate() error {
 	appRuntime := config.GetConfiguredAppRuntime()
 	if !config.IsValidAppRuntime(appRuntime) {
 		// Log the raw (un-normalized) value so the user sees exactly what they typed.
-		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet", config.GlobalConfig.AppRuntime)
+		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet, nodejs", config.GlobalConfig.AppRuntime)
 		return ErrInvalidArgumentCantContinue
 	}
 
@@ -33,8 +33,8 @@ func validate() error {
 		}
 	}
 
-	// JAVA_HOME validation
-	if appRuntime != "dotnet" {
+	// JAVA_HOME validation (only relevant for Java targets).
+	if appRuntime != "dotnet" && appRuntime != "nodejs" {
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 		}

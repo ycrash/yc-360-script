@@ -110,7 +110,7 @@ type Options struct {
 	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
 
 	// Dotnet runtime support
-	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java or dotnet. Default is auto-detect"`
+	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java, dotnet, or nodejs. Default is auto-detect"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET tool executable. If empty, yc will look for yc-dot-net-x86.exe and yc-dot-net-x64.exe next to the yc binary"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 }
@@ -563,7 +563,7 @@ func NormalizeAppRuntime(value string) string {
 
 func IsValidAppRuntime(value string) bool {
 	switch NormalizeAppRuntime(value) {
-	case "", "java", "dotnet":
+	case "", "java", "dotnet", "nodejs":
 		return true
 	default:
 		return false
@@ -645,19 +645,27 @@ func FindDotnetToolNearYcOrPath(toolName string) (string, bool) {
 
 // GetAppRuntime returns the detected runtime type for the given process.
 // Returns the configured override when present.
-// Otherwise returns "dotnet" if .NET runtime is detected, "java" by default.
+// Otherwise returns "dotnet" if a .NET runtime is detected (Windows module
+// inspection), "nodejs" if the executable looks like Node.js, and "java" as
+// the default fallback.
 func GetAppRuntime(pid int) string {
 	if appRuntime := GetConfiguredAppRuntime(); appRuntime != "" {
 		return appRuntime
 	}
 
-	runtimeInfo, err := runtime.DetectRuntime(pid)
-	if err != nil || runtimeInfo == nil {
-		// Detection failed or not available - default to java
-		return "java"
+	// .NET detection (Windows-only module inspection; nil elsewhere).
+	if runtimeInfo, err := runtime.DetectRuntime(pid); err == nil && runtimeInfo != nil {
+		if runtimeInfo.Runtime == runtime.RuntimeDotNet {
+			return "dotnet"
+		}
+		if runtimeInfo.Runtime == runtime.RuntimeJava {
+			return "java"
+		}
 	}
-	if runtimeInfo.Runtime == runtime.RuntimeDotNet {
-		return "dotnet"
+
+	if runtime.IsNodeProcess(pid) {
+		return "nodejs"
 	}
+
 	return "java"
 }
