@@ -113,6 +113,11 @@ type Options struct {
 	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java, dotnet, or nodejs. Default is auto-detect"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET tool executable. If empty, yc will look for yc-dot-net-x86.exe and yc-dot-net-x64.exe next to the yc binary"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
+
+	// Node.js runtime support
+	NodejsCaptureMode string `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
+	NodejsRuntimeDir  string `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
+	NodejsHookPath    string `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
 }
 
 const (
@@ -286,6 +291,10 @@ func defaultConfig() Config {
 			HttpClientTimeout: Duration(60 * time.Second),
 			AppRuntime:        "",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
+
+			NodejsCaptureMode: "hook",
+			NodejsRuntimeDir:  "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
+			NodejsHookPath:    "",
 		},
 	}
 }
