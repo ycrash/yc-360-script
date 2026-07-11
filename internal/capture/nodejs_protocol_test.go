@@ -46,6 +46,36 @@ func TestReadNodeRegistrationMissingPipePath(t *testing.T) {
 	}
 }
 
+func TestNodeTokenCacheAndInvalidate(t *testing.T) {
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, nodeTokenFileName)
+	if err := os.WriteFile(tokenPath, []byte("  secret-old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	InvalidateNodeToken()
+	got, err := NodeToken(dir)
+	if err != nil {
+		t.Fatalf("NodeToken: %v", err)
+	}
+	if got != "secret-old" {
+		t.Errorf("token = %q, want secret-old (trimmed)", got)
+	}
+
+	// Rewrite the file; without invalidation the cache should still return old.
+	if err := os.WriteFile(tokenPath, []byte("secret-new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := NodeToken(dir); got != "secret-old" {
+		t.Errorf("cached token = %q, want secret-old", got)
+	}
+
+	InvalidateNodeToken()
+	if got, _ := NodeToken(dir); got != "secret-new" {
+		t.Errorf("after invalidate token = %q, want secret-new", got)
+	}
+}
+
 func TestNodeRuntimeDirResolution(t *testing.T) {
 	origDir := config.GlobalConfig.NodejsRuntimeDir
 	origEnv, hadEnv := os.LookupEnv(nodeRuntimeDirEnv)

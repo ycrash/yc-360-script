@@ -52,23 +52,10 @@ func TestResolveNodeCaptureNoRegistration(t *testing.T) {
 	}
 }
 
-func TestResolveNodeCaptureRegistrationPresent(t *testing.T) {
-	dir := t.TempDir()
-	withNodeConfig(t, "hook", dir)
-	pid := 4242
-	writeNodeRegistration(t, dir, pid, `{"pid":4242,"pipePath":"/tmp/yc.sock","nodeVersion":"v18.0.0","platform":"linux"}`)
-
-	ctx := ResolveNodeCapture(pid)
-	if !ctx.HookAvailable() {
-		t.Fatalf("HookAvailable() = false, want true for a matching registration")
-	}
-	if ctx.HookErr != nil {
-		t.Errorf("HookErr = %v, want nil", ctx.HookErr)
-	}
-	if ctx.Reg == nil || ctx.Reg.PipePath != "/tmp/yc.sock" {
-		t.Errorf("Reg not populated as expected: %+v", ctx.Reg)
-	}
-}
+// A registration whose socket has no live listener is NOT a usable hook: since
+// item #3, ResolveNodeCapture pings to confirm liveness. The responsive case
+// (live socket) and the explicit dead-socket case live in nodejs_ipc_test.go,
+// which has the fake-hook server to exercise them.
 
 func TestResolveNodeCaptureStalePID(t *testing.T) {
 	dir := t.TempDir()

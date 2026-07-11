@@ -20,17 +20,18 @@ type NodeCaptureContext struct {
 	PID        int
 	RuntimeDir string
 	Mode       string
-	Reg        *NodeRegistration
+	Client     *NodeHookClient
+	Hook       *NodePingResult
 	HookErr    error
 }
 
-// HookAvailable reports whether a usable hook was found for the PID.
+// HookAvailable reports whether a responsive hook client is ready to use.
 func (ctx *NodeCaptureContext) HookAvailable() bool {
-	return ctx != nil && ctx.Reg != nil
+	return ctx != nil && ctx.Client != nil
 }
 
-// ResolveNodeCapture determines the capture mode and, in hook mode, whether a
-// hook registration is present for pid.
+// ResolveNodeCapture determines the capture mode and, in hook mode, whether the
+// hook is present and responsive for pid.
 func ResolveNodeCapture(pid int) *NodeCaptureContext {
 	mode := NormalizeNodeCaptureMode(config.GlobalConfig.NodejsCaptureMode)
 	runtimeDir := NodeRuntimeDir()
@@ -47,16 +48,25 @@ func ResolveNodeCapture(pid int) *NodeCaptureContext {
 	}
 
 	// Hook mode
-	reg, err := ReadNodeRegistration(runtimeDir, pid)
+	client, err := NewNodeHookClient(runtimeDir, pid)
 	if err != nil {
 		ctx.HookErr = err
 		logNodeHookUnavailable(pid, runtimeDir, err)
 		return ctx
 	}
 
-	ctx.Reg = reg
+	// Registration present — confirm the socket/pipe is actually responsive
+	ping, err := client.Ping()
+	if err != nil {
+		// Stale registration from a crashed/killed process, or PID reuse.
+		ctx.HookErr = fmt.Errorf("hook registration present but not responsive: %w", err)
+		logger.Log("WARNING: node hook registration for pid %d exists but the socket is unresponsive (treating as no hook): %s", pid, err)
+		return ctx
+	}
 
-	logger.Log("node hook registration found for pid %d: nodeVersion=%s platform=%s (liveness check deferred to hook IPC client)", pid, reg.NodeVersion, reg.Platform)
+	ctx.Client = client
+	ctx.Hook = ping
+	logger.Log("node hook responsive for pid %d: hookVersion=%s nodeVersion=%s platform=%s", pid, ping.HookVersion, ping.NodeVersion, ping.Platform)
 	return ctx
 }
 
@@ -75,7 +85,7 @@ func logNodeHookUnavailable(pid int, runtimeDir string, err error) {
 	if hookPath == "" {
 		hookPath = "/path/to/yc360-node-hook.js"
 	}
-	logger.Log("WARNING: no yc-360 Node.js hook registration found for pid %d in %s (%s).", pid, runtimeDir, err)
+	logger.Log("WARNING: no responsive yc-360 Node.js hook found for pid %d in %s (%s).", pid, runtimeDir, err)
 	logger.Log(`To enable Node.js diagnostics capture for pid %d, choose ONE:
   1. Hook mode (recommended, all platforms): start the process with
        NODE_OPTIONS="--require=%s"
