@@ -115,9 +115,11 @@ type Options struct {
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 
 	// Node.js runtime support
-	NodejsCaptureMode string `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
-	NodejsRuntimeDir  string `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
-	NodejsHookPath    string `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
+	NodejsCaptureMode    string `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
+	NodejsReportSignal   string `yaml:"nodejsReportSignal" usage:"Node.js signal-mode: signal to trigger a diagnostic report; must match the target's --report-on-signal (default SIGUSR2). SIGUSR1 is refused."`
+	NodejsHeapdumpSignal string `yaml:"nodejsHeapdumpSignal" usage:"Node.js signal-mode: signal to trigger a heap snapshot; must match the target's --heapsnapshot-signal. SIGUSR1 is refused."`
+	NodejsRuntimeDir     string `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
+	NodejsHookPath       string `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
 }
 
 const (
@@ -292,9 +294,11 @@ func defaultConfig() Config {
 			AppRuntime:        "",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
 
-			NodejsCaptureMode: "hook",
-			NodejsRuntimeDir:  "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
-			NodejsHookPath:    "",
+			NodejsCaptureMode:    "hook",
+			NodejsReportSignal:   "SIGUSR2",
+			NodejsHeapdumpSignal: "SIGUSR2",
+			NodejsRuntimeDir:     "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
+			NodejsHookPath:       "",
 		},
 	}
 }
