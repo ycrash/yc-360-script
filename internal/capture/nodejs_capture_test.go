@@ -46,11 +46,11 @@ func newFakeReceiver(t *testing.T) *fakeReceiver {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "OK")
 	}))
-	t.Cleanup(fr.Server.Close)
+	t.Cleanup(fr.Close)
 	return fr
 }
 
-func (fr *fakeReceiver) endpoint() string { return fr.Server.URL + "?de=test" }
+func (fr *fakeReceiver) endpoint() string { return fr.URL + "?de=test" }
 
 func (fr *fakeReceiver) dtCodes() []string {
 	fr.mu.Lock()
