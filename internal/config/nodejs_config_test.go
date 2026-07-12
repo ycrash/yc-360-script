@@ -15,6 +15,44 @@ func TestIsValidAppRuntimeNodejs(t *testing.T) {
 	}
 }
 
+func TestNodejsDefaults(t *testing.T) {
+	c := defaultConfig()
+	if c.NodejsCaptureMode != "hook" {
+		t.Errorf("default NodejsCaptureMode = %q, want hook", c.NodejsCaptureMode)
+	}
+	if c.NodejsReportSignal != "SIGUSR2" {
+		t.Errorf("default NodejsReportSignal = %q, want SIGUSR2", c.NodejsReportSignal)
+	}
+	if c.NodejsGCCaptureDuration.Duration().Seconds() != 30 {
+		t.Errorf("default NodejsGCCaptureDuration = %v, want 30s", c.NodejsGCCaptureDuration)
+	}
+	if c.NodejsCPUProfileDuration.Duration().Seconds() != 30 {
+		t.Errorf("default NodejsCPUProfileDuration = %v, want 30s", c.NodejsCPUProfileDuration)
+	}
+	if c.NodejsCPUProfile {
+		t.Errorf("default NodejsCPUProfile = true, want false (opt-in)")
+	}
+}
+
+func TestNodejsFlagParsing(t *testing.T) {
+	saved := GlobalConfig
+	t.Cleanup(func() { GlobalConfig = saved })
+	GlobalConfig = defaultConfig()
+
+	if err := ParseFlags([]string{"yc", "-nodejsCaptureMode=signal", "-nodejsCPUProfile=true", "-nodejsReportSignal=SIGQUIT"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	if GlobalConfig.NodejsCaptureMode != "signal" {
+		t.Errorf("NodejsCaptureMode = %q, want signal", GlobalConfig.NodejsCaptureMode)
+	}
+	if !GlobalConfig.NodejsCPUProfile {
+		t.Errorf("NodejsCPUProfile = false, want true")
+	}
+	if GlobalConfig.NodejsReportSignal != "SIGQUIT" {
+		t.Errorf("NodejsReportSignal = %q, want SIGQUIT", GlobalConfig.NodejsReportSignal)
+	}
+}
+
 func TestGetConfiguredAppRuntimeNodejs(t *testing.T) {
 	saved := GlobalConfig
 	t.Cleanup(func() { GlobalConfig = saved })
@@ -25,37 +63,5 @@ func TestGetConfiguredAppRuntimeNodejs(t *testing.T) {
 	// With an explicit override, GetAppRuntime returns it without process inspection.
 	if got := GetAppRuntime(0); got != "nodejs" {
 		t.Errorf("GetAppRuntime with override = %q, want nodejs", got)
-	}
-}
-
-func TestNodejsSignalDefaults(t *testing.T) {
-	c := defaultConfig()
-	if c.NodejsCaptureMode != "hook" {
-		t.Errorf("default NodejsCaptureMode = %q, want hook", c.NodejsCaptureMode)
-	}
-	if c.NodejsReportSignal != "SIGUSR2" {
-		t.Errorf("default NodejsReportSignal = %q, want SIGUSR2", c.NodejsReportSignal)
-	}
-	if c.NodejsHeapdumpSignal != "SIGUSR2" {
-		t.Errorf("default NodejsHeapdumpSignal = %q, want SIGUSR2", c.NodejsHeapdumpSignal)
-	}
-}
-
-func TestNodejsSignalFlagParsing(t *testing.T) {
-	saved := GlobalConfig
-	t.Cleanup(func() { GlobalConfig = saved })
-	GlobalConfig = defaultConfig()
-
-	if err := ParseFlags([]string{"yc", "-nodejsCaptureMode=signal", "-nodejsReportSignal=SIGQUIT", "-nodejsHeapdumpSignal=SIGABRT"}); err != nil {
-		t.Fatalf("ParseFlags: %v", err)
-	}
-	if GlobalConfig.NodejsCaptureMode != "signal" {
-		t.Errorf("NodejsCaptureMode = %q, want signal", GlobalConfig.NodejsCaptureMode)
-	}
-	if GlobalConfig.NodejsReportSignal != "SIGQUIT" {
-		t.Errorf("NodejsReportSignal = %q, want SIGQUIT", GlobalConfig.NodejsReportSignal)
-	}
-	if GlobalConfig.NodejsHeapdumpSignal != "SIGABRT" {
-		t.Errorf("NodejsHeapdumpSignal = %q, want SIGABRT", GlobalConfig.NodejsHeapdumpSignal)
 	}
 }

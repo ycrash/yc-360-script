@@ -1,0 +1,549 @@
+{
+  "header": {
+    "reportVersion": 3,
+    "event": "JavaScript API",
+    "trigger": "GetReport",
+    "filename": null,
+    "dumpEventTime": "2026-07-09T17:59:05Z",
+    "dumpEventTimeStamp": "1783600145235",
+    "processId": 29396,
+    "threadId": 0,
+    "cwd": "D:\\Projects\\tier1app-main-new\\nodejs-diagnostics-poc",
+    "commandLine": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "sample-app/app.js"
+    ],
+    "nodejsVersion": "v18.20.8",
+    "wordSize": 64,
+    "arch": "x64",
+    "platform": "win32",
+    "componentVersions": {
+      "acorn": "8.14.0",
+      "ada": "2.8.0",
+      "ares": "1.29.0",
+      "base64": "0.5.2",
+      "brotli": "1.1.0",
+      "cjs_module_lexer": "1.2.2",
+      "cldr": "44.1",
+      "icu": "74.2",
+      "llhttp": "6.1.1",
+      "modules": "108",
+      "napi": "9",
+      "nghttp2": "1.61.0",
+      "node": "18.20.8",
+      "openssl": "3.0.16",
+      "simdutf": "5.6.4",
+      "tz": "2024a",
+      "undici": "5.29.0",
+      "unicode": "15.1",
+      "uv": "1.44.2",
+      "uvwasi": "0.0.19",
+      "v8": "10.2.154.26-node.39",
+      "zlib": "1.3.0.1-motley"
+    },
+    "release": {
+      "name": "node",
+      "lts": "Hydrogen",
+      "headersUrl": "https://nodejs.org/download/release/v18.20.8/node-v18.20.8-headers.tar.gz",
+      "sourceUrl": "https://nodejs.org/download/release/v18.20.8/node-v18.20.8.tar.gz",
+      "libUrl": "https://nodejs.org/download/release/v18.20.8/win-x64/node.lib"
+    },
+    "osName": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 10 Home Single Language",
+    "osMachine": "x86_64",
+    "cpus": [
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 45242328,
+        "nice": 0,
+        "sys": 47917875,
+        "idle": 351484203,
+        "irq": 6862875
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 39149546,
+        "nice": 0,
+        "sys": 30415906,
+        "idle": 375078828,
+        "irq": 2647812
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 54484781,
+        "nice": 0,
+        "sys": 41667359,
+        "idle": 348492140,
+        "irq": 3121765
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 37736859,
+        "nice": 0,
+        "sys": 28774296,
+        "idle": 378133109,
+        "irq": 2164562
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 42760375,
+        "nice": 0,
+        "sys": 37265296,
+        "idle": 364618609,
+        "irq": 3837859
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 47687453,
+        "nice": 0,
+        "sys": 37752015,
+        "idle": 359204812,
+        "irq": 3545265
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 50330281,
+        "nice": 0,
+        "sys": 38092687,
+        "idle": 356221312,
+        "irq": 3403921
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 53965015,
+        "nice": 0,
+        "sys": 38707765,
+        "idle": 351971500,
+        "irq": 3291500
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 59388750,
+        "nice": 0,
+        "sys": 39671640,
+        "idle": 345583890,
+        "irq": 3326250
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 61494265,
+        "nice": 0,
+        "sys": 40203281,
+        "idle": 342946734,
+        "irq": 3168656
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 62365531,
+        "nice": 0,
+        "sys": 40691937,
+        "idle": 341586812,
+        "irq": 3052515
+      },
+      {
+        "model": "12th Gen Intel(R) Core(TM) i5-1235U",
+        "speed": 2496,
+        "user": 63008234,
+        "nice": 0,
+        "sys": 41638046,
+        "idle": 339998000,
+        "irq": 2976031
+      }
+    ],
+    "networkInterfaces": [
+      {
+        "name": "Wi-Fi",
+        "internal": false,
+        "mac": "ac:19:8e:80:ed:f0",
+        "address": "2409:40f2:1188:94ae:c60f:b271:e8f6:a2b4",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "Wi-Fi",
+        "internal": false,
+        "mac": "ac:19:8e:80:ed:f0",
+        "address": "2409:40f2:1188:94ae:b4c7:a63:57e6:9827",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "Wi-Fi",
+        "internal": false,
+        "mac": "ac:19:8e:80:ed:f0",
+        "address": "fe80::6bf1:dc20:a408:efc9",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 5
+      },
+      {
+        "name": "Wi-Fi",
+        "internal": false,
+        "mac": "ac:19:8e:80:ed:f0",
+        "address": "192.168.31.31",
+        "netmask": "255.255.255.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "Loopback Pseudo-Interface 1",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "::1",
+        "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "family": "IPv6",
+        "scopeid": 0
+      },
+      {
+        "name": "Loopback Pseudo-Interface 1",
+        "internal": true,
+        "mac": "00:00:00:00:00:00",
+        "address": "127.0.0.1",
+        "netmask": "255.0.0.0",
+        "family": "IPv4"
+      },
+      {
+        "name": "vEthernet (WSL (Hyper-V firewall))",
+        "internal": false,
+        "mac": "00:15:5d:70:eb:98",
+        "address": "fe80::c0a3:d8f1:f31b:96bb",
+        "netmask": "ffff:ffff:ffff:ffff::",
+        "family": "IPv6",
+        "scopeid": 44
+      },
+      {
+        "name": "vEthernet (WSL (Hyper-V firewall))",
+        "internal": false,
+        "mac": "00:15:5d:70:eb:98",
+        "address": "172.20.96.1",
+        "netmask": "255.255.240.0",
+        "family": "IPv4"
+      }
+    ],
+    "host": "Mahesh"
+  },
+  "javascriptHeap": {
+    "totalMemory": 41222144,
+    "executableMemory": 524288,
+    "totalCommittedMemory": 41222144,
+    "availableMemory": 4333687368,
+    "totalGlobalHandlesMemory": 8192,
+    "usedGlobalHandlesMemory": 3648,
+    "usedMemory": 10700912,
+    "memoryLimit": 4345298944,
+    "mallocedMemory": 139312,
+    "externalMemory": 1053811,
+    "peakMallocedMemory": 577848,
+    "nativeContextCount": 2,
+    "detachedContextCount": 0,
+    "doesZapGarbage": 0,
+    "heapSpaces": {
+      "read_only_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "old_space": {
+        "memorySize": 6475776,
+        "committedMemory": 6475776,
+        "capacity": 6362696,
+        "used": 4275368,
+        "available": 2087328
+      },
+      "code_space": {
+        "memorySize": 471040,
+        "committedMemory": 471040,
+        "capacity": 438272,
+        "used": 432512,
+        "available": 5760
+      },
+      "map_space": {
+        "memorySize": 532480,
+        "committedMemory": 532480,
+        "capacity": 519280,
+        "used": 304488,
+        "available": 214792
+      },
+      "large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "code_large_object_space": {
+        "memorySize": 0,
+        "committedMemory": 0,
+        "capacity": 0,
+        "used": 0,
+        "available": 0
+      },
+      "new_large_object_space": {
+        "memorySize": 188416,
+        "committedMemory": 188416,
+        "capacity": 16495616,
+        "used": 180680,
+        "available": 16314936
+      },
+      "new_space": {
+        "memorySize": 33554432,
+        "committedMemory": 33554432,
+        "capacity": 16495616,
+        "used": 5507864,
+        "available": 10987752
+      }
+    }
+  },
+  "resourceUsage": {
+    "free_memory": 4194070528,
+    "total_memory": 16839942144,
+    "rss": 77963264,
+    "available_memory": 4194070528,
+    "userCpuSeconds": 1.531,
+    "kernelCpuSeconds": 0.359,
+    "cpuConsumptionPercent": 17.1818,
+    "userCpuConsumptionPercent": 13.9182,
+    "kernelCpuConsumptionPercent": 3.26364,
+    "maxRss": 101363712,
+    "pageFaults": {
+      "IORequired": 36415,
+      "IONotRequired": 0
+    },
+    "fsActivity": {
+      "reads": 6,
+      "writes": 5
+    }
+  },
+  "libuv": [
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe796a1e0"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x00007ff792d1f4c0"
+    },
+    {
+      "type": "timer",
+      "is_active": true,
+      "is_referenced": true,
+      "address": "0x0000018fe94709b8",
+      "repeat": 0,
+      "firesInMsFromNow": 38,
+      "expired": false
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe9470a58"
+    },
+    {
+      "type": "idle",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x0000018fe9470ad0"
+    },
+    {
+      "type": "prepare",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe9470b48"
+    },
+    {
+      "type": "check",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe9470bc0"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe9470c38"
+    },
+    {
+      "type": "async",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x00007ff792d1f390"
+    },
+    {
+      "type": "pipe",
+      "is_active": true,
+      "is_referenced": true,
+      "address": "0x0000018fe79c36d8",
+      "localEndpoint": "\\\\.\\pipe\\yc360-node-29396",
+      "remoteEndpoint": null,
+      "writeQueueSize": 0,
+      "readable": false,
+      "writable": false
+    },
+    {
+      "type": "tcp",
+      "is_active": true,
+      "is_referenced": true,
+      "address": "0x0000018fe79e9568",
+      "localEndpoint": {
+        "host": "Mahesh",
+        "port": 3000
+      },
+      "remoteEndpoint": null,
+      "sendBufferSize": 65536,
+      "recvBufferSize": 65536,
+      "writeQueueSize": 0,
+      "readable": false,
+      "writable": false
+    },
+    {
+      "type": "signal",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe97964a8",
+      "signum": 15,
+      "signal": "SIGTERM"
+    },
+    {
+      "type": "timer",
+      "is_active": true,
+      "is_referenced": false,
+      "address": "0x0000018fe981e758",
+      "repeat": 0,
+      "firesInMsFromNow": 5008,
+      "expired": false
+    },
+    {
+      "type": "pipe",
+      "is_active": true,
+      "is_referenced": true,
+      "address": "0x0000018fe9744a58",
+      "localEndpoint": null,
+      "remoteEndpoint": "\\\\?\\pipe\\yc360-node-29396",
+      "writeQueueSize": 0,
+      "readable": true,
+      "writable": true
+    },
+    {
+      "type": "loop",
+      "is_active": true,
+      "address": "0x00007ff792faade0",
+      "loopIdleTimeSeconds": 9.89286
+    }
+  ],
+  "environmentVariables": {
+    "AI_AGENT": "claude-code_2-1-202_agent",
+    "ALLUSERSPROFILE": "C:\\ProgramData",
+    "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+    "ANT_HOME": "D:\\Apache Ant\\apache-ant-1.10.1",
+    "API_TIMEOUT_MS": "900000",
+    "APPDATA": "C:\\Users\\mahes\\AppData\\Roaming",
+    "AWS_ACCESS_KEY": "AKIA****************",
+    "AWS_SECRET_ACCESS_KEY": "iCNlIl0l********************************",
+    "BAGGAGE": "sentry-environment=production,sentry-release=Claude%401.19367.0,sentry-public_key=2f98127cbffe4740b1f767a2de77d23b,sentry-trace_id=a7ef840f60264047aa896a8b05fd8201,sentry-org_id=1158394",
+    "ChocolateyInstall": "C:\\ProgramData\\chocolatey",
+    "ChocolateyLastPathUpdate": "133452140989082522",
+    "ChocolateyToolsLocation": "C:\\tools",
+    "CHROME_CRASHPAD_PIPE_NAME": "\\\\.\\pipe\\crashpad_10560_JPYYJEBNLGWBEXYY",
+    "CLAUDECODE": "1",
+    "CLAUDE_AGENT_SDK_VERSION": "0.3.202",
+    "CLAUDE_CODE_CHILD_SESSION": "1",
+    "CLAUDE_CODE_DISABLE_CRON": "",
+    "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES": "false",
+    "CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL": "true",
+    "CLAUDE_CODE_ENTRYPOINT": "claude-desktop",
+    "CLAUDE_CODE_OAUTH_SCOPES": "user:inference********************************************************",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH": "*",
+    "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH": "*",
+    "CLAUDE_CODE_SESSION_ID": "d09eb9f7-0b6f-40a0-b65e-49289f84abb9",
+    "CommonProgramFiles": "C:\\Program Files\\Common Files",
+    "CommonProgramFiles(x86)": "C:\\Program Files (x86)\\Common Files",
+    "CommonProgramW6432": "C:\\Program Files\\Common Files",
+    "COMPUTERNAME": "MAHESH",
+    "ComSpec": "C:\\WINDOWS\\system32\\cmd.exe",
+    "COREPACK_ENABLE_AUTO_PIN": "0",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_MICROCOMPACT": "1",
+    "DriverData": "C:\\Windows\\System32\\Drivers\\DriverData",
+    "GIT_EDITOR": "true",
+    "GOPATH": "C:\\Users\\mahes\\go",
+    "HOMEDRIVE": "C:",
+    "HOMEPATH": "\\Users\\mahes",
+    "IGCCSVC_DB": "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAhshnBMX+ckSyFYs3byuYjAQAAAACAAAAAAAQZgAAAAEAACAAAACHMSwAiWPUJ0Nx9JegT97olCO2CNipifhPhdOIjd5IjQAAAAAOgAAAAAIAACAAAADqv4FNPMxxYw9UnLw72ctpESK+OcJiY5HKayvcgg8TmWAAAABDnzOHeis3X+RzeILh+P2HD+W89zcp2YXr29xQ2JKMGRJBJF8kIFhULeWIzCOjDs5LfUeFzOoiaoXSWN0GOXeFviIOUfGrQQNwL34f9T8PaX2CDAhoRmGLc1ZRgkS0BXhAAAAAy9/mqOQtKZ00wBY6TJMwn1zHMf2CHjLrQLcZRUUF3lreh2bv2yCQ2tpwrTQXhkfxfLXzovhOMGPhG7RYuXa+BA==",
+    "JAVA_HOME": "D:\\JDK\\jdk-17.0.6",
+    "JAVA_HOME-11": "D:\\JDK\\jdk-11.0.15",
+    "JAVA_HOME-25": "D:\\JDK\\jdk-25",
+    "JAVA_HOME-8": "D:\\JDK\\openjdk-8",
+    "LOCALAPPDATA": "C:\\Users\\mahes\\AppData\\Local",
+    "LOGONSERVER": "\\\\MAHESH",
+    "MAVEN_HOME": "D:\\Apache Maven\\apache-maven-3.9.9",
+    "MCP_CONNECTION_NONBLOCKING": "true",
+    "MYSQL_HOME": "C:\\Program Files\\MySQL\\MySQL Server 8.0",
+    "NoDefaultCurrentDirectoryInExePath": "1",
+    "NODE_OPTIONS": "--require=D:\\Projects\\tier1app-main-new\\nodejs-diagnostics-poc\\hook\\yc360-node-hook.js",
+    "NODE_USE_SYSTEM_CA": "1",
+    "NUMBER_OF_PROCESSORS": "12",
+    "NVM_HOME": "C:\\Users\\mahes\\AppData\\Local\\nvm",
+    "NVM_SYMLINK": "C:\\Program Files\\nodejs",
+    "OneDrive": "C:\\Users\\mahes\\OneDrive",
+    "OneDriveConsumer": "C:\\Users\\mahes\\OneDrive",
+    "OS": "Windows_NT",
+    "PATH": "C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\Git\\cmd;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files\\PuTTY\\;C:\\Program Files\\Go\\bin;C:\\Users\\mahes\\AppData\\Local\\Programs\\Python\\Python312\\;C:\\Users\\mahes\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\;C:\\Users\\mahes\\AppData\\Local\\nvm;C:\\Program Files\\nodejs;C:\\Program Files\\cursor\\resources\\app\\bin;C:\\Program Files\\dotnet\\;C:\\Users\\mahes\\AppData\\Local\\Microsoft\\WindowsApps;D:\\JDK\\jdk-17.0.6\\bin;D:\\Apache Ant\\apache-ant-1.10.1\\bin;C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin;C:\\tools\\dart-sdk\\bin;C:\\Users\\mahes\\AppData\\Local\\Pub\\Cache\\bin;C:\\Users\\mahes\\go\\bin;C:\\msys64\\mingw64\\bin;C:\\Users\\mahes\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;D:\\Apache Maven\\apache-maven-3.9.9\\bin;C:\\Program Files\\JetBrains\\PyCharm Community Edition 2024.2.3\\bin;C:\\Users\\mahes\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;C:\\Users\\mahes\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\mahes\\.local\\bin;C:\\Users\\mahes\\.dotnet\\tools;D:\\dotnet_tools\\Procdump;C:\\Users\\mahes\\AppData\\Local\\Programs\\Python\\Python312;C:\\Program Files\\Git\\mingw64\\bin",
+    "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL",
+    "PROCDUMP_HOME": "D:\\dotnet_tools\\Procdump",
+    "PROCESSOR_ARCHITECTURE": "AMD64",
+    "PROCESSOR_IDENTIFIER": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+    "PROCESSOR_LEVEL": "6",
+    "PROCESSOR_REVISION": "9a04",
+    "ProgramData": "C:\\ProgramData",
+    "ProgramFiles": "C:\\Program Files",
+    "ProgramFiles(x86)": "C:\\Program Files (x86)",
+    "ProgramW6432": "C:\\Program Files",
+    "PSExecutionPolicyPreference": "Bypass",
+    "PSModulePath": "C:\\Users\\mahes\\OneDrive\\Documents\\WindowsPowerShell\\Modules;C:\\Program Files\\WindowsPowerShell\\Modules;C:\\WINDOWS\\system32\\WindowsPowerShell\\v1.0\\Modules",
+    "PUBLIC": "C:\\Users\\Public",
+    "PyCharm Community Edition": "C:\\Program Files\\JetBrains\\PyCharm Community Edition 2024.2.3\\bin;",
+    "SENTRY-TRACE": "a7ef840f60264047aa896a8b05fd8201-8a8363fa87fbf6e9",
+    "SystemDrive": "C:",
+    "SystemRoot": "C:\\WINDOWS",
+    "TEMP": "C:\\Users\\mahes\\AppData\\Local\\Temp",
+    "TMP": "C:\\Users\\mahes\\AppData\\Local\\Temp",
+    "USERDOMAIN": "MAHESH",
+    "USERDOMAIN_ROAMINGPROFILE": "MAHESH",
+    "USERNAME": "mahes",
+    "USERPROFILE": "C:\\Users\\mahes",
+    "USE_LOCAL_OAUTH": "",
+    "USE_STAGING_OAUTH": "",
+    "windir": "C:\\WINDOWS",
+    "ZES_ENABLE_SYSMAN": "1"
+  },
+  "callStack": [
+    "at new NodeError (node:internal/errors:405:5)",
+    "at Object.getReport (node:internal/process/report:34:13)",
+    "at handleDumpProcessOverview (D:\\Projects\\tier1app-main-new\\nodejs-diagnostics-poc\\hook\\yc360-node-hook.js:327:33)",
+    "at handleLine (D:\\Projects\\tier1app-main-new\\nodejs-diagnostics-poc\\hook\\yc360-node-hook.js:1077:20)",
+    "at Socket.<anonymous> (D:\\Projects\\tier1app-main-new\\nodejs-diagnostics-poc\\hook\\yc360-node-hook.js:1017:9)",
+    "at Socket.emit (node:events:517:28)",
+    "at addChunk (node:internal/streams/readable:368:12)",
+    "at readableAddChunk (node:internal/streams/readable:341:9)",
+    "at Readable.push (node:internal/streams/readable:278:10)"
+  ]
+}

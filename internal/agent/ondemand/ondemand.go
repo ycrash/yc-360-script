@@ -288,10 +288,19 @@ Ignored errors: %v
 	var gc chan capture.Result
 	var threadDump chan capture.Result
 	var hdsubLog chan capture.Result
+	var nodeCPUProfile chan capture.Result
+	// nodeExtraCaptures collects the Node.js artifacts that don't map onto the
+	// shared gc/threadDump/hdsub/cpuprofile channels.
+	type nodeNamedCapture struct {
+		label string
+		ch    chan capture.Result
+	}
+	var nodeExtraCaptures []nodeNamedCapture
 
 	appRuntime := config.GetAppRuntime(pid)
 
-	if appRuntime == "dotnet" {
+	switch appRuntime {
+	case "dotnet":
 		// ------------------------------------------------------------------------------
 		//   				.NET runtime captures
 		// ------------------------------------------------------------------------------
@@ -318,7 +327,56 @@ Ignored errors: %v
 		threadDump = goCapture(endpoint, capture.WrapRun(&capture.DotnetThread{
 			Pid: pid,
 		}))
-	} else {
+	case "nodejs":
+		// ------------------------------------------------------------------------------
+		//   				Node.js runtime captures
+		// ------------------------------------------------------------------------------
+		logger.Log("Executing Node.js runtime captures for PID %d...", pid)
+
+		nodeCtx := capture.ResolveNodeCapture(pid)
+
+		if capture.NodeHasTraceGCFlag(pid) {
+			if stdoutPath, err := capture.ResolveNodeStdoutFile(pid); err == nil && stdoutPath != "" {
+				gcPath = stdoutPath
+			}
+		}
+
+		// GC log (continuous split, or on-demand dumpGC fallback).
+		gc = goCapture(endpoint, capture.WrapRun(&capture.NodeGC{
+			Pid: pid,
+			Ctx: nodeCtx,
+		}))
+
+		// Process overview.
+		nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"PROCESS OVERVIEW", goCapture(endpoint, capture.WrapRun(&capture.NodeProcessOverview{
+			Pid: pid,
+			Ctx: nodeCtx,
+		}))})
+
+		// Heap summary (heap substitute).
+		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.NodeHeapSummary{
+			Pid: pid,
+			Ctx: nodeCtx,
+		}))
+
+		// CPU profile (opt-in, hook-only).
+		if config.GlobalConfig.NodejsCPUProfile {
+			nodeCPUProfile = goCapture(endpoint, capture.WrapRun(&capture.NodeCPUProfile{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))
+		}
+
+		// Diagnostic Report page artifacts (opt-in, hook-only).
+		if config.GlobalConfig.NodejsDiagnosticReport {
+			nodeExtraCaptures = append(nodeExtraCaptures,
+				nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
+			)
+		}
+	default:
 		// ------------------------------------------------------------------------------
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
@@ -744,9 +802,42 @@ Resp: %s
 	}
 
 	// -------------------------------
+	//     Transmit Node.js CPU profile
+	// -------------------------------
+	if nodeCPUProfile != nil {
+		logger.Log("Reading result from node CPU profile channel")
+		result := <-nodeCPUProfile
+		logger.Log(
+			`NODE CPU PROFILE DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
+	//     Transmit Node.js process overview + Diagnostic Report artifacts
+	// -------------------------------
+	for _, nc := range nodeExtraCaptures {
+		if nc.ch == nil {
+			continue
+		}
+		logger.Log("Reading result from node %s channel", nc.label)
+		result := <-nc.ch
+		logger.Log(
+			`NODE %s DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, nc.label, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
 	//     Transmit Heap dump result (Java only)
 	// -------------------------------
-	if appRuntime != "dotnet" {
+	if appRuntime != "dotnet" && appRuntime != "nodejs" {
 		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 		effectiveHd := hd && !config.GlobalConfig.MinimalTouch
 		if hd && config.GlobalConfig.MinimalTouch {
@@ -947,7 +1038,8 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	var jv string
 	appRuntime := config.GetAppRuntime(processId)
 
-	if appRuntime == "dotnet" {
+	switch appRuntime {
+	case "dotnet":
 		// Get .NET version using runtime detection
 		runtimeInfo, runtimeErr := runtimedetect.DetectRuntime(processId)
 		if runtimeErr == nil && runtimeInfo != nil && runtimeInfo.Version != "" {
@@ -957,7 +1049,21 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 			jv = ".NET (version unknown)"
 			logger.Log("Using .NET runtime: version detection failed")
 		}
-	} else {
+	case "nodejs":
+		// Get Node.js version by invoking the target's own node executable.
+		jv = "Node.js (version unknown)"
+		if p, perr := ps.NewProcess(int32(processId)); perr == nil {
+			if exe, exeErr := p.Exe(); exeErr == nil && exe != "" {
+				if out, nerr := executils.CommandCombinedOutput(executils.Command{exe, "--version"}); nerr == nil {
+					v := strings.TrimSpace(strings.ReplaceAll(string(out), "\n", ""))
+					if v != "" {
+						jv = "Node.js " + v
+					}
+				}
+			}
+		}
+		logger.Log("Using Node.js runtime: %s", jv)
+	default:
 		// Get Java version
 		javaVersion, jvErr := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
 		if jvErr != nil {

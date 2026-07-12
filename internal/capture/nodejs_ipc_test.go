@@ -32,7 +32,15 @@ type fakeHook struct {
 	strayBefore   atomic.Bool  // when set, ping writes a mismatched-id line first
 	pingOversized atomic.Bool  // when set, ping floods > cap bytes with no newline
 	pingNullID    atomic.Bool  // when set, ping replies with a raw id:null error line
-	wg            sync.WaitGroup
+
+	poCallCount           atomic.Int64 // dumpProcessOverview calls received
+	overviewInvalidUntil  atomic.Int64 // write truncated (invalid) JSON while poCallCount <= this
+	overviewRPCErrorUntil atomic.Int64 // reply ok:false (RPC failure) while poCallCount <= this
+	gcCallCount           atomic.Int64 // dumpGC calls received
+	gcRecordedDurationMs  atomic.Int64 // durationMs seen by the most recent dumpGC
+	gcNoSleep             atomic.Bool  // skip dumpGC's window sleep (keep the test fast)
+
+	wg sync.WaitGroup
 }
 
 type fakeInReq struct {
@@ -142,8 +150,20 @@ func (fh *fakeHook) handle(conn net.Conn) {
 			"uptimeSec": 12.5, "hookVersion": "0.5.1-poc",
 		}, "")
 	case "dumpProcessOverview":
+		n := fh.poCallCount.Add(1)
 		outPath, _ := req.Params["outPath"].(string)
-		os.WriteFile(outPath, []byte(`{"header":{"processId":1},"callStack":[],"libuv":[]}`), 0o644)
+		if n <= fh.overviewRPCErrorUntil.Load() {
+			// Simulate the RPC itself failing (ok:false) — no file is written.
+			writeFakeResp(conn, req.ID, false, nil, "simulated dumpProcessOverview failure")
+			return
+		}
+		body := []byte(`{"header":{"processId":1},"callStack":[],"libuv":[]}`)
+		if n <= fh.overviewInvalidUntil.Load() {
+			// Truncated / not well-formed JSON — the crash signature the retry
+			// guard exists to catch.
+			body = []byte(`{"header":`)
+		}
+		os.WriteFile(outPath, body, 0o644)
 		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath}, "")
 	case "dumpHeapSummary":
 		outPath, _ := req.Params["outPath"].(string)
@@ -154,9 +174,13 @@ func (fh *fakeHook) handle(conn net.Conn) {
 		if d, ok := req.Params["durationMs"].(float64); ok {
 			durMs = d
 		}
+		fh.gcCallCount.Add(1)
+		fh.gcRecordedDurationMs.Store(int64(durMs))
 		// The real hook only responds after the window; sleep the (short,
 		// test-sized) duration so the async read-deadline path is exercised.
-		time.Sleep(time.Duration(durMs) * time.Millisecond)
+		if !fh.gcNoSleep.Load() {
+			time.Sleep(time.Duration(durMs) * time.Millisecond)
+		}
 		writeFakeResp(conn, req.ID, true, map[string]any{
 			"startedAt": "t0", "endedAt": "t1", "durationMs": durMs,
 			"toggledOn": true, "toggledOff": true,

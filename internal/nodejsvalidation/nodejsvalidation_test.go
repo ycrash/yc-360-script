@@ -4,6 +4,7 @@ import (
 	"errors"
 	"runtime"
 	"testing"
+	"time"
 
 	"yc-agent/internal/config"
 )
@@ -88,5 +89,19 @@ func TestValidateHeapdumpSignal(t *testing.T) {
 	config.GlobalConfig.NodejsHeapdumpSignal = "SIGUSR2"
 	if err := Validate("nodejs"); err != nil {
 		t.Errorf("signal mode with a valid heapdump signal should pass, got %v", err)
+	}
+}
+
+func TestValidateDurationsNotClamped(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	config.GlobalConfig.NodejsCaptureMode = "hook"
+	config.GlobalConfig.NodejsGCCaptureDuration = config.Duration(120 * time.Second)
+	config.GlobalConfig.NodejsCPUProfileDuration = config.Duration(9999 * time.Second)
+	config.GlobalConfig.NodejsDiagnosticWindow = config.Duration(9999 * time.Second)
+
+	if err := Validate("nodejs"); err != nil {
+		t.Errorf("validation must accept out-of-range Node durations (clamped later at capture), got %v", err)
 	}
 }

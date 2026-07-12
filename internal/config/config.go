@@ -115,11 +115,16 @@ type Options struct {
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
 
 	// Node.js runtime support
-	NodejsCaptureMode    string `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
-	NodejsReportSignal   string `yaml:"nodejsReportSignal" usage:"Node.js signal-mode: signal to trigger a diagnostic report; must match the target's --report-on-signal (default SIGUSR2). SIGUSR1 is refused."`
-	NodejsHeapdumpSignal string `yaml:"nodejsHeapdumpSignal" usage:"Node.js signal-mode: signal to trigger a heap snapshot; must match the target's --heapsnapshot-signal. SIGUSR1 is refused."`
-	NodejsRuntimeDir     string `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
-	NodejsHookPath       string `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
+	NodejsCaptureMode        string   `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
+	NodejsReportSignal       string   `yaml:"nodejsReportSignal" usage:"Node.js signal-mode: signal to trigger a diagnostic report; must match the target's --report-on-signal (default SIGUSR2). SIGUSR1 is refused."`
+	NodejsHeapdumpSignal     string   `yaml:"nodejsHeapdumpSignal" usage:"Node.js signal-mode: signal to trigger a heap snapshot; must match the target's --heapsnapshot-signal. SIGUSR1 is refused."`
+	NodejsRuntimeDir         string   `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
+	NodejsHookPath           string   `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
+	NodejsGCCaptureDuration  Duration `yaml:"nodejsGCCaptureDuration" usage:"Node.js on-demand dumpGC window when continuous --trace-gc is not configured (e.g. 30s). Capped at 60s."`
+	NodejsCPUProfile         bool     `yaml:"nodejsCPUProfile" usage:"Node.js hook-mode: capture a V8 CPU profile (cpuprofile.out). Off by default; adds one profiling window to the capture."`
+	NodejsCPUProfileDuration Duration `yaml:"nodejsCPUProfileDuration" usage:"Node.js CPU profile window (1s-300s, default 30s), used when -nodejsCPUProfile is set"`
+	NodejsDiagnosticReport   bool     `yaml:"nodejsDiagnosticReport" usage:"Node.js hook-mode: capture the Diagnostic Report page artifacts (event-loop lag, unhandled rejections, module inventory, active-handle growth). Off by default; adds one windowed capture."`
+	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js windowed Diagnostic Report capture window (1s-300s, default 30s), used when -nodejsDiagnosticReport is set"`
 }
 
 const (
@@ -294,11 +299,14 @@ func defaultConfig() Config {
 			AppRuntime:        "",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
 
-			NodejsCaptureMode:    "hook",
-			NodejsReportSignal:   "SIGUSR2",
-			NodejsHeapdumpSignal: "SIGUSR2",
-			NodejsRuntimeDir:     "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
-			NodejsHookPath:       "",
+			NodejsCaptureMode:        "hook",
+			NodejsReportSignal:       "SIGUSR2",
+			NodejsHeapdumpSignal:     "SIGUSR2",
+			NodejsRuntimeDir:         "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
+			NodejsHookPath:           "",
+			NodejsGCCaptureDuration:  Duration(30 * time.Second),
+			NodejsCPUProfileDuration: Duration(30 * time.Second),
+			NodejsDiagnosticWindow:   Duration(30 * time.Second),
 		},
 	}
 }
