@@ -374,7 +374,7 @@ func (t *NodeGC) Run() (Result, error) {
 		return Result{Msg: err.Error(), Ok: false}, err
 	}
 
-	stdoutPath, stdoutErr := ResolveNodeStdoutFile(t.Pid)
+	stdoutPath, stdoutErr := resolveNodeGCStdoutPath(t.Pid)
 	hasFlag := NodeHasTraceGCFlag(t.Pid)
 	continuous := hasFlag && stdoutErr == nil && stdoutPath != ""
 
@@ -404,18 +404,40 @@ func (t *NodeGC) Run() (Result, error) {
 	// the delta from the target's stdout file.
 	if !t.M3 && t.Ctx != nil && t.Ctx.HookAvailable() {
 		if stdoutErr != nil || stdoutPath == "" {
-			return Result{Msg: fmt.Sprintf("node gc log unavailable for pid %d: --trace-gc not set and stdout is not a readable file (%v)", t.Pid, stdoutErr), Ok: false}, nil
+			return Result{Msg: fmt.Sprintf("node gc log unavailable for pid %d: --trace-gc not set and stdout is not a readable file (%v) - "+
+				"set -nodejsGCLogPath to the file this process's stdout is redirected to (auto-discovery has no implementation on Windows, "+
+				"and isn't always reliable elsewhere), then retry", t.Pid, stdoutErr), Ok: false}, nil
 		}
 		return t.captureViaDumpGC(stdoutPath, gcOutPath), nil
 	}
 
 	reason := "continuous --trace-gc not detected"
 	if stdoutErr != nil {
-		reason = stdoutErr.Error()
+		reason = stdoutErr.Error() + " - set -nodejsGCLogPath to override auto-discovery"
 	} else if !hasFlag {
 		reason = "process was not started with --trace-gc"
 	}
 	return Result{Msg: fmt.Sprintf("node gc log not captured for pid %d: %s", t.Pid, reason), Ok: false}, nil
+}
+
+// resolveNodeGCStdoutPath resolves the file V8's --trace-gc output is being
+// written to. A customer-configured -nodejsGCLogPath always wins over
+// auto-discovery (ResolveNodeStdoutFile): that auto-discovery has no
+// implementation on Windows at all (see nodejs_gc_stdout_others.go) and relies
+// on shelling out (lsof) on macOS, so a known-good, customer-supplied path is
+// strictly more reliable wherever the customer already knows it.
+func resolveNodeGCStdoutPath(pid int) (string, error) {
+	if configured := strings.TrimSpace(config.GlobalConfig.NodejsGCLogPath); configured != "" {
+		info, err := os.Stat(configured)
+		if err != nil {
+			return "", fmt.Errorf("configured -nodejsGCLogPath %q is not accessible: %w", configured, err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("configured -nodejsGCLogPath %q is not a regular file", configured)
+		}
+		return configured, nil
+	}
+	return ResolveNodeStdoutFile(pid)
 }
 
 // captureViaDumpGC records the stdout file size, toggles GC tracing for a

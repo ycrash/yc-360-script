@@ -13,13 +13,14 @@ import (
 )
 
 func TestNodeDataTypeConstants(t *testing.T) {
-	// nodepo is authoritative; the rest are the provisional-but-distinct
-	// placeholders documented in the nodeDT* block.
+	// Must match YCrashDataType.java's NODEJS_* entries' text (dt=) values
+	// exactly - tier1app classifies uploads by an exact string match, so any
+	// drift here silently drops that artifact on upload.
 	want := map[string]string{
 		"nodeDTProcessOverview":     "nodepo",
 		"nodeDTEventLoopLag":        "nodeell",
-		"nodeDTUnhandledRejections": "noderej",
-		"nodeDTModuleInventory":     "nodemod",
+		"nodeDTUnhandledRejections": "nodeur",
+		"nodeDTModuleInventory":     "nodemi",
 		"nodeDTHandleGrowth":        "nodehg",
 		"nodeDTGCStats":             "nodegcs",
 	}
