@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	nodeDTProcessOverview     = "nodepo"
-	nodeDTEventLoopLag        = "nodeell"
-	nodeDTUnhandledRejections = "noderej"
-	nodeDTModuleInventory     = "nodemod"
+	nodeDTProcessOverview = "nodepo"
+	nodeDTEventLoopLag    = "nodeell"
+	nodeDTUnhandledRejections = "nodeur"
+	nodeDTModuleInventory     = "nodemi"
 	nodeDTHandleGrowth        = "nodehg"
 	nodeDTGCStats             = "nodegcs"
 )
