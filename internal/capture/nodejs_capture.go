@@ -374,7 +374,7 @@ func (t *NodeGC) Run() (Result, error) {
 		return Result{Msg: err.Error(), Ok: false}, err
 	}
 
-	stdoutPath, stdoutErr := resolveNodeGCStdoutPath(t.Pid)
+	stdoutPath, stdoutErr := ResolveNodeGCStdoutPath(t.Pid)
 	hasFlag := NodeHasTraceGCFlag(t.Pid)
 	continuous := hasFlag && stdoutErr == nil && stdoutPath != ""
 
@@ -420,13 +420,13 @@ func (t *NodeGC) Run() (Result, error) {
 	return Result{Msg: fmt.Sprintf("node gc log not captured for pid %d: %s", t.Pid, reason), Ok: false}, nil
 }
 
-// resolveNodeGCStdoutPath resolves the file V8's --trace-gc output is being
+// ResolveNodeGCStdoutPath resolves the file V8's --trace-gc output is being
 // written to. A customer-configured -nodejsGCLogPath always wins over
 // auto-discovery (ResolveNodeStdoutFile): that auto-discovery has no
 // implementation on Windows at all (see nodejs_gc_stdout_others.go) and relies
 // on shelling out (lsof) on macOS, so a known-good, customer-supplied path is
 // strictly more reliable wherever the customer already knows it.
-func resolveNodeGCStdoutPath(pid int) (string, error) {
+func ResolveNodeGCStdoutPath(pid int) (string, error) {
 	if configured := strings.TrimSpace(config.GlobalConfig.NodejsGCLogPath); configured != "" {
 		info, err := os.Stat(configured)
 		if err != nil {
