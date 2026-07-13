@@ -6,15 +6,38 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
+// sensitiveEnvNamePattern must be kept identical to the hook's own
+// SENSITIVE_ENV_NAME_PATTERN in yc360-node-hook.js, so hook mode and signal
+// mode redact environment variables the same way.
+var sensitiveEnvNamePattern = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|PWD|PASS|SECRET|TOKEN|CREDENTIAL|PRIVATE|_KEY|^KEY$|APIKEY|AUTH|CERT)`)
+
+// maskSensitiveEnvVars mirrors the hook's maskSensitiveEnvVars/maskSensitiveValue:
+// any variable whose name matches sensitiveEnvNamePattern has its value fully
+// replaced with '*' (same length, no portion left visible); everything else is
+// passed through unchanged.
+func maskSensitiveEnvVars(envVars map[string]any) map[string]any {
+	masked := make(map[string]any, len(envVars))
+	for name, value := range envVars {
+		if s, ok := value.(string); ok && sensitiveEnvNamePattern.MatchString(name) {
+			masked[name] = strings.Repeat("*", len(s))
+			continue
+		}
+		masked[name] = value
+	}
+	return masked
+}
+
 const (
-	nodeDTProcessOverview = "nodepo"
-	nodeDTEventLoopLag    = "nodeell"
+	nodeDTProcessOverview     = "nodepo"
+	nodeDTEventLoopLag        = "nodeell"
 	nodeDTUnhandledRejections = "nodeur"
 	nodeDTModuleInventory     = "nodemi"
 	nodeDTHandleGrowth        = "nodehg"
@@ -29,7 +52,7 @@ func nodeAbsOutPath(outDir, name string) (string, error) {
 }
 
 // NodeProcessOverview captures the Diagnostic Report page's Process Overview
-// artifact to nodeJsProcessOverview.out, uploaded under dt=nodepo.
+// artifact to processoverview.out, uploaded under dt=nodepo.
 type NodeProcessOverview struct {
 	Capture
 	Pid    int
@@ -559,7 +582,15 @@ func reshapeNodeReportToProcessOverview(path string) error {
 	delete(report, "nativeStack")
 	delete(report, "sharedObjects")
 	delete(report, "workers")
-	delete(report, "environmentVariables")
+
+	// Node's --report-on-signal writes environmentVariables unmasked (unlike
+	// hook mode, which masks before the report ever touches disk - see the
+	// hook's own maskSensitiveEnvVars). Mask sensitive-looking values here,
+	// in place, rather than dropping the block outright, so signal-mode
+	// reports get the same Environment Variables visibility as hook mode.
+	if envVars, ok := report["environmentVariables"].(map[string]any); ok {
+		report["environmentVariables"] = maskSensitiveEnvVars(envVars)
+	}
 
 	out, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

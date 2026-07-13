@@ -144,12 +144,22 @@ func TestReshapeNodeReportToProcessOverview(t *testing.T) {
 		t.Errorf("callStack = %v, want [\"at a\",\"at b\"]", got["callStack"])
 	}
 
-	// Heavy/sensitive fields are dropped — env vars must NOT survive signal-mode
-	// reshaping, since it can't reproduce the hook's masking.
-	for _, k := range []string{"javascriptStack", "nativeStack", "sharedObjects", "workers", "environmentVariables"} {
+	// Heavy fields are dropped.
+	for _, k := range []string{"javascriptStack", "nativeStack", "sharedObjects", "workers"} {
 		if _, present := got[k]; present {
 			t.Errorf("field %q should have been removed from the process overview", k)
 		}
+	}
+
+	// environmentVariables survives reshaping, but sensitive-looking values are
+	// masked in place (same policy as the hook's own maskSensitiveEnvVars) since
+	// --report-on-signal writes them unmasked.
+	envVars, ok := got["environmentVariables"].(map[string]any)
+	if !ok {
+		t.Fatalf("environmentVariables should survive reshaping, got %v", got["environmentVariables"])
+	}
+	if got := envVars["SECRET_TOKEN"]; got != "*******" {
+		t.Errorf("SECRET_TOKEN = %v, want fully masked \"*******\"", got)
 	}
 
 	// Kept fields survive.
@@ -191,9 +201,9 @@ func TestReshapeNodeReportToProcessOverviewJavascriptStackShapes(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "report.out")
 
-			// A full signal-mode-shaped report, always carrying the heavy/sensitive
-			// fields the reshape must drop — including environmentVariables, whose
-			// removal is the env-drop invariant we reinforce on every shape.
+			// A full signal-mode-shaped report, always carrying the heavy fields the
+			// reshape must drop, plus environmentVariables (which the reshape masks
+			// in place rather than drops) - checked on every shape.
 			report := map[string]any{
 				"header":               map[string]any{"processId": 1},
 				"nativeStack":          []any{map[string]any{"pc": "0x1"}},
@@ -232,12 +242,20 @@ func TestReshapeNodeReportToProcessOverviewJavascriptStackShapes(t *testing.T) {
 				t.Errorf("callStack = %#v, want %#v", cs, tc.wantCallStack)
 			}
 
-			// Heavy/sensitive fields (incl. environmentVariables) are always dropped,
-			// even on the unexpected-shape path.
-			for _, k := range []string{"javascriptStack", "nativeStack", "sharedObjects", "workers", "environmentVariables"} {
+			// Heavy fields are always dropped, even on the unexpected-shape path.
+			for _, k := range []string{"javascriptStack", "nativeStack", "sharedObjects", "workers"} {
 				if _, ok := got[k]; ok {
 					t.Errorf("field %q should have been removed", k)
 				}
+			}
+
+			// environmentVariables survives, masked, regardless of javascriptStack shape.
+			envVars, ok := got["environmentVariables"].(map[string]any)
+			if !ok {
+				t.Fatalf("environmentVariables should survive reshaping, got %v", got["environmentVariables"])
+			}
+			if got := envVars["SECRET_TOKEN"]; got != "*******" {
+				t.Errorf("SECRET_TOKEN = %v, want fully masked \"*******\"", got)
 			}
 		})
 	}

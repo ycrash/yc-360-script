@@ -254,7 +254,7 @@ func TestNodeHookCaptureRPCsRoundTrip(t *testing.T) {
 		t.Fatalf("NewNodeHookClient: %v", err)
 	}
 
-	po := filepath.Join(fh.dir, "nodeJsProcessOverview.out")
+	po := filepath.Join(fh.dir, "processoverview.out")
 	if err := client.DumpProcessOverview(po); err != nil {
 		t.Fatalf("DumpProcessOverview: %v", err)
 	}

@@ -14,15 +14,20 @@ import (
 )
 
 // Node.js artifact filenames — fixed names shared across all operating modes.
-// The .out files are JSON despite the extension; tier1app detects the artifact
-// type from the dt= query param, not the filename.
+// The .out files are JSON despite the extension. On-demand uploads (PostData)
+// are classified by the dt= query param, not the filename - but onlyCapture
+// bundles are later matched by tier1app's BundleUploadServlet purely by exact
+// filename (YCrashDataType.fromAgentFileName()), so every name below MUST
+// match that enum's agentFileName exactly, or the artifact is silently
+// dropped when the bundle is uploaded.
 const (
 	NodeGCLogFileName = "gc.log"
 	// NodeProcessOverviewFileName replaces the former thread-dump artifact:
 	// dumpThread is disabled in the hook, and its threaddump.out name would
 	// collide with the Java/.NET THREAD_DUMP ("td") data type. This artifact has
-	// its own distinct name and the dt=nodepo data type.
-	NodeProcessOverviewFileName = "nodeJsProcessOverview.out"
+	// its own distinct name and the dt=nodepo data type. Must match
+	// YCrashDataType.NODEJS_PROCESS_OVERVIEW's agentFileName exactly.
+	NodeProcessOverviewFileName = "processoverview.out"
 	NodeHeapSummaryName         = "hdsub.out"
 	NodeCPUProfileFileName      = "cpuprofile.out"
 	// Diagnostic Report page artifacts and GC stats.
