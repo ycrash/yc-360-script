@@ -235,7 +235,7 @@ func TestNodeUnhandledRejectionsPopulated(t *testing.T) {
 	if !res.Ok {
 		t.Fatalf("expected Ok, got Ok=false msg=%q", res.Msg)
 	}
-	// Uploaded under dt=noderej — never dt=td, never a placeholder collision.
+	// Uploaded under dt=nodeur — never dt=td, never a placeholder collision.
 	if dts := fr.dtCodes(); len(dts) != 1 || dts[0] != nodeDTUnhandledRejections {
 		t.Errorf("uploaded dt codes = %v, want exactly [%q]", dts, nodeDTUnhandledRejections)
 	}
