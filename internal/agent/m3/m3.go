@@ -868,7 +868,7 @@ func (m3 *M3App) captureNodeM3(endpoint string, pid int) string {
 
 	stdoutPath := ""
 	if capture.NodeHasTraceGCFlag(pid) {
-		// ResolveNodeGCStdoutPath (not the raw ResolveNodeStdoutFile) so a
+		// ResolveNodeGCStdoutPath (not the raw platform resolver) so a
 		// configured -nodejsGCLogPath is honored here too - this path is used
 		// below to tell uploadAppLogM3 which file to exclude from generic
 		// app-log auto-discovery, not just by NodeGC.Run()'s own capture.

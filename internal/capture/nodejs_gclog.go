@@ -62,13 +62,6 @@ func NodeHasTraceGCFlag(pid int) bool {
 	return strings.Contains(cmdline, "--trace-gc") || strings.Contains(cmdline, "--trace_gc")
 }
 
-// ResolveNodeStdoutFile resolves the target process's stdout (fd 1) to a
-// regular file path, or returns an error if fd 1 is not a plain file (a pipe, a
-// Docker/K8s log driver, or an unsupported platform).
-func ResolveNodeStdoutFile(pid int) (string, error) {
-	return resolveNodeStdoutFile(pid)
-}
-
 // SplitNodeGCFrom reads new content from path starting at startOffset and
 // streams it, classified line by line, into gcOut (GC trace) and otherOut
 // (everything else).

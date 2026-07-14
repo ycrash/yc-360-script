@@ -422,7 +422,7 @@ func (t *NodeGC) Run() (Result, error) {
 
 // ResolveNodeGCStdoutPath resolves the file V8's --trace-gc output is being
 // written to. A customer-configured -nodejsGCLogPath always wins over
-// auto-discovery (ResolveNodeStdoutFile): that auto-discovery has no
+// auto-discovery (resolveNodeStdoutFile): that auto-discovery has no
 // implementation on Windows at all (see nodejs_gc_stdout_others.go) and relies
 // on shelling out (lsof) on macOS, so a known-good, customer-supplied path is
 // strictly more reliable wherever the customer already knows it.
@@ -437,7 +437,7 @@ func ResolveNodeGCStdoutPath(pid int) (string, error) {
 		}
 		return configured, nil
 	}
-	return ResolveNodeStdoutFile(pid)
+	return resolveNodeStdoutFile(pid)
 }
 
 // captureViaDumpGC records the stdout file size, toggles GC tracing for a

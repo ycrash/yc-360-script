@@ -336,7 +336,7 @@ Ignored errors: %v
 		nodeCtx := capture.ResolveNodeCapture(pid)
 
 		if capture.NodeHasTraceGCFlag(pid) {
-			if stdoutPath, err := capture.ResolveNodeStdoutFile(pid); err == nil && stdoutPath != "" {
+			if stdoutPath, err := capture.ResolveNodeGCStdoutPath(pid); err == nil && stdoutPath != "" {
 				gcPath = stdoutPath
 			}
 		}

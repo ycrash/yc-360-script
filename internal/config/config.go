@@ -306,7 +306,7 @@ func defaultConfig() Config {
 			NodejsRuntimeDir:         "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
 			NodejsHookPath:           "",
 			NodejsGCCaptureDuration:  Duration(30 * time.Second),
-			NodejsGCLogPath:          "", // Empty falls through to platform auto-discovery (ResolveNodeStdoutFile)
+			NodejsGCLogPath:          "", // Empty falls through to platform auto-discovery (resolveNodeStdoutFile)
 			NodejsCPUProfileDuration: Duration(30 * time.Second),
 			NodejsDiagnosticWindow:   Duration(30 * time.Second),
 		},
