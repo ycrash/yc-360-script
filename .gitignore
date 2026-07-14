@@ -1,8 +1,7 @@
 bin
 vendor
 .idea
-config/config.go.bak
-scripts/bak.run_yc_360.ps1
+scripts/bak.*
 yc-*
 yc
 .claude
