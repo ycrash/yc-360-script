@@ -194,8 +194,8 @@ func (t *NodeHeapSummary) Run() (Result, error) {
 // CPU profile
 // ---------------------------------------------------------------------------
 
-// NodeCPUProfile captures a V8 CPU profile to cpuprofile.out. Hook-only, opt-in
-// (via -nodejsCPUProfile), and asynchronous over its window.
+// NodeCPUProfile captures a V8 CPU profile to cpuprofile.out. Hook-only and
+// asynchronous over its window.
 type NodeCPUProfile struct {
 	Capture
 	Pid    int

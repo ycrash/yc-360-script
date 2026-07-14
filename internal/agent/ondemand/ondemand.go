@@ -359,23 +359,19 @@ Ignored errors: %v
 			Ctx: nodeCtx,
 		}))
 
-		// CPU profile (opt-in, hook-only).
-		if config.GlobalConfig.NodejsCPUProfile {
-			nodeCPUProfile = goCapture(endpoint, capture.WrapRun(&capture.NodeCPUProfile{
-				Pid: pid,
-				Ctx: nodeCtx,
-			}))
-		}
+		// CPU profile (hook-only).
+		nodeCPUProfile = goCapture(endpoint, capture.WrapRun(&capture.NodeCPUProfile{
+			Pid: pid,
+			Ctx: nodeCtx,
+		}))
 
-		// Diagnostic Report page artifacts (opt-in, hook-only).
-		if config.GlobalConfig.NodejsDiagnosticReport {
-			nodeExtraCaptures = append(nodeExtraCaptures,
-				nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
-				nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
-				nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
-				nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
-			)
-		}
+		// Diagnostic Report page artifacts (hook-only).
+		nodeExtraCaptures = append(nodeExtraCaptures,
+			nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
+			nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
+			nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
+			nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
+		)
 	default:
 		// ------------------------------------------------------------------------------
 		//   				Java runtime captures (default)
