@@ -36,9 +36,33 @@ const (
 	NodeModuleInventoryFileName     = "modules.out"
 	NodeHandleGrowthFileName        = "handlegrowth.out"
 	NodeGCStatsFileName             = "gcstats.out"
-	// NodeAppLogFileName holds the non-GC lines separated out of a shared stdout
-	// file. Only produced when GC and app output share a file.
-	NodeAppLogFileName = "nodeapp.log"
+	// NodeAppLogFileName is the on-disk / bundled filename for the non-GC
+	// lines separated out of a shared stdout file. Only produced when GC and
+	// app output share a file.
+	//
+	// Deliberately does NOT follow the "must match agentFileName exactly"
+	// rule stated in this block's header comment: unlike the other
+	// artifacts, an app log is matched by tier1app's bundle classifier via
+	// the ".appLogs." substring convention (BundleUploadServlet.APPLOG),
+	// the same one the generic Java/.NET app-log capture already uses (see
+	// internal/capture/applog.go's generateUniqueLogPath: "%d.appLogs.%s").
+	// A bare "nodeapp.log" contains neither ".appLogs." nor equals
+	// YCrashDataType.APP_LOG's agentFileName ("applog.out"), so
+	// YCrashDataType.fromAgentFileName() can't classify it - the file
+	// uploads fine but is silently left unclassified once the bundle is
+	// unpacked, and never appears in the Application Logs report. This
+	// matters specifically for -onlyCapture (and any other bundle/zip
+	// upload): PostData/PostCustomData is a no-op in that mode (see
+	// post.go's OnlyCapture short-circuit), so filename-based bundle
+	// classification is the ONLY path this data takes to reach tier1app.
+	NodeAppLogFileName = "1.appLogs.nodeapp.log"
+	// NodeAppLogDisplayName is the logName sent on the real-time applog
+	// upload (on-demand/M3, where PostCustomData does make an HTTP call and
+	// tier1app dispatches on the explicit dt=applog param rather than
+	// filename - see YCReceiverServlet.computeApplogFilePath). Kept
+	// separate from NodeAppLogFileName so that path isn't stuck displaying
+	// the ".appLogs." bundling marker as if it were part of the log's name.
+	NodeAppLogDisplayName = "nodeapp.log"
 )
 
 const nodeRuntimeDirEnv = "YC360_NODE_RUNTIME_DIR"

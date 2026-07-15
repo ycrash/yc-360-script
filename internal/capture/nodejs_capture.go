@@ -380,7 +380,7 @@ func (t *NodeGC) Run() (Result, error) {
 
 	if continuous {
 		// Continuous mode reads the WHOLE stdout file (on-demand) or the delta
-		// since last cycle (M3) and splits it into gc.log + nodeapp.log.
+		// since last cycle (M3) and splits it into gc.log + NodeAppLogFileName.
 		if t.Tracker != nil {
 			if fi, statErr := os.Stat(stdoutPath); statErr == nil {
 				if t.Tracker.InitIfAbsent(t.Pid, stdoutPath, fi.Size()) {
@@ -535,8 +535,8 @@ func (t *NodeGC) uploadAppFile(appOutPath string) {
 		return
 	}
 	defer appFile.Close()
-	msg, ok := PostCustomData(t.Endpoint(), "dt=applog&logName="+NodeAppLogFileName, appFile)
-	logger.Log("node gc: uploaded split-off non-GC output as %s (ok=%t): %s", NodeAppLogFileName, ok, msg)
+	msg, ok := PostCustomData(t.Endpoint(), "dt=applog&logName="+NodeAppLogDisplayName, appFile)
+	logger.Log("node gc: uploaded split-off non-GC output as %s (ok=%t): %s", NodeAppLogDisplayName, ok, msg)
 }
 
 // ---------------------------------------------------------------------------

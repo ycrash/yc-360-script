@@ -121,6 +121,36 @@ func TestNodeUploadCallSitesNeverUseTd(t *testing.T) {
 	}
 }
 
+// TestNodeAppLogFileNameMatchesBundleConvention guards against a repeat of a
+// real bug: NodeAppLogFileName used to be a bare "nodeapp.log", which
+// YCrashDataType.fromAgentFileName() in tier1app can't classify as an app log
+// (it only recognizes an exact "applog.out" match or a filename containing
+// ".appLogs.", the marker the generic Java/.NET app-log capture already uses
+// - see internal/capture/applog.go's generateUniqueLogPath). Since
+// PostData/PostCustomData never actually uploads anything in -onlyCapture
+// mode (see post.go's OnlyCapture short-circuit), filename-based bundle
+// classification was the ONLY path this artifact could reach tier1app
+// through, and it silently failed every time.
+func TestNodeAppLogFileNameMatchesBundleConvention(t *testing.T) {
+	if !strings.Contains(NodeAppLogFileName, ".appLogs.") {
+		t.Errorf("NodeAppLogFileName = %q must contain \".appLogs.\" so tier1app's "+
+			"BundleUploadServlet can classify it as an app log when uploaded via -onlyCapture "+
+			"(YCrashDataType.fromAgentFileName only recognizes an exact \"applog.out\" match "+
+			"or a filename containing \".appLogs.\")", NodeAppLogFileName)
+	}
+
+	// The real-time applog upload (on-demand/M3) dispatches server-side on the
+	// explicit dt=applog param, not the filename - so its logName should stay a
+	// clean, human-readable name, not carry the bundle-only ".appLogs." marker.
+	if NodeAppLogDisplayName != "nodeapp.log" {
+		t.Errorf("NodeAppLogDisplayName = %q, want \"nodeapp.log\"", NodeAppLogDisplayName)
+	}
+	if strings.Contains(NodeAppLogDisplayName, ".appLogs.") {
+		t.Errorf("NodeAppLogDisplayName = %q must not carry the bundle-only \".appLogs.\" marker - "+
+			"it's sent as logName= on the real-time upload path, not used for bundle classification", NodeAppLogDisplayName)
+	}
+}
+
 func TestNodeGCStatsStaysUnwired(t *testing.T) {
 	agentDir := filepath.Join(repoRoot(t), "internal", "agent")
 
