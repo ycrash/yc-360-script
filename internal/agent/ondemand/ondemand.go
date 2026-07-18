@@ -1019,6 +1019,54 @@ javaVersion=%s
 osVersion=%s
 tags=%s`
 
+// System-generated tags written to meta-info.txt so the server can identify
+// the captured application's runtime and, for Node.js, which capture mode
+// produced the bundle - without needing to sniff the free-form javaVersion
+// string. Kept lowercase/hyphenated to match the existing user-facing
+// -tags convention (config.GlobalConfig.Tags).
+const (
+	tagDotNet     = ".net"
+	tagNodeJS     = "nodejs"
+	tagHookMode   = "hook-mode"
+	tagSignalMode = "signal-mode"
+)
+
+// computeSystemTags derives the system-detected runtime/capture-mode tags
+// for meta-info.txt from already-known values. It takes nodejsCaptureMode
+// as a plain argument (rather than reading config.GlobalConfig directly) so
+// it stays a pure function that's trivial to unit test.
+func computeSystemTags(appRuntime, nodejsCaptureMode string) string {
+	switch appRuntime {
+	case "dotnet":
+		return tagDotNet
+	case "nodejs":
+		if capture.NormalizeNodeCaptureMode(nodejsCaptureMode) == capture.NodeCaptureModeSignal {
+			return mergeTags(tagNodeJS, tagSignalMode)
+		}
+		return mergeTags(tagNodeJS, tagHookMode)
+	default:
+		return ""
+	}
+}
+
+// mergeTags appends additional (comma-delimited) tags to an existing
+// comma-delimited tag list without dropping or overwriting either side -
+// same trim+join approach already used for merging server-supplied tags in
+// m3.go, kept local here since meta-info.txt's tags field has its own
+// user-supplied-vs-system-computed merge point.
+func mergeTags(existing, additional string) string {
+	existing = strings.Trim(existing, ",")
+	additional = strings.Trim(additional, ",")
+	switch {
+	case existing == "":
+		return additional
+	case additional == "":
+		return existing
+	default:
+		return existing + "," + additional
+	}
+}
+
 func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, ok bool, err error) {
 	file, err := os.Create("meta-info.txt")
 	if err != nil {
@@ -1092,7 +1140,8 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	timestamp := now.Format("2006-01-02T15-04-05")
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
-	_, e = fmt.Fprintf(file, metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, tags)
+	allTags := mergeTags(tags, computeSystemTags(appRuntime, config.GlobalConfig.NodejsCaptureMode))
+	_, e = fmt.Fprintf(file, metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, allTags)
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
 		return

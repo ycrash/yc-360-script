@@ -178,6 +178,54 @@ func TestWriteMetaInfo(t *testing.T) {
 	t.Log(msg, ok)
 }
 
+func TestComputeSystemTags(t *testing.T) {
+	tests := []struct {
+		name              string
+		appRuntime        string
+		nodejsCaptureMode string
+		expected          string
+	}{
+		{"dotnet", "dotnet", "", ".net"},
+		{"dotnet ignores capture mode", "dotnet", "signal", ".net"},
+		{"nodejs default hook mode (empty config)", "nodejs", "", "nodejs,hook-mode"},
+		{"nodejs explicit hook mode", "nodejs", "hook", "nodejs,hook-mode"},
+		{"nodejs signal mode", "nodejs", "signal", "nodejs,signal-mode"},
+		{"nodejs signal mode is case/whitespace insensitive", "nodejs", "  SIGNAL  ", "nodejs,signal-mode"},
+		{"nodejs unrecognized capture mode falls back to hook", "nodejs", "bogus", "nodejs,hook-mode"},
+		{"java default runtime", "java", "", ""},
+		{"unknown/empty appRuntime", "", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, computeSystemTags(tt.appRuntime, tt.nodejsCaptureMode))
+		})
+	}
+}
+
+func TestMergeTags(t *testing.T) {
+	tests := []struct {
+		name       string
+		existing   string
+		additional string
+		expected   string
+	}{
+		{"both empty", "", "", ""},
+		{"only existing", "tag1", "", "tag1"},
+		{"only additional", "", "nodejs,hook-mode", "nodejs,hook-mode"},
+		{"both present", "tag1", "nodejs,hook-mode", "tag1,nodejs,hook-mode"},
+		{"multiple existing user tags preserved", "tag1,tag2", ".net", "tag1,tag2,.net"},
+		{"trims stray leading/trailing commas on existing", ",tag1,", "nodejs", "tag1,nodejs"},
+		{"trims stray leading/trailing commas on additional", "tag1", ",nodejs,", "tag1,nodejs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, mergeTags(tt.existing, tt.additional))
+		})
+	}
+}
+
 func TestAllPossibleGCPath(t *testing.T) {
 	var cmdLine = "ProcessId java  -Xlog:gc*=info,gc+heap=debug,gc+ref*=debug,gc+ergo*=trace,gc+age*=trace:file=/tmp/gc.log:utctime,pid,level,tags:filecount=2,filesize=100M -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
 	expected := "/tmp/gc.log"
