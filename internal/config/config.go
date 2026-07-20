@@ -110,9 +110,20 @@ type Options struct {
 	AccessLogSources AccessLogSources `yaml:"accessLogSources" usage:"Access log sources corresponding to access log files"`
 
 	// Dotnet runtime support
-	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java or dotnet. Default is auto-detect"`
+	AppRuntime     string `yaml:"appRuntime" usage:"Override target application runtime: java, dotnet, or nodejs. Default is auto-detect"`
 	DotnetToolPath string `yaml:"dotnetToolPath" usage:"Optional path to the .NET tool executable. If empty, yc will look for yc-dot-net-x86.exe and yc-dot-net-x64.exe next to the yc binary"`
 	GcDuration     uint   `yaml:"gcDuration" usage:"duration for .Net GC capture in seconds"`
+
+	// Node.js runtime support
+	NodejsCaptureMode        string   `yaml:"nodejsCaptureMode" usage:"Node.js capture mode: hook (default, via yc360-node-hook.js) or signal (fallback, native --report-on-signal)"`
+	NodejsReportSignal       string   `yaml:"nodejsReportSignal" usage:"Node.js signal-mode: signal to trigger a diagnostic report; must match the target's --report-on-signal (default SIGUSR2). SIGUSR1 is refused."`
+	NodejsHeapdumpSignal     string   `yaml:"nodejsHeapdumpSignal" usage:"Node.js signal-mode: signal to trigger a heap snapshot; must match the target's --heapsnapshot-signal. SIGUSR1 is refused."`
+	NodejsRuntimeDir         string   `yaml:"nodejsRuntimeDir" usage:"Node.js hook runtime directory (registration/token/socket files). Default: <tmpdir>/yc360/node or $YC360_NODE_RUNTIME_DIR"`
+	NodejsHookPath           string   `yaml:"nodejsHookPath" usage:"Path to the yc360-node-hook.js file, used only for actionable messaging when no hook is found"`
+	NodejsGCCaptureDuration  Duration `yaml:"nodejsGCCaptureDuration" usage:"Node.js on-demand dumpGC window when continuous --trace-gc is not configured (e.g. 30s). Capped at 60s."`
+	NodejsGCLogPath          string   `yaml:"nodejsGCLogPath" usage:"Path to the file the target Node.js process's stdout is redirected to (where --trace-gc writes). Overrides auto-discovery, which has no implementation on Windows; required there for GC log capture to work at all."`
+	NodejsCPUProfileDuration Duration `yaml:"nodejsCPUProfileDuration" usage:"Node.js hook-mode V8 CPU profile window (1s-300s, default 30s)."`
+	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
 }
 
 const (
@@ -286,6 +297,16 @@ func defaultConfig() Config {
 			HttpClientTimeout: Duration(60 * time.Second),
 			AppRuntime:        "",
 			DotnetToolPath:    "", // Empty string, will auto-discover during validation
+
+			NodejsCaptureMode:        "hook",
+			NodejsReportSignal:       "SIGUSR2",
+			NodejsHeapdumpSignal:     "SIGUSR2",
+			NodejsRuntimeDir:         "", // Empty falls through to $YC360_NODE_RUNTIME_DIR, then <tmpdir>/yc360/node
+			NodejsHookPath:           "",
+			NodejsGCCaptureDuration:  Duration(30 * time.Second),
+			NodejsGCLogPath:          "", // Empty falls through to platform auto-discovery (resolveNodeStdoutFile)
+			NodejsCPUProfileDuration: Duration(30 * time.Second),
+			NodejsDiagnosticWindow:   Duration(30 * time.Second),
 		},
 	}
 }
@@ -563,7 +584,7 @@ func NormalizeAppRuntime(value string) string {
 
 func IsValidAppRuntime(value string) bool {
 	switch NormalizeAppRuntime(value) {
-	case "", "java", "dotnet":
+	case "", "java", "dotnet", "nodejs":
 		return true
 	default:
 		return false
@@ -645,19 +666,27 @@ func FindDotnetToolNearYcOrPath(toolName string) (string, bool) {
 
 // GetAppRuntime returns the detected runtime type for the given process.
 // Returns the configured override when present.
-// Otherwise returns "dotnet" if .NET runtime is detected, "java" by default.
+// Otherwise returns "dotnet" if a .NET runtime is detected (Windows module
+// inspection), "nodejs" if the executable looks like Node.js, and "java" as
+// the default fallback.
 func GetAppRuntime(pid int) string {
 	if appRuntime := GetConfiguredAppRuntime(); appRuntime != "" {
 		return appRuntime
 	}
 
-	runtimeInfo, err := runtime.DetectRuntime(pid)
-	if err != nil || runtimeInfo == nil {
-		// Detection failed or not available - default to java
-		return "java"
+	// .NET detection (Windows-only module inspection; nil elsewhere).
+	if runtimeInfo, err := runtime.DetectRuntime(pid); err == nil && runtimeInfo != nil {
+		if runtimeInfo.Runtime == runtime.RuntimeDotNet {
+			return "dotnet"
+		}
+		if runtimeInfo.Runtime == runtime.RuntimeJava {
+			return "java"
+		}
 	}
-	if runtimeInfo.Runtime == runtime.RuntimeDotNet {
-		return "dotnet"
+
+	if runtime.IsNodeProcess(pid) {
+		return "nodejs"
 	}
+
 	return "java"
 }

@@ -33,6 +33,7 @@ type M3App struct {
 	accessLogM3          *capture.AccessLogM3
 	AsyncDotNetGCCapture *capture.DotnetGCAsync
 	dotnetGCReadySeen    map[int]bool
+	nodeGCTracker        *capture.NodeGCTracker
 }
 
 func NewM3App() *M3App {
@@ -49,6 +50,7 @@ func NewM3App() *M3App {
 		accessLogM3:          accessLogM3,
 		AsyncDotNetGCCapture: capture.NewDotnetGCAsync(dotNetGCBaseDir),
 		dotnetGCReadySeen:    make(map[int]bool),
+		nodeGCTracker:        capture.NewNodeGCTracker(),
 	}
 }
 
@@ -261,7 +263,8 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 			var gcPath string
 			appRuntime := runtimeByPid[pid]
 
-			if appRuntime == "dotnet" {
+			switch appRuntime {
+			case "dotnet":
 				// High-level flow for .NET GC in M3 mode:
 				// 1) Reconcile() starts/keeps one long-running async Dotnet GC collector per active .NET PID.
 				// 2) In the same RunSingle cycle, uploadDotnetGCM3() reads collector output from session log path.
@@ -275,7 +278,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 
 				logger.Log("uploading dotnet heap stats for pid %d", pid)
 				uploadDotnetHeapM3(endpoint, pid)
-			} else {
+			case "nodejs":
+				logger.Log("Using Node.js runtime for pid %d", pid)
+				gcPath = m3.captureNodeM3(endpoint, pid)
+			default:
 				logger.Log("Using Java runtime for pid %d", pid)
 				logger.Log("uploading gc log for pid %d", pid)
 				gcPath = uploadGCLogM3(endpoint, pid)
@@ -303,6 +309,12 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 			if _, ok := dotnetPIDs[pid]; !ok {
 				delete(m3.dotnetGCReadySeen, pid)
 			}
+		}
+
+		// Drop Node.js GC offset state for PIDs no longer monitored, so it does
+		// not leak across process restarts / PID reuse.
+		if m3.nodeGCTracker != nil {
+			m3.nodeGCTracker.RetainOnly(pids)
 		}
 	}
 
@@ -843,6 +855,67 @@ Resp: %s
 `, result.Ok, result.Msg)
 
 	return gcPath
+}
+
+func (m3 *M3App) captureNodeM3(endpoint string, pid int) string {
+	nodeCtx := capture.ResolveNodeCapture(pid)
+
+	outDir := filepath.Join("yc-node-m3", strconv.Itoa(pid))
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		logger.Log("WARNING: failed creating node m3 dir %s: %s", outDir, err)
+		return ""
+	}
+
+	stdoutPath := ""
+	if capture.NodeHasTraceGCFlag(pid) {
+		// ResolveNodeGCStdoutPath (not the raw platform resolver) so a
+		// configured -nodejsGCLogPath is honored here too - this path is used
+		// below to tell uploadAppLogM3 which file to exclude from generic
+		// app-log auto-discovery, not just by NodeGC.Run()'s own capture.
+		if p, err := capture.ResolveNodeGCStdoutPath(pid); err == nil {
+			stdoutPath = p
+		}
+	}
+
+	pidParam := strconv.Itoa(pid)
+
+	// GC log (continuous delta; no dumpGC fallback under M3).
+	nodeGC := &capture.NodeGC{
+		Pid:     pid,
+		Ctx:     nodeCtx,
+		OutDir:  outDir,
+		Tracker: m3.nodeGCTracker,
+		M3:      true,
+	}
+	nodeGC.SetEndpointParam("pid", pidParam)
+	runNodeM3Capture(endpoint, "GC LOG", nodeGC)
+
+	// Process overview
+	nodePO := &capture.NodeProcessOverview{Pid: pid, Ctx: nodeCtx, OutDir: outDir}
+	nodePO.SetEndpointParam("pid", pidParam)
+	runNodeM3Capture(endpoint, "PROCESS OVERVIEW", nodePO)
+
+	// Heap summary (safe every cycle).
+	nodeHS := &capture.NodeHeapSummary{Pid: pid, Ctx: nodeCtx, OutDir: outDir}
+	nodeHS.SetEndpointParam("pid", pidParam)
+	runNodeM3Capture(endpoint, "HDSUB", nodeHS)
+
+	return stdoutPath
+}
+
+func runNodeM3Capture(endpoint, label string, task capture.Task) {
+	ch := capture.GoCapture(endpoint, capture.WrapRun(task))
+	if ch == nil {
+		return
+	}
+	result := <-ch
+	logger.Log(
+		`NODE %s DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, label, result.Ok, result.Msg)
 }
 
 func uploadDotnetThreadM3(endpoint string, pid int) {

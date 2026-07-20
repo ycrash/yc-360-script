@@ -7,6 +7,7 @@ const (
 	RuntimeUnknown RuntimeType = "unknown"
 	RuntimeJava    RuntimeType = "java"
 	RuntimeDotNet  RuntimeType = "dotnet"
+	RuntimeNodeJS  RuntimeType = "nodejs"
 )
 
 // RuntimeInfo holds detection results for a process

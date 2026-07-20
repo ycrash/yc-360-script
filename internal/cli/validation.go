@@ -9,16 +9,36 @@ import (
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
+	"yc-agent/internal/nodejsvalidation"
 )
 
 var ErrInvalidArgumentCantContinue = errors.New("cli: invalid argument")
+
+func validateNodejs(appRuntime string) error {
+	if err := nodejsvalidation.Validate(appRuntime); err != nil {
+		return ErrInvalidArgumentCantContinue
+	}
+	return nil
+}
+
+func validateNodejsSignal(flagName, value string) error {
+	if err := nodejsvalidation.ValidateSignal(flagName, value); err != nil {
+		return ErrInvalidArgumentCantContinue
+	}
+	return nil
+}
 
 func validate() error {
 	appRuntime := config.GetConfiguredAppRuntime()
 	if !config.IsValidAppRuntime(appRuntime) {
 		// Log the raw (un-normalized) value so the user sees exactly what they typed.
-		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet", config.GlobalConfig.AppRuntime)
+		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet, nodejs", config.GlobalConfig.AppRuntime)
 		return ErrInvalidArgumentCantContinue
+	}
+
+	// Node.js capture-mode / signal validation.
+	if err := validateNodejs(appRuntime); err != nil {
+		return err
 	}
 
 	// Server URL and API Key
@@ -33,8 +53,8 @@ func validate() error {
 		}
 	}
 
-	// JAVA_HOME validation
-	if appRuntime != "dotnet" {
+	// JAVA_HOME validation (only relevant for Java targets).
+	if appRuntime != "dotnet" && appRuntime != "nodejs" {
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 		}

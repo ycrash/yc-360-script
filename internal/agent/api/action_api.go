@@ -126,7 +126,7 @@ func (s *Server) handleActionAPI(req *ActionRequest, resp *ActionResponse) {
 				if pResult.err == nil {
 					pResult.output = append(pResult.output, pResult.rUrls...)
 				} else {
-					pResult.output = append(pResult.output, err.Error())
+					pResult.output = append(pResult.output, pResult.err.Error())
 				}
 			} else if _, ok := pidAny.(string); ok {
 				pResult.output = append(pResult.output, "Unsupported Operation")
@@ -141,7 +141,7 @@ func (s *Server) handleActionAPI(req *ActionRequest, resp *ActionResponse) {
 			for _, r := range processPidsResults {
 				if r.err != nil {
 					resp.Code = -1
-					resp.Msg = err.Error()
+					resp.Msg = r.err.Error()
 				} else {
 					resp.DashboardReportURLs = r.rUrls
 				}
