@@ -80,6 +80,13 @@ func validate() error {
 				logger.Warn().Msg(w)
 			}
 		}
+
+		// -hd needs ProcDump; warn early rather than mid-capture.
+		if config.GlobalConfig.HeapDump {
+			for _, w := range config.ValidateProcDumpInstall() {
+				logger.Warn().Msg(w)
+			}
+		}
 	}
 
 	// M3

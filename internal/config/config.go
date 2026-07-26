@@ -132,6 +132,17 @@ const (
 	DotnetToolNameX64     = "yc-dot-net-x64.exe"
 )
 
+const (
+	// ProcDumpName64 / ProcDumpName32 are the ProcDump executables the .NET helper
+	// looks for. The 64-bit helper prefers procdump64.exe, the 32-bit helper prefers
+	// procdump.exe; shipping both next to the helper (or on PATH) covers either.
+	ProcDumpName64 = "procdump64.exe"
+	ProcDumpName32 = "procdump.exe"
+)
+
+// procDumpNames lists the ProcDump executables to probe for, most-preferred first.
+var procDumpNames = []string{ProcDumpName64, ProcDumpName32}
+
 type Command struct {
 	UrlParams UrlParams `yaml:"urlParams" usage:"[DEPRECATED] This option is no longer in use."`
 	Cmd       Cmd       `yaml:"cmd" usage:"[DEPRECATED] This option is no longer in use."`
@@ -652,16 +663,67 @@ func ValidateDotnetToolInstall() (warnings []string, err error) {
 // FindDotnetToolNearYcOrPath looks for a dotnet tool binary next to the yc executable
 // first, then on PATH.
 func FindDotnetToolNearYcOrPath(toolName string) (string, bool) {
+	return findExecutableNearYcOrPath(toolName)
+}
+
+// findExecutableNearYcOrPath looks for an executable by name next to the yc
+// executable first, then on PATH.
+func findExecutableNearYcOrPath(name string) (string, bool) {
 	if exePath, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exePath), toolName)
+		candidate := filepath.Join(filepath.Dir(exePath), name)
 		if _, statErr := os.Stat(candidate); statErr == nil {
 			return candidate, true
 		}
 	}
-	if resolved, err := exec.LookPath(toolName); err == nil {
+	if resolved, err := exec.LookPath(name); err == nil {
 		return resolved, true
 	}
 	return "", false
+}
+
+// FindProcDump resolves a ProcDump executable the way the .NET helper does at
+// capture time: $PROCDUMP_PATH (executable or directory), next to yc, then PATH.
+//
+// The helper resolves relative to its own location, so the next-to-yc probe only
+// approximates it when -dotnetToolPath points elsewhere — fine for a warning.
+func FindProcDump() (string, bool) {
+	if env := strings.TrimSpace(os.Getenv("PROCDUMP_PATH")); env != "" {
+		if info, err := os.Stat(env); err == nil {
+			if !info.IsDir() {
+				return env, true
+			}
+			for _, name := range procDumpNames {
+				candidate := filepath.Join(env, name)
+				if _, statErr := os.Stat(candidate); statErr == nil {
+					return candidate, true
+				}
+			}
+		}
+	}
+
+	for _, name := range procDumpNames {
+		if p, ok := findExecutableNearYcOrPath(name); ok {
+			return p, true
+		}
+	}
+
+	return "", false
+}
+
+// ValidateProcDumpInstall warns when ProcDump, which -hd needs for .NET targets,
+// is missing. Best-effort; see FindProcDump.
+func ValidateProcDumpInstall() (warnings []string) {
+	if _, ok := FindProcDump(); ok {
+		return nil
+	}
+	return []string{
+		fmt.Sprintf(
+			"ProcDump not found (checked $PROCDUMP_PATH, next to yc, and PATH for %s / %s) - "+
+				"-hd .NET full heap dump capture will fail. Install ProcDump: "+
+				"https://learn.microsoft.com/sysinternals/downloads/procdump",
+			ProcDumpName64, ProcDumpName32,
+		),
+	}
 }
 
 // GetAppRuntime returns the detected runtime type for the given process.

@@ -85,6 +85,38 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 	return
 }
 
+// newHeapDumpTask returns nil when there is nothing to capture and nothing to upload.
+func newHeapDumpTask(appRuntime string, pid int, hdPath string, hd bool) capture.Task {
+	effectiveHd := hd && !config.GlobalConfig.MinimalTouch
+	if hd && config.GlobalConfig.MinimalTouch {
+		logger.Log("MinimalTouch mode: skipping heap dump capture (overriding -hd flag)")
+	}
+
+	switch appRuntime {
+	case "dotnet":
+		// The helper captures the dump itself; -hdPath (upload a pre-existing dump)
+		// is still Java-only, so without -hd there is nothing to do for .NET.
+		if len(hdPath) > 0 {
+			logger.Warn().Str("hdpath", hdPath).Msg("-hdPath is Java-only and is ignored for .NET targets; use -hd to capture a full heap dump")
+		}
+		if effectiveHd {
+			return &capture.DotnetHeapDump{Pid: pid}
+		}
+		if !hd {
+			logger.Log("Skipping .NET heap dump capture: -hd not enabled")
+		}
+		return nil
+	case "nodejs":
+		// Node.js has no heap dump capture path; the Diagnostic Report and CPU
+		// profile artifacts cover it.
+		return nil
+	default:
+		// Constructed even when effectiveHd is false: -hdPath uploads a
+		// pre-existing dump without capturing one.
+		return capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, effectiveHd)
+	}
+}
+
 func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, opts ...CaptureOptions) (rUrl string) {
 	var err error
 	defer func() {
@@ -831,16 +863,10 @@ Resp: %s
 	}
 
 	// -------------------------------
-	//     Transmit Heap dump result (Java only)
+	//     Transmit Heap dump result
 	// -------------------------------
-	if appRuntime != "dotnet" && appRuntime != "nodejs" {
-		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
-		effectiveHd := hd && !config.GlobalConfig.MinimalTouch
-		if hd && config.GlobalConfig.MinimalTouch {
-			logger.Log("MinimalTouch mode: skipping heap dump capture (overriding -hd flag)")
-		}
-		capHeapDump := capture.NewHeapDump(config.GlobalConfig.JavaHomePath, pid, hdPath, effectiveHd)
-		capHeapDump.SetEndpoint(ep)
+	if capHeapDump := newHeapDumpTask(appRuntime, pid, hdPath, hd); capHeapDump != nil {
+		capHeapDump.SetEndpoint(fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters))
 		hdResult, err := capHeapDump.Run()
 		if err != nil {
 			hdResult.Msg = fmt.Sprintf("capture heap dump failed: %s", err.Error())

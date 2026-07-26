@@ -157,7 +157,7 @@ func executeDotnetTool(pid int, args []string, outputPath string) (*os.File, err
 
 			// Update outputPath if you use it later
 			outputPath = newPath
-		} else if strings.HasPrefix(fileName, "heap") {
+		} else if strings.HasPrefix(fileName, "heap_stats") {
 			newPath := filepath.Join(dir, "hdsub.out")
 
 			err = os.Rename(outputPath, newPath)
@@ -168,6 +168,8 @@ func executeDotnetTool(pid int, args []string, outputPath string) (*os.File, err
 			// Update outputPath if you use it later
 			outputPath = newPath
 		}
+		// The full heap dump (heap_dump.dmp) is intentionally left untouched: it
+		// keeps its own name in the bundle.
 	}
 
 	// Validate file has content
