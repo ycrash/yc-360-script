@@ -82,6 +82,20 @@ func validate() error {
 		}
 	}
 
+	// PostgreSQL capture target.
+	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
+		warnings, err := pg.Validate()
+
+		for _, w := range warnings {
+			logger.Warn().Msg(w)
+		}
+
+		if err != nil {
+			logger.Error().Msgf("invalid postgres configuration: %v", err)
+			return ErrInvalidArgumentCantContinue
+		}
+	}
+
 	// M3
 	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
 		logger.Warn().Msg("-onlyCapture will be ignored in m3 mode.")

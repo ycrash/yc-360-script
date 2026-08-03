@@ -124,6 +124,9 @@ type Options struct {
 	NodejsGCLogPath          string   `yaml:"nodejsGCLogPath" usage:"Path to the file the target Node.js process's stdout is redirected to (where --trace-gc writes). Overrides auto-discovery, which has no implementation on Windows; required there for GC log capture to work at all."`
 	NodejsCPUProfileDuration Duration `yaml:"nodejsCPUProfileDuration" usage:"Node.js hook-mode V8 CPU profile window (1s-300s, default 30s)."`
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
+
+	// PostgreSQL capture target
+	Postgres *Postgres `yaml:"postgres"`
 }
 
 const (
@@ -484,6 +487,9 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		case HealthChecks:
 			// Ignore this due to nested structure, we don't support this via CLI for now.
 			continue
+		case *Postgres:
+			// Ignore this due to nested structure, we don't support this via CLI for now.
+			continue
 		}
 		switch fieldType.Type.Kind() {
 		case reflect.Uint:
@@ -554,9 +560,13 @@ func EffectiveFlags() string {
 		}
 
 		// Skip nested structures not expressible as a single flag value.
-		switch curElem.Field(i).Interface().(type) {
+		switch v := curElem.Field(i).Interface().(type) {
 		case HealthChecks, []Command:
 			continue
+		case *Postgres:
+			if v == nil {
+				continue
+			}
 		}
 
 		origin := "set"
