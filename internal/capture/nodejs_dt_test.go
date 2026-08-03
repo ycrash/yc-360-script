@@ -23,6 +23,7 @@ func TestNodeDataTypeConstants(t *testing.T) {
 		"nodeDTModuleInventory":     "nodemi",
 		"nodeDTHandleGrowth":        "nodehg",
 		"nodeDTGCStats":             "nodegcs",
+		"nodeDTWorkerCPUProfiles":   "nodewcpu",
 	}
 	got := map[string]string{
 		"nodeDTProcessOverview":     nodeDTProcessOverview,
@@ -31,6 +32,7 @@ func TestNodeDataTypeConstants(t *testing.T) {
 		"nodeDTModuleInventory":     nodeDTModuleInventory,
 		"nodeDTHandleGrowth":        nodeDTHandleGrowth,
 		"nodeDTGCStats":             nodeDTGCStats,
+		"nodeDTWorkerCPUProfiles":   nodeDTWorkerCPUProfiles,
 	}
 	for name, wantVal := range want {
 		if got[name] != wantVal {

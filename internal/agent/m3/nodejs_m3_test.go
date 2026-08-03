@@ -44,7 +44,7 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 		}
 	}
 	forbidden := []string{
-		"NodeCPUProfile", "NodeEventLoopLag", "NodeUnhandledRejections",
+		"NodeCPUProfile", "NodeWorkerCPUProfiles", "NodeEventLoopLag", "NodeUnhandledRejections",
 		"NodeModuleInventory", "NodeHandleGrowth", "NodeGCStats",
 	}
 	for _, name := range forbidden {

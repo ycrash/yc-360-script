@@ -42,6 +42,7 @@ const (
 	nodeDTModuleInventory     = "nodemi"
 	nodeDTHandleGrowth        = "nodehg"
 	nodeDTGCStats             = "nodegcs"
+	nodeDTWorkerCPUProfiles   = "nodewcpu"
 )
 
 func nodeAbsOutPath(outDir, name string) (string, error) {
@@ -230,6 +231,55 @@ func (t *NodeCPUProfile) Run() (Result, error) {
 	}
 	defer file.Close()
 	msg, ok := PostData(t.Endpoint(), "cpuprofile", file)
+	return Result{Msg: msg, Ok: ok}, nil
+}
+
+// NodeWorkerCPUProfiles captures per-worker V8 CPU profiles to
+// workercpuprofiles.out (hottest workers first, capped by the hook).
+// Hook-only and asynchronous over its window; non-yielding workers may
+// appear only in unresponsiveCount.
+//
+// Customer-process overhead (dt=nodewcpu): NOT continuous and NOT used in M3.
+// Only on-demand/onlyCapture. During the profile window (same default as
+// dumpCPUProfile, typically ~30s) the hook runs V8's sampling Profiler in up
+// to MAX_WORKERS_TO_PROFILE (10) worker isolates in parallel — roughly the
+// cost of one main-thread dumpCPUProfile per profiled worker, not a tax on
+// every worker in a leak. Sampling (not instrumenting); non-yielding busy
+// loops never start the profiler so they add no sampling overhead.
+type NodeWorkerCPUProfiles struct {
+	Capture
+	Pid    int
+	Ctx    *NodeCaptureContext
+	OutDir string
+}
+
+func (t *NodeWorkerCPUProfiles) Run() (Result, error) {
+	if t.Ctx == nil || !t.Ctx.HookAvailable() {
+		return Result{Msg: fmt.Sprintf("node worker cpu profiles skipped for pid %d: hook not available", t.Pid), Ok: false}, nil
+	}
+	if !IsProcessExists(t.Pid) {
+		return Result{Msg: fmt.Sprintf("process %d does not exist", t.Pid), Ok: false}, nil
+	}
+
+	outPath, err := nodeAbsOutPath(t.OutDir, NodeWorkerCPUProfilesFileName)
+	if err != nil {
+		return Result{Msg: err.Error(), Ok: false}, err
+	}
+	if err := prepareNodeHookOutPath(outPath); err != nil {
+		return Result{Msg: err.Error(), Ok: false}, nil
+	}
+
+	windowSeconds := nodeCPUProfileWindowSeconds()
+	if _, err := t.Ctx.Client.DumpWorkerCPUProfiles(outPath, windowSeconds); err != nil {
+		return Result{Msg: err.Error(), Ok: false}, nil
+	}
+
+	file, err := os.Open(outPath)
+	if err != nil {
+		return Result{Msg: fmt.Sprintf("failed opening %s: %s", outPath, err), Ok: false}, nil
+	}
+	defer file.Close()
+	msg, ok := PostData(t.Endpoint(), nodeDTWorkerCPUProfiles, file)
 	return Result{Msg: msg, Ok: ok}, nil
 }
 

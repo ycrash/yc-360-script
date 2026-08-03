@@ -365,6 +365,18 @@ Ignored errors: %v
 			Ctx: nodeCtx,
 		}))
 
+		// Per-worker CPU profiles (hook-only; runs in parallel with main-thread
+		// profile — separate isolates). Non-yielding workers surface as
+		// unresponsiveCount rather than hanging the capture.
+		//
+		// Overhead: short-lived only (this capture path). Bounded sampling
+		// window on ≤10 hottest workers; same class of cost as NodeCPUProfile,
+		// not an always-on customer tax. Kept out of M3 with other windowed RPCs.
+		nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"WORKER CPU PROFILES", goCapture(endpoint, capture.WrapRun(&capture.NodeWorkerCPUProfiles{
+			Pid: pid,
+			Ctx: nodeCtx,
+		}))})
+
 		// Diagnostic Report page artifacts (hook-only).
 		nodeExtraCaptures = append(nodeExtraCaptures,
 			nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},

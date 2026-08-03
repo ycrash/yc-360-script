@@ -189,6 +189,10 @@ func (fh *fakeHook) handle(conn net.Conn) {
 		outPath, _ := req.Params["outPath"].(string)
 		os.WriteFile(outPath, []byte(`{"nodes":[],"samples":[1,2,3],"timeDeltas":[]}`), 0o644)
 		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "totalSamples": 3, "windowSeconds": 1.0}, "")
+	case "dumpWorkerCPUProfiles":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`{"totalWorkerCount":0,"skippedCount":0,"unresponsiveCount":0,"profiled":[]}`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "workerCount": 0, "totalWorkerCount": 0, "unresponsiveCount": 0}, "")
 	case "dumpEventLoopLag":
 		outPath, _ := req.Params["outPath"].(string)
 		os.WriteFile(outPath, []byte(`[{"timeLabel":"00:00:01","count":0}]`), 0o644)

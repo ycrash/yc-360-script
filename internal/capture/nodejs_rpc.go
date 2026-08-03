@@ -159,6 +159,45 @@ func (c *NodeHookClient) DumpCPUProfile(outPath string, windowSeconds int) (*Nod
 	return &r, nil
 }
 
+// NodeWorkerCPUProfilesResult is the (post-window) response of dumpWorkerCPUProfiles.
+type NodeWorkerCPUProfilesResult struct {
+	Path               string  `json:"path"`
+	WorkerCount        int     `json:"workerCount"`
+	TotalWorkerCount   int     `json:"totalWorkerCount"`
+	UnresponsiveCount  int     `json:"unresponsiveCount"`
+	WindowSeconds      float64 `json:"windowSeconds"`
+}
+
+// DumpWorkerCPUProfiles profiles the hottest live worker_threads isolates for
+// windowSeconds and writes {totalWorkerCount, skippedCount, unresponsiveCount,
+// profiled:[{threadId, profile}]} to outPath. Async. The hook's hard timeout is
+// windowSeconds+15s for non-yielding workers, so the client read deadline must
+// include that margin.
+//
+// Overhead note: this is a bounded, on-demand/onlyCapture diagnostic — not M3.
+// Each targeted worker runs V8's sampling CPU profiler for windowSeconds
+// (same mechanism as DumpCPUProfile). Cap and hottest-first selection live in
+// the hook so a large worker leak does not multiply profiler cost unbounded.
+func (c *NodeHookClient) DumpWorkerCPUProfiles(outPath string, windowSeconds int) (*NodeWorkerCPUProfilesResult, error) {
+	if windowSeconds < nodeMinCPUProfileSeconds || windowSeconds > nodeMaxCPUProfileSeconds {
+		return nil, fmt.Errorf("dumpWorkerCPUProfiles windowSeconds must be between %d and %d, got %d", nodeMinCPUProfileSeconds, nodeMaxCPUProfileSeconds, windowSeconds)
+	}
+	// Hook finish() hardTimeout is (windowSeconds + 15)s; keep agent deadline above that.
+	timeout := time.Duration(windowSeconds+15)*time.Second + nodeAsyncMargin
+	resp, err := c.call("dumpWorkerCPUProfiles", map[string]any{"outPath": outPath, "windowSeconds": windowSeconds}, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("node dumpWorkerCPUProfiles failed pid=%d: %s", c.PID, resp.Error)
+	}
+	var r NodeWorkerCPUProfilesResult
+	if err := json.Unmarshal(resp.Result, &r); err != nil {
+		return nil, fmt.Errorf("node dumpWorkerCPUProfiles result decode failed pid=%d: %w", c.PID, err)
+	}
+	return &r, nil
+}
+
 // NodeReportValid reports whether the file at path exists, is non-empty and
 // contains well-formed JSON.
 func NodeReportValid(path string) bool {
