@@ -6,3 +6,4 @@ yc-*
 yc
 .claude
 .codesight
+internal/capture/testdata/ed-*
