@@ -129,6 +129,9 @@ type Options struct {
 	NodejsWorkerCPUProfile   bool     `yaml:"nodejsWorkerCPUProfile" usage:"Enable per-worker_threads V8 CPU profiles (dt=nodewcpu). Default false — off in all modes including M3 incident FullCapture; set true to capture."`
 	NodejsWorkerProfileCount int      `yaml:"nodejsWorkerProfileCount" usage:"Node.js hook-mode: max worker_threads isolates to CPU-profile when -nodejsWorkerCPUProfile is set (1-100, default 10). Hottest workers first."`
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
+
+	// PostgreSQL capture target
+	Postgres *Postgres `yaml:"postgres"`
 }
 
 const (
@@ -493,6 +496,9 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		case HealthChecks:
 			// Ignore this due to nested structure, we don't support this via CLI for now.
 			continue
+		case *Postgres:
+			// Ignore this due to nested structure, we don't support this via CLI for now.
+			continue
 		}
 		switch fieldType.Type.Kind() {
 		case reflect.Uint:
@@ -573,9 +579,13 @@ func EffectiveFlags() string {
 		}
 
 		// Skip nested structures not expressible as a single flag value.
-		switch curElem.Field(i).Interface().(type) {
+		switch v := curElem.Field(i).Interface().(type) {
 		case HealthChecks, []Command:
 			continue
+		case *Postgres:
+			if v == nil {
+				continue
+			}
 		}
 
 		origin := "set"
