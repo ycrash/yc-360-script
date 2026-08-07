@@ -1,0 +1,65 @@
+# PostgreSQL 14-18 for the capture matrix.
+#
+#   docker compose -f compose.pg.yaml up -d --wait
+#   go test -tags pgintegration ./internal/capture/postgres/...
+#   docker compose -f compose.pg.yaml down -v
+#
+# Opt-in rather than part of `go test ./...`: it needs Docker and five servers.
+# The version and privilege rules this module rests on are not findable by
+# reading Go code or by testing against a single server.
+#
+# Every server gets the same command line and the same init script, so a
+# difference the matrix reports is a difference in the server version rather
+# than in the fixture.
+
+x-pg-common: &pg-common
+  environment:
+    # Test fixture only: throwaway containers on a developer's machine, on
+    # loopback. Nothing here is a credential.
+    POSTGRES_PASSWORD: yc-superuser-pw
+  command:
+    - postgres
+    # Preloaded because it has to be before it can be created, and its schema
+    # version - which moves independently of the server - is read back here.
+    - -c
+    - shared_preload_libraries=pg_stat_statements
+    # Makes pg_current_logfile() return a path rather than NULL. Without it, a
+    # denial and an absent log file both arrive as an empty current_logfile, and
+    # the privilege split this matrix exists to pin is unobservable.
+    - -c
+    - logging_collector=on
+  volumes:
+    - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+# The published port encodes the major version, so a failing subtest names the
+# container without a lookup.
+services:
+  pg14:
+    <<: *pg-common
+    image: postgres:14
+    ports: ["15414:5432"]
+
+  pg15:
+    <<: *pg-common
+    image: postgres:15
+    ports: ["15415:5432"]
+
+  pg16:
+    <<: *pg-common
+    image: postgres:16
+    ports: ["15416:5432"]
+
+  pg17:
+    <<: *pg-common
+    image: postgres:17
+    ports: ["15417:5432"]
+
+  pg18:
+    <<: *pg-common
+    image: postgres:18
+    ports: ["15418:5432"]

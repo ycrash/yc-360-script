@@ -28,19 +28,12 @@ func Run() error {
 	m3Mode := config.GlobalConfig.M3
 	apiMode := config.GlobalConfig.Port > 0
 
-	// Validation: if no mode is specified (neither M3, OnDemand, nor API Mode), abort here
-	if !onDemandMode && !apiMode && !m3Mode {
-		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. The yc-360 script is about to run OnDemand mode but no PID is specified.")
+	// The postgres: block is a capture target in its own right, and its presence
+	// is the switch - there is no flag and no enabled: field.
+	dbTargetMode := config.GlobalConfig.Postgres.IsConfigured()
 
-		return ErrNothingCanBeDone
-	}
-
-	// Validation: if ondemand and m3 are both enabled, abort here
-	// Because it causes an issue with capture dir in ondemand.go
-	if onDemandMode && m3Mode {
-		logger.Error().Msg("OnDemand and M3 mode can not run together.")
-
-		return ErrConflictingMode
+	if err := checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode); err != nil {
+		return err
 	}
 
 	// TODO: This is for backward compatibility: API mode can run along with on demand and M3.
@@ -52,7 +45,9 @@ func Run() error {
 		go runAPIMode()
 	}
 
-	if onDemandMode {
+	// A database-only run is an on-demand run with no process; checkRunTargets
+	// has already ruled out an application target alongside it.
+	if onDemandMode || dbTargetMode {
 		runOnDemandMode()
 	} else {
 		if m3Mode {
@@ -125,31 +120,86 @@ func runM3Mode() {
 	m3App.RunLoop()
 }
 
+// checkRunTargets validates the capture targets a run nominates. Separate from
+// Run so the rules can be exercised without starting a capture.
+func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode bool) error {
+	// Validation: if no mode is specified (neither M3, OnDemand, API Mode, nor a
+	// database target), abort here
+	if !onDemandMode && !apiMode && !m3Mode && !dbTargetMode {
+		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. No postgres: block is " +
+			"configured. The yc-360 script is about to run OnDemand mode but no PID is specified.")
+
+		return ErrNothingCanBeDone
+	}
+
+	// Validation: if ondemand and m3 are both enabled, abort here
+	// Because it causes an issue with capture dir in ondemand.go
+	if onDemandMode && m3Mode {
+		logger.Error().Msg("OnDemand and M3 mode can not run together.")
+
+		return ErrConflictingMode
+	}
+
+	// Validation: the database target and an application target are separate
+	// runs. Refused rather than picking a winner, which would produce a bundle
+	// that looks complete and is missing a target.
+	if dbTargetMode && (onDemandMode || m3Mode || apiMode) {
+		logger.Error().Msg("A postgres: block and an application target can not run together - " +
+			"the database capture is a separate run. Use a configuration file with no postgres: " +
+			"block for the application capture, or drop -p/-m3/-port for the database capture.")
+
+		return ErrConflictingMode
+	}
+
+	return nil
+}
+
 func runOnDemandMode() {
 	pidStr := config.GlobalConfig.Pid
-	if config.GlobalConfig.OnlyCapture {
+
+	switch {
+	case pidStr == "":
+		// Only reachable for a configured postgres: block.
+		logger.Log("Running database-only capture (no PID; postgres: block configured)")
+	case config.GlobalConfig.OnlyCapture:
 		// OnlyCapture mode is technically the same code path as on demand,
 		// but the artifacts aren't uploaded.
 		// This is only for clarity / avoid confusion in the log.
 		logger.Log("Running OnlyCapture mode with PID: %s", pidStr)
-	} else {
+	default:
 		logger.Log("Running OnDemand mode with PID: %s", pidStr)
 	}
 
-	pidInt, err := strconv.Atoi(pidStr)
-	pids := []int{}
+	for i, pid := range resolveCapturePids(pidStr) {
+		// The database target has no pid relationship: a token resolving to
+		// several processes still gets one pg_metadata.txt.
+		var opts []ondemand.CaptureOptions
+		if i > 0 {
+			opts = append(opts, ondemand.CaptureOptions{SkipPostgres: true})
+		}
 
-	if err == nil {
-		pids = append(pids, pidInt)
-	} else {
-		// if pidStr is not an integer, it probably contains a process token, i.e: buggyApp
-		resolvedPids := resolvePidsFromToken(pidStr)
-		pids = append(pids, resolvedPids...)
+		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "", opts...)
+	}
+}
+
+// resolveCapturePids turns the -p value into the list of pids to capture.
+//
+// The empty string never reaches the token fallback, which is the reason this
+// is a function: an empty token matches every ps line, so a database-only run
+// would fan out into one full capture per process on the host.
+func resolveCapturePids(pidStr string) []int {
+	if pidStr == "" {
+		// Pid 0 is the no-process capture: FullCapture skips everything that
+		// needs a target process.
+		return []int{0}
 	}
 
-	for _, pid := range pids {
-		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
+	if pid, err := strconv.Atoi(pidStr); err == nil {
+		return []int{pid}
 	}
+
+	// Not an integer, so it probably contains a process token, i.e: buggyApp
+	return resolvePidsFromToken(pidStr)
 }
 
 func resolvePidsFromToken(pidToken string) []int {
