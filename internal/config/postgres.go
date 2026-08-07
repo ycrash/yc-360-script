@@ -60,6 +60,19 @@ func (p *Postgres) String() string {
 	)
 }
 
+// GoString renders the block for %#v, which ignores String and prints struct
+// fields raw - and capture.WrapRun formats a failing task with that verb into an
+// agent log that is itself uploaded.
+//
+// The receiver is a value because fmt can only reach GoString on a nested,
+// non-addressable struct field through the value method set; a nil *Postgres
+// still renders as <nil>, because fmt recovers the dereference. %v and %+v are
+// String's, whose pointer receiver is why every holder of this block holds a
+// pointer.
+func (p Postgres) GoString() string {
+	return "config.Postgres{" + p.String() + "}"
+}
+
 // Validate normalizes the block in place and validates the result.
 //
 // It is single-call by contract: it applies defaults destructively and

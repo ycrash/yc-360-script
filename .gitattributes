@@ -1,3 +1,7 @@
 # Recorded wmic output. Every line ends "\r\r\n" and the characterization
 # tests compare exact bytes; autocrlf would rewrite them to "\r\r\r\n".
 internal/capture/testdata/wmic/** -text
+# Golden fixtures are compared byte-for-byte in tests. Never eol-normalize
+# them: a core.autocrlf=true checkout would rewrite them to CRLF and fail the
+# golden comparisons.
+internal/capture/postgres/testdata/*.txt -text

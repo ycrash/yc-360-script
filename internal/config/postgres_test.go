@@ -493,6 +493,62 @@ func TestPostgresString(t *testing.T) {
 	})
 }
 
+// The verb String cannot cover: %#v ignores Stringer, and WrapRun formats a
+// failing task with it into an agent log that is itself uploaded.
+func TestPostgresGoString(t *testing.T) {
+	t.Run("%#v redacts, through the pointer and through the value", func(t *testing.T) {
+		p := validPostgres()
+
+		for _, operand := range []any{p, *p} {
+			got := fmt.Sprintf("%#v", operand)
+
+			assert.NotContains(t, got, "s3cr3t")
+			assert.Contains(t, got, "password=<redacted>")
+			assert.Contains(t, got, `host="db-prod-01.internal"`,
+				"redacting must not cost the fields that make the log useful")
+		}
+	})
+
+	t.Run("reached as a struct field, which is the shape WrapRun formats", func(t *testing.T) {
+		p := validPostgres()
+
+		// Both field kinds: a pointer, which is how every holder in the tree
+		// carries it, and a value - the non-addressable case that a
+		// pointer-receiver GoString could not have been called on.
+		pointerField := struct{ Target *Postgres }{Target: p}
+		valueField := struct{ Target Postgres }{Target: *p}
+
+		assert.NotContains(t, fmt.Sprintf("%#v", pointerField), "s3cr3t")
+		assert.NotContains(t, fmt.Sprintf("%#v", valueField), "s3cr3t")
+	})
+
+	t.Run("the pointer is safe under every verb a log line uses", func(t *testing.T) {
+		p := validPostgres()
+
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+			assert.NotContains(t, fmt.Sprintf(verb, p), "s3cr3t",
+				"the block leaked the password through %s", verb)
+		}
+	})
+
+	t.Run("an empty password is not redacted", func(t *testing.T) {
+		p := validPostgres()
+		p.Password = ""
+
+		got := fmt.Sprintf("%#v", p)
+		assert.Contains(t, got, `password=""`)
+		assert.NotContains(t, got, "<redacted>")
+	})
+
+	t.Run("a nil pointer renders <nil> rather than panicking", func(t *testing.T) {
+		var absent *Postgres
+
+		// fmt recovers the dereference a value receiver cannot guard against,
+		// and prints the same answer String gives for a nil receiver.
+		assert.Equal(t, "<nil>", fmt.Sprintf("%#v", absent))
+	})
+}
+
 func decodeConfig(t *testing.T, doc string) Config {
 	t.Helper()
 	var c Config
