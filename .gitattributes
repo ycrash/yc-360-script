@@ -1,0 +1,4 @@
+# Golden fixtures are compared byte-for-byte in tests. Never eol-normalize
+# them: a core.autocrlf=true checkout would rewrite them to CRLF and fail the
+# golden comparisons.
+internal/capture/postgres/testdata/*.txt -text

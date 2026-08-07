@@ -1,0 +1,11 @@
+# engine=postgres source=pg_metadata v=1 format=csv scope=cluster ts=2026-08-04T09:12:49.201Z
+key,value
+agent_ts,2026-08-04T09:12:49.201Z
+yc360_version,3.6.1
+target_host,db-prod-01.internal
+target_port,5432
+target_database,orders_db
+target_username,ycrash_monitor
+target_sslmode,require
+capture_mode,unknown
+connect_error,too_many_connections

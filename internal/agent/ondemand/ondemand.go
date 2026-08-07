@@ -40,6 +40,27 @@ var Wg sync.WaitGroup
 // additional information to pass into FullCapture.
 type CaptureOptions struct {
 	DotnetAsyncGCPaths map[int]string // pid → absolute path to accumulated async GC log
+
+	// SkipPostgres suppresses the database capture for this call: FullCapture
+	// runs once per pid, and the database target has no pid relationship.
+	//
+	// Unreachable while agent.Run refuses a database target alongside an
+	// application one, but that exclusion is a product decision. Spelled as an
+	// opt-out so a call site that forgets it duplicates the capture visibly
+	// rather than disabling it silently.
+	SkipPostgres bool
+}
+
+// withSkipPostgres returns opts with the database capture suppressed, merging
+// rather than replacing: M3 threads DotnetAsyncGCPaths through here.
+func withSkipPostgres(opts []CaptureOptions) []CaptureOptions {
+	merged := CaptureOptions{}
+	if len(opts) > 0 {
+		merged = opts[0]
+	}
+	merged.SkipPostgres = true
+
+	return []CaptureOptions{merged}
 }
 
 func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, timestamps []string, opts ...CaptureOptions) (rUrls []string, err error) {
@@ -75,7 +96,13 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 				timestamp = timestamps[i]
 			}
 
-			url := FullCapture(pid, name, hd, tags, timestamp, opts...)
+			// One database capture per run, on the first pid only.
+			captureOpts := opts
+			if i > 0 {
+				captureOpts = withSkipPostgres(opts)
+			}
+
+			url := FullCapture(pid, name, hd, tags, timestamp, captureOpts...)
 			if len(url) > 0 {
 				rUrls = append(rUrls, url)
 			}
@@ -234,8 +261,16 @@ Ignored errors: %v
 	gcPath := config.GlobalConfig.GCPath
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
-	UpdatePaths(pid, &gcPath, &tdPath, &hdPath)
+
+	// A database-only run reaches FullCapture with no target process. Everything
+	// below that reads, probes or executes against the pid is gated on this.
 	pidPassed := pid > 0
+
+	if pidPassed {
+		// UpdatePaths runs the configured gc/td/hdCaptureCmd with whatever pid it
+		// is handed - ungated, that is a customer's own command against pid 0.
+		UpdatePaths(pid, &gcPath, &tdPath, &hdPath)
+	}
 
 	var dockerID string
 	if pidPassed {
@@ -299,105 +334,110 @@ Ignored errors: %v
 
 	appRuntime := config.GetAppRuntime(pid)
 
-	switch appRuntime {
-	case "dotnet":
-		// ------------------------------------------------------------------------------
-		//   				.NET runtime captures
-		// ------------------------------------------------------------------------------
-		logger.Log("Executing .NET runtime captures for PID %d...", pid)
+	// GetAppRuntime(0) returns the "java" default, so without this guard a
+	// database-only run spawns captures against a process that does not exist.
+	// appRuntime stays declared above because the heap-dump block reads it too.
+	if pidPassed {
+		switch appRuntime {
+		case "dotnet":
+			// ------------------------------------------------------------------------------
+			//   				.NET runtime captures
+			// ------------------------------------------------------------------------------
+			logger.Log("Executing .NET runtime captures for PID %d...", pid)
 
-		// Capture .NET GC events: reuse async log if available, otherwise fresh capture.
-		dotnetGC := &capture.DotnetGC{
-			Pid:      pid,
-			Duration: 30,
-		}
-		if len(opts) > 0 && opts[0].DotnetAsyncGCPaths != nil {
-			if asyncPath, ok := opts[0].DotnetAsyncGCPaths[pid]; ok {
-				dotnetGC.AsyncLogPath = asyncPath
+			// Capture .NET GC events: reuse async log if available, otherwise fresh capture.
+			dotnetGC := &capture.DotnetGC{
+				Pid:      pid,
+				Duration: 30,
 			}
-		}
-		gc = goCapture(endpoint, capture.WrapRun(dotnetGC))
-
-		// Capture .NET heap statistics
-		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHeap{
-			Pid: pid,
-		}))
-
-		// Capture .NET thread dump
-		threadDump = goCapture(endpoint, capture.WrapRun(&capture.DotnetThread{
-			Pid: pid,
-		}))
-	case "nodejs":
-		// ------------------------------------------------------------------------------
-		//   				Node.js runtime captures
-		// ------------------------------------------------------------------------------
-		logger.Log("Executing Node.js runtime captures for PID %d...", pid)
-
-		nodeCtx := capture.ResolveNodeCapture(pid)
-
-		if capture.NodeHasTraceGCFlag(pid) {
-			if stdoutPath, err := capture.ResolveNodeGCStdoutPath(pid); err == nil && stdoutPath != "" {
-				gcPath = stdoutPath
+			if len(opts) > 0 && opts[0].DotnetAsyncGCPaths != nil {
+				if asyncPath, ok := opts[0].DotnetAsyncGCPaths[pid]; ok {
+					dotnetGC.AsyncLogPath = asyncPath
+				}
 			}
+			gc = goCapture(endpoint, capture.WrapRun(dotnetGC))
+
+			// Capture .NET heap statistics
+			hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.DotnetHeap{
+				Pid: pid,
+			}))
+
+			// Capture .NET thread dump
+			threadDump = goCapture(endpoint, capture.WrapRun(&capture.DotnetThread{
+				Pid: pid,
+			}))
+		case "nodejs":
+			// ------------------------------------------------------------------------------
+			//   				Node.js runtime captures
+			// ------------------------------------------------------------------------------
+			logger.Log("Executing Node.js runtime captures for PID %d...", pid)
+
+			nodeCtx := capture.ResolveNodeCapture(pid)
+
+			if capture.NodeHasTraceGCFlag(pid) {
+				if stdoutPath, err := capture.ResolveNodeGCStdoutPath(pid); err == nil && stdoutPath != "" {
+					gcPath = stdoutPath
+				}
+			}
+
+			// GC log (continuous split, or on-demand dumpGC fallback).
+			gc = goCapture(endpoint, capture.WrapRun(&capture.NodeGC{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))
+
+			// Process overview.
+			nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"PROCESS OVERVIEW", goCapture(endpoint, capture.WrapRun(&capture.NodeProcessOverview{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))})
+
+			// Heap summary (heap substitute).
+			hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.NodeHeapSummary{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))
+
+			// CPU profile (hook-only).
+			nodeCPUProfile = goCapture(endpoint, capture.WrapRun(&capture.NodeCPUProfile{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))
+
+			// Diagnostic Report page artifacts (hook-only).
+			nodeExtraCaptures = append(nodeExtraCaptures,
+				nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
+				nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
+			)
+		default:
+			// ------------------------------------------------------------------------------
+			//   				Java runtime captures (default)
+			// ------------------------------------------------------------------------------
+			// Capture gc
+			gc = goCapture(endpoint, capture.WrapRun(&capture.GC{
+				Pid:      pid,
+				JavaHome: config.GlobalConfig.JavaHomePath,
+				DockerID: dockerID,
+				GCPath:   gcPath,
+			}))
+
+			// Capture thread dumps
+			capThreadDump := &capture.ThreadDump{
+				Pid:               pid,
+				TdPath:            tdPath,
+				JavaHome:          config.GlobalConfig.JavaHomePath,
+				TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
+			}
+			threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
+
+			// Capture hdsub log
+			hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.HDSub{
+				Pid:      pid,
+				JavaHome: config.GlobalConfig.JavaHomePath,
+			}))
 		}
-
-		// GC log (continuous split, or on-demand dumpGC fallback).
-		gc = goCapture(endpoint, capture.WrapRun(&capture.NodeGC{
-			Pid: pid,
-			Ctx: nodeCtx,
-		}))
-
-		// Process overview.
-		nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"PROCESS OVERVIEW", goCapture(endpoint, capture.WrapRun(&capture.NodeProcessOverview{
-			Pid: pid,
-			Ctx: nodeCtx,
-		}))})
-
-		// Heap summary (heap substitute).
-		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.NodeHeapSummary{
-			Pid: pid,
-			Ctx: nodeCtx,
-		}))
-
-		// CPU profile (hook-only).
-		nodeCPUProfile = goCapture(endpoint, capture.WrapRun(&capture.NodeCPUProfile{
-			Pid: pid,
-			Ctx: nodeCtx,
-		}))
-
-		// Diagnostic Report page artifacts (hook-only).
-		nodeExtraCaptures = append(nodeExtraCaptures,
-			nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
-			nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
-			nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
-			nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
-		)
-	default:
-		// ------------------------------------------------------------------------------
-		//   				Java runtime captures (default)
-		// ------------------------------------------------------------------------------
-		// Capture gc
-		gc = goCapture(endpoint, capture.WrapRun(&capture.GC{
-			Pid:      pid,
-			JavaHome: config.GlobalConfig.JavaHomePath,
-			DockerID: dockerID,
-			GCPath:   gcPath,
-		}))
-
-		// Capture thread dumps
-		capThreadDump := &capture.ThreadDump{
-			Pid:               pid,
-			TdPath:            tdPath,
-			JavaHome:          config.GlobalConfig.JavaHomePath,
-			TdCaptureDuration: config.GlobalConfig.TDCaptureDuration.Duration(),
-		}
-		threadDump = goCapture(endpoint, capture.WrapRun(capThreadDump))
-
-		// Capture hdsub log
-		hdsubLog = goCapture(endpoint, capture.WrapRun(&capture.HDSub{
-			Pid:      pid,
-			JavaHome: config.GlobalConfig.JavaHomePath,
-		}))
 	}
 	var capNetStat *capture.NetStat
 	var netStat chan capture.Result
@@ -462,6 +502,17 @@ Ignored errors: %v
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
 	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
+
+	// ------------------------------------------------------------------------------
+	//   				Capture PostgreSQL metadata
+	// ------------------------------------------------------------------------------
+	// Alongside ping and kernel: the third capture with no relationship to the
+	// pid. The block's presence is the switch.
+	var pgMetadata chan capture.Result
+	skipPostgres := len(opts) > 0 && opts[0].SkipPostgres
+	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() && !skipPostgres {
+		pgMetadata = goCapture(endpoint, capture.WrapRun(&capture.PostgresMetadata{Target: pg}))
+	}
 
 	useGlobalConfigAppLogs := false
 	// ------------------------------------------------------------------------------
@@ -532,7 +583,9 @@ Falling back to capture all configured appLogs without appName filtering.`)
 		}
 	}
 
-	if !useGlobalConfigAppLogs {
+	// Auto-discovery probes the pid's open files; with no pid it would only log
+	// an error for the absence.
+	if pidPassed && !useGlobalConfigAppLogs {
 		// Auto discover app logs
 		discoveredLogFiles, err := capture.DiscoverOpenedLogFilesByProcess(pid)
 		if err != nil {
@@ -778,6 +831,21 @@ Resp: %s
 	}
 
 	// -------------------------------
+	//     Transmit PostgreSQL metadata
+	// -------------------------------
+	if pgMetadata != nil {
+		logger.Log("Reading result from postgres metadata channel")
+		result := <-pgMetadata
+		logger.Log(
+			`POSTGRES METADATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
 	absTDPath, err := filepath.Abs(tdPath)
@@ -833,7 +901,10 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result (Java only)
 	// -------------------------------
-	if appRuntime != "dotnet" && appRuntime != "nodejs" {
+	// Gated on the pid as well as the runtime: this block is outside the runtime
+	// switch, and GetAppRuntime's "java" default would write a HEAP DUMP DATA
+	// section into a bundle with no application in it.
+	if pidPassed && appRuntime != "dotnet" && appRuntime != "nodejs" {
 		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 		effectiveHd := hd && !config.GlobalConfig.MinimalTouch
 		if hd && config.GlobalConfig.MinimalTouch {
@@ -1029,24 +1100,39 @@ const (
 	tagNodeJS     = "nodejs"
 	tagHookMode   = "hook-mode"
 	tagSignalMode = "signal-mode"
+
+	// tagPostgres describes the configuration rather than a detected runtime:
+	// a database-only run has no application runtime to detect.
+	tagPostgres = "postgres"
 )
 
 // computeSystemTags derives the system-detected runtime/capture-mode tags
 // for meta-info.txt from already-known values. It takes nodejsCaptureMode
-// as a plain argument (rather than reading config.GlobalConfig directly) so
-// it stays a pure function that's trivial to unit test.
-func computeSystemTags(appRuntime, nodejsCaptureMode string) string {
+// and postgresConfigured as plain arguments (rather than reading
+// config.GlobalConfig directly) so it stays a pure function that's trivial to
+// unit test.
+func computeSystemTags(appRuntime, nodejsCaptureMode string, postgresConfigured bool) string {
+	var tags string
+
 	switch appRuntime {
 	case "dotnet":
-		return tagDotNet
+		tags = tagDotNet
 	case "nodejs":
 		if capture.NormalizeNodeCaptureMode(nodejsCaptureMode) == capture.NodeCaptureModeSignal {
-			return mergeTags(tagNodeJS, tagSignalMode)
+			tags = mergeTags(tagNodeJS, tagSignalMode)
+		} else {
+			tags = mergeTags(tagNodeJS, tagHookMode)
 		}
-		return mergeTags(tagNodeJS, tagHookMode)
-	default:
-		return ""
 	}
+
+	// Intent only, deliberately not the mode: that needs a connection, and
+	// meta-info.txt is written before any capture runs. pg_metadata.txt carries
+	// the mode.
+	if postgresConfigured {
+		tags = mergeTags(tags, tagPostgres)
+	}
+
+	return tags
 }
 
 // mergeTags appends additional (comma-delimited) tags to an existing
@@ -1082,41 +1168,46 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	var jv string
 	appRuntime := config.GetAppRuntime(processId)
 
-	switch appRuntime {
-	case "dotnet":
-		// Get .NET version using runtime detection
-		runtimeInfo, runtimeErr := runtimedetect.DetectRuntime(processId)
-		if runtimeErr == nil && runtimeInfo != nil && runtimeInfo.Version != "" {
-			jv = ".NET " + runtimeInfo.Version
-			logger.Log("Using .NET runtime: version %s", runtimeInfo.Version)
-		} else {
-			jv = ".NET (version unknown)"
-			logger.Log("Using .NET runtime: version detection failed")
-		}
-	case "nodejs":
-		// Get Node.js version by invoking the target's own node executable.
-		jv = "Node.js (version unknown)"
-		if p, perr := ps.NewProcess(int32(processId)); perr == nil {
-			if exe, exeErr := p.Exe(); exeErr == nil && exe != "" {
-				if out, nerr := executils.CommandCombinedOutput(executils.Command{exe, "--version"}); nerr == nil {
-					v := strings.TrimSpace(strings.ReplaceAll(string(out), "\n", ""))
-					if v != "" {
-						jv = "Node.js " + v
+	// GetAppRuntime(0) returns the "java" default, so a database-only run would
+	// fall through to the java -version exec below and record `javaVersion err:
+	// ...` for an application that was never part of the run.
+	if processId > 0 {
+		switch appRuntime {
+		case "dotnet":
+			// Get .NET version using runtime detection
+			runtimeInfo, runtimeErr := runtimedetect.DetectRuntime(processId)
+			if runtimeErr == nil && runtimeInfo != nil && runtimeInfo.Version != "" {
+				jv = ".NET " + runtimeInfo.Version
+				logger.Log("Using .NET runtime: version %s", runtimeInfo.Version)
+			} else {
+				jv = ".NET (version unknown)"
+				logger.Log("Using .NET runtime: version detection failed")
+			}
+		case "nodejs":
+			// Get Node.js version by invoking the target's own node executable.
+			jv = "Node.js (version unknown)"
+			if p, perr := ps.NewProcess(int32(processId)); perr == nil {
+				if exe, exeErr := p.Exe(); exeErr == nil && exe != "" {
+					if out, nerr := executils.CommandCombinedOutput(executils.Command{exe, "--version"}); nerr == nil {
+						v := strings.TrimSpace(strings.ReplaceAll(string(out), "\n", ""))
+						if v != "" {
+							jv = "Node.js " + v
+						}
 					}
 				}
 			}
-		}
-		logger.Log("Using Node.js runtime: %s", jv)
-	default:
-		// Get Java version
-		javaVersion, jvErr := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
-		if jvErr != nil {
-			err = fmt.Errorf("javaVersion err: %v, previous err: %v", jvErr, err)
-			logger.Log("Using Java runtime: version detection failed")
-		} else {
-			jv = strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
-			jv = strings.ReplaceAll(jv, "\n", ", ")
-			logger.Log("Using Java runtime: version %s", jv)
+			logger.Log("Using Node.js runtime: %s", jv)
+		default:
+			// Get Java version
+			javaVersion, jvErr := executils.CommandCombinedOutput(executils.Command{path.Join(config.GlobalConfig.JavaHomePath, "/bin/java"), "-version"})
+			if jvErr != nil {
+				err = fmt.Errorf("javaVersion err: %v, previous err: %v", jvErr, err)
+				logger.Log("Using Java runtime: version detection failed")
+			} else {
+				jv = strings.ReplaceAll(string(javaVersion), "\r\n", ", ")
+				jv = strings.ReplaceAll(jv, "\n", ", ")
+				logger.Log("Using Java runtime: version %s", jv)
+			}
 		}
 	}
 
@@ -1140,7 +1231,8 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	timestamp := now.Format("2006-01-02T15-04-05")
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
-	allTags := mergeTags(tags, computeSystemTags(appRuntime, config.GlobalConfig.NodejsCaptureMode))
+	allTags := mergeTags(tags, computeSystemTags(appRuntime, config.GlobalConfig.NodejsCaptureMode,
+		config.GlobalConfig.Postgres.IsConfigured()))
 	_, e = fmt.Fprintf(file, metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, allTags)
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)
