@@ -33,9 +33,21 @@ const (
 	// fire.
 	StatementTimeout = 10 * time.Second
 
-	// ModuleDeadline bounds the whole capture, so the bundle completes even
-	// against a database that never answers.
+	// ModuleDeadline bounds the one-shot metadata capture. It is not the bound
+	// for a sampled capture, which derives its own from the configured window -
+	// see WindowGrace.
 	ModuleDeadline = 30 * time.Second
+
+	// WindowGrace is what a sampled capture adds to its configured window to
+	// reach its module deadline. It exists for the final sample, which starts
+	// at t0+window: two statements at StatementTimeout each, plus room to write
+	// the closing block. Window.Run arms the deadline after connecting so that
+	// budget is not spent before sampling starts.
+	//
+	// Direction §5 specifies 15s, which is less than a two-statement sample's
+	// worst case. Expressed as the arithmetic rather than as 25s so it stays
+	// true if StatementTimeout moves.
+	WindowGrace = 2*StatementTimeout + 5*time.Second
 )
 
 // tooManyConnections is SQLSTATE 53300: the server is at max_connections.
@@ -48,14 +60,20 @@ var ErrTooManyConnections = errors.New("too_many_connections")
 
 // sessionParams rides in the startup packet rather than in SETs after connect:
 // SETs leave a window in which the session has no statement_timeout and is not
-// read-only, which on a wedged database is exactly when things hang. All five
-// are PGC_USERSET on every supported server version.
+// read-only, which on a wedged database is exactly when things hang.
+//
+// All are PGC_USERSET. idle_session_timeout is pinned to 0 because the sampling
+// window holds an idle session across the gap between samples, and a server
+// default below the window would drop the connection mid-capture; it also sets
+// the package's floor at PostgreSQL 14, where that GUC landed - an unknown name
+// in the startup packet is a FATAL, not a warning.
 var sessionParams = map[string]string{
 	"application_name":                    ApplicationName,
 	"default_transaction_read_only":       "on",
 	"statement_timeout":                   StatementTimeout.String(),
 	"lock_timeout":                        "2s",
 	"idle_in_transaction_session_timeout": "5s",
+	"idle_session_timeout":                "0",
 }
 
 // Target is config.Postgres narrowed to what this package needs, which is what
@@ -123,6 +141,12 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 // deadline cancelled at this method's return would break the read.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return c.conn.QueryRow(ctx, sql, args...)
+}
+
+// Query reads a row set. The per-statement deadline is the caller's, for the
+// same reason QueryRow's is: the rows are read after this returns.
+func (c *Conn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return c.conn.Query(ctx, sql, args...)
 }
 
 // Close releases the connection.
@@ -232,8 +256,7 @@ var parseConfigMu sync.Mutex
 // Cleared for the duration of the parse rather than overridden afterwards,
 // because PGSERVICE cannot be beaten any other way: it makes ParseConfig read a
 // service file, fail outright when that file is missing, and inject settings the
-// DSN does not name. pgx offers no opt-out - it reads the environment on every
-// ParseConfig and rejects a hand-built config it did not create.
+// DSN does not name. pgx offers no opt-out.
 //
 // The cost is a process-wide window - the mutex serializes this helper against
 // itself, not against the rest of the agent - during which a sibling capture
@@ -287,8 +310,7 @@ func classifyConnectError(err error) error {
 // A classified failure is written as the bare token the artifact contract pins,
 // not as err.Error(): that reads "too_many_connections: failed to connect to
 // ..." - close enough to pass a careless eye, and wrong for anything matching
-// on it. Every other failure is the driver's own message, redacted and
-// flattened like every other error the artifact carries.
+// on it.
 func ConnectErrorText(err error, t Target) string {
 	switch {
 	case err == nil:

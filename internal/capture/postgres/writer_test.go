@@ -6,23 +6,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Metadata for the goldens is built by hand rather than run through Collect, so
-// a golden that changes points at the writer and nothing else.
-
 var testConnectFailureNow = time.Date(2026, 8, 4, 9, 12, 49, 201_000_000, time.UTC)
 
-// fullArtifactMetadata is testdata/pg_metadata_full.txt. PostgreSQL 17
-// deliberately: EXECUTE on pg_current_logfile() was not granted to pg_monitor
-// until 17, so on 14-16 has_pg_monitor_role,true next to capture_mode,pg-dbhost
-// would depict a deployment nobody can reproduce.
 func fullArtifactMetadata() Metadata {
 	return Metadata{
 		AgentTS:        testAgentNow,
@@ -76,7 +71,6 @@ func fullArtifactMetadata() Metadata {
 	}
 }
 
-// connectFailureMetadata is testdata/pg_metadata_connect_failure.txt.
 func connectFailureMetadata() Metadata {
 	return Metadata{
 		AgentTS:            testConnectFailureNow,
@@ -93,7 +87,6 @@ func connectFailureMetadata() Metadata {
 	}
 }
 
-// writeArtifact composes the two passes the way the adapter does.
 func writeArtifact(t *testing.T, m Metadata) string {
 	t.Helper()
 
@@ -113,8 +106,6 @@ func golden(t *testing.T, name string) string {
 	return string(content)
 }
 
-// parseArtifact reads an artifact the way the block contract says a reader
-// should: CSV records, not lines.
 func parseArtifact(t *testing.T, artifact string) (header string, values map[string]string, keys []string) {
 	t.Helper()
 
@@ -148,8 +139,6 @@ func TestWriteConnectFailure(t *testing.T) {
 	assert.Equal(t, golden(t, "pg_metadata_connect_failure.txt"), writeArtifact(t, connectFailureMetadata()))
 }
 
-// Guards a byte an editor cannot see: log_line_prefix's default ends in a
-// space, and a trimming save would silently change the golden.
 func TestGoldenKeepsTrailingWhitespace(t *testing.T) {
 	assert.Contains(t, golden(t, "pg_metadata_full.txt"), "log_line_prefix,%m [%p] \n",
 		"the golden's log_line_prefix must keep its trailing space")
@@ -205,7 +194,6 @@ func TestQueryErrorStillWritesEveryKey(t *testing.T) {
 	}
 }
 
-// The values that made encoding/csv the right writer.
 func TestAwkwardValuesRoundTrip(t *testing.T) {
 	m := fullArtifactMetadata()
 	m.LogLinePrefix = `%m [%p] app=%a,user=%u "session"`
@@ -219,8 +207,6 @@ func TestAwkwardValuesRoundTrip(t *testing.T) {
 	assert.Equal(t, m.SharedPreloadLibraries, values["shared_preload_libraries"])
 }
 
-// encoding/csv would quote both of these correctly; flattening is what also
-// makes one row one line, for readers not using a CSV parser.
 func TestValuesAreFlattened(t *testing.T) {
 	m := fullArtifactMetadata()
 	m.LogLinePrefix = "%m [%p]\n> "
@@ -236,8 +222,6 @@ func TestValuesAreFlattened(t *testing.T) {
 	assert.Len(t, lines, len(keys)+2, "one row is one line, plus the block and column headers")
 }
 
-// The property the two-pass split exists for: a process killed between the
-// passes still leaves a parseable file saying what was targeted.
 func TestWriteTargetAlone(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTarget(&buf, fullArtifactMetadata()))
@@ -261,9 +245,6 @@ type failingWriter struct{ err error }
 
 func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
 
-// encoding/csv defers write errors to Flush, so the oversized value exercises
-// the other path - a row larger than the internal buffer makes cw.Write itself
-// report the failure mid-loop.
 func TestWriteErrorsPropagate(t *testing.T) {
 	sinkErr := errors.New("no space left on device")
 	sink := failingWriter{err: sinkErr}
@@ -274,4 +255,154 @@ func TestWriteErrorsPropagate(t *testing.T) {
 
 	m.QueryError = strings.Repeat("x", 1<<14)
 	assert.ErrorIs(t, WriteResult(sink, m), sinkErr)
+}
+
+func blockHeader(t *testing.T, source, scope string, fields []headerField) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	require.NoError(t, writeBlockHeader(&buf, source, scope, fields, testAgentNow))
+
+	return buf.String()
+}
+
+func TestBlockHeaderPlacesCallerFieldsBetweenScopeAndTimestamp(t *testing.T) {
+	header := blockHeader(t, "pg_stat_user_tables", "database", []headerField{
+		{"db", "orders_db"},
+		{"dbid", "16401"},
+		{"sample", "1"},
+		{"truncated", "false"},
+	})
+
+	assert.Equal(t, []string{
+		"#",
+		"engine=postgres",
+		"source=pg_stat_user_tables",
+		"v=1",
+		"format=csv",
+		"scope=database",
+		"db=orders_db",
+		"dbid=16401",
+		"sample=1",
+		"truncated=false",
+		"ts=2026-08-04T09:12:44.118Z",
+	}, strings.Fields(header))
+}
+
+func TestBlockHeaderWithoutFieldsHasNoStraySeparator(t *testing.T) {
+	assert.Equal(t,
+		"# engine=postgres source=pg_bloat v=1 format=csv scope=database ts=2026-08-04T09:12:44.118Z\n",
+		blockHeader(t, "pg_bloat", "database", nil))
+
+	assert.Equal(t, blockHeader(t, "pg_bloat", "database", nil),
+		blockHeader(t, "pg_bloat", "database", []headerField{}),
+		"an empty field list renders as no fields, not as an empty token")
+}
+
+func TestBlockHeaderKeepsKeysWithEmptyValues(t *testing.T) {
+	assert.Contains(t, blockHeader(t, "pg_bloat", "database", []headerField{
+		{"db", "orders_db"},
+		{"dbid", ""},
+	}), " db=orders_db dbid= ts=")
+}
+
+func TestBlockHeaderValueQuoting(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"classified token stays bare", "too_many_connections", "too_many_connections"},
+		{"identifier stays bare", "orders_line_items", "orders_line_items"},
+		{"number stays bare", "16401", "16401"},
+		{"empty stays empty", "", ""},
+		{
+			"driver text is quoted",
+			"ERROR: canceling statement due to statement timeout",
+			`"ERROR: canceling statement due to statement timeout"`,
+		},
+		{"a double quote is quoted and escaped", `orders"tbl`, `"orders\"tbl"`},
+		{"a tab is quoted", "a\tb", `"a\tb"`},
+		{"a newline is flattened first, then quoted", "line one\nline two", `"line one line two"`},
+		{"a control character is quoted", "a\x00b", `"a\x00b"`},
+		{
+
+			"non-ASCII without whitespace stays bare and readable",
+			"注文テーブル",
+			"注文テーブル",
+		},
+		{
+			"non-ASCII with whitespace is quoted but stays readable",
+			"注文 テーブル",
+			`"注文 テーブル"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, headerValue(tt.value))
+		})
+	}
+}
+
+func TestBlockHeaderTruncatesLongValues(t *testing.T) {
+	long := "ERROR: " + strings.Repeat("detail ", 200)
+
+	got := headerValue(long)
+	unquoted, err := strconv.Unquote(got)
+	require.NoError(t, err, "a truncated value is still a well-formed quoted token")
+
+	assert.Len(t, []rune(unquoted), maxHeaderValue+len("..."))
+	assert.True(t, strings.HasSuffix(unquoted, "..."), "the cut is marked, not silent")
+	assert.True(t, strings.HasPrefix(unquoted, "ERROR: detail"), "the head of the message survives")
+}
+
+func TestBlockHeaderTruncatesOnRuneBoundaries(t *testing.T) {
+	got := headerValue(strings.Repeat("é", maxHeaderValue+50))
+
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("é", maxHeaderValue)+"...", got)
+}
+
+func TestWriteRowsWithNoRowsEmitsColumnHeaderOnly(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, writeRows(&buf, []string{"relid", "relname"}, nil))
+
+	assert.Equal(t, "relid,relname\n", buf.String())
+}
+
+func TestWriteRowsFlattensEveryCell(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, writeRows(&buf,
+		[]string{"relid", "relname"},
+		[][]string{
+			{"16390", "orders\nwith a break"},
+			{"16482", "orders,with a comma"},
+		},
+	))
+
+	assert.Equal(t, strings.Join([]string{
+		"relid,relname",
+		"16390,orders with a break",
+		`16482,"orders,with a comma"`,
+		"",
+	}, "\n"), buf.String())
+
+	assert.Len(t, strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n"), 3)
+}
+
+func TestBlockHeaderErrorsPropagate(t *testing.T) {
+	sinkErr := errors.New("no space left on device")
+
+	assert.ErrorIs(t,
+		writeBlockHeader(failingWriter{err: sinkErr}, "pg_bloat", "database", nil, testAgentNow),
+		sinkErr)
+}
+
+func TestWriteRowsErrorsPropagate(t *testing.T) {
+	sinkErr := errors.New("no space left on device")
+
+	assert.ErrorIs(t,
+		writeRows(failingWriter{err: sinkErr}, []string{"relid"}, [][]string{{"16390"}}),
+		sinkErr)
 }

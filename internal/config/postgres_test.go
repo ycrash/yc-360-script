@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,7 +98,7 @@ func TestPostgresValidateNormalization(t *testing.T) {
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, sslmode)"
+		"(valid keys: host, port, database, username, password, sslmode, captureDuration)"
 
 	t.Run("zero block", func(t *testing.T) {
 		warnings, err := (&Postgres{}).Validate()
@@ -118,6 +120,124 @@ func TestPostgresValidateEmptyBlock(t *testing.T) {
 		_, err := (&Postgres{Port: 5432}).Validate()
 		require.Error(t, err)
 		assert.NotContains(t, err.Error(), "empty or has no recognised keys")
+	})
+
+	t.Run("a block whose only key is captureDuration is an empty block", func(t *testing.T) {
+		p := decodePostgresBlock(t, "captureDuration: 90s")
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t, wantMsg, err.Error(),
+			"a duration alone names nothing to capture")
+	})
+}
+
+func decodePostgresBlock(t *testing.T, body string) *Postgres {
+	t.Helper()
+
+	var doc strings.Builder
+	doc.WriteString("postgres:\n")
+	for line := range strings.SplitSeq(body, "\n") {
+		doc.WriteString("  " + line + "\n")
+	}
+
+	var block struct {
+		Postgres *Postgres `yaml:"postgres"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(doc.String()), &block))
+	require.NotNil(t, block.Postgres, "the block itself must decode")
+
+	return block.Postgres
+}
+
+func TestPostgresValidateCaptureDuration(t *testing.T) {
+
+	withTarget := func(t *testing.T, body string) *Postgres {
+		t.Helper()
+
+		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+	}
+
+	t.Run("absent takes the default without warning", func(t *testing.T) {
+		p := withTarget(t, "")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		require.NotNil(t, p.CaptureDuration)
+		assert.Equal(t, DefaultPostgresCaptureDuration, p.CaptureDuration.Duration())
+
+		assert.Empty(t, warnings, "the default is not worth a warning")
+	})
+
+	t.Run("an explicit value is kept", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 90s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		require.NotNil(t, p.CaptureDuration)
+		assert.Equal(t, 90*time.Second, p.CaptureDuration.Duration())
+
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("the ceiling clamps and the warning names both values", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 900s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err, "an over-large window is honoured in part, not rejected")
+
+		require.NotNil(t, p.CaptureDuration)
+		assert.Equal(t, MaxPostgresCaptureDuration, p.CaptureDuration.Duration())
+
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "15m0s", "the warning must name what was asked for")
+		assert.Contains(t, warnings[0], "10m0s", "the warning must name what was done")
+	})
+
+	t.Run("the ceiling itself is not clamped", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 600s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		assert.Equal(t, MaxPostgresCaptureDuration, p.CaptureDuration.Duration())
+		assert.Empty(t, warnings, "the boundary is allowed, so it does not warn")
+	})
+
+	t.Run("non-positive values are rejected", func(t *testing.T) {
+		for _, value := range []string{"0s", "-5s", "0ms"} {
+			t.Run(value, func(t *testing.T) {
+				p := withTarget(t, "captureDuration: "+value)
+				require.NotNil(t, p.CaptureDuration, "an explicit zero decodes to a non-nil pointer")
+
+				_, err := p.Validate()
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "postgres.captureDuration")
+				assert.Contains(t, err.Error(), "must be positive")
+			})
+		}
+	})
+
+	t.Run("a bare key decodes to nil and is treated as absent", func(t *testing.T) {
+		p := withTarget(t, "captureDuration:")
+		require.Nil(t, p.CaptureDuration, "an explicit null does not reach UnmarshalYAML")
+
+		_, err := p.Validate()
+		require.NoError(t, err)
+		assert.Equal(t, DefaultPostgresCaptureDuration, p.CaptureDuration.Duration())
+	})
+
+	t.Run("an unparseable value is the decoder's error, naming the key", func(t *testing.T) {
+		var block struct {
+			Postgres *Postgres `yaml:"postgres"`
+		}
+		err := yaml.Unmarshal([]byte("postgres:\n  captureDuration: 2 minutes\n"), &block)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid duration format")
 	})
 }
 
@@ -215,9 +335,9 @@ func TestPostgresValidateSSLMode(t *testing.T) {
 			mode      string
 			certainty string
 		}{
-			{mode: "disable", certainty: "will not be"}, // does not negotiate; the outcome is certain
-			{mode: "allow", certainty: "may not be"},    // negotiates; depends on the server
-			{mode: "prefer", certainty: "may not be"},   // likewise
+			{mode: "disable", certainty: "will not be"},
+			{mode: "allow", certainty: "may not be"},
+			{mode: "prefer", certainty: "may not be"},
 		}
 
 		for _, tt := range tests {
@@ -449,13 +569,24 @@ func TestPostgresValidatePasswordExpansion(t *testing.T) {
 
 func TestPostgresString(t *testing.T) {
 	t.Run("renders every field with the password redacted", func(t *testing.T) {
-		got := validPostgres().String()
+		p := validPostgres()
+		window := Duration(90 * time.Second)
+		p.CaptureDuration = &window
+
+		got := p.String()
 
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
-				`username="ycrash_monitor" password=<redacted> sslmode=require`,
+				`username="ycrash_monitor" password=<redacted> sslmode=require `+
+				`captureDuration=1m30s`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
+	})
+
+	t.Run("an unset window says so rather than reading as a value", func(t *testing.T) {
+		got := validPostgres().String()
+
+		assert.Contains(t, got, "captureDuration=(unset, defaults to 2m0s)")
 	})
 
 	t.Run("free-form values are quoted so a comma cannot read as a separator", func(t *testing.T) {
@@ -483,18 +614,15 @@ func TestPostgresString(t *testing.T) {
 		p := validPostgres()
 
 		assert.NotContains(t, fmt.Sprintf("%v", p), "s3cr3t")
-		//nolint:staticcheck // S1025: the %s verb routing through String() is the property under test.
+
 		assert.NotContains(t, fmt.Sprintf("%s", p), "s3cr3t")
 		assert.Contains(t, fmt.Sprintf("%v", p), "password=<redacted>")
 
-		// Reached recursively, as a field of a surrounding struct.
 		wrapper := struct{ Postgres *Postgres }{Postgres: p}
 		assert.NotContains(t, fmt.Sprintf("%v", wrapper), "s3cr3t")
 	})
 }
 
-// The verb String cannot cover: %#v ignores Stringer, and WrapRun formats a
-// failing task with it into an agent log that is itself uploaded.
 func TestPostgresGoString(t *testing.T) {
 	t.Run("%#v redacts, through the pointer and through the value", func(t *testing.T) {
 		p := validPostgres()
@@ -512,9 +640,6 @@ func TestPostgresGoString(t *testing.T) {
 	t.Run("reached as a struct field, which is the shape WrapRun formats", func(t *testing.T) {
 		p := validPostgres()
 
-		// Both field kinds: a pointer, which is how every holder in the tree
-		// carries it, and a value - the non-addressable case that a
-		// pointer-receiver GoString could not have been called on.
 		pointerField := struct{ Target *Postgres }{Target: p}
 		valueField := struct{ Target Postgres }{Target: *p}
 
@@ -543,8 +668,6 @@ func TestPostgresGoString(t *testing.T) {
 	t.Run("a nil pointer renders <nil> rather than panicking", func(t *testing.T) {
 		var absent *Postgres
 
-		// fmt recovers the dereference a value receiver cannot guard against,
-		// and prints the same answer String gives for a nil receiver.
 		assert.Equal(t, "<nil>", fmt.Sprintf("%#v", absent))
 	})
 }
@@ -556,8 +679,6 @@ func decodeConfig(t *testing.T, doc string) Config {
 	return c
 }
 
-// TestPostgresYAMLShapes pins how each way of writing (or mis-writing) the block
-// decodes.
 func TestPostgresYAMLShapes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -635,9 +756,6 @@ func TestPostgresYAMLShapes(t *testing.T) {
 	}
 }
 
-// TestPostgresBlockMustBeNestedUnderOptions pins the failure mode that has no
-// code-level defence: a block written at the top level of the config file is
-// discarded silently, with no error.
 func TestPostgresBlockMustBeNestedUnderOptions(t *testing.T) {
 	c := decodeConfig(t, "version: \"1\"\noptions:\n  k: test-key\npostgres:\n  host: db-prod-01.internal\n  username: ycrash_monitor\n")
 
@@ -698,12 +816,9 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 		assert.Contains(t, flags, `postgres: host="db-prod-01.internal"`)
 		assert.Contains(t, flags, "password=<redacted>")
 
-		// Neither the secret nor the reference that produced it.
 		assert.NotContains(t, flags, "sup3r-s3cr3t")
 		assert.NotContains(t, flags, "${PG_YCRASH_PASSWORD}")
 
-		// Because validation runs before the echo, the values shown are the
-		// effective ones rather than the literal ones.
 		assert.Contains(t, flags, "port=5432")
 		assert.Contains(t, flags, "sslmode=require")
 	})
