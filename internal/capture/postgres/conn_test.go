@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Deliberately distinctive: the leak assertions grep for this exact string.
 const testPassword = "s3cr3t-do-not-log"
 
 func testTarget() Target {
@@ -105,8 +104,6 @@ func TestBuildConfigPassword(t *testing.T) {
 		assert.Equal(t, testPassword, cfg.Password)
 	})
 
-	// The next two pin the libpq password fallbacks as disabled: a password is
-	// optional, so an empty one must stay empty rather than be filled in.
 	t.Run("empty stays empty despite PGPASSWORD", func(t *testing.T) {
 		t.Setenv("PGPASSWORD", "from-environment")
 
@@ -177,8 +174,6 @@ func TestBuildConfigIgnoresEnvironment(t *testing.T) {
 	assert.Equal(t, "hostile", os.Getenv("PGSERVICE"), "the environment is restored after the parse")
 	assert.Equal(t, "from-environment", os.Getenv("PGPASSWORD"))
 
-	// An unresolvable PGSERVICE makes pgx fail the parse outright, which would
-	// lose the capture rather than degrade it.
 	t.Run("unresolvable PGSERVICE", func(t *testing.T) {
 		t.Setenv("PGSERVICE", "no-such-service")
 		t.Setenv("PGSERVICEFILE", filepath.Join(t.TempDir(), "does-not-exist.conf"))
@@ -199,9 +194,15 @@ func TestBuildConfigSessionSafety(t *testing.T) {
 		"statement_timeout":                   "10s",
 		"lock_timeout":                        "2s",
 		"idle_in_transaction_session_timeout": "5s",
-	}, cfg.RuntimeParams, "these five, and nothing else, ride in the startup packet")
+		"idle_session_timeout":                "0",
+	}, cfg.RuntimeParams, "these, and nothing else, ride in the startup packet")
 
 	assert.Equal(t, 5*time.Second, cfg.ConnectTimeout)
+}
+
+func TestWindowGraceCoversATwoStatementSample(t *testing.T) {
+	assert.Greater(t, WindowGrace, 2*StatementTimeout,
+		"the grace must outlast the statements the final sample is allowed to run")
 }
 
 func TestClassifyConnectError(t *testing.T) {
@@ -211,8 +212,6 @@ func TestClassifyConnectError(t *testing.T) {
 		Message:  "sorry, too many clients already",
 	}
 
-	// Not the rejection being classified; it sits in front of tooMany in the
-	// joined errors below.
 	noHBAEntry := &pgconn.PgError{
 		Severity: "FATAL",
 		Code:     "28000",
@@ -235,22 +234,19 @@ func TestClassifyConnectError(t *testing.T) {
 			wantTooManyConnections: true,
 		},
 		{
-			// pgx wraps a connect failure and joins the per-address attempts,
-			// so the classification has to see through both.
+
 			name:                   "53300 wrapped and joined",
 			err:                    fmt.Errorf("failed to connect: %w", errors.Join(errors.New("first address"), tooMany)),
 			wantTooManyConnections: true,
 		},
 		{
-			// The case a single errors.As gets wrong: it stops at the first
-			// *PgError it meets, whatever its code.
+
 			name:                   "53300 behind another PgError in the join",
 			err:                    errors.Join(noHBAEntry, tooMany),
 			wantTooManyConnections: true,
 		},
 		{
-			// The shape pgx actually produces: each attempt wrapped with its
-			// address before being joined.
+
 			name: "53300 behind another PgError, per-address wrapped",
 			err: fmt.Errorf("failed to connect: %w", errors.Join(
 				fmt.Errorf("[::1]:5432: %w", noHBAEntry),
@@ -296,9 +292,6 @@ func TestClassifyConnectError(t *testing.T) {
 	}
 }
 
-// The trap: classifyConnectError wraps the driver's text behind the sentinel,
-// so err.Error() would write "too_many_connections: failed to connect to ..."
-// into the row - reads correctly, matches nothing.
 func TestConnectErrorText(t *testing.T) {
 	target := testTarget()
 
@@ -314,13 +307,10 @@ func TestConnectErrorText(t *testing.T) {
 	assert.Empty(t, ConnectErrorText(nil, target), "a connection that succeeded has nothing to say")
 	assert.Equal(t, "too_many_connections", ConnectErrorText(tooMany, target))
 
-	// Everything else is the driver's own message, unchanged.
 	refused := errors.New("failed to connect to `host=db-prod-01.internal user=ycrash_monitor " +
 		"database=orders_db`: dial error (connection refused)")
 	assert.Equal(t, refused.Error(), ConnectErrorText(refused, target))
 
-	// On the same terms as every other error the artifact carries: redacted,
-	// and flattened so one row stays one line.
 	leaky := fmt.Errorf("authentication failed with %s\nDETAIL: check the password", testPassword)
 	assert.Equal(t, "authentication failed with <redacted> DETAIL: check the password",
 		ConnectErrorText(leaky, target))
@@ -332,15 +322,12 @@ func TestConnectFailureCarriesNoPassword(t *testing.T) {
 
 	target := testTarget()
 	target.Host = "127.0.0.1"
-	target.Port = 1 // reserved; nothing listens here
+	target.Port = 1
 
 	conn, err := Connect(ctx, target)
 	require.Error(t, err)
 	assert.Nil(t, conn)
 
-	// %#v is a regression guard rather than a failing case today: pgx's
-	// ConnectError retains the whole *pgconn.Config, password included, and fmt
-	// renders that pointer field as an address rather than following it.
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
 		assert.NotContains(t, fmt.Sprintf(verb, err), testPassword,
 			"a failed connection leaked the password through %s", verb)
@@ -357,8 +344,6 @@ func TestTargetRedaction(t *testing.T) {
 
 	nested := task{Target: target, Note: "capture failed"}
 
-	// A value, a pointer, and a non-addressable struct field - the last is the
-	// one %#v can only reach through the value method set.
 	renderings := []struct {
 		operand string
 		verb    string

@@ -12,13 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// errDenied is what a least-privilege role gets back from logLocationSQL.
 var errDenied = errors.New("ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)")
 
 func TestCollect(t *testing.T) {
 	m := collect(t, healthyQuerier())
 
-	// The configured target, from the Target rather than from the server.
 	assert.Equal(t, "db-prod-01.internal", m.TargetHost)
 	assert.Equal(t, 5432, m.TargetPort)
 	assert.Equal(t, "orders_db", m.TargetDatabase)
@@ -26,9 +24,6 @@ func TestCollect(t *testing.T) {
 	assert.Equal(t, "require", m.TargetSSLMode)
 	assert.Equal(t, testAgentNow, m.AgentTS)
 
-	// What the server said. current_database and current_user are recorded
-	// separately from the target's: they differ when database: was defaulted or
-	// the role was mapped, and the difference is diagnostic.
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
 	assert.Equal(t, "ycrash_monitor", m.CurrentUser)
 	assert.Equal(t, "48211", m.BackendPID)
@@ -53,25 +48,17 @@ func TestCollectServerFactsFailure(t *testing.T) {
 
 	assert.Contains(t, m.QueryError, "statement timeout")
 
-	// The target block is configuration, so it is unaffected.
 	assert.Equal(t, "db-prod-01.internal", m.TargetHost)
 	assert.Equal(t, "orders_db", m.TargetDatabase)
 
-	// Every key the statement would have filled is empty rather than absent -
-	// the writer emits them all, and query_error is what says why.
 	assert.Empty(t, m.CurrentDatabase)
 	assert.Empty(t, m.ServerVersionNum)
 	assert.Empty(t, m.MaxConnections)
 	assert.Empty(t, m.HasPgStatCheckpointer)
 	assert.Empty(t, m.ServerNow)
 
-	// settings_unavailable stays empty: nothing was requested-and-withheld,
-	// the statement never ran. query_error is the discriminator.
 	assert.Empty(t, m.SettingsUnavailable)
 
-	// The other two statements are independent and still ran. data_directory
-	// travels with the settings catalogue, so the relative logfile cannot be
-	// resolved and the mode degrades to remote - never dbhost, never a guess.
 	assert.Equal(t, "log/postgresql-2026-08-04_000000.csv", m.CurrentLogfile)
 	assert.Empty(t, m.DataDirectory)
 	assert.Empty(t, m.CurrentLogfileResolved)
@@ -79,8 +66,6 @@ func TestCollectServerFactsFailure(t *testing.T) {
 	assert.Equal(t, "true", m.ReplicationConfigured)
 }
 
-// The split's reason for existing: the one genuinely privileged statement fails
-// and costs the capture mode, not the artifact.
 func TestCollectLogLocationDenied(t *testing.T) {
 	q := healthyQuerier()
 	q.logLocation = fakeRow{err: errDenied}
@@ -94,21 +79,14 @@ func TestCollectLogLocationDenied(t *testing.T) {
 	assert.Empty(t, m.CurrentLogfileResolved)
 	assert.Empty(t, m.CurrentLogfileReadable)
 
-	// Why data_directory rides in the settings catalogue rather than in this
-	// statement: on 14-16 this denial is the normal outcome for a pg_monitor
-	// role, and it must not take the resolution evidence down with it.
 	assert.Equal(t, "/var/lib/postgresql/15/main", m.DataDirectory)
 
-	// serverFactsSQL is intact, which is the point of folding none of this into
-	// it.
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
 	assert.Equal(t, "150004", m.ServerVersionNum)
 	assert.Equal(t, "200", m.MaxConnections)
 	assert.Empty(t, m.QueryError)
 }
 
-// This statement's isolation is defensive: count(*) on pg_stat_replication is
-// expected to succeed without pg_monitor. This pins what happens if it does not.
 func TestCollectReplicationDenied(t *testing.T) {
 	q := healthyQuerier()
 	q.replication = fakeRow{err: errors.New("ERROR: permission denied for view pg_stat_replication (SQLSTATE 42501)")}
@@ -145,9 +123,7 @@ func TestReplicationConfigured(t *testing.T) {
 func TestCaptureMode(t *testing.T) {
 	tests := []struct {
 		name string
-		// setup returns logLocationSQL's single column, the data_directory
-		// setting ("" means the role cannot see it - it is superuser-only),
-		// and the expected resolved path.
+
 		setup          func(t *testing.T, dir string) (logfile any, dataDirectory, resolved string)
 		logLocationErr error
 		wantMode       string
@@ -156,9 +132,7 @@ func TestCaptureMode(t *testing.T) {
 		{
 			name: "logging_collector off",
 			setup: func(t *testing.T, dir string) (any, string, string) {
-				// pg_current_logfile() returns NULL. Remote even if the agent is
-				// on the database host: the log-derived artifacts are
-				// unavailable either way.
+
 				return nil, dir, ""
 			},
 			wantMode:     ModeRemote,
@@ -200,9 +174,7 @@ func TestCaptureMode(t *testing.T) {
 			wantReadable: "false",
 		},
 		{
-			// The case that separates "same path exists locally" from "this is
-			// the database host". A jump box with its own Postgres is the
-			// realistic version of it.
+
 			name: "path exists but is not readable",
 			setup: func(t *testing.T, dir string) (any, string, string) {
 				requireUnprivileged(t)
@@ -216,9 +188,7 @@ func TestCaptureMode(t *testing.T) {
 			wantReadable: "false",
 		},
 		{
-			// data_directory hidden from this role, or lost with a failed
-			// serverFactsSQL: nothing to resolve against, and no guessing.
-			// settings_unavailable or query_error carries the why.
+
 			name: "relative path with no data_directory to resolve against",
 			setup: func(t *testing.T, dir string) (any, string, string) {
 				return ptr("log/postgresql-2026-08-04_000000.csv"), "", ""
@@ -244,9 +214,6 @@ func TestCaptureMode(t *testing.T) {
 
 			q := healthyQuerier()
 
-			// data_directory reaches the resolver through the settings
-			// catalogue, so the fake plants it there rather than in
-			// logLocationSQL's row.
 			settings := fullSettings()
 			if dataDirectory == "" {
 				delete(settings, "data_directory")
@@ -266,17 +233,13 @@ func TestCaptureMode(t *testing.T) {
 			assert.Equal(t, tt.wantMode, m.CaptureMode)
 			assert.Equal(t, tt.wantReadable, m.CurrentLogfileReadable)
 
-			// The evidence, so the conclusion is reproducible from the file
-			// rather than asserted by it.
 			assert.Equal(t, resolved, m.CurrentLogfileResolved)
 		})
 	}
 }
 
 func TestCollectCarriesNoPassword(t *testing.T) {
-	// Every statement fails, with the credential in each message. This cannot
-	// happen today - the password is in no statement and no argument - but it
-	// is the shape a future leak would have, and the artifact is uploaded.
+
 	leak := errors.New("connect failed for password=" + testPassword)
 
 	q := &fakeQuerier{
@@ -315,7 +278,6 @@ func stringFields(m Metadata) map[string]string {
 	return out
 }
 
-// Root ignores the permission bits, and Windows does not have them in this form.
 func requireUnprivileged(t *testing.T) {
 	t.Helper()
 
