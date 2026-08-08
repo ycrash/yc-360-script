@@ -12,14 +12,13 @@ import (
 // comparing server_version_num against a number the agent carries. pg_upgrade
 // carries an old extension schema forward until someone runs ALTER EXTENSION
 // ... UPDATE, so a PG15 server can legitimately expose pg_stat_statements'
-// pre-1.8 column set - extversion is the only honest answer for it.
+// pre-1.8 column set.
 //
 // Privilege safety: settings are read from pg_settings, never with SHOW or
 // current_setting(). The view returns no row for an unknown name where SHOW
 // raises, and omits a GUC_SUPERUSER_ONLY setting for a role without
 // pg_read_all_settings where current_setting(name, true) suppresses only the
-// unknown-name error. Four settings below are superuser-only, so one
-// under-privileged read would otherwise have errored the whole statement.
+// unknown-name error.
 //
 // The consequence is that serverFactsSQL cannot fail for want of a grant;
 // logLocationSQL genuinely can, which is why it is separate.
@@ -29,9 +28,9 @@ import (
 const timestampLayout = "2006-01-02T15:04:05.000Z"
 
 // capturedSettings is the pg_settings catalogue serverFactsSQL reads, in the
-// order the artifact writes it. The name and its destination field are paired
-// here so the list sent to the server, the assignment and the
-// settings_unavailable roll-up cannot drift apart.
+// order the artifact writes it. Name and destination field are paired here so
+// the list sent to the server, the assignment and the settings_unavailable
+// roll-up cannot drift apart.
 var capturedSettings = []struct {
 	name  string
 	field func(*Metadata) *string
@@ -49,9 +48,9 @@ var capturedSettings = []struct {
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
-	// superuser-only. Moved out of logLocationSQL, its original home: on 14-16
-	// pg_monitor is denied pg_current_logfile() and this row went down with the
-	// statement, even though pg_read_all_settings may see it.
+	// superuser-only. Moved out of logLocationSQL: on 14-16 pg_monitor is denied
+	// pg_current_logfile() and this row went down with the statement, even
+	// though pg_read_all_settings may see it.
 	{"data_directory", func(m *Metadata) *string { return &m.DataDirectory }},
 }
 
@@ -67,11 +66,10 @@ func settingNames() []string {
 
 // serverFactsSQL is the unprivileged statement: identity, run facts, the
 // settings catalogue and every capability probe. No path in it can raise for a
-// role holding only CONNECT - setting names are passed as $1 rather than
-// interpolated, and server_version_num is read from pg_settings like the rest.
+// role holding only CONNECT.
 //
 // Values are recorded in pg_settings.setting form - internal units, so `500`
-// rather than SHOW's `500ms` - which is what the artifact contract specifies.
+// rather than SHOW's `500ms`.
 //
 // The two array_agg subqueries return parallel name and value arrays rather
 // than one 2-D array: no multi-dimensional scan support needed, and text arrays
@@ -79,8 +77,7 @@ func settingNames() []string {
 // could fail on a SQL_ASCII cluster whose log_line_prefix is not valid UTF-8.
 //
 // inet_server_addr() is unwrapped with host() rather than cast to text: the
-// cast renders `172.17.0.2/32`, and the /32 is an artifact of the inet return
-// type rather than anything the server is saying.
+// cast renders `172.17.0.2/32`, and the /32 is an artifact of the return type.
 const serverFactsSQL = `WITH s AS (
     SELECT name, COALESCE(setting, '') AS setting
       FROM pg_catalog.pg_settings
@@ -115,14 +112,11 @@ SELECT
 // logLocationSQL is isolated because it is the one statement that can be
 // denied: pg_current_logfile has EXECUTE revoked from PUBLIC and the grant to
 // pg_monitor only landed in PostgreSQL 17, so on 14-16 the denial is the normal
-// outcome for the recommended role. Folding it into serverFactsSQL would cost
-// the whole artifact for one missing grant; it reads nothing else for the same
-// reason - data_directory was its second column, and went down as collateral.
+// outcome for the recommended role. It reads nothing else for the same reason.
 const logLocationSQL = `SELECT pg_current_logfile()`
 
 // replicationSQL is separated defensively rather than because it is known to
-// need a grant: pg_stat_replication masks columns, not rows, so count(*) is
-// expected to succeed without pg_monitor.
+// need a grant: pg_stat_replication masks columns, not rows.
 const replicationSQL = `SELECT count(*) FROM pg_catalog.pg_stat_replication`
 
 // serverFactsRow is serverFactsSQL's result, one field per column in selection
@@ -192,8 +186,7 @@ func (r *serverFactsRow) settings() map[string]string {
 }
 
 // text renders a nullable text column. NULL and empty are recorded identically:
-// the artifact's contract is that an empty value means "not read", and the
-// *_error keys say why.
+// an empty value means "not read", and the *_error keys say why.
 func text(v *string) string {
 	if v == nil {
 		return ""
@@ -219,8 +212,8 @@ func int32Text(v *int32) string {
 }
 
 // timeText renders a nullable timestamp in the artifact's form: UTC, as read.
-// Nothing here subtracts one timestamp from another - the clock offset and
-// every restart-crossing delta are the server's arithmetic to do.
+// Nothing here subtracts one timestamp from another - that is the server's
+// arithmetic to do.
 func timeText(v *time.Time) string {
 	if v == nil {
 		return ""

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,17 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The version-and-privilege matrix: compose.pg.yaml's five servers, each read
-// by three roles. Opt-in via the pgintegration build tag.
-//
-// Everything asserted here is a claim the rest of the package makes and cannot
-// prove about itself: a fake Querier agrees with whatever the test author
-// believed about a running server. Two such rules were wrong when first written
-// and both were found here - pg_current_logfile()'s EXECUTE grant to pg_monitor
-// landed in PostgreSQL 17, and data_directory used to ride in that same
-// statement and went down with it.
-
-// One of compose.pg.yaml's containers.
 type matrixServer struct {
 	major int
 	port  int
@@ -39,13 +29,10 @@ var matrixServers = []matrixServer{
 	{major: 18, port: 15418},
 }
 
-// One of the roles pg_matrix_init.sql creates, plus the image's own superuser.
 type matrixRole struct {
 	user     string
 	password string
 
-	// monitor is a member of pg_monitor; superuser is the built-in role. A role
-	// that is neither holds LOGIN and nothing else.
 	superuser bool
 	monitor   bool
 }
@@ -56,12 +43,8 @@ var matrixRoles = []matrixRole{
 	{user: "yc_restricted", password: "yc-restricted-pw"},
 }
 
-// Can the role see the superuser-only settings? pg_monitor includes
-// pg_read_all_settings, and a superuser sees everything.
 func (r matrixRole) privileged() bool { return r.superuser || r.monitor }
 
-// The four entries in capturedSettings that guc_tables.c marks
-// GUC_SUPERUSER_ONLY.
 var superuserOnlySettings = []string{
 	"data_directory",
 	"log_directory",
@@ -69,9 +52,6 @@ var superuserOnlySettings = []string{
 	"shared_preload_libraries",
 }
 
-// Overridable for a runner that reaches the servers by service name rather than
-// on loopback. Deliberately not spelled PGHOST: Connect clears the libpq
-// environment before parsing, so that name could not reach the connection.
 func matrixHost() string {
 	if host := os.Getenv("YC_PG_MATRIX_HOST"); host != "" {
 		return host
@@ -88,14 +68,10 @@ func matrixTarget(server matrixServer, role matrixRole) Target {
 		Username: role.user,
 		Password: role.password,
 
-		// The containers serve no TLS. Every other consumer of this package
-		// defaults to require; the matrix is testing catalog behaviour, not
-		// transport.
 		SSLMode: "disable",
 	}
 }
 
-// Runs a real capture against one server as one role.
 func collectFromMatrix(t *testing.T, target Target) Metadata {
 	t.Helper()
 
@@ -136,13 +112,9 @@ func TestMatrix(t *testing.T) {
 	}
 }
 
-// The every-key rule stated where it can actually fail: the keys a reader gets
-// must not depend on the server version or on the role's privileges.
 func assertArtifactComplete(t *testing.T, target Target, m Metadata) map[string]string {
 	t.Helper()
 
-	// Stamped the way the capture adapter stamps it, and with a fixed value so
-	// a release bump cannot change what this test compares.
 	m.YC360Version = "matrix"
 
 	artifact := writeArtifact(t, m)
@@ -160,9 +132,6 @@ func assertArtifactComplete(t *testing.T, target Target, m Metadata) map[string]
 	return values
 }
 
-// The claim that costs the most if it is wrong: serverFactsSQL cannot fail for
-// want of a grant. A non-empty query_error for the restricted role sinks the
-// whole privilege-resilience design, and every later artifact inherits it.
 func assertServerFacts(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
 	t.Helper()
 
@@ -191,13 +160,8 @@ func assertServerFacts(t *testing.T, server matrixServer, role matrixRole, value
 		assert.NotEmpty(t, values[key], "%s is readable by every role", key)
 	}
 
-	// inet_server_addr() is NULL over a Unix socket and set over TCP, which is
-	// how the matrix connects.
 	assert.NotEmpty(t, values["inet_server_addr"])
 
-	// The server's own port, not the client's view of it: a consumer reading
-	// this as "where the agent connected to" gets a wrong answer through any
-	// port mapping, containers included.
 	assert.Equal(t, "5432", values["inet_server_port"])
 	assert.NotEqual(t, strconv.Itoa(server.port), values["inet_server_port"])
 
@@ -205,39 +169,23 @@ func assertServerFacts(t *testing.T, server matrixServer, role matrixRole, value
 		"pg_has_role(..., 'member') is true for a superuser as well as for a member")
 }
 
-// The version half of the matrix: the facts that differ across the supported
-// range, checked against the range rather than against what the agent believes.
 func assertCapabilities(t *testing.T, server matrixServer, values map[string]string) {
 	t.Helper()
 
-	// pg_stat_bgwriter's checkpointer counters moved into pg_stat_checkpointer
-	// in PostgreSQL 17. This is the probe that stops the next artifact reading
-	// a view that does not exist.
 	assert.Equal(t, strconv.FormatBool(server.major >= 17), values["has_pg_stat_checkpointer"],
 		"pg_stat_checkpointer landed in PostgreSQL 17")
 
-	// sessions_fatal landed in PostgreSQL 14, so no server here exercises the
-	// probe's false branch.
 	assert.Equal(t, "true", values["has_session_fatal_stats"])
 
-	// The extension's schema version moves independently of the server, which is
-	// why extversion is read rather than inferred from server_version_num. These
-	// are fresh containers, so it is whatever each image ships.
 	assert.Equal(t, "true", values["has_pg_stat_statements"])
 	assert.NotEmpty(t, values["pg_stat_statements_version"])
 	t.Logf("pg%d: pg_stat_statements %s, server_version_num %s",
 		server.major, values["pg_stat_statements_version"], values["server_version_num"])
 }
 
-// The privilege half: a role that may not read the superuser-only settings must
-// still get a complete artifact, with those four values empty and named in
-// settings_unavailable, rather than an error costing the whole statement.
 func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]string) {
 	t.Helper()
 
-	// Readable by every role, so they anchor the assertions below: were these
-	// empty too, the role would be failing to read pg_settings at all rather
-	// than being filtered by it.
 	assert.Equal(t, "on", values["logging_collector"])
 	assert.NotEmpty(t, values["log_destination"])
 	assert.NotEmpty(t, values["log_line_prefix"])
@@ -255,9 +203,6 @@ func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]s
 		return
 	}
 
-	// The least-privilege floor. settings_unavailable is what distinguishes
-	// "shared_preload_libraries is empty because nothing is configured" from
-	// "empty because this role may not see it".
 	unavailable := splitSettingList(values["settings_unavailable"])
 	assert.ElementsMatch(t, superuserOnlySettings, unavailable,
 		"exactly the superuser-only settings are omitted, and they are named")
@@ -267,9 +212,6 @@ func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]s
 	}
 }
 
-// pg_current_logfile() has EXECUTE revoked from PUBLIC, and the grant to
-// pg_monitor only landed in PostgreSQL 17, so on 14-16 the recommended role is
-// denied - the normal outcome on three of the five supported majors.
 func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
 	t.Helper()
 
@@ -286,8 +228,6 @@ func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, value
 			"a denied probe leaves the mode unknown rather than guessing at it")
 		assert.Empty(t, values["current_logfile"])
 
-		// The whole point of moving data_directory out of this statement: its
-		// denial must cost the capture mode and nothing else.
 		if role.privileged() {
 			assert.NotEmpty(t, values["data_directory"],
 				"data_directory rides in the settings catalogue and survives this denial")
@@ -299,19 +239,12 @@ func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, value
 	assert.Empty(t, values["current_logfile_error"])
 	assert.NotEmpty(t, values["current_logfile"], "logging_collector is on, so there is a current log file")
 
-	// Resolved against data_directory, because the collector's default
-	// log_directory is relative.
 	assert.NotEmpty(t, values["current_logfile_resolved"])
 
-	// Deliberately not asserted as pg-dbhost: the resolved path is inside the
-	// container, so readability depends on where the test runs. What matters is
-	// that detection reached a conclusion at all.
 	assert.NotEqual(t, ModeUnknown, values["capture_mode"])
 	assert.NotEmpty(t, values["current_logfile_readable"])
 }
 
-// Measures the premise behind replicationSQL's isolation, which was reasoned
-// rather than measured when the split was designed.
 func assertReplicationProbe(t *testing.T, values map[string]string) {
 	t.Helper()
 
@@ -327,4 +260,243 @@ func splitSettingList(value string) []string {
 	}
 
 	return strings.Split(value, ",")
+}
+
+const (
+	matrixCountedTables    = 2
+	matrixPartitionedRelns = 3
+	matrixBulkTables       = 200
+
+	matrixUserTables = matrixCountedTables + matrixPartitionedRelns + matrixBulkTables
+
+	matrixOrdersInserted = 500
+	matrixOrdersDead     = 100
+	matrixOrdersLive     = matrixOrdersInserted - matrixOrdersDead
+	matrixNoIdxLive      = 250
+)
+
+type bloatBlock struct {
+	header  map[string]string
+	rawHead string
+	columns []string
+	rows    map[string][]string
+}
+
+func parseBloatBlocks(t *testing.T, artifact string) []bloatBlock {
+	t.Helper()
+
+	var (
+		blocks  []bloatBlock
+		current *bloatBlock
+	)
+
+	for _, line := range strings.Split(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			current = nil
+
+			if !strings.Contains(line, "source=pg_stat_user_tables") {
+				continue
+			}
+
+			header := map[string]string{}
+			for _, token := range strings.Fields(strings.TrimPrefix(line, "# ")) {
+				key, value, found := strings.Cut(token, "=")
+				if found {
+					header[key] = value
+				}
+			}
+
+			blocks = append(blocks, bloatBlock{
+				header: header, rawHead: line, rows: map[string][]string{},
+			})
+			current = &blocks[len(blocks)-1]
+
+			continue
+		}
+
+		if current == nil {
+			continue
+		}
+
+		cells := strings.Split(line, ",")
+		if current.columns == nil {
+			current.columns = cells
+			continue
+		}
+
+		current.rows[cells[0]] = cells
+	}
+
+	return blocks
+}
+
+func (b bloatBlock) cell(t *testing.T, relid, column string) string {
+	t.Helper()
+
+	row, ok := b.rows[relid]
+	require.True(t, ok, "relid %s is not in the block", relid)
+
+	for i, name := range b.columns {
+		if name == column {
+			return row[i]
+		}
+	}
+
+	t.Fatalf("column %s is not in the block", column)
+
+	return ""
+}
+
+func (b bloatBlock) relidOf(t *testing.T, schema, name string) string {
+	t.Helper()
+
+	for relid, row := range b.rows {
+		if row[1] == schema && row[2] == name {
+			return relid
+		}
+	}
+
+	t.Fatalf("%s.%s is not in the block", schema, name)
+
+	return ""
+}
+
+func runMatrixBloatWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{Bloat{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixBloat(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				results := runMatrixBloatWindow(t, target)
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"the artifact must be complete for every role on every version")
+				require.Equal(t, 2, results[0].SamplesWritten)
+
+				content, err := os.ReadFile(results[0].Artifact.FileName)
+				require.NoError(t, err)
+				results[0].File.Close()
+
+				artifact := string(content)
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseBloatBlocks(t, artifact)
+				require.Len(t, blocks, 2, "start and end")
+
+				assert.Equal(t, bloatColumns, blocks[0].columns)
+				assert.Equal(t, blocks[0].columns, blocks[1].columns,
+					"both samples carry identical column sets")
+
+				assert.Equal(t, relidSet(blocks[0]), relidSet(blocks[1]),
+					"relid is stable across the two samples")
+
+				for i, block := range blocks {
+					assert.Equal(t, strconv.Itoa(matrixUserTables), block.header["tables_total"],
+						"block %d: tables_total must match the fixture", i)
+					assert.Equal(t, strconv.Itoa(matrixUserTables), block.header["tables_written"],
+						"block %d: nothing is dropped below the cap", i)
+					assert.Equal(t, "false", block.header["truncated"])
+
+					assert.NotContains(t, block.rawHead, "sizes=unavailable",
+						"block %d: pg_table_size/pg_indexes_size must need no grant", i)
+				}
+
+				assertMatrixKnownTables(t, blocks[1])
+				assertMatrixCapFires(t, target)
+			})
+		}
+	}
+}
+
+func assertMatrixKnownTables(t *testing.T, block bloatBlock) {
+	t.Helper()
+
+	orders := block.relidOf(t, "public", "yc_bloat_orders")
+	noIndexes := block.relidOf(t, "public", "yc_bloat_no_indexes")
+
+	assert.Equal(t, strconv.Itoa(matrixOrdersLive), block.cell(t, orders, "n_live_tup"))
+	assert.Equal(t, strconv.Itoa(matrixOrdersDead), block.cell(t, orders, "n_dead_tup"),
+		"autovacuum is disabled on the fixture, so the dead tuples are still here")
+	assert.Equal(t, strconv.Itoa(matrixNoIdxLive), block.cell(t, noIndexes, "n_live_tup"))
+
+	assert.Equal(t, "", block.cell(t, noIndexes, "idx_scan"),
+		"a table with no indexes reports NULL, which must be written empty")
+	assert.NotEqual(t, "", block.cell(t, orders, "idx_scan"),
+		"an indexed table reports a number, even when it is 0")
+
+	assert.Equal(t, "", block.cell(t, noIndexes, "last_autovacuum"))
+	assert.Equal(t, "", block.cell(t, noIndexes, "last_vacuum"))
+
+	assert.NotEmpty(t, block.cell(t, orders, "table_size_bytes"))
+	assert.NotEmpty(t, block.cell(t, orders, "index_size_bytes"))
+	assert.NotEmpty(t, block.cell(t, noIndexes, "table_size_bytes"))
+	assert.Equal(t, "0", block.cell(t, noIndexes, "index_size_bytes"))
+
+	parent := block.relidOf(t, "public", "yc_bloat_parted")
+	block.relidOf(t, "public", "yc_bloat_parted_p1")
+	block.relidOf(t, "public", "yc_bloat_parted_p2")
+
+	assert.Equal(t, "0", block.cell(t, parent, "table_size_bytes"),
+		"a relation with no storage is 0, not empty: empty stays reserved for one that vanished")
+	assert.Equal(t, "0", block.cell(t, parent, "index_size_bytes"))
+}
+
+func assertMatrixCapFires(t *testing.T, target Target) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		assert.NoError(t, conn.Close(closeCtx))
+	}()
+
+	const capped = 10
+
+	var buf strings.Builder
+	require.NoError(t, Bloat{MaxTables: capped}.Sample(ctx, conn, &buf, SampleContext{
+		At: time.Now(), Index: 1, Database: "postgres", DBID: "0",
+	}))
+
+	blocks := parseBloatBlocks(t, buf.String())
+	require.Len(t, blocks, 1)
+
+	assert.Equal(t, strconv.Itoa(capped), blocks[0].header["tables_written"])
+	assert.Equal(t, strconv.Itoa(matrixUserTables), blocks[0].header["tables_total"],
+		"the real total survives the cap, so a capped file cannot read as complete")
+	assert.Equal(t, "true", blocks[0].header["truncated"])
+	assert.Len(t, blocks[0].rows, capped)
+}
+
+func relidSet(b bloatBlock) []string {
+	relids := make([]string, 0, len(b.rows))
+	for relid := range b.rows {
+		relids = append(relids, relid)
+	}
+
+	sort.Strings(relids)
+
+	return relids
 }

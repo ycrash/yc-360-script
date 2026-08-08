@@ -9,3 +9,4 @@ options:
     username: ycrash_monitor
     password: ${PG_YCRASH_PASSWORD}
     sslmode: require
+    captureDuration: 120s

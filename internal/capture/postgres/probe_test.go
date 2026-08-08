@@ -13,13 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests run against fakes: what they pin is decided in Go and is the same
-// on every server version. What needs a real server and a real least-privilege
-// role lives in integration_test.go, behind the pgintegration tag.
-
-// serverFactsSQL's columns, in selection order. Named so a reordered SELECT
-// list fails TestServerFactsColumnAlignment instead of silently mapping values
-// onto the wrong fields.
 const (
 	colCurrentDatabase = iota
 	colCurrentUser
@@ -51,7 +44,6 @@ var (
 	testAgentNow        = time.Date(2026, 8, 4, 9, 12, 44, 118_000_000, time.UTC)
 )
 
-// What a role that can see everything gets back.
 func fullSettings() map[string]string {
 	return map[string]string{
 		"max_connections":            "200",
@@ -68,8 +60,6 @@ func fullSettings() map[string]string {
 	}
 }
 
-// Renders a name/value map the way serverFactsSQL's two array_agg subqueries
-// do: parallel arrays ordered by name.
 func settingsColumns(settings map[string]string) (names []string, values []string) {
 	for _, s := range capturedSettings {
 		value, ok := settings[s.name]
@@ -84,8 +74,6 @@ func settingsColumns(settings map[string]string) (names []string, values []strin
 	return names, values
 }
 
-// A complete serverFactsSQL result. Tests take a copy and overwrite the one
-// column they are about.
 func serverFactsValues() []any {
 	names, values := settingsColumns(fullSettings())
 
@@ -112,13 +100,10 @@ func serverFactsValues() []any {
 	return v
 }
 
-// nil is logging_collector off. data_directory is deliberately not here - it
-// rides in the settings catalogue.
 func logLocationValues(logfile any) []any {
 	return []any{logfile}
 }
 
-// Answers a single statement with values in selection order, or with an error.
 type fakeRow struct {
 	values []any
 	err    error
@@ -142,8 +127,6 @@ func (r fakeRow) Scan(dest ...any) error {
 	return nil
 }
 
-// Types have to match exactly - a wrong type fails the scan rather than being
-// coerced - so a change to serverFactsRow's field types shows up here.
 func assign(dest, value any) error {
 	d := reflect.ValueOf(dest)
 	if d.Kind() != reflect.Pointer || d.IsNil() {
@@ -167,13 +150,9 @@ func assign(dest, value any) error {
 	return nil
 }
 
-// Routes by statement text, so a test that changes one of the three SQL
-// constants without updating its fake gets an explicit "unexpected query"
-// rather than a silently empty result.
 type fakeQuerier struct {
 	serverFacts, logLocation, replication fakeRow
 
-	// Recorded for the tests that assert what was sent and under what deadline.
 	sql       []string
 	args      [][]any
 	deadlines []time.Time
@@ -198,7 +177,6 @@ func (f *fakeQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx
 	return fakeRow{err: fmt.Errorf("unexpected query: %s", sql)}
 }
 
-// Answers all three statements from a fully readable database.
 func healthyQuerier() *fakeQuerier {
 	return &fakeQuerier{
 		serverFacts: fakeRow{values: serverFactsValues()},
@@ -215,8 +193,6 @@ func collect(t *testing.T, q Querier) Metadata {
 	return Collect(context.Background(), q, testTarget(), testAgentNow)
 }
 
-// The column constants, the scan destinations and the fake's value slice all
-// describe serverFactsSQL's SELECT list; nothing else notices when one moves.
 func TestServerFactsColumnAlignment(t *testing.T) {
 	var row serverFactsRow
 
@@ -265,8 +241,6 @@ func TestStatementDeadline(t *testing.T) {
 	}
 }
 
-// Each probe is semantic rather than version arithmetic, so these vary the
-// catalog's answer and never the version number.
 func TestCapabilityProbes(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -275,10 +249,7 @@ func TestCapabilityProbes(t *testing.T) {
 		want   func(*testing.T, Metadata)
 	}{
 		{
-			// The case version arithmetic gets wrong: pg_upgrade carries the old
-			// extension schema forward until someone runs ALTER EXTENSION ...
-			// UPDATE, so a PG15 server can legitimately expose the pre-1.8
-			// column set.
+
 			name:   "pg_stat_statements at 1.10",
 			column: colPgStatStatements,
 			value:  ptr("1.10"),
@@ -297,9 +268,7 @@ func TestCapabilityProbes(t *testing.T) {
 			},
 		},
 		{
-			// The extension not being installed is an empty extversion, not a
-			// NULL: serverFactsSQL coalesces so the flag is decided by one
-			// rule.
+
 			name:   "pg_stat_statements absent",
 			column: colPgStatStatements,
 			value:  ptr(""),
@@ -333,9 +302,7 @@ func TestCapabilityProbes(t *testing.T) {
 			},
 		},
 		{
-			// Synthetic across the declared 14-18 range: sessions_fatal landed
-			// in PG14, so no supported server answers false. The probe is
-			// out-of-range defence for a PG13 cluster somebody points at this.
+
 			name:   "sessions_fatal absent",
 			column: colHasSessionFatal,
 			value:  ptr(false),
@@ -386,12 +353,9 @@ func TestSettingsFullVisibility(t *testing.T) {
 	assert.Equal(t, "/var/lib/postgresql/15/main", m.DataDirectory)
 	assert.Empty(t, m.SettingsUnavailable)
 
-	// Internal units, as pg_settings.setting renders them - not SHOW's `500ms`.
 	assert.Equal(t, "500", m.LogMinDurationStatement)
 }
 
-// The four settings dropped here are GUC_SUPERUSER_ONLY, so pg_settings omits
-// their rows for a role without pg_read_all_settings.
 func TestSettingsRestrictedRole(t *testing.T) {
 	visible := fullSettings()
 	delete(visible, "log_directory")
@@ -410,20 +374,14 @@ func TestSettingsRestrictedRole(t *testing.T) {
 	assert.Empty(t, m.SharedPreloadLibraries)
 	assert.Empty(t, m.DataDirectory)
 
-	// Named in catalogue order, so the value is stable across runs. This is what
-	// disambiguates shared_preload_libraries "" meaning none configured from ""
-	// meaning not visible to this role.
 	assert.Equal(t, "log_directory,log_filename,shared_preload_libraries,data_directory", m.SettingsUnavailable)
 
-	// Everything else survives: nothing about serverFactsSQL is all-or-nothing.
 	assert.Equal(t, "200", m.MaxConnections)
 	assert.Equal(t, "auto", m.ComputeQueryID)
 	assert.Equal(t, "150004", m.ServerVersionNum)
 	assert.Empty(t, m.QueryError)
 }
 
-// The other reason a row can be missing. The recorded fact is deliberately
-// identical to the privilege case; the file carries what tells them apart.
 func TestSettingsUnknownToThisVersion(t *testing.T) {
 	visible := fullSettings()
 	delete(visible, "compute_query_id")
@@ -452,8 +410,6 @@ func TestSettingsNoneVisible(t *testing.T) {
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
 }
 
-// A Unix socket connection has no server address or port, and a database whose
-// statistics have never been reset has no stats_reset.
 func TestNullServerFacts(t *testing.T) {
 	q := healthyQuerier()
 	q.serverFacts.values[colInetServerAddr] = nil
@@ -471,7 +427,6 @@ func TestNullServerFacts(t *testing.T) {
 func TestTimestampsAreRecordedRaw(t *testing.T) {
 	q := healthyQuerier()
 
-	// A server in a non-UTC zone renders the same instant.
 	jakarta := time.FixedZone("WIB", 7*60*60)
 	q.serverFacts.values[colServerNow] = ptr(testServerNow.In(jakarta))
 
@@ -489,9 +444,6 @@ func TestErrorText(t *testing.T) {
 		assert.Empty(t, errorText(nil, testPassword))
 	})
 
-	// A driver message with a newline in it would put a record boundary inside
-	// a CSV field. This artifact's claim is that it needs no record-aware
-	// parsing, and that claim must not depend on which error came back.
 	t.Run("flattened onto one line", func(t *testing.T) {
 		err := errors.New("ERROR: permission denied\nDETAIL: role is not a member\r\nHINT: grant it")
 
@@ -510,8 +462,6 @@ func TestErrorText(t *testing.T) {
 		assert.Contains(t, got, "<redacted>")
 	})
 
-	// The guard that matters: an empty password must not turn every position in
-	// the string into a redaction.
 	t.Run("empty password is not substituted", func(t *testing.T) {
 		assert.Equal(t, "connection refused", errorText(errors.New("connection refused"), ""))
 	})

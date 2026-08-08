@@ -1,0 +1,10 @@
+# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid= status=started window=120s samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_user_tables v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 tables_written=2 tables_total=2 truncated=false ts=2026-08-07T14:32:05.112Z
+relid,schemaname,relname,n_live_tup,n_dead_tup,n_tup_upd,n_tup_hot_upd,seq_scan,idx_scan,last_autovacuum,last_vacuum,table_size_bytes,index_size_bytes
+16390,public,orders,4210044,412988,884213,689882,88104,4021884,2026-07-25T13:50:00.000Z,2026-07-25T13:50:00.000Z,2415919104,610271232
+16482,public,orders_line_items,912004,458210,221904,90981,340120,1200440,2026-07-25T08:41:00.000Z,2026-07-25T08:41:00.000Z,884736000,192512000
+# engine=postgres source=pg_stat_user_tables v=1 format=csv scope=database db=orders_db dbid=16401 sample=2 tables_written=2 tables_total=2 truncated=false ts=2026-08-07T14:34:05.140Z
+relid,schemaname,relname,n_live_tup,n_dead_tup,n_tup_upd,n_tup_hot_upd,seq_scan,idx_scan,last_autovacuum,last_vacuum,table_size_bytes,index_size_bytes
+16390,public,orders,4211200,413410,884340,689951,88220,4025901,2026-07-25T13:50:00.000Z,2026-07-25T13:50:00.000Z,2415919104,610271232
+16482,public,orders_line_items,912340,466100,221990,91040,340460,1201980,2026-07-25T08:41:00.000Z,2026-07-25T08:41:00.000Z,884736000,192512000
+# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

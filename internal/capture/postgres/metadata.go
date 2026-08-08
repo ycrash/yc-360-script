@@ -22,8 +22,8 @@ const (
 	// the database host.
 	ModeRemote = "pg-remote"
 
-	// ModeUnknown: detection could not run (no connection, or a denied
-	// logLocationSQL). The server treats it like ModeRemote.
+	// ModeUnknown: detection could not run. The server treats it like
+	// ModeRemote.
 	ModeUnknown = "unknown"
 )
 
@@ -31,6 +31,13 @@ const (
 // without a live server.
 type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// RowQuerier is Querier widened to row sets, for the artifacts that read more
+// than one row.
+type RowQuerier interface {
+	Querier
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // Metadata is what a capture found, written to pg_metadata.txt one field per
@@ -42,9 +49,8 @@ type Querier interface {
 // why a value is empty, so a reader never has to guess whether a missing key
 // means an old agent or a failed query.
 //
-// Nothing here is derived - the clock reads and restart/reset facts are recorded
-// raw and the arithmetic is left to the server. There is deliberately no
-// password field.
+// Nothing here is derived - the arithmetic is left to the server. There is
+// deliberately no password field.
 type Metadata struct {
 	// Known from configuration. AgentTS and YC360Version are supplied by the
 	// caller rather than read here, so the golden tests are deterministic.
@@ -75,8 +81,8 @@ type Metadata struct {
 
 	// From serverFactsSQL: the pg_settings catalogue. A setting the role may not
 	// see, or that this version lacks, is written empty and named in
-	// SettingsUnavailable - which is what distinguishes "no libraries
-	// configured" from "not visible to this role".
+	// SettingsUnavailable - which distinguishes "no libraries configured" from
+	// "not visible to this role".
 	MaxConnections          string
 	LoggingCollector        string
 	LogDestination          string
@@ -214,8 +220,7 @@ func applySettings(m *Metadata, settings map[string]string) {
 // The mode predicts "can this process read the server's log file", so that is
 // what is tested rather than inferred from the configured host. A relative
 // logfile resolves against m.DataDirectory, which is why this runs after
-// collectServerFacts; with that value missing it degrades to ModeRemote and
-// query_error says why.
+// collectServerFacts.
 func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
@@ -233,8 +238,7 @@ func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password st
 	if m.CurrentLogfile == "" {
 		// logging_collector is off. An agent genuinely on the database host is
 		// recorded as remote, which is harmless: the log-derived artifacts are
-		// unavailable either way, and logging_collector is in the file for the
-		// finer distinction.
+		// unavailable either way.
 		m.CaptureMode = ModeRemote
 		return
 	}
@@ -273,15 +277,13 @@ func resolveLogfile(logfile, dataDirectory string) (string, bool) {
 
 // isAbsolutePath reports whether the server's path is absolute. A leading slash
 // counts even where filepath would not say so: the agent can be a Windows host
-// talking to a POSIX server, and joining that path onto a data directory it was
-// never relative to would be worse than the unreadable path it becomes.
+// talking to a POSIX server.
 func isAbsolutePath(p string) bool {
 	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
-// isReadable reports whether this process can open the path for reading. It is
-// opened and closed rather than stat'd because permission, not existence, is
-// the question.
+// isReadable reports whether this process can open the path for reading. Opened
+// rather than stat'd because permission, not existence, is the question.
 func isReadable(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -314,8 +316,8 @@ func collectReplication(ctx context.Context, q Querier, m *Metadata, password st
 
 // errorText renders err for an artifact field. The redaction is defence in
 // depth - the password is in no statement and no argument today. The flattening
-// is not redundant with the writer's: it keeps the struct itself free of
-// multi-line values, so a caller logging one gets one line.
+// keeps the struct itself free of multi-line values, so a caller logging one
+// gets one line.
 func errorText(err error, password string) string {
 	if err == nil {
 		return ""

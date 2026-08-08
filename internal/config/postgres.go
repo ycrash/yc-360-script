@@ -7,9 +7,11 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
-// Postgres holds the connection details for a PostgreSQL capture target.
+// Postgres holds the connection details for a PostgreSQL capture target, and
+// the window the sampled artifacts are captured over.
 type Postgres struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
@@ -17,6 +19,14 @@ type Postgres struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	SSLMode  string `yaml:"sslmode"`
+
+	// CaptureDuration is how long the sampling window stays open.
+	//
+	// A pointer because an explicit `captureDuration: 0s` and an omitted key
+	// both decode to zero on a value field, and Validate could not tell the
+	// typo from the default. nil is absent and takes the default; a non-nil
+	// zero is a configuration error.
+	CaptureDuration *Duration `yaml:"captureDuration"`
 }
 
 // Defaults applied by Validate when the corresponding key is omitted.
@@ -30,6 +40,15 @@ const (
 
 	// DefaultPostgresSSLMode is `require` rather than libpq's own.
 	DefaultPostgresSSLMode = "require"
+
+	// DefaultPostgresCaptureDuration is the sampling window when
+	// captureDuration is omitted, matching the host capture's own span.
+	DefaultPostgresCaptureDuration = 120 * time.Second
+
+	// MaxPostgresCaptureDuration is the ceiling an over-large window is clamped
+	// to. A window is a load commitment against a shared database, so it is
+	// bounded whatever the file asks for.
+	MaxPostgresCaptureDuration = 600 * time.Second
 )
 
 // postgresSSLModes is libpq's set, listed in libpq's order.
@@ -43,7 +62,10 @@ var postgresEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // IsConfigured reports whether a `postgres:` block was supplied at all.
 func (p *Postgres) IsConfigured() bool { return p != nil }
 
-// String renders the target for logs with the password redacted.
+// String renders the target for logs with the password redacted. It carries
+// captureDuration because the effective-configuration echo is the only place an
+// operator reads back the one setting that turns a two-second run into a
+// ten-minute one.
 func (p *Postgres) String() string {
 	if p == nil {
 		return "<nil>"
@@ -54,9 +76,16 @@ func (p *Postgres) String() string {
 		password = "<redacted>"
 	}
 
+	// Non-nil after Validate. The fallback covers a block rendered before
+	// validation, and says so rather than inventing a value.
+	window := fmt.Sprintf("(unset, defaults to %s)", DefaultPostgresCaptureDuration)
+	if p.CaptureDuration != nil {
+		window = p.CaptureDuration.String()
+	}
+
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s sslmode=%s",
-		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode,
+		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s",
+		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window,
 	)
 }
 
@@ -65,8 +94,7 @@ func (p *Postgres) String() string {
 // agent log that is itself uploaded.
 //
 // The receiver is a value because fmt can only reach GoString on a nested,
-// non-addressable struct field through the value method set; a nil *Postgres
-// still renders as <nil>, because fmt recovers the dereference. %v and %+v are
+// non-addressable struct field through the value method set. %v and %+v are
 // String's, whose pointer receiver is why every holder of this block holds a
 // pointer.
 func (p Postgres) GoString() string {
@@ -98,7 +126,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
-			"(valid keys: host, port, database, username, password, sslmode)")
+			"(valid keys: host, port, database, username, password, sslmode, captureDuration)")
 	}
 
 	if p.Port == 0 {
@@ -116,6 +144,27 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	}
 	if p.SSLMode == "" {
 		p.SSLMode = DefaultPostgresSSLMode
+	}
+
+	// Clamped above the ceiling, rejected at or below zero: 900s is an intent
+	// that can be honoured in part, where 0s expresses nothing and silently
+	// defaulting it would hide a typo.
+	switch {
+	case p.CaptureDuration == nil:
+		p.CaptureDuration = newDuration(DefaultPostgresCaptureDuration)
+
+	case p.CaptureDuration.Duration() <= 0:
+		errs = append(errs, fmt.Errorf(
+			"postgres.captureDuration is %s - it must be positive (omit the key for the %s default)",
+			p.CaptureDuration, DefaultPostgresCaptureDuration))
+
+	case p.CaptureDuration.Duration() > MaxPostgresCaptureDuration:
+		warnings = append(warnings, fmt.Sprintf(
+			"postgres.captureDuration %s exceeds the %s maximum - capturing for %s instead. "+
+				"The window is a load commitment against a shared database.",
+			p.CaptureDuration, MaxPostgresCaptureDuration, MaxPostgresCaptureDuration))
+
+		p.CaptureDuration = newDuration(MaxPostgresCaptureDuration)
 	}
 
 	if p.Host == "" {
@@ -187,6 +236,15 @@ func expandPostgresEnvRefs(raw string) (string, []error) {
 	return expanded, errs
 }
 
+func newDuration(d time.Duration) *Duration {
+	wrapped := Duration(d)
+	return &wrapped
+}
+
+// isZero reports whether the block names no target. CaptureDuration is
+// deliberately absent: a block whose only key is captureDuration has not said
+// what to capture, and "present but empty" is the error worth showing rather
+// than host- and username-required.
 func (p *Postgres) isZero() bool {
 	return p.Host == "" &&
 		p.Port == 0 &&
