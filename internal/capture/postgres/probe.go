@@ -211,6 +211,16 @@ func int32Text(v *int32) string {
 	return strconv.FormatInt(int64(*v), 10)
 }
 
+// int64Text renders a nullable counter. Empty, never 0: empty means "not read"
+// where 0 is a reading.
+func int64Text(v *int64) string {
+	if v == nil {
+		return ""
+	}
+
+	return strconv.FormatInt(*v, 10)
+}
+
 // timeText renders a nullable timestamp in the artifact's form: UTC, as read.
 // Nothing here subtracts one timestamp from another - that is the server's
 // arithmetic to do.

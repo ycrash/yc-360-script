@@ -18,6 +18,11 @@ import (
 // PostgresMetadataFileName is the artifact this capture writes into the bundle.
 // Database artifacts keep engine-specific prefixes: pg_ here, my_ and ora_ to
 // follow.
+//
+// This name and the two below are a cross-repo contract: a -onlyCapture bundle
+// carries no dt=, so the receiver classifies these files by filename alone
+// through YCrashDataType.fromAgentFileName(). Each must equal that enum's
+// agentFileName exactly, or the artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
 
 // pgDTMetadata is the receiver's data type for pg_metadata.txt. Classification
@@ -35,18 +40,29 @@ const PostgresBloatFileName = "pg_bloat.txt"
 // artifact silently, as it does for pgDTMetadata.
 const pgDTBloat = "pgBloat"
 
+// PostgresHealthFileName restates postgres.Health's own Artifact().FileName for
+// the same reason PostgresBloatFileName does;
+// TestPostgresHealthFileNameMatchesTheArtifact keeps the two from drifting.
+const PostgresHealthFileName = "pg_health.txt"
+
+// pgDTHealth is the receiver's data type for pg_health.txt. Drift here drops the
+// artifact silently, as it does for pgDTMetadata. The filename's own
+// registration on the bundle path is still outstanding.
+const pgDTHealth = "pgHealth"
+
 // pgSampledDataType is the receiver's data type for one sampled artifact, or
-// empty when the server team has not assigned one yet.
-//
-// The gate is kept even though pg_bloat.txt has its value: the eight remaining
-// artifacts do not, and an invented dt is dropped silently - the one failure
-// mode that looks like success at both ends. While a value is empty the
-// artifact is still written into the bundle and the upload is skipped with a
-// message naming the reason.
+// empty when the server team has not assigned one yet. Seven artifacts are still
+// unassigned, and an invented dt is dropped silently - the one failure mode that
+// looks like success at both ends. While a value is empty the artifact is still
+// written into the bundle and the upload is skipped with a message naming the
+// reason.
 func pgSampledDataType(artifact postgres.Artifact) string {
 	switch artifact.Name {
 	case "pg_bloat":
 		return pgDTBloat
+
+	case "pg_health":
+		return pgDTHealth
 	}
 
 	return ""
@@ -238,9 +254,14 @@ func (p *PostgresSampler) Run() (Result, error) {
 	defer p.setCancel(nil)
 
 	window := &postgres.Window{
-		Target:     postgresTarget(p.Target),
-		Duration:   p.captureDuration(),
-		Collectors: []postgres.Collector{postgres.Bloat{}},
+		Target:   postgresTarget(p.Target),
+		Duration: p.captureDuration(),
+
+		// Cheapest first: the two share exactly one tick, t0, and the first
+		// registered runs there first. It buys that sample and nothing after
+		// it - bloat still holds the connection for its own, so on a large
+		// schema health's next tick or two run late.
+		Collectors: []postgres.Collector{postgres.Health{}, postgres.Bloat{}},
 	}
 
 	return p.uploadArtifacts(window.Run(ctx))

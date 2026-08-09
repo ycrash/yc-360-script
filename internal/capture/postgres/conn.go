@@ -44,9 +44,13 @@ const (
 	// the closing block. Window.Run arms the deadline after connecting so that
 	// budget is not spent before sampling starts.
 	//
-	// Direction §5 specifies 15s, which is less than a two-statement sample's
-	// worst case. Expressed as the arithmetic rather than as 25s so it stays
-	// true if StatementTimeout moves.
+	// Expressed as the arithmetic rather than as 25s so it stays true if
+	// StatementTimeout moves.
+	//
+	// It bounds the final sample's duration, never its start. DefaultHealthInterval
+	// is this same 10s, so an interval sample that runs to its timeout consumes
+	// its whole interval: the timeline can stay level under load but cannot catch
+	// up, and nothing covers a final sample that starts late.
 	WindowGrace = 2*StatementTimeout + 5*time.Second
 )
 

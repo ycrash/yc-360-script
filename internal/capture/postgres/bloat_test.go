@@ -220,9 +220,12 @@ func at(minute, second, milli int) time.Time {
 	return time.Date(2026, 8, 7, 14, minute, second, milli*int(time.Millisecond), time.UTC)
 }
 
+// goldenClock scripts the window's clock reads: the preamble, t0, a pair per
+// tick - the timeline's wait and the sample's ts= - then the closing block.
 func goldenClock(t *testing.T) *scriptedClock {
 	return newScriptedClock(t,
 		at(32, 4, 980),
+		at(32, 5, 0),
 		at(32, 5, 0),
 		at(32, 5, 112),
 		at(32, 5, 112),
@@ -298,7 +301,7 @@ func TestBloatArtifact(t *testing.T) {
 	assert.Equal(t, "pg_bloat", artifact.Name)
 	assert.Equal(t, "pg_bloat.txt", artifact.FileName)
 	assert.Equal(t, "database", artifact.Scope)
-	assert.Equal(t, ScheduleStartEnd, artifact.Schedule)
+	assert.Equal(t, StartEnd(), artifact.Schedule)
 }
 
 func TestBloatColumnOrder(t *testing.T) {
@@ -342,6 +345,7 @@ func TestBloatGoldenConnectFailure(t *testing.T) {
 func TestBloatGoldenSampleError(t *testing.T) {
 	clock := newScriptedClock(t,
 		at(32, 4, 980),
+		at(32, 5, 0),
 		at(32, 5, 0),
 		at(32, 15, 201),
 		at(32, 15, 201),

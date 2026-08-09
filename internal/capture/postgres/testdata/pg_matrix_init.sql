@@ -53,6 +53,21 @@ CREATE TABLE yc_bloat_parted_p1 PARTITION OF yc_bloat_parted
 CREATE TABLE yc_bloat_parted_p2 PARTITION OF yc_bloat_parted
     FOR VALUES FROM ('2026-07-01') TO ('2027-01-01');
 
+-- A second database, for pg_health.txt. pg_stat_database is read unfiltered, so
+-- "the capture sees databases it is not connected to" is an assertion rather
+-- than a claim - and with two user databases a lowered MaxDatabases can drop one
+-- and the test can say which.
+--
+-- It also carries the highest OID on the container, which is what makes it the
+-- case the cap's two-level ordering exists for: connected to it, a plain
+-- ORDER BY datid would truncate away the very database the block's own headers
+-- name.
+--
+-- At top level and before the DO block below: CREATE DATABASE cannot run inside
+-- a transaction block, and the image's entrypoint runs this file through psql in
+-- autocommit.
+CREATE DATABASE yc_second;
+
 -- 200 more tables, so a lowered MaxTables has something to truncate. On every
 -- server rather than on one: compose.pg.yaml's invariant is that every
 -- container gets the same init script.
