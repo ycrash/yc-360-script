@@ -38,12 +38,11 @@ const PostgresCapacityFileName = "pg_capacity.txt"
 
 const pgDTCapacity = "pgCapacity"
 
-// PostgresReplicationFileName has no dt beside it, and that is the current
-// state rather than an omission: pgRepl is proposed and the server team has not
-// assigned it. The constant and its arm below land together when it does, since
-// an arm returning "" is indistinguishable from no arm at all - to a reader, to
-// a test, and to the upload path.
 const PostgresReplicationFileName = "pg_replication.txt"
+
+// pgReplication rather than the pgRepl this slice proposed: the server team
+// assigned the unabbreviated form.
+const pgDTReplication = "pgReplication"
 
 // pgSampledDataType is empty for an artifact the server team has not assigned
 // one. An invented dt is dropped silently, so an unassigned artifact is written
@@ -61,6 +60,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_capacity":
 		return pgDTCapacity
+
+	case "pg_replication":
+		return pgDTReplication
 	}
 
 	return ""
