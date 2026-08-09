@@ -3,12 +3,14 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,6 +154,40 @@ func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
 	require.Len(t, headers, 3)
 	assert.Contains(t, headers[2], "status=connect_failed samples_expected=1 samples_written=0 "+
 		"connect_error=too_many_connections")
+}
+
+// TestMetadataArtifactParsesByTheDocumentedRule is TestBlockHeaderIsNotACSVRecord
+// on a whole artifact, because that is where it bit: the goldens' connect_error
+// is the bare token too_many_connections, so nothing here would have shown that
+// an ordinary refusal makes the file unparseable to a CSV-only reader.
+func TestMetadataArtifactParsesByTheDocumentedRule(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 49, 201),
+		metadataAt(12, 49, 202),
+		metadataAt(12, 54, 215),
+	)
+
+	refused := errors.New("failed to connect to `user=ycrash_monitor database=orders_db`: " +
+		"hostname resolving error: lookup db-prod-01.internal: no such host")
+
+	results := runMetadataWindow(t, clock, NewMetadata(testTarget(), "3.6.1", testConnectFailureNow),
+		func(context.Context, Target) (windowConn, error) { return nil, refused })
+
+	artifact := artifactText(t, results[0])
+
+	headers, values, _ := parseArtifact(t, artifact)
+
+	require.Len(t, headers, 3, "preamble, target block, closing block")
+	assert.Contains(t, headers[2], "connect_error=")
+	assert.Equal(t, "orders_db", values["target_database"],
+		"the body parses whatever the headers carry")
+
+	reader := csv.NewReader(strings.NewReader(artifact))
+	reader.FieldsPerRecord = -1
+
+	_, err := reader.ReadAll()
+	require.Error(t, err,
+		"a reader that CSV-parses the whole file breaks on an ordinary refused connection")
 }
 
 func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
