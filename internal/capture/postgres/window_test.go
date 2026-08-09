@@ -63,7 +63,7 @@ func newFakeCollector(name string) *fakeCollector {
 		Name:     name,
 		FileName: name + ".txt",
 		Scope:    "database",
-		Schedule: ScheduleStartEnd,
+		Schedule: StartEnd(),
 	}}
 }
 
@@ -183,7 +183,8 @@ func TestWindowStartEndWritesTwoSamples(t *testing.T) {
 
 	headers := headersOf(t, results[0])
 	require.Len(t, headers, 4, "preamble, two samples, closing block")
-	assert.Contains(t, headers[0], "status=started window=120s samples_expected=2")
+	assert.Contains(t, headers[0],
+		"status=started window=120s schedule=start_end interval= samples_expected=2")
 	assert.Contains(t, headers[1], "sample=1")
 	assert.Contains(t, headers[2], "sample=2")
 	assert.Contains(t, headers[3], "status=complete samples_expected=2 samples_written=2")
@@ -223,9 +224,10 @@ func TestWindowDoesNotWaitWhenTheFirstSampleOverranTheWindow(t *testing.T) {
 
 	results := newTestWindow(t, clock, collector).Run(context.Background())
 
-	require.Len(t, clock.waits, 1)
-	assert.Negative(t, clock.waits[0], "the wait is already in the past")
+	assert.Empty(t, clock.waits, "an overdue tick is not waited on at all")
 	assert.Equal(t, 2, results[0].SamplesWritten, "sample 2 still happens, immediately")
+	assert.Equal(t, testWindowStart.Add(200*time.Second), collector.seen[1].At,
+		"and carries the ts= at which it actually happened")
 }
 
 func TestWindowWritesThePreambleBeforeConnecting(t *testing.T) {
@@ -263,6 +265,25 @@ func TestWindowPreambleCarriesTheConfiguredDatabaseAndNoOID(t *testing.T) {
 		"every block after the connection carries current_database() and its OID")
 	assert.Contains(t, headers[3], "db=orders_db dbid=16401",
 		"including the closing block")
+}
+
+func TestWindowPreambleDeclaresTheSchedule(t *testing.T) {
+	clock := newFakeClock()
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	edges := newFakeCollector("pg_edges")
+
+	results := newTestWindow(t, clock, interval, edges).Run(context.Background())
+
+	assert.Contains(t, headersOf(t, results[0])[0],
+		"window=120s schedule=every interval=10s samples_expected=12",
+		"twelve samples is only a fact if the reader is told the cadence")
+
+	assert.Contains(t, headersOf(t, results[1])[0],
+		"window=120s schedule=start_end interval= samples_expected=2",
+		"both keys for both schedules, empty where the cadence does not apply")
 }
 
 func TestWindowConnectFailureDoesNotCostTheWindow(t *testing.T) {
@@ -313,6 +334,35 @@ func TestWindowCancelledBetweenSamples(t *testing.T) {
 	headers := headersOf(t, results[0])
 	assert.Contains(t, headers[len(headers)-1],
 		"status=cancelled samples_expected=2 samples_written=1")
+}
+
+func TestWindowCancelledBetweenIntervalTicks(t *testing.T) {
+	clock := newFakeClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	collector := newFakeCollector("pg_interval")
+	collector.artifact.Schedule = Every(10 * time.Second)
+	collector.sample = func(sampleCtx context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 3 {
+			cancel()
+			clock.advance(45 * time.Second)
+		}
+
+		return nil
+	}
+
+	results := newTestWindow(t, clock, collector).Run(ctx)
+
+	assert.Equal(t, StatusCancelled, results[0].Status)
+	assert.Equal(t, 12, results[0].SamplesExpected)
+	assert.Equal(t, 3, results[0].SamplesWritten)
+	assert.Len(t, collector.seen, 3, "no tick runs after the cancellation")
+
+	headers := headersOf(t, results[0])
+	assert.Contains(t, headers[len(headers)-1],
+		"status=cancelled samples_expected=12 samples_written=3",
+		"the closing block is written whatever stopped the window")
 }
 
 func TestWindowDeadlineExceededIsNotCancelled(t *testing.T) {
@@ -565,6 +615,238 @@ func TestWindowSecondsRendersForAMachineReader(t *testing.T) {
 		"a window that is not whole seconds keeps its precision")
 }
 
-func TestScheduleSampleCount(t *testing.T) {
-	assert.Equal(t, 2, ScheduleStartEnd.samples())
+func TestScheduleOffsets(t *testing.T) {
+	const (
+		s  = time.Second
+		ms = time.Millisecond
+	)
+
+	for _, tc := range []struct {
+		name     string
+		schedule Schedule
+		window   time.Duration
+		want     []time.Duration
+	}{
+		{
+			name:     "start and end sample the window's two edges",
+			schedule: StartEnd(), window: 120 * s,
+			want: []time.Duration{0, 120 * s},
+		},
+		{
+			name:     "every 10s over the default window is twelve samples, the last at t0+110s",
+			schedule: Every(10 * s), window: 120 * s,
+			want: []time.Duration{
+				0, 10 * s, 20 * s, 30 * s, 40 * s, 50 * s,
+				60 * s, 70 * s, 80 * s, 90 * s, 100 * s, 110 * s,
+			},
+		},
+		{
+			name:     "a window the interval does not divide keeps the strict inequality",
+			schedule: Every(10 * s), window: 25 * s,
+			want: []time.Duration{0, 10 * s, 20 * s},
+		},
+		{
+			name:     "a window shorter than the interval yields exactly one sample",
+			schedule: Every(10 * s), window: 5 * s,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a zero interval samples once rather than never",
+			schedule: Every(0), window: 120 * s,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a negative interval samples once rather than never",
+			schedule: Every(-time.Minute), window: 120 * s,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a zero window samples once, on either schedule",
+			schedule: StartEnd(), window: 0,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a zero window samples once, on either cadence",
+			schedule: Every(10 * s), window: 0,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a negative window samples once",
+			schedule: StartEnd(), window: -time.Minute,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "sub-second cadences are the same arithmetic",
+			schedule: Every(500 * ms), window: 2 * s,
+			want: []time.Duration{0, 500 * ms, s, 1500 * ms},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.schedule.offsets(tc.window))
+		})
+	}
+}
+
+func TestScheduleRendersItselfForThePreamble(t *testing.T) {
+	assert.Equal(t, "start_end", StartEnd().name())
+	assert.Empty(t, StartEnd().intervalText(), "a start-and-end schedule has no cadence to state")
+
+	assert.Equal(t, "every", Every(10*time.Second).name())
+	assert.Equal(t, "10s", Every(10*time.Second).intervalText())
+	assert.Equal(t, "2s", Every(2*time.Second).intervalText())
+	assert.Equal(t, "0.5s", Every(500*time.Millisecond).intervalText())
+
+	assert.Empty(t, Every(0).intervalText(), "a degenerate interval states no cadence either")
+}
+
+func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	edges := newFakeCollector("pg_edges")
+
+	events := timeline([]Collector{interval, edges}, 30*time.Second)
+
+	assert.Equal(t, []sampleEvent{
+		{at: 0, collector: 0, index: 1},
+		{at: 0, collector: 1, index: 1},
+		{at: 10 * time.Second, collector: 0, index: 2},
+		{at: 20 * time.Second, collector: 0, index: 3},
+		{at: 30 * time.Second, collector: 1, index: 2},
+	}, events)
+}
+
+func TestTimelineBreaksTiesOnRegistrationOrder(t *testing.T) {
+	edges := newFakeCollector("pg_edges")
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	events := timeline([]Collector{edges, interval}, 30*time.Second)
+
+	require.Len(t, events, 5)
+	assert.Equal(t, sampleEvent{at: 0, collector: 0, index: 1}, events[0],
+		"the shared tick runs the collectors in the order they were registered")
+	assert.Equal(t, sampleEvent{at: 0, collector: 1, index: 1}, events[1])
+}
+
+func TestWindowRunsTwoCadencesOnOneConnection(t *testing.T) {
+	clock := newFakeClock()
+
+	var order []string
+	record := func(name string) func(context.Context, SampleContext, io.Writer) error {
+		return func(ctx context.Context, s SampleContext, w io.Writer) error {
+			order = append(order, fmt.Sprintf("%s#%d@%s", name, s.Index, s.At.Sub(testWindowStart)))
+			return nil
+		}
+	}
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+	interval.sample = record("interval")
+
+	edges := newFakeCollector("pg_edges")
+	edges.sample = record("edges")
+
+	results := newTestWindow(t, clock, interval, edges).Run(context.Background())
+
+	require.Len(t, results, 2)
+	assert.Equal(t, 12, results[0].SamplesExpected, "twelve samples at 10s over 120s")
+	assert.Equal(t, 12, results[0].SamplesWritten)
+	assert.Equal(t, StatusComplete, results[0].Status)
+
+	assert.Equal(t, 2, results[1].SamplesExpected)
+	assert.Equal(t, 2, results[1].SamplesWritten)
+	assert.Equal(t, StatusComplete, results[1].Status)
+
+	require.Len(t, order, 14)
+	assert.Equal(t, []string{"interval#1@0s", "edges#1@0s"}, order[:2],
+		"the one shared tick runs both, cheap collector first")
+	assert.Equal(t, []string{
+		"interval#2@10s", "interval#3@20s", "interval#4@30s",
+		"interval#5@40s", "interval#6@50s", "interval#7@1m0s",
+		"interval#8@1m10s", "interval#9@1m20s", "interval#10@1m30s",
+		"interval#11@1m40s", "interval#12@1m50s",
+	}, order[2:13], "every intermediate tick is the interval collector's alone")
+	assert.Equal(t, "edges#2@2m0s", order[13],
+		"the closing tick is the start-and-end collector's alone - what WindowGrace is sized for")
+}
+
+func TestWindowIntervalSampleNumberingIsPerArtifact(t *testing.T) {
+	clock := newFakeClock()
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(60 * time.Second)
+
+	edges := newFakeCollector("pg_edges")
+
+	results := newTestWindow(t, clock, interval, edges).Run(context.Background())
+
+	assert.Equal(t, []int{1, 2}, sampleIndexes(interval.seen))
+	assert.Equal(t, []int{1, 2}, sampleIndexes(edges.seen),
+		"both artifacts number from 1: pg_interval's sample=2 and pg_edges's are unrelated events")
+
+	assert.Equal(t, testWindowStart.Add(60*time.Second), interval.seen[1].At)
+	assert.Equal(t, testWindowStart.Add(120*time.Second), edges.seen[1].At)
+
+	assert.Contains(t, headersOf(t, results[0])[2], "sample=2")
+	assert.Contains(t, headersOf(t, results[1])[2], "sample=2")
+}
+
+func sampleIndexes(seen []SampleContext) []int {
+	indexes := make([]int, len(seen))
+	for i, s := range seen {
+		indexes[i] = s.Index
+	}
+
+	return indexes
+}
+
+func TestWindowIntervalTicksAreAbsoluteNotRelativeToTheLastSample(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_interval")
+	collector.artifact.Schedule = Every(10 * time.Second)
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 1 {
+			clock.advance(4 * time.Second)
+		}
+		return nil
+	}
+
+	newTestWindow(t, clock, collector).Run(context.Background())
+
+	require.Len(t, collector.seen, 12)
+	assert.Equal(t, testWindowStart.Add(10*time.Second), collector.seen[1].At,
+		"sample 1's latency is absorbed, not added to every later tick")
+	assert.Equal(t, testWindowStart.Add(110*time.Second), collector.seen[11].At)
+
+	assert.Equal(t, 6*time.Second, clock.waits[0], "the wait is the offset minus what elapsed")
+}
+
+func TestWindowOverdueTicksFireImmediatelyRatherThanBeingSkipped(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_interval")
+	collector.artifact.Schedule = Every(10 * time.Second)
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 1 {
+			clock.advance(25 * time.Second)
+		}
+		return nil
+	}
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	assert.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 12, results[0].SamplesWritten,
+		"a slow sample costs cadence, never a sample: samples_written still reaches samples_expected")
+
+	require.Len(t, collector.seen, 12)
+	assert.Equal(t, testWindowStart.Add(25*time.Second), collector.seen[1].At,
+		"the tick due at t0+10s was overdue and fired at once")
+	assert.Equal(t, testWindowStart.Add(25*time.Second), collector.seen[2].At,
+		"so did the one due at t0+20s - two blocks with near-identical ts=, which is a catch-up burst")
+	assert.Equal(t, testWindowStart.Add(30*time.Second), collector.seen[3].At,
+		"and then the cadence resumes, because offsets are absolute")
 }

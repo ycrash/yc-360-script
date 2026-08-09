@@ -195,6 +195,8 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 
 	assert.Equal(t, "pgBloat", pgDTBloat)
 
+	assert.Equal(t, "pgHealth", pgDTHealth)
+
 	taken := []string{
 		"meta", "gc", "td", "hd", "ns", "df", "ps", "top", "vmstat", "dmesg",
 		"agentlog", "cpuprofile", "kernel", "ping", "hdsub", "lp", "accessLog", "applog",
@@ -205,21 +207,31 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	for _, dt := range taken {
 		assert.NotEqual(t, dt, pgDTMetadata, "pgDTMetadata collides with an existing dt value")
 		assert.NotEqual(t, dt, pgDTBloat, "pgDTBloat collides with an existing dt value")
+		assert.NotEqual(t, dt, pgDTHealth, "pgDTHealth collides with an existing dt value")
 	}
 
-	assert.NotEqual(t, pgDTMetadata, pgDTBloat, "the two postgres artifacts share a dt")
+	assert.NotEqual(t, pgDTMetadata, pgDTBloat, "two postgres artifacts share a dt")
+	assert.NotEqual(t, pgDTMetadata, pgDTHealth, "two postgres artifacts share a dt")
+	assert.NotEqual(t, pgDTBloat, pgDTHealth, "two postgres artifacts share a dt")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTBloat, pgSampledDataType(postgres.Bloat{}.Artifact()),
 		"pg_bloat.txt has its assigned value")
 
-	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_health"}),
+	assert.Equal(t, pgDTHealth, pgSampledDataType(postgres.Health{}.Artifact()),
+		"pg_health.txt has its assigned value")
+
+	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_replication"}),
 		"an artifact the server team has not assigned a dt for is not uploaded")
 }
 
 func TestPostgresBloatFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresBloatFileName, postgres.Bloat{}.Artifact().FileName)
+}
+
+func TestPostgresHealthFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresHealthFileName, postgres.Health{}.Artifact().FileName)
 }
 
 func TestPostgresMetadataRedactsPasswordOnConnectFailure(t *testing.T) {
@@ -346,7 +358,13 @@ func withWindow(t *testing.T, d time.Duration) *config.Postgres {
 func readBloatArtifact(t *testing.T) string {
 	t.Helper()
 
-	content, err := os.ReadFile(PostgresBloatFileName)
+	return readSampledArtifact(t, PostgresBloatFileName)
+}
+
+func readSampledArtifact(t *testing.T, name string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(name)
 	require.NoError(t, err)
 
 	return string(content)
@@ -362,16 +380,22 @@ func TestPostgresSamplerRunUnreachableTarget(t *testing.T) {
 	elapsed := time.Since(started)
 
 	require.NoError(t, err, "a refused connection is not a capture failure")
-	assert.FileExists(t, filepath.Join(dir, PostgresBloatFileName))
 
-	artifact := readBloatArtifact(t)
-	assert.Contains(t, artifact, "status=started", "the preamble is written before connecting")
-	assert.Contains(t, artifact, "status=connect_failed")
-	assert.Contains(t, artifact, "samples_written=0")
+	for _, name := range []string{PostgresHealthFileName, PostgresBloatFileName} {
+		assert.FileExists(t, filepath.Join(dir, name))
+
+		artifact := readSampledArtifact(t, name)
+		assert.Contains(t, artifact, "status=started",
+			"%s: the preamble is written before connecting", name)
+		assert.Contains(t, artifact, "status=connect_failed", name)
+		assert.Contains(t, artifact, "samples_written=0", name)
+	}
 
 	assert.Less(t, elapsed, 30*time.Second,
 		"a connect failure waited out the window instead of failing fast")
 
+	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/12 samples)",
+		"twelve samples expected at 10s over a 2m window, none taken")
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, "postgres connect failed")
 }
@@ -411,15 +435,53 @@ func TestPostgresSamplerUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, 1, "the artifact was not uploaded")
-	assert.Equal(t, pgDTBloat, uploads[0].dt, "uploaded under the wrong dt")
-	assert.Contains(t, uploads[0].body, "source=pg_bloat", "the upload body is not the artifact")
-	assert.Contains(t, uploads[0].body, "status=connect_failed",
-		"a capture of a failure is uploaded like any other")
-	assert.NotContains(t, uploads[0].body, pgTestPassword, "the upload carries the password")
+	require.Len(t, uploads, 2, "every artifact with an assigned dt is uploaded")
 
-	assert.Contains(t, result.Msg, PostgresBloatFileName+" written",
-		"the transmission message displaced the capture summary")
+	byDT := map[string]string{}
+	for _, upload := range uploads {
+		byDT[upload.dt] = upload.body
+	}
+
+	require.Contains(t, byDT, pgDTHealth, "pg_health.txt uploaded under the wrong dt")
+	require.Contains(t, byDT, pgDTBloat, "pg_bloat.txt uploaded under the wrong dt")
+
+	for dt, source := range map[string]string{
+		pgDTHealth: "source=pg_health",
+		pgDTBloat:  "source=pg_bloat",
+	} {
+		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
+		assert.Contains(t, byDT[dt], "status=connect_failed",
+			"dt=%s: a capture of a failure is uploaded like any other", dt)
+		assert.NotContains(t, byDT[dt], pgTestPassword, "dt=%s: the upload carries the password", dt)
+	}
+
+	for _, name := range []string{PostgresHealthFileName, PostgresBloatFileName} {
+		assert.Contains(t, result.Msg, name+" written",
+			"%s: the transmission message displaced the capture summary", name)
+		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
+	}
+
+	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
+		"neither artifact takes the skip path now that both dt values are assigned")
+
+	assert.True(t, result.Ok,
+		"both artifacts transmitted, so the task's Ok must be true")
+}
+
+func TestPostgresSamplerRedactsPasswordInEveryArtifact(t *testing.T) {
+	chdirToCaptureDir(t)
+
+	task := &PostgresSampler{Target: withWindow(t, time.Second)}
+
+	result, err := task.Run()
+	require.NoError(t, err)
+
+	for _, name := range []string{PostgresHealthFileName, PostgresBloatFileName} {
+		assert.NotContains(t, readSampledArtifact(t, name), pgTestPassword,
+			"%s carries the password", name)
+	}
+
+	assert.NotContains(t, result.Msg, pgTestPassword, "the result message carries the password")
 }
 
 func TestPostgresSamplerRedactsPasswordOnConnectFailure(t *testing.T) {
@@ -477,6 +539,7 @@ func TestPostgresSamplerNilTarget(t *testing.T) {
 
 	assert.Contains(t, result.Msg, "no postgres block configured")
 	assert.NoFileExists(t, PostgresBloatFileName)
+	assert.NoFileExists(t, PostgresHealthFileName)
 }
 
 func TestPostgresSamplerKillCancelsAnInFlightWindow(t *testing.T) {

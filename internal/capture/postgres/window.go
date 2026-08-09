@@ -1,11 +1,13 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -36,24 +38,79 @@ const (
 	StatusConnectFailed = "connect_failed"
 )
 
-// Schedule is when a collector samples inside the window. One variant until
-// there is a second collector to justify another.
-type Schedule int
+// Schedule is when a collector samples inside the window. The zero value is
+// StartEnd.
+//
+// The invariant the rest of the window rests on: Every's offsets are strictly
+// inside the window and StartEnd's second offset is exactly the window, so the
+// closing tick is always a start-and-end collector's and is never shared.
+// WindowGrace is sized for one final sample, not two (conn.go).
+type Schedule struct {
+	kind     scheduleKind
+	interval time.Duration
+}
 
-// ScheduleStartEnd samples as the window opens and as it closes, so the server
-// has two raw readings to difference across a known span.
-const ScheduleStartEnd Schedule = iota
+type scheduleKind int
 
-// samples is how many blocks the schedule produces. Known before the window
-// opens, which is what lets the preamble state samples_expected - and so what
-// lets a truncated file be recognised as truncated rather than read as short.
-func (s Schedule) samples() int {
-	switch s {
-	case ScheduleStartEnd:
-		return 2
-	default:
-		return 0
+const (
+	scheduleStartEnd scheduleKind = iota
+	scheduleEvery
+)
+
+// StartEnd samples as the window opens and as it closes.
+func StartEnd() Schedule {
+	return Schedule{kind: scheduleStartEnd}
+}
+
+// Every samples on a fixed cadence from t0, the last sample one interval before
+// the window closes rather than at it - see the invariant above.
+func Every(d time.Duration) Schedule {
+	return Schedule{kind: scheduleEvery, interval: d}
+}
+
+// offsets is when this schedule's samples are due, as offsets from t0, in
+// order. Known before the window opens, which is what lets the preamble state
+// samples_expected.
+//
+// Total rather than trusting its caller: a non-positive window or interval
+// yields one sample at t0, because a collector that samples nothing is a worse
+// answer than one that samples once.
+func (s Schedule) offsets(window time.Duration) []time.Duration {
+	if window <= 0 {
+		return []time.Duration{0}
 	}
+
+	if s.kind != scheduleEvery {
+		return []time.Duration{0, window}
+	}
+
+	if s.interval <= 0 {
+		return []time.Duration{0}
+	}
+
+	offsets := make([]time.Duration, 0, int(window/s.interval)+1)
+	for at := time.Duration(0); at < window; at += s.interval {
+		offsets = append(offsets, at)
+	}
+
+	return offsets
+}
+
+// name and intervalText render the schedule for the preamble.
+func (s Schedule) name() string {
+	if s.kind == scheduleEvery {
+		return "every"
+	}
+
+	return "start_end"
+}
+
+func (s Schedule) intervalText() string {
+	if s.kind != scheduleEvery || s.interval <= 0 {
+		return ""
+	}
+
+	return windowSeconds(s.interval)
 }
 
 // Artifact is what the window needs to write an artifact's preamble and
@@ -193,7 +250,7 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 
 		results[i] = ArtifactResult{
 			Artifact:        artifact,
-			SamplesExpected: artifact.Schedule.samples(),
+			SamplesExpected: len(artifact.Schedule.offsets(w.Duration)),
 		}
 	}
 
@@ -245,6 +302,11 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 			{"dbid", sampleCtx.DBID},
 			{"status", "started"},
 			{"window", windowSeconds(w.Duration)},
+			// Both keys for every artifact, interval= empty where the schedule
+			// has no cadence: one fixed key set, and samples_expected does not
+			// explain itself without the cadence.
+			{"schedule", artifact.Schedule.name()},
+			{"interval", artifact.Schedule.intervalText()},
 			{"samples_expected", strconv.Itoa(results[i].SamplesExpected)},
 		}, w.clock())
 		if err != nil {
@@ -314,26 +376,57 @@ func artifactStatus(result ArtifactResult, stopped, connectErr string) string {
 	}
 }
 
-// sample runs the schedule serially, returning the status that stopped the
+// sampleEvent is one collector's one sample, at a known offset from t0.
+type sampleEvent struct {
+	at time.Duration
+
+	// collector indexes Window.Collectors, and is also the tie-break.
+	collector int
+
+	// index is that collector's own 1-based sample number: one file's sample=2
+	// is unrelated to another's.
+	index int
+}
+
+// timeline merges every collector's offsets into one ordered walk, which is
+// what lets two cadences share one connection without either owning a clock.
+func timeline(collectors []Collector, window time.Duration) []sampleEvent {
+	var events []sampleEvent
+
+	for i, collector := range collectors {
+		for n, at := range collector.Artifact().Schedule.offsets(window) {
+			events = append(events, sampleEvent{at: at, collector: i, index: n + 1})
+		}
+	}
+
+	slices.SortStableFunc(events, func(a, b sampleEvent) int {
+		if order := cmp.Compare(a.at, b.at); order != 0 {
+			return order
+		}
+
+		// Registration order, which the caller picks cheapest first so a
+		// shared tick does not queue a catalogue read behind a statement that
+		// stats every relation's files.
+		return cmp.Compare(a.collector, b.collector)
+	})
+
+	return events
+}
+
+// sample walks the timeline serially, returning the status that stopped the
 // window early or empty if it ran to completion.
 func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult) string {
 	start := w.clock()
 
-	scheduled := 0
-	for i := range results {
-		scheduled = max(scheduled, results[i].SamplesExpected)
-	}
-
-	for index := 1; index <= scheduled; index++ {
-		if index > 1 {
-			// Targets t0+duration rather than "duration after the last sample
-			// returned": sample 1's latency must not push sample 2 late,
-			// because the span between the readings is what the server
-			// differences across. A negative wait fires at once.
+	for _, event := range timeline(w.Collectors, w.Duration) {
+		// Offsets are absolute, so one slow sample does not push the next tick
+		// late. An overdue tick fires at once rather than being skipped, and its
+		// block carries the ts= at which it actually happened.
+		if wait := start.Add(event.at).Sub(w.clock()); wait > 0 {
 			select {
 			case <-ctx.Done():
 				return stoppedStatus(ctx)
-			case <-w.timer(start.Add(w.Duration).Sub(w.clock())):
+			case <-w.timer(wait):
 			}
 		}
 
@@ -341,30 +434,29 @@ func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleCo
 			return stoppedStatus(ctx)
 		}
 
-		w.sampleOnce(ctx, conn, sampleCtx, results, index)
+		w.sampleOnce(ctx, conn, sampleCtx, results, event)
 	}
 
 	return ""
 }
 
-// sampleOnce takes one sample from every collector due at this index.
-func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult, index int) {
-	for i := range results {
-		if !results[i].writable() || index > results[i].SamplesExpected {
-			continue
-		}
-
-		at := sampleCtx
-		at.Index = index
-		at.At = w.clock()
-
-		if err := w.Collectors[i].Sample(ctx, conn, results[i].File, at); err != nil {
-			w.writeSampleError(&results[i], at, err)
-			continue
-		}
-
-		results[i].SamplesWritten++
+// sampleOnce takes the one sample this event is for.
+func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult, event sampleEvent) {
+	result := &results[event.collector]
+	if !result.writable() {
+		return
 	}
+
+	at := sampleCtx
+	at.Index = event.index
+	at.At = w.clock()
+
+	if err := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); err != nil {
+		w.writeSampleError(result, at, err)
+		return
+	}
+
+	result.SamplesWritten++
 }
 
 // writeSampleError records a sample the collector could not take. The window
