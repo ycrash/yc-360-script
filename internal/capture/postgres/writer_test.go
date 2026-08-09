@@ -119,48 +119,67 @@ func golden(t *testing.T, name string) string {
 	return string(content)
 }
 
-// parseArtifact reads an artifact's blocks. Every one-field record is a block
-// header, every block that has a body opens it with the key,value column
-// header, and the rows of the whole file are merged: the artifact's contract is
-// one key set across the file, whichever block a key lives in.
+// parseArtifact reads an artifact the way testdata/README.md tells a reader to,
+// and is the reference implementation of that rule: split the block headers off
+// by their leading #, then parse what is left as CSV.
+//
+// The headers are deliberately not handed to the CSV reader. headerValue quotes
+// any value containing whitespace, which is every driver message, so a real
+// connect_error= header is a bare " in a non-quoted field - which is a parse
+// error, not a one-field record. TestBlockHeaderIsNotACSVRecord pins that.
+//
+// Every block that has a body opens it with the key,value column header, and
+// the rows of the whole file are merged: the artifact's contract is one key set
+// across the file, whichever block a key lives in.
 func parseArtifact(t *testing.T, artifact string) (headers []string, values map[string]string, keys []string) {
 	t.Helper()
 
-	reader := csv.NewReader(strings.NewReader(artifact))
-	reader.FieldsPerRecord = -1
-
-	records, err := reader.ReadAll()
-	require.NoError(t, err)
-	require.NotEmpty(t, records)
-
 	values = map[string]string{}
 
-	openBody := false
+	var body strings.Builder
 
-	for _, record := range records {
-		if len(record) == 1 {
-			require.True(t, strings.HasPrefix(record[0], "#"),
-				"a one-field record is a block header, so it carries no comma")
-
-			headers = append(headers, record[0])
-			openBody = false
-
-			continue
+	// Each block's body is parsed on its own, which is what makes a block
+	// readable without the one before it - and is the only way to know where one
+	// block's column header ends up, since a CSV reader skips blank lines and
+	// would swallow any separator written into the stream.
+	flush := func() {
+		if body.Len() == 0 {
+			return
 		}
 
-		require.Len(t, record, 2)
+		reader := csv.NewReader(strings.NewReader(body.String()))
+		reader.FieldsPerRecord = -1
 
-		if !openBody {
-			require.Equal(t, []string{"key", "value"}, record,
-				"a block's body opens with its own column header")
-			openBody = true
+		records, err := reader.ReadAll()
+		require.NoError(t, err)
+		require.NotEmpty(t, records)
 
-			continue
+		require.Equal(t, []string{"key", "value"}, records[0],
+			"a block's body opens with its own column header")
+
+		for _, record := range records[1:] {
+			require.Len(t, record, 2, "every body record is one key and one value")
+
+			values[record[0]] = record[1]
+			keys = append(keys, record[0])
 		}
 
-		values[record[0]] = record[1]
-		keys = append(keys, record[0])
+		body.Reset()
 	}
+
+	for line := range strings.SplitSeq(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			flush()
+			headers = append(headers, line)
+
+			continue
+		}
+
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
+
+	flush()
 
 	return headers, values, keys
 }
@@ -198,6 +217,43 @@ func TestBlockHeaderFieldOrder(t *testing.T) {
 		"sample=1",
 		"ts=2026-08-04T09:12:44.118Z",
 	}, strings.Fields(headers[1]))
+}
+
+// TestBlockHeaderIsNotACSVRecord pins the reader requirement testdata/README.md
+// states, and the reason it is stated that way.
+//
+// A block header is a # line to be split on whitespace, never a CSV record. The
+// artifact's body is CSV; its headers are not, and a reader that hands the whole
+// file to a CSV parser breaks on the first real connect failure - which is the
+// case the artifact exists to record.
+func TestBlockHeaderIsNotACSVRecord(t *testing.T) {
+	// Observed, not invented: an unresolvable host, as pgx renders it.
+	refusal := "failed to connect to `user=ycrash_monitor database=orders_db`: " +
+		"hostname resolving error: lookup db-prod-01.internal: no such host"
+
+	var buf bytes.Buffer
+	require.NoError(t, writeBlockHeader(&buf, "pg_metadata", "cluster", []headerField{
+		{"status", StatusConnectFailed},
+		{"connect_error", refusal},
+	}, testAgentNow))
+
+	header := buf.String()
+
+	assert.Contains(t, header, `connect_error="`+refusal+`"`,
+		"headerValue quotes any value carrying whitespace, which is every driver message")
+
+	reader := csv.NewReader(strings.NewReader(header))
+	reader.FieldsPerRecord = -1
+
+	_, err := reader.ReadAll()
+	require.Error(t, err,
+		"the header is a bare quote in a non-quoted field. If this ever parses cleanly, "+
+			"the reader requirements can be simplified - until then they cannot")
+
+	// The documented rule handles it, because it never parses the header at all.
+	headers, _, _ := parseArtifact(t, header+"key,value\ncapture_mode,unknown\n")
+	require.Len(t, headers, 1)
+	assert.Equal(t, strings.TrimSuffix(header, "\n"), headers[0])
 }
 
 func TestServerBlockCarriesNoConnectError(t *testing.T) {
