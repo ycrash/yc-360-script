@@ -52,18 +52,27 @@ The goldens:
 
 ## Reader requirements
 
-They apply to every consumer, including the server-side parser. Verified
-empirically against `pg_metadata_full.txt`.
+They apply to every consumer, including the server-side parser. `parseArtifact`
+in `writer_test.go` is the reference implementation, and
+`TestBlockHeaderIsNotACSVRecord` and `TestMetadataArtifactParsesByTheDocumentedRule`
+pin the rule below against the driver text that motivates it.
 
-- **Split the block headers off by their leading `#` before parsing the body as
-  CSV.** A header is not a CSV record: `headerValue` quotes a value containing
-  whitespace or a double quote, and real driver text carries commas and quotes,
-  so a `connect_error=` or `reason=` header can present as several fields or as
-  a bare `"` in a non-quoted field. Verified empirically against a refused
-  connection. The lines are unambiguous — the writer flattens every value onto
-  one line, so one record is one line, and a line beginning with `#` is a block
-  header and nothing else is.
-- Parse CSV **records**, not lines, for the body. Every body record has exactly
+- **Split the block headers off by their leading `#` before parsing anything as
+  CSV.** A block header is **not** a CSV record and must never be handed to a
+  CSV parser. `headerValue` quotes any value containing whitespace, which is
+  every driver message, so a header carrying `connect_error=` or `reason=`
+  presents as a bare `"` in a non-quoted field — a parse error, not a record.
+  A value carrying a comma splits into several fields on top of that. This is
+  not a corner case: it is what every refused connection writes, and a refused
+  connection is what the artifact exists to record.
+  The lines are unambiguous — the writer flattens every value onto one line, so
+  one record is one line, and a line beginning with `#` is a block header and
+  nothing else is.
+- **Parse each block's body separately**, between its own header and the next.
+  Every block that has a body opens it with its own column header, so a block is
+  readable without the one before it — and a parser that concatenates the bodies
+  has to guess which `key,value` line is a column header and which is data.
+- Parse CSV **records**, not lines, within a body. Every body record has exactly
   two fields for `pg_metadata.txt`, and the artifact's own column count for a
   tabular one.
 - Allow variable field counts anyway. In Go: `reader.FieldsPerRecord = -1`.
@@ -76,8 +85,6 @@ empirically against `pg_metadata_full.txt`.
   and `pg_stat_user_tables`, and `pg_metadata.txt` carries three:
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, and `pg_metadata_server` for what the server said.
-- Every block that has a body opens it with its own column header, so a block
-  is readable without the one before it.
 
 ### Block header keys
 
@@ -111,10 +118,14 @@ therefore survived `schedule=` and `interval=` arriving.
 `v=1` also survived `pg_metadata.txt` becoming four blocks, and that one is an
 exception rather than the rule: the block structure changed, and a reader
 written against the one-block form **would** be got wrong. It stays at 1 only
-because no such reader exists — `pg_metadata.txt` has never had a
-`fromAgentFileName` entry, so no bundle has ever been classified and no parser
-has ever run against it. The day one does, `v` belongs on `Artifact` rather than
-on the package: it is one constant today, so bumping it would announce a break
+because no such reader exists — confirmed with the server team on 2026-08-09,
+in as many words: no parser has been written against `pg_metadata.txt` v=1.
+`pg_metadata.txt` has never had a `fromAgentFileName` entry either, so no bundle
+has ever been classified and nothing has ever read one.
+
+**That exemption is spent.** The next time any one artifact's shape moves alone,
+`v` belongs on `Artifact` rather than on the package: it is one constant today,
+stamped into every block of every artifact, so bumping it would announce a break
 in `pg_bloat.txt` and `pg_health.txt`, which have not changed shape.
 
 ## Editing
