@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -12,10 +11,11 @@ import (
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/capture/postgres"
 	"yc-agent/internal/config"
-	"yc-agent/internal/logger"
 )
 
-// PostgresMetadataFileName is the artifact this capture writes into the bundle.
+// PostgresMetadataFileName restates postgres.MetadataCollector's own
+// Artifact().FileName so callers outside that package have a constant to name;
+// TestPostgresMetadataFileNameMatchesTheArtifact keeps the two from drifting.
 // Database artifacts keep engine-specific prefixes: pg_ here, my_ and ora_ to
 // follow.
 //
@@ -50,14 +50,17 @@ const PostgresHealthFileName = "pg_health.txt"
 // registration on the bundle path is still outstanding.
 const pgDTHealth = "pgHealth"
 
-// pgSampledDataType is the receiver's data type for one sampled artifact, or
-// empty when the server team has not assigned one yet. Seven artifacts are still
-// unassigned, and an invented dt is dropped silently - the one failure mode that
-// looks like success at both ends. While a value is empty the artifact is still
-// written into the bundle and the upload is skipped with a message naming the
-// reason.
+// pgSampledDataType is the receiver's data type for one of the window's
+// artifacts, or empty when the server team has not assigned one yet. Seven
+// artifacts are still unassigned, and an invented dt is dropped silently - the
+// one failure mode that looks like success at both ends. While a value is empty
+// the artifact is still written into the bundle and the upload is skipped with a
+// message naming the reason.
 func pgSampledDataType(artifact postgres.Artifact) string {
 	switch artifact.Name {
+	case "pg_metadata":
+		return pgDTMetadata
+
 	case "pg_bloat":
 		return pgDTBloat
 
@@ -68,165 +71,19 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 	return ""
 }
 
-// PostgresMetadata captures what a run targeted in PostgreSQL and what happened
-// to it. The artifact is written whether or not the connection succeeds: a
-// capture that reports a refused connection is the only record of intent a run
-// leaves behind.
+// PostgresCapture runs the capture window and every artifact collected inside
+// it. It is the run's only database task.
+//
+// Named for the mechanism rather than for one artifact: pg_metadata.txt,
+// pg_health.txt and pg_bloat.txt register as collectors here rather than
+// becoming tasks of their own, and pg_replication.txt and pg_capacity.txt will
+// join them the same way. That is what keeps one run to one connection however
+// many artifacts it grows.
 //
 // Target is a pointer so %v, %+v and %#v route through config.Postgres's String
 // and GoString, which redact the password - WrapRun formats a failing task with
 // %#v into an agent log that is itself uploaded.
-//
-// There is no output directory: FullCapture has already changed into the
-// capture directory.
-type PostgresMetadata struct {
-	Capture
-	Target *config.Postgres
-}
-
-// Run writes the artifact and uploads it.
-//
-// Only an I/O failure on the file returns a non-nil error. A refused
-// connection, a denied probe or a database at max_connections are successful
-// captures of a failure: WrapRun overwrites Result.Msg for a non-nil error,
-// which would bury the connect_error the file exists to record.
-func (p *PostgresMetadata) Run() (Result, error) {
-	if p.Target == nil {
-		// Defensive: spawned only for a configured block. A result rather than
-		// an error keeps a wiring mistake out of WrapRun's %#v of the task.
-		return Result{Msg: "skipped postgres metadata capture: no postgres block configured"}, nil
-	}
-
-	file, metadata, err := p.CaptureToFile()
-	if err != nil {
-		return Result{}, fmt.Errorf("failed to capture postgres metadata: %w", err)
-	}
-	defer file.Close()
-
-	return p.UploadCapturedFile(file, metadata), nil
-}
-
-// CaptureToFile writes pg_metadata.txt in two passes: the target block is
-// written and synced before the connection is attempted, so every failure path
-// leaves a file - including the process being killed mid-connect.
-func (p *PostgresMetadata) CaptureToFile() (*os.File, postgres.Metadata, error) {
-	target := postgresTarget(p.Target)
-
-	agentNow := time.Now()
-	metadata := postgres.Metadata{
-		AgentTS:            agentNow,
-		AgentTSAtClockRead: agentNow,
-		YC360Version:       executils.SCRIPT_VERSION,
-		TargetHost:         target.Host,
-		TargetPort:         target.Port,
-		TargetDatabase:     target.Database,
-		TargetUsername:     target.Username,
-		TargetSSLMode:      target.SSLMode,
-		CaptureMode:        postgres.ModeUnknown,
-	}
-
-	file, err := os.Create(PostgresMetadataFileName)
-	if err != nil {
-		return nil, metadata, fmt.Errorf("failed to create %s: %w", PostgresMetadataFileName, err)
-	}
-
-	if err := writePostgresTargetBlock(file, metadata); err != nil {
-		file.Close()
-		return nil, metadata, err
-	}
-
-	metadata = collectPostgresMetadata(target, metadata)
-
-	if err := postgres.WriteResult(file, metadata); err != nil {
-		file.Close()
-		return nil, metadata, fmt.Errorf("failed to write %s: %w", PostgresMetadataFileName, err)
-	}
-	syncPostgresArtifact(file)
-
-	return file, metadata, nil
-}
-
-// UploadCapturedFile transmits the artifact, keeping the capture summary in
-// front of whatever the transmission had to say. Ok reports transmission, so it
-// is false in -onlyCapture mode - the artifact is in the bundle either way.
-func (p *PostgresMetadata) UploadCapturedFile(file *os.File, metadata postgres.Metadata) Result {
-	summary := postgresResultMessage(metadata)
-
-	msg, ok := PostData(p.Endpoint(), pgDTMetadata, file)
-
-	return Result{
-		Msg: summary + "; " + msg,
-		Ok:  ok,
-	}
-}
-
-// writePostgresTargetBlock writes the first pass and puts it on disk before the
-// caller goes near the network.
-func writePostgresTargetBlock(file *os.File, metadata postgres.Metadata) error {
-	if err := postgres.WriteTarget(file, metadata); err != nil {
-		return fmt.Errorf("failed to write %s: %w", PostgresMetadataFileName, err)
-	}
-
-	syncPostgresArtifact(file)
-
-	return nil
-}
-
-// syncPostgresArtifact flushes the artifact, logging a failure rather than
-// failing the capture: the bytes are written either way.
-func syncPostgresArtifact(file *os.File) {
-	if err := file.Sync(); err != nil {
-		logger.Log("warning: failed to sync %s: %v", PostgresMetadataFileName, err)
-	}
-}
-
-// collectPostgresMetadata connects and records what the server had to say. A
-// failed connection is recorded in the returned value and never returned as an
-// error - that is the whole point of the artifact.
-func collectPostgresMetadata(target postgres.Target, metadata postgres.Metadata) postgres.Metadata {
-	// Deliberately shorter than the worst case the per-statement deadlines allow:
-	// a truncated statement records its own error and the artifact still
-	// completes.
-	ctx, cancel := context.WithTimeout(context.Background(), postgres.ModuleDeadline)
-	defer cancel()
-
-	conn, err := postgres.Connect(ctx, target)
-	if err != nil {
-		metadata.ConnectError = postgres.ConnectErrorText(err, target)
-		return metadata
-	}
-	defer closePostgresConn(conn)
-
-	// Collect returns a fresh value rather than filling this one in, so the
-	// version stamped before the connection has to be carried across.
-	collected := postgres.Collect(ctx, conn, target, metadata.AgentTS)
-	collected.YC360Version = metadata.YC360Version
-
-	return collected
-}
-
-// closePostgresConn closes the connection on a context of its own: the module
-// deadline may already have expired, and closing under a cancelled context
-// abandons the socket and leaves the server to time the backend out.
-func closePostgresConn(conn *postgres.Conn) {
-	ctx, cancel := context.WithTimeout(context.Background(), postgres.ConnectTimeout)
-	defer cancel()
-
-	if err := conn.Close(ctx); err != nil {
-		logger.Log("warning: failed to close the postgres connection: %v", err)
-	}
-}
-
-// PostgresSampler runs the capture window and every artifact collected inside
-// it.
-//
-// Named for the mechanism rather than for one artifact: pg_health.txt,
-// pg_replication.txt and pg_capacity.txt register as collectors here rather
-// than becoming tasks of their own, which keeps one run to one connection
-// however many sampled artifacts it grows.
-//
-// Target is a pointer for the same reason PostgresMetadata's is.
-type PostgresSampler struct {
+type PostgresCapture struct {
 	Capture
 	Target *config.Postgres
 
@@ -238,9 +95,11 @@ type PostgresSampler struct {
 // Run opens the window, writes every artifact, and uploads each under its own
 // dt.
 //
-// Only a file-I/O failure returns a non-nil error, for the reason
-// PostgresMetadata.Run gives.
-func (p *PostgresSampler) Run() (Result, error) {
+// Only a file-I/O failure returns a non-nil error. A refused connection, a
+// denied probe or a database at max_connections are successful captures of a
+// failure: WrapRun overwrites Result.Msg for a non-nil error, which would bury
+// the connect_error the artifacts exist to record.
+func (p *PostgresCapture) Run() (Result, error) {
 	if p.Target == nil {
 		// Defensive: spawned only for a configured block. A result rather than
 		// an error keeps a wiring mistake out of WrapRun's %#v of the task.
@@ -253,27 +112,41 @@ func (p *PostgresSampler) Run() (Result, error) {
 	p.setCancel(cancel)
 	defer p.setCancel(nil)
 
+	target := postgresTarget(p.Target)
+	metadata := postgres.NewMetadata(target, executils.SCRIPT_VERSION, time.Now())
+
 	window := &postgres.Window{
-		Target:   postgresTarget(p.Target),
+		Target:   target,
 		Duration: p.captureDuration(),
 
-		// Cheapest first: the two share exactly one tick, t0, and the first
-		// registered runs there first. It buys that sample and nothing after
-		// it - bloat still holds the connection for its own, so on a large
-		// schema health's next tick or two run late.
-		Collectors: []postgres.Collector{postgres.Health{}, postgres.Bloat{}},
+		// Cheapest first: all three share exactly one tick, t0, and a shared
+		// tick runs them in registration order. Health reads one view, metadata
+		// runs three catalogue reads, and bloat's size functions stat every
+		// relation's files - so the order buys t0 and nothing after it, since
+		// bloat still holds the connection for its own sample.
+		Collectors: []postgres.Collector{
+			postgres.Health{},
+			metadata,
+			postgres.Bloat{},
+		},
 	}
 
-	return p.uploadArtifacts(window.Run(ctx))
+	results := window.Run(ctx)
+
+	// Read once the window has closed, which races nothing because Window.Run is
+	// synchronous - and read into a value rather than held on the task: Metadata
+	// carries no password where the collector holds the target, and WrapRun
+	// formats a failing task with %#v into an agent log that is itself uploaded.
+	return p.uploadArtifacts(results, metadata.Collected())
 }
 
 // Kill cancels the window.
 //
 // Overridden rather than inherited: Capture.Kill returns nil when Cmd is nil,
-// so without this the sampler would ignore teardown and hold the run open for
+// so without this the capture would ignore teardown and hold the run open for
 // the whole window. Nothing in the binary calls it yet - this is the contract a
 // teardown path will need the day one exists.
-func (p *PostgresSampler) Kill() error {
+func (p *PostgresCapture) Kill() error {
 	p.mu.Lock()
 	cancel := p.cancel
 	p.mu.Unlock()
@@ -285,7 +158,7 @@ func (p *PostgresSampler) Kill() error {
 	return nil
 }
 
-func (p *PostgresSampler) setCancel(cancel context.CancelFunc) {
+func (p *PostgresCapture) setCancel(cancel context.CancelFunc) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -294,7 +167,7 @@ func (p *PostgresSampler) setCancel(cancel context.CancelFunc) {
 
 // captureDuration is the configured window. Validate has already defaulted and
 // clamped it, so a nil here means a block that never went through validation.
-func (p *PostgresSampler) captureDuration() time.Duration {
+func (p *PostgresCapture) captureDuration() time.Duration {
 	if p.Target.CaptureDuration == nil {
 		return config.DefaultPostgresCaptureDuration
 	}
@@ -304,7 +177,7 @@ func (p *PostgresSampler) captureDuration() time.Duration {
 
 // uploadArtifacts transmits each artifact and summarises the lot, keeping each
 // capture summary in front of whatever its transmission had to say.
-func (p *PostgresSampler) uploadArtifacts(artifacts []postgres.ArtifactResult) (Result, error) {
+func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, collected postgres.Metadata) (Result, error) {
 	defer func() {
 		for _, artifact := range artifacts {
 			if artifact.File != nil {
@@ -327,7 +200,7 @@ func (p *PostgresSampler) uploadArtifacts(artifacts []postgres.ArtifactResult) (
 			continue
 		}
 
-		summary := postgresSamplerMessage(artifact)
+		summary := postgresArtifactSummary(artifact, collected)
 
 		dt := pgSampledDataType(artifact.Artifact)
 		if dt == "" {
@@ -346,15 +219,40 @@ func (p *PostgresSampler) uploadArtifacts(artifacts []postgres.ArtifactResult) (
 	}
 
 	if ioErr != nil {
-		return Result{}, fmt.Errorf("failed to capture postgres sampled artifacts: %w", ioErr)
+		return Result{}, fmt.Errorf("failed to capture postgres artifacts: %w", ioErr)
 	}
 
 	return Result{Msg: strings.Join(messages, " | "), Ok: ok}, nil
 }
 
-// postgresSamplerMessage says what the run log should show for one artifact.
-// Every value it interpolates was redacted by the window that produced it.
-func postgresSamplerMessage(artifact postgres.ArtifactResult) string {
+// postgresArtifactSummary is the run-log line for one artifact.
+//
+// pg_metadata.txt's is a reading rather than a count: what an operator wants
+// from that line is which capture mode the run got - it decides which artifacts
+// are even possible - and, when a probe was denied, which one. "1/1 samples" is
+// true and useless, and Collect never returns an error, so that count could
+// never be anything but 1/1.
+//
+// The adapter is the layer allowed to know which artifact is which; the window
+// deliberately is not, which is why this is here and not in ArtifactResult.
+func postgresArtifactSummary(artifact postgres.ArtifactResult, collected postgres.Metadata) string {
+	if artifact.Artifact.Name != "pg_metadata" {
+		return postgresArtifactMessage(artifact)
+	}
+
+	// The collector never reached the server, so the window holds the only
+	// account of why - and all three artifacts then report the same refusal.
+	if artifact.Status == postgres.StatusConnectFailed {
+		collected.ConnectError = artifact.Err
+	}
+
+	return postgresResultMessage(collected)
+}
+
+// postgresArtifactMessage says what the run log should show for one sampled
+// artifact. Every value it interpolates was redacted by the window that
+// produced it.
+func postgresArtifactMessage(artifact postgres.ArtifactResult) string {
 	summary := fmt.Sprintf("%s written (%d/%d samples)",
 		artifact.Artifact.FileName, artifact.SamplesWritten, artifact.SamplesExpected)
 
@@ -388,9 +286,9 @@ func postgresTarget(pg *config.Postgres) postgres.Target {
 	}
 }
 
-// postgresResultMessage says what the run log should show for this capture.
-// Every value it interpolates has already had the password removed by the
-// package that produced it.
+// postgresResultMessage says what the run log should show for pg_metadata.txt,
+// fed from what the collector read. Every value it interpolates has already had
+// the password removed by the package that produced it.
 func postgresResultMessage(metadata postgres.Metadata) string {
 	if metadata.ConnectError != "" {
 		return fmt.Sprintf("%s written; postgres connect failed: %s",

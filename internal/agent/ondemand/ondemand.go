@@ -509,19 +509,15 @@ Ignored errors: %v
 	// Alongside ping and kernel: captures with no relationship to the pid. The
 	// block's presence is the switch.
 	//
-	// Both spawn inside this guard so the run-scoping that keeps a multi-pid run
-	// to one database capture covers them; a spawn outside it would open one
-	// capture window per resolved pid. The sampler holds its window open for the
-	// configured captureDuration, which is what makes a database-only run take
-	// minutes.
-	var (
-		pgMetadata chan capture.Result
-		pgSampler  chan capture.Result
-	)
+	// One task for every database artifact, and it spawns inside this guard so
+	// the run-scoping that keeps a multi-pid run to one database capture covers
+	// it; a spawn outside it would open one capture window per resolved pid. It
+	// holds its window open for the configured captureDuration, which is what
+	// makes a database-only run take minutes.
+	var pgCapture chan capture.Result
 	skipPostgres := len(opts) > 0 && opts[0].SkipPostgres
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() && !skipPostgres {
-		pgMetadata = goCapture(endpoint, capture.WrapRun(&capture.PostgresMetadata{Target: pg}))
-		pgSampler = goCapture(endpoint, capture.WrapRun(&capture.PostgresSampler{Target: pg}))
+		pgCapture = goCapture(endpoint, capture.WrapRun(&capture.PostgresCapture{Target: pg}))
 	}
 
 	useGlobalConfigAppLogs := false
@@ -841,30 +837,16 @@ Resp: %s
 	}
 
 	// -------------------------------
-	//     Transmit PostgreSQL metadata
+	//     Transmit PostgreSQL artifacts
 	// -------------------------------
-	if pgMetadata != nil {
-		logger.Log("Reading result from postgres metadata channel")
-		result := <-pgMetadata
+	// One completion record for the whole database capture, however many
+	// artifacts it wrote. This is also where the run waits out the capture
+	// window, by design: running it to completion is what the artifacts are.
+	if pgCapture != nil {
+		logger.Log("Reading result from postgres capture channel")
+		result := <-pgCapture
 		logger.Log(
-			`POSTGRES METADATA
-Is transmission completed: %t
-Resp: %s
-
---------------------------------
-`, result.Ok, result.Msg)
-	}
-
-	// -------------------------------
-	//     Transmit PostgreSQL sampled artifacts
-	// -------------------------------
-	// This is where the run waits out the capture window, by design: running it
-	// to completion is what the artifact is.
-	if pgSampler != nil {
-		logger.Log("Reading result from postgres sampler channel")
-		result := <-pgSampler
-		logger.Log(
-			`POSTGRES SAMPLED ARTIFACTS
+			`POSTGRES CAPTURE
 Is transmission completed: %t
 Resp: %s
 

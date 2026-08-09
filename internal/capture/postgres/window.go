@@ -44,7 +44,9 @@ const (
 // The invariant the rest of the window rests on: Every's offsets are strictly
 // inside the window and StartEnd's second offset is exactly the window, so the
 // closing tick is always a start-and-end collector's and is never shared.
-// WindowGrace is sized for one final sample, not two (conn.go).
+// WindowGrace is sized for one final sample, not two (conn.go). Once's single
+// offset is 0, which is strictly inside any positive window too, so a third
+// kind leaves the invariant holding by construction rather than by luck.
 type Schedule struct {
 	kind     scheduleKind
 	interval time.Duration
@@ -55,11 +57,18 @@ type scheduleKind int
 const (
 	scheduleStartEnd scheduleKind = iota
 	scheduleEvery
+	scheduleOnce
 )
 
 // StartEnd samples as the window opens and as it closes.
 func StartEnd() Schedule {
 	return Schedule{kind: scheduleStartEnd}
+}
+
+// Once samples a single time, as the window opens. The schedule a capability
+// read has: one reading, taken before anything it describes has moved.
+func Once() Schedule {
+	return Schedule{kind: scheduleOnce}
 }
 
 // Every samples on a fixed cadence from t0, the last sample one interval before
@@ -77,6 +86,13 @@ func Every(d time.Duration) Schedule {
 // answer than one that samples once.
 func (s Schedule) offsets(window time.Duration) []time.Duration {
 	if window <= 0 {
+		return []time.Duration{0}
+	}
+
+	// Before the not-Every branch below, which reads "not Every, therefore
+	// StartEnd": placed after it, a Once collector would sample twice, and the
+	// second of those would be at the closing tick the invariant above reserves.
+	if s.kind == scheduleOnce {
 		return []time.Duration{0}
 	}
 
@@ -98,8 +114,12 @@ func (s Schedule) offsets(window time.Duration) []time.Duration {
 
 // name and intervalText render the schedule for the preamble.
 func (s Schedule) name() string {
-	if s.kind == scheduleEvery {
+	switch s.kind {
+	case scheduleEvery:
 		return "every"
+
+	case scheduleOnce:
+		return "once"
 	}
 
 	return "start_end"
@@ -142,6 +162,18 @@ type Collector interface {
 	// than one statement applies StatementTimeout to each, so an expensive
 	// statement can fail without taking a cheap one with it.
 	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
+}
+
+// Prologue is implemented by a collector whose artifact carries something that
+// is knowable before the connection exists. The window calls it during
+// openArtifacts, after the preamble and before dial, so those bytes are on disk
+// on every failure path - including the process not surviving the connect.
+//
+// Optional rather than a method on Collector, and asserted for rather than
+// declared: Health and Bloat have nothing to write before a connection exists,
+// so they neither implement it nor mention it.
+type Prologue interface {
+	WritePrologue(w io.Writer, s SampleContext) error
 }
 
 // SampleContext is what every sample block header needs.
@@ -315,7 +347,31 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 		}
 
 		syncArtifact(file)
+
+		w.writePrologue(&results[i], w.Collectors[i], sampleCtx)
 	}
+}
+
+// writePrologue writes the block of a collector that has one, between the
+// preamble and the connection. A collector without one is not asked.
+func (w *Window) writePrologue(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
+	prologue, ok := collector.(Prologue)
+	if !ok {
+		return
+	}
+
+	// The base context's At is the zero time, which would date every prologue
+	// block to year one. It gets the same clock read the preamble header took,
+	// one line above, and no Index: there is no sample yet.
+	at := sampleCtx
+	at.At = w.clock()
+
+	if err := prologue.WritePrologue(result.File, at); err != nil {
+		result.IOErr = fmt.Errorf("failed to write %s: %w", result.Artifact.FileName, err)
+		return
+	}
+
+	syncArtifact(result.File)
 }
 
 // closeArtifacts is the last pass. stopped is the status that ended the window

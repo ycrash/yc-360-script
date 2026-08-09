@@ -90,6 +90,34 @@ func (f *fakeCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s
 	return writeRows(w, []string{"relid"}, [][]string{{"16390"}})
 }
 
+// fakePrologueCollector is a fake that has something to write before the
+// connection exists. It proves Prologue against the window alone: no collector
+// in the package needs to be linked for the mechanism to be exercised.
+type fakePrologueCollector struct {
+	*fakeCollector
+
+	prologue func(w io.Writer, s SampleContext) error
+
+	seenPrologue []SampleContext
+}
+
+func newFakePrologueCollector(name string) *fakePrologueCollector {
+	return &fakePrologueCollector{fakeCollector: newFakeCollector(name)}
+}
+
+func (f *fakePrologueCollector) WritePrologue(w io.Writer, s SampleContext) error {
+	f.seenPrologue = append(f.seenPrologue, s)
+
+	if f.prologue != nil {
+		return f.prologue(w, s)
+	}
+
+	return writeBlockHeader(w, f.artifact.Name+"_target", f.artifact.Scope, []headerField{
+		{"db", s.Database},
+		{"dbid", s.DBID},
+	}, s.At)
+}
+
 type fakeWindowConn struct {
 	database    string
 	dbid        *string
@@ -641,6 +669,21 @@ func TestScheduleOffsets(t *testing.T) {
 			},
 		},
 		{
+			name:     "once samples as the window opens and never at its close",
+			schedule: Once(), window: 120 * s,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "once is one sample however short the window",
+			schedule: Once(), window: 1,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "once on a zero window is still one sample",
+			schedule: Once(), window: 0,
+			want: []time.Duration{0},
+		},
+		{
 			name:     "a window the interval does not divide keeps the strict inequality",
 			schedule: Every(10 * s), window: 25 * s,
 			want: []time.Duration{0, 10 * s, 20 * s},
@@ -697,6 +740,9 @@ func TestScheduleRendersItselfForThePreamble(t *testing.T) {
 	assert.Equal(t, "0.5s", Every(500*time.Millisecond).intervalText())
 
 	assert.Empty(t, Every(0).intervalText(), "a degenerate interval states no cadence either")
+
+	assert.Equal(t, "once", Once().name())
+	assert.Empty(t, Once().intervalText(), "one reading has no cadence to state")
 }
 
 func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
@@ -770,6 +816,137 @@ func TestWindowRunsTwoCadencesOnOneConnection(t *testing.T) {
 	}, order[2:13], "every intermediate tick is the interval collector's alone")
 	assert.Equal(t, "edges#2@2m0s", order[13],
 		"the closing tick is the start-and-end collector's alone - what WindowGrace is sized for")
+}
+
+func TestWindowOnceSamplesAtTheStartAndNotAtTheClosingTick(t *testing.T) {
+	clock := newFakeClock()
+
+	capability := newFakeCollector("pg_once")
+	capability.artifact.Schedule = Once()
+
+	edges := newFakeCollector("pg_edges")
+
+	results := newTestWindow(t, clock, capability, edges).Run(context.Background())
+
+	require.Len(t, results, 2)
+
+	assert.Equal(t, 1, results[0].SamplesExpected, "a capability read is one reading")
+	assert.Equal(t, 1, results[0].SamplesWritten)
+	assert.Equal(t, StatusComplete, results[0].Status)
+
+	require.Len(t, capability.seen, 1)
+	assert.Equal(t, testWindowStart, capability.seen[0].At, "and it is taken as the window opens")
+
+	// The invariant WindowGrace is sized on, re-asserted against the new kind
+	// rather than assumed to have survived it.
+	events := timeline([]Collector{capability, edges}, 120*time.Second)
+	require.NotEmpty(t, events)
+	assert.Equal(t, sampleEvent{at: 120 * time.Second, collector: 1, index: 2}, events[len(events)-1],
+		"the closing tick is still the start-and-end collector's alone")
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 3, "preamble, one sample, closing block")
+	assert.Contains(t, headers[0],
+		"status=started window=120s schedule=once interval= samples_expected=1")
+	assert.Contains(t, headers[2], "status=complete samples_expected=1 samples_written=1")
+}
+
+func TestWindowRunsASharedTickInRegistrationOrder(t *testing.T) {
+	capability := newFakeCollector("pg_once")
+	capability.artifact.Schedule = Once()
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	edges := newFakeCollector("pg_edges")
+
+	events := timeline([]Collector{interval, capability, edges}, 30*time.Second)
+
+	require.GreaterOrEqual(t, len(events), 3)
+	assert.Equal(t, []sampleEvent{
+		{at: 0, collector: 0, index: 1},
+		{at: 0, collector: 1, index: 1},
+		{at: 0, collector: 2, index: 1},
+	}, events[:3], "three collectors share t0 and run in the order they were registered")
+}
+
+func TestWindowWritesThePrologueBeforeConnecting(t *testing.T) {
+	clock := newFakeClock()
+	collector := newFakePrologueCollector("pg_fake")
+
+	window := newTestWindow(t, clock, collector)
+
+	var atConnect string
+	window.connect = func(ctx context.Context, target Target) (windowConn, error) {
+		content, err := os.ReadFile(collector.artifact.FileName)
+		require.NoError(t, err, "the artifact must exist before the connection is attempted")
+		atConnect = string(content)
+
+		return nil, ErrTooManyConnections
+	}
+
+	results := window.Run(context.Background())
+
+	assert.Contains(t, atConnect, "status=started",
+		"the preamble must be on disk, and synced, before Connect")
+	assert.Contains(t, atConnect, "source=pg_fake_target",
+		"and so must the prologue: it is what the artifact says on every failure path")
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 3, "preamble, prologue, closing block - and no sample")
+	assert.Contains(t, headers[2], "status=connect_failed")
+}
+
+func TestWindowPrologueCarriesTheWindowsClockNotTheZeroTime(t *testing.T) {
+	clock := newFakeClock()
+	collector := newFakePrologueCollector("pg_fake")
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	require.Len(t, collector.seenPrologue, 1)
+	assert.Equal(t, testWindowStart, collector.seenPrologue[0].At,
+		"a zero At would date every prologue block to year one")
+	assert.Zero(t, collector.seenPrologue[0].Index, "there is no sample yet")
+	assert.Equal(t, "orders_configured", collector.seenPrologue[0].Database,
+		"and no connection, so the database is the configured name and there is no OID")
+	assert.Empty(t, collector.seenPrologue[0].DBID)
+
+	assert.Contains(t, headersOf(t, results[0])[1], "ts="+timestamp(testWindowStart))
+}
+
+func TestWindowDoesNotAskACollectorWithoutAPrologue(t *testing.T) {
+	clock := newFakeClock()
+
+	plain := newFakeCollector("pg_plain")
+	withPrologue := newFakePrologueCollector("pg_prologue")
+
+	results := newTestWindow(t, clock, plain, withPrologue).Run(context.Background())
+
+	assert.Len(t, headersOf(t, results[0]), 4,
+		"preamble, two samples, closing block - a collector that implements nothing is not asked")
+	assert.NotContains(t, artifactText(t, results[0]), "_target")
+
+	assert.Len(t, headersOf(t, results[1]), 5, "and the one that does gets its block")
+}
+
+func TestWindowPrologueFailureIsIsolated(t *testing.T) {
+	clock := newFakeClock()
+
+	failing := newFakePrologueCollector("pg_failing")
+	failing.prologue = func(io.Writer, SampleContext) error {
+		return errors.New("no space left on device")
+	}
+
+	healthy := newFakeCollector("pg_healthy")
+
+	results := newTestWindow(t, clock, failing, healthy).Run(context.Background())
+
+	require.Error(t, results[0].IOErr, "a prologue failure is an I/O failure on that artifact")
+	assert.Empty(t, failing.seen, "a collector with nowhere to write is not asked to sample")
+
+	assert.NoError(t, results[1].IOErr, "and it costs the other artifacts nothing")
+	assert.Equal(t, StatusComplete, results[1].Status)
+	assert.Equal(t, 2, results[1].SamplesWritten)
 }
 
 func TestWindowIntervalSampleNumberingIsPerArtifact(t *testing.T) {

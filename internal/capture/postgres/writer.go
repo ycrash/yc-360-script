@@ -15,9 +15,8 @@ import (
 const artifactVersion = 1
 
 // Every artifact in this package is a sequence of blocks: a header line - see
-// writeBlockHeader - followed by a CSV body. pg_metadata.txt is the one-block
-// case, written by two entry points for the reason WriteTarget gives; the
-// sampled artifacts repeat the shape with a tabular body per sample.
+// writeBlockHeader - followed by a CSV body. The sampled artifacts write a
+// tabular body per sample; pg_metadata.txt writes a key,value one per block.
 //
 // Every body goes through encoding/csv rather than a hand-rolled join:
 // version() and shared_preload_libraries both contain commas in practice, and
@@ -29,28 +28,11 @@ type field struct {
 	value string
 }
 
-// WriteTarget emits the block header, the column header, and everything
-// knowable from configuration before a connection exists.
-//
-// It is called - and synced - before Connect, so every failure path leaves a
-// file, and so the artifact is never zero bytes and is never dropped by the
-// upload path's empty-file check.
-func WriteTarget(w io.Writer, m Metadata) error {
-	if err := writeBlockHeader(w, "pg_metadata", "cluster", nil, m.AgentTS); err != nil {
-		return err
-	}
-
-	return writeFields(w, append([]field{{key: "key", value: "value"}}, targetFields(m)...))
-}
-
-// WriteResult appends the outcome: the capture mode, the connection error, and
-// - when a connection existed - every server-derived row.
-//
-// A non-empty connect_error tells a reader the file stops there. Otherwise
-// every key is written, empty where the read failed, so nobody has to decide
-// whether an absent key means an old agent or a failed query.
-func WriteResult(w io.Writer, m Metadata) error {
-	return writeFields(w, resultFields(m))
+// writeKeyValueBody renders a key,value block body: the column header, then one
+// row per field. Every block carries its own column header, so a block is
+// readable without the one before it.
+func writeKeyValueBody(w io.Writer, fields []field) error {
+	return writeFields(w, append([]field{{key: "key", value: "value"}}, fields...))
 }
 
 // targetFields is what was configured, as opposed to what the server said.
@@ -67,17 +49,14 @@ func targetFields(m Metadata) []field {
 	}
 }
 
-func resultFields(m Metadata) []field {
-	fields := []field{
-		{"capture_mode", m.CaptureMode},
-		{"connect_error", m.ConnectError},
-	}
-
-	if m.ConnectError != "" {
-		return fields
-	}
-
-	return append(fields, serverFields(m)...)
+// serverBlockFields is the server block's body: the capture mode, then every
+// server-derived row.
+//
+// There is deliberately no connect_error row. The block is written only where
+// there was a connection, so the key could only ever be empty here; where it
+// can be non-empty is the closing block's header, which the window writes.
+func serverBlockFields(m Metadata) []field {
+	return append([]field{{"capture_mode", m.CaptureMode}}, serverFields(m)...)
 }
 
 // serverFields is every row that requires a connection, in artifact order. All
