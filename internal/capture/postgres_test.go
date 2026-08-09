@@ -148,6 +148,26 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	assert.NotEqual(t, pgDTBloat, pgDTHealth, "two postgres artifacts share a dt")
 }
 
+func TestPostgresBundleFileNames(t *testing.T) {
+	assert.Equal(t, "pg_metadata.txt", PostgresMetadataFileName)
+	assert.Equal(t, "pg_health.txt", PostgresHealthFileName)
+	assert.Equal(t, "pg_bloat.txt", PostgresBloatFileName)
+
+	seen := map[string]bool{}
+	for _, name := range postgresArtifactFiles {
+		assert.True(t, strings.HasPrefix(name, "pg_"),
+			"%s: database artifacts keep engine-specific prefixes, pg_ here", name)
+
+		assert.NotContains(t, name, ".appLogs.",
+			"%s is classified by its exact name, not by the app-log substring convention", name)
+
+		assert.False(t, seen[name], "%s is used for two artifacts", name)
+		seen[name] = true
+	}
+
+	assert.Len(t, seen, 3, "every artifact the run writes is named here")
+}
+
 func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTMetadata, pgSampledDataType(pgMetadataCollector().Artifact()),
 		"pg_metadata.txt is routed through the same gate as every other artifact")
