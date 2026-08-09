@@ -389,6 +389,19 @@ func isReadable(path string) bool {
 
 // collectReplication's answer needs is_in_recovery to read: on a standby
 // pg_stat_replication is legitimately empty, so false is topology, not a finding.
+//
+// That stays true and is incomplete. This counts connected WAL senders and knows
+// nothing about slots, so a cluster with an abandoned slot and no replica reports
+// false beside a populated pg_replication.txt slots block - and that combination
+// is not an edge case, it is the incident: an abandoned slot retains WAL until
+// the volume fills, and this flag says "no replication here" about exactly the
+// cluster whose replication is the problem.
+//
+// Not fixed here, because counting both views moves two shipped
+// pg_metadata_*.txt goldens and belongs to whoever next opens this artifact. The
+// precedence rule is the part that matters and it can be stated now:
+// pg_replication.txt is authoritative for whether replication exists, and this
+// flag answers the narrower question of whether a replica was connected at t0.
 func collectReplication(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()

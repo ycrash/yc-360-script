@@ -13,10 +13,13 @@ import (
 	"yc-agent/internal/config"
 )
 
-// A cross-repo contract, this name and the three below: a -onlyCapture bundle
+// A cross-repo contract, this name and the four below: a -onlyCapture bundle
 // carries no dt=, so the receiver classifies by filename alone through
 // YCrashDataType.fromAgentFileName(). Each must equal that enum's agentFileName
 // exactly, or the artifact is dropped with no error at either end.
+//
+// Five exact filenames is the argument for recognising the pg_ family by
+// pattern, as .appLogs. already is - not a fifth entry in the enum.
 const PostgresMetadataFileName = "pg_metadata.txt"
 
 // The receiver's data types, the same contract: classification is an exact
@@ -34,6 +37,13 @@ const pgDTHealth = "pgHealth"
 const PostgresCapacityFileName = "pg_capacity.txt"
 
 const pgDTCapacity = "pgCapacity"
+
+// PostgresReplicationFileName has no dt beside it, and that is the current
+// state rather than an omission: pgRepl is proposed and the server team has not
+// assigned it. The constant and its arm below land together when it does, since
+// an arm returning "" is indistinguishable from no arm at all - to a reader, to
+// a test, and to the upload path.
+const PostgresReplicationFileName = "pg_replication.txt"
 
 // pgSampledDataType is empty for an artifact the server team has not assigned
 // one. An invented dt is dropped silently, so an unassigned artifact is written
@@ -96,15 +106,22 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// Registration order is sampling order on a shared tick, and it buys
 		// something at each of the two.
 		//
-		// At t0, where all four sample, it is cheapest first: bloat's size
-		// functions stat every relation's files, so bloat is last.
+		// At t0, where all five sample, it is cheapest first: bloat's size
+		// functions stat every relation's files, so bloat is last. Replication
+		// is second on two reads of GUC-bounded views - single-digit row counts
+		// in every realistic deployment - which puts it below metadata's three
+		// catalogue reads.
 		//
 		// At the closing tick, which capacity and bloat share, it is the reading
 		// with no second chance first: capacity's connection and WAL blocks are
 		// written once in the whole run, where bloat's second sample is one
-		// endpoint of a delta whose other endpoint is already on disk.
+		// endpoint of a delta whose other endpoint is already on disk. That half
+		// is untouched by replication, and cannot be reached by it: an interval
+		// collector's offsets are strictly inside the window, so the module
+		// deadline is unchanged.
 		Collectors: []postgres.Collector{
 			postgres.Health{},
+			postgres.Replication{},
 			metadata,
 			postgres.Capacity{},
 			postgres.Bloat{},
