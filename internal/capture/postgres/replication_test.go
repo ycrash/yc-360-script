@@ -53,7 +53,20 @@ const (
 	colSlotWALStatus
 	colSlotSafeWALSize
 	colSlotTwoPhase
+	colSlotConflicting
+	colSlotFailover
+	colSlotInactiveSince
+	colSlotInvalidationReason
+	colSlotSynced
+	colSlotTwoPhaseAt
 )
+
+// pg18OptionalColumns is what the presence probe returns on PostgreSQL 18:
+// string_agg over pg_attribute ordered by attname, which for this set is also
+// optionalSlotColumns' own order.
+const pg18OptionalColumns = "conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at"
+
+var testSlotInactiveSince = time.Date(2026, 8, 7, 11, 2, 41, 330*int(time.Millisecond), time.UTC)
 
 var testWALSenderStart = time.Date(2026, 8, 7, 9, 14, 2, 114*int(time.Millisecond), time.UTC)
 
@@ -99,19 +112,52 @@ func ordersSenders3() [][]any {
 // max_slot_wal_keep_size set: at its -1 default the column is NULL for every
 // slot in the cluster, so one populated cell beside an empty one would depict
 // something the server cannot produce.
-func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64) [][]any {
+// The two trailing arguments are the optional set the server has, so one fixture
+// covers a PostgreSQL 18 cluster and a pre-16 one: pass nil and "" and the six
+// columns arrive NULL and the header key is never written, which is exactly what
+// the extraction produces against a server without them.
+func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
+	inactiveSince *time.Time, optionalColumns string,
+) [][]any {
+	present := func(v any) any {
+		if optionalColumns == "" {
+			return nil
+		}
+
+		return v
+	}
+
+	probe := any(nil)
+	if optionalColumns != "" {
+		probe = ptr(optionalColumns)
+	}
+
 	return [][]any{
 		{
 			"orders_cdc_slot", ptr("pgoutput"), ptr("logical"), ptr("16401"), ptr("orders_db"),
 			ptr(false), ptr(false), nil, nil, ptr("5518821"),
 			ptr(confirmedFlushLSN), ptr(confirmedFlushLSN), ptr("extended"), ptr(safeWALSize), ptr(true),
+			present(ptr(false)), present(ptr(false)), present(inactiveSince), nil,
+			present(ptr(false)), nil,
+			probe,
 		},
 		{
 			"replica_01_slot", nil, ptr("physical"), nil, nil,
 			ptr(false), ptr(true), ptr(int32(4021)), nil, nil,
 			ptr(restartLSN), nil, ptr("reserved"), ptr(int64(3221225472)), ptr(false),
+			// conflicting is NULL on a physical slot even on 18, where the
+			// server has the column: it is the logical-decoding conflict flag
+			// and does not apply. That is the pair optional_columns= in the
+			// header exists to tell apart from 14's absence.
+			nil, present(ptr(false)), nil, nil, present(ptr(false)), nil,
+			probe,
 		},
 	}
+}
+
+func ordersSlotsPG18(restartLSN, confirmedFlushLSN string, safeWALSize int64) [][]any {
+	return ordersSlots(restartLSN, confirmedFlushLSN, safeWALSize,
+		&testSlotInactiveSince, pg18OptionalColumns)
 }
 
 type fakeReplicationConn struct {
@@ -120,7 +166,8 @@ type fakeReplicationConn struct {
 	senders []fakeResult
 	slots   []fakeResult
 
-	sql []string
+	sql       []string
+	slotsArgs [][]any
 }
 
 func newFakeReplicationConn() *fakeReplicationConn {
@@ -132,9 +179,9 @@ func newFakeReplicationConn() *fakeReplicationConn {
 			rowsResult(ordersSenders3()),
 		),
 		slots: queue(
-			rowsResult(ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824)),
-			rowsResult(ordersSlots("2A/B41C0000", "2A/A1002000", 1071644672)),
-			rowsResult(ordersSlots("2A/B4370000", "2A/A1002000", 1069547520)),
+			rowsResult(ordersSlotsPG18("2A/B3FF0000", "2A/A1002000", 1073741824)),
+			rowsResult(ordersSlotsPG18("2A/B41C0000", "2A/A1002000", 1071644672)),
+			rowsResult(ordersSlotsPG18("2A/B4370000", "2A/A1002000", 1069547520)),
 		),
 	}
 }
@@ -147,6 +194,8 @@ func (c *fakeReplicationConn) Query(ctx context.Context, sql string, args ...any
 		return answer(&c.senders)
 
 	case slotsSQL:
+		c.slotsArgs = append(c.slotsArgs, args)
+
 		return answer(&c.slots)
 	}
 
@@ -264,11 +313,142 @@ func TestReplicationColumnOrder(t *testing.T) {
 		"wal_status",
 		"safe_wal_size",
 		"two_phase",
-	}, slotColumns)
+		"conflicting",
+		"failover",
+		"inactive_since",
+		"invalidation_reason",
+		"synced",
+		"two_phase_at",
+	}, slotColumns, "the union of all five versions, identical on every one of them")
 
 	assert.Equal(t, "slot_name", slotColumns[0],
 		"the join key leads here too, and it is a better one than pid: slot names are unique "+
 			"and survive a restart")
+
+	assert.Equal(t, stableSlotColumns, slotColumns[:len(stableSlotColumns)],
+		"the optional names are appended to the stable set rather than restated, so the column "+
+			"header cannot promise a column the body does not carry")
+	assert.Equal(t, optionalSlotColumnNames(), slotColumns[len(stableSlotColumns):])
+}
+
+func TestReplicationOptionalColumnsAreOneDeclaration(t *testing.T) {
+	conn := newFakeReplicationConn()
+
+	takeReplicationSample(t, conn)
+
+	require.Len(t, conn.slotsArgs, 1)
+	require.Equal(t, []any{optionalSlotColumnNames()}, conn.slotsArgs[0],
+		"$1 is the same slice's names: settingNames()' analogue")
+
+	for _, column := range optionalSlotColumns {
+		assert.Contains(t, conn.slotsArgs[0][0], column.name,
+			"%s is asked about but never selected", column.name)
+		assert.Contains(t, slotsSQL, column.expr,
+			"%s's expression did not survive assembly", column.name)
+		assert.Contains(t, slotColumns, column.name,
+			"%s is selected but absent from the column header", column.name)
+	}
+
+	assert.Len(t, optionalSlotColumns, 6,
+		"conflicting at 16; failover, inactive_since, invalidation_reason and synced at 17; "+
+			"two_phase_at at 18 - measured on all five servers on 2026-08-09")
+
+	assert.Contains(t, slotsSQL, "AND attname = ANY($1::text[])",
+		"the presence set is read from pg_attribute in the same statement, not from a second "+
+			"one and not from a capability flag on SampleContext")
+}
+
+func TestReplicationOptionalColumnsHeaderKey(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		slots [][]any
+		want  string
+	}{
+		{
+			name:  "PostgreSQL 18 has all six, and the header says so",
+			slots: ordersSlotsPG18("2A/B3FF0000", "2A/A1002000", 1073741824),
+			want:  "optional_columns=" + pg18OptionalColumns,
+		},
+		{
+			name:  "PostgreSQL 16 has one",
+			slots: ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "conflicting"),
+			want:  "optional_columns=conflicting",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := newFakeReplicationConn()
+			conn.slots = repeat(rowsResult(tc.slots))
+
+			assert.Contains(t,
+				capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"].header,
+				tc.want)
+		})
+	}
+
+	t.Run("PostgreSQL 14 and 15 have none, so the key is absent rather than empty", func(t *testing.T) {
+		conn := newFakeReplicationConn()
+		conn.slots = repeat(rowsResult(ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "")))
+
+		block := capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"]
+
+		assert.NotContains(t, block.header, "optional_columns",
+			"string_agg over no matching rows is NULL, and a NULL header value means the key "+
+				"is never written")
+
+		rows := block.rows(t, slotColumns)
+		require.Len(t, rows, 2)
+
+		for i := colSlotConflicting; i < len(slotColumns); i++ {
+			assert.Empty(t, rows[0][i],
+				"%s: the extraction yields NULL on a server without the column rather than "+
+					"raising, which is what makes one statement cover all five versions",
+				slotColumns[i])
+		}
+	})
+
+	t.Run("and it is absent with no rows at all, on every version", func(t *testing.T) {
+		conn := newFakeReplicationConn()
+		conn.slots = repeat(rowsResult(nil))
+
+		assert.NotContains(t,
+			capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"].header,
+			"optional_columns",
+			"a per-row scalar cannot survive an empty view, and that is correct here: with no "+
+				"rows there are no empty cells to disambiguate, so the key is absent exactly "+
+				"when it would have nothing to say")
+	})
+}
+
+func TestReplicationInactiveSinceRendersInTheArtifactsTimestampForm(t *testing.T) {
+	rows := capacityBlocks(t, takeReplicationSample(t, newFakeReplicationConn()))["pg_replication_slots"].
+		rows(t, slotColumns)
+	require.Len(t, rows, 2)
+
+	assert.Equal(t, "2026-08-07T11:02:41.330Z", rows[0][colSlotInactiveSince],
+		"which is what the ::timestamptz cast buys: without it the jsonb extraction arrives as "+
+			"2026-08-07T11:02:41.330000+00:00, where every other timestamp in every artifact "+
+			"is this form")
+	assert.Empty(t, rows[1][colSlotInactiveSince],
+		"and the connected slot has never been inactive")
+
+	assert.Contains(t, slotsSQL, `(to_jsonb(s) ->> 'inactive_since')::timestamptz`)
+}
+
+func TestReplicationOptionalColumnsSeparateAbsentFromNotApplicable(t *testing.T) {
+	block := capacityBlocks(t, takeReplicationSample(t, newFakeReplicationConn()))["pg_replication_slots"]
+
+	rows := block.rows(t, slotColumns)
+	require.Len(t, rows, 2)
+
+	assert.Equal(t, "false", rows[0][colSlotConflicting],
+		"the logical slot is not in conflict")
+	assert.Empty(t, rows[1][colSlotConflicting],
+		"and conflicting does not apply to a physical slot, so it is NULL on 18 for the same "+
+			"reason it is NULL on 14 - where the column does not exist")
+
+	assert.Contains(t, block.header, "optional_columns=",
+		"which is the only thing that tells those two empty cells apart, and it is a fact "+
+			"about the server rather than about the slot")
 }
 
 func TestReplicationWritesBothBlocksOnEverySample(t *testing.T) {
@@ -571,6 +751,21 @@ func TestReplicationGoldenFull(t *testing.T) {
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, 3, results[0].SamplesWritten, "three samples, six sample blocks")
 	assert.Equal(t, bloatGolden(t, "pg_replication_full.txt"), artifactText(t, results[0]))
+}
+
+func TestReplicationGoldenPre16(t *testing.T) {
+	conn := newFakeReplicationConn()
+	conn.slots = queue(
+		rowsResult(ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "")),
+		rowsResult(ordersSlots("2A/B41C0000", "2A/A1002000", 1071644672, nil, "")),
+		rowsResult(ordersSlots("2A/B4370000", "2A/A1002000", 1069547520, nil, "")),
+	)
+
+	results := runReplicationWindow(t, replicationGoldenClock(t), Replication{}, connectTo(conn))
+
+	require.Equal(t, StatusComplete, results[0].Status,
+		"one statement covers 14 through 18: the extraction returns NULL rather than raising")
+	assert.Equal(t, bloatGolden(t, "pg_replication_pre16.txt"), artifactText(t, results[0]))
 }
 
 func TestReplicationGoldenNone(t *testing.T) {
