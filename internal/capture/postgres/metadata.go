@@ -1,7 +1,10 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -123,6 +126,151 @@ type Metadata struct {
 	ServerClockTimestamp string
 	AgentTSAtClockRead   time.Time
 }
+
+// MetadataCollector writes pg_metadata.txt as one of the window's collectors:
+// the target block before the connection exists, the server block from the one
+// sample its Once() schedule gives it.
+//
+// It is the package's only stateful collector, and the only one held by pointer
+// where Health{} and Bloat{} are values. Sample keeps what it collected because
+// the run log's line for this artifact is a reading - which capture mode the run
+// got, and which probes were denied - rather than the sample count every other
+// artifact reports, and a count of 1/1 is true and useless. Collected() is that
+// read, and it is safe because Window.Run is synchronous.
+type MetadataCollector struct {
+	target       Target
+	yc360Version string
+	agentNow     time.Time
+
+	// collect is a seam, nil in production: a golden fixture pins one server's
+	// regime without a server in that regime - the readable log file mode
+	// detection needs cannot be faked through a Querier.
+	collect func(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata
+
+	collected Metadata
+}
+
+// NewMetadata builds the collector from what is knowable before the connection.
+// Collect returns a Metadata rather than filling one in, so the target, the
+// agent's version and its clock read are held here until it does - and they are
+// what Collected() reports if the connection never happens.
+func NewMetadata(t Target, yc360Version string, agentNow time.Time) *MetadataCollector {
+	m := &MetadataCollector{
+		target:       t,
+		yc360Version: yc360Version,
+		agentNow:     agentNow,
+	}
+
+	m.collected = Metadata{
+		AgentTS:            agentNow,
+		AgentTSAtClockRead: agentNow,
+		YC360Version:       yc360Version,
+		TargetHost:         t.Host,
+		TargetPort:         t.Port,
+		TargetDatabase:     t.Database,
+		TargetUsername:     t.Username,
+		TargetSSLMode:      t.SSLMode,
+
+		// Unknown until collectLogLocation says otherwise, which is also the
+		// truth about a run whose connection was refused.
+		CaptureMode: ModeUnknown,
+	}
+
+	return m
+}
+
+// String renders the collector for logs with the password redacted, and
+// GoString does the same for %#v.
+//
+// Target's own pair does not cover this and cannot: fmt reaches a nested String
+// method only through an exported field, and target is not one - so a collector
+// printed without these would render its Target, and the password in it, as a
+// bare struct. That is also why nothing holds a collector in a struct it logs;
+// Collected() returns a Metadata, which has no password field at all.
+func (m *MetadataCollector) String() string {
+	return fmt.Sprintf("postgres.MetadataCollector{target=%s yc360_version=%s capture_mode=%s}",
+		m.target, m.yc360Version, m.collected.CaptureMode)
+}
+
+func (m *MetadataCollector) GoString() string { return m.String() }
+
+func (m *MetadataCollector) Artifact() Artifact {
+	return Artifact{
+		Name:     "pg_metadata",
+		FileName: "pg_metadata.txt",
+		Scope:    metadataScope,
+		Schedule: Once(),
+	}
+}
+
+// WritePrologue writes the pg_metadata_target block: what the run was aimed at,
+// which is knowable before the network and is therefore the block a reader can
+// rely on being there whatever happened next.
+func (m *MetadataCollector) WritePrologue(w io.Writer, s SampleContext) error {
+	return writeMetadataBlock(w, "pg_metadata_target", []headerField{
+		{"db", s.Database},
+		{"dbid", s.DBID},
+	}, targetFields(m.collected), s.At)
+}
+
+// Sample runs the capture and writes the pg_metadata_server block: what the
+// server said, which exists only because a connection did.
+//
+// Collect never returns an error - each probe records its own failure in a
+// field - so the only way this fails is the write, which the window records as
+// the artifact's IOErr.
+func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	collected := m.collectWith(ctx, q)
+
+	// Collect returns a fresh value rather than filling one in, so the version
+	// stamped before the connection has to be carried across.
+	collected.YC360Version = m.yc360Version
+
+	m.collected = collected
+
+	return writeMetadataBlock(w, "pg_metadata_server", []headerField{
+		{"db", s.Database},
+		{"dbid", s.DBID},
+		{"sample", strconv.Itoa(s.Index)},
+	}, serverBlockFields(collected), s.At)
+}
+
+// Collected is what the last sample read, or what was configured if there was
+// never one. The adapter reads it after the window closes to render the run
+// log's line for this artifact.
+func (m *MetadataCollector) Collected() Metadata { return m.collected }
+
+func (m *MetadataCollector) collectWith(ctx context.Context, q Querier) Metadata {
+	if m.collect != nil {
+		return m.collect(ctx, q, m.target, m.agentNow)
+	}
+
+	return Collect(ctx, q, m.target, m.agentNow)
+}
+
+// writeMetadataBlock renders one block whole and writes it once, the Collector
+// contract's rule rather than one collector's: a write failing between the
+// header and the body would leave the window's stub block behind a half-written
+// block.
+func writeMetadataBlock(w io.Writer, source string, header []headerField, fields []field, at time.Time) error {
+	var block bytes.Buffer
+
+	if err := writeBlockHeader(&block, source, metadataScope, header, at); err != nil {
+		return err
+	}
+
+	if err := writeKeyValueBody(&block, fields); err != nil {
+		return err
+	}
+
+	_, err := w.Write(block.Bytes())
+
+	return err
+}
+
+// metadataScope is the artifact's and both of its body blocks': every row is
+// about the cluster, and db=/dbid= mean connected through rather than about.
+const metadataScope = "cluster"
 
 // Collect runs the three statements and resolves the capture mode. It never
 // returns an error: a failed probe records its failure in the struct and the

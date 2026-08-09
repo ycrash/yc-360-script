@@ -87,12 +87,25 @@ func connectFailureMetadata() Metadata {
 	}
 }
 
+// writeArtifact renders the two blocks the collector writes, from a value
+// rather than from a capture: what these tests pin is the field lists, where
+// metadata_test.go's goldens pin the frame the window puts around them.
 func writeArtifact(t *testing.T, m Metadata) string {
 	t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(t, WriteTarget(&buf, m))
-	require.NoError(t, WriteResult(&buf, m))
+
+	target := SampleContext{At: m.AgentTS, Database: m.TargetDatabase}
+	require.NoError(t, writeMetadataBlock(&buf, "pg_metadata_target", []headerField{
+		{"db", target.Database},
+		{"dbid", target.DBID},
+	}, targetFields(m), target.At))
+
+	require.NoError(t, writeMetadataBlock(&buf, "pg_metadata_server", []headerField{
+		{"db", m.CurrentDatabase},
+		{"dbid", "16401"},
+		{"sample", "1"},
+	}, serverBlockFields(m), m.AgentTSAtClockRead))
 
 	return buf.String()
 }
@@ -106,7 +119,11 @@ func golden(t *testing.T, name string) string {
 	return string(content)
 }
 
-func parseArtifact(t *testing.T, artifact string) (header string, values map[string]string, keys []string) {
+// parseArtifact reads an artifact's blocks. Every one-field record is a block
+// header, every block that has a body opens it with the key,value column
+// header, and the rows of the whole file are merged: the artifact's contract is
+// one key set across the file, whichever block a key lives in.
+func parseArtifact(t *testing.T, artifact string) (headers []string, values map[string]string, keys []string) {
 	t.Helper()
 
 	reader := csv.NewReader(strings.NewReader(artifact))
@@ -114,29 +131,38 @@ func parseArtifact(t *testing.T, artifact string) (header string, values map[str
 
 	records, err := reader.ReadAll()
 	require.NoError(t, err)
-	require.Greater(t, len(records), 1)
-
-	require.Len(t, records[0], 1, "the block header is one field, so it carries no comma")
-	require.True(t, strings.HasPrefix(records[0][0], "#"))
-	require.Equal(t, []string{"key", "value"}, records[1])
+	require.NotEmpty(t, records)
 
 	values = map[string]string{}
-	for _, record := range records[2:] {
+
+	openBody := false
+
+	for _, record := range records {
+		if len(record) == 1 {
+			require.True(t, strings.HasPrefix(record[0], "#"),
+				"a one-field record is a block header, so it carries no comma")
+
+			headers = append(headers, record[0])
+			openBody = false
+
+			continue
+		}
+
 		require.Len(t, record, 2)
+
+		if !openBody {
+			require.Equal(t, []string{"key", "value"}, record,
+				"a block's body opens with its own column header")
+			openBody = true
+
+			continue
+		}
 
 		values[record[0]] = record[1]
 		keys = append(keys, record[0])
 	}
 
-	return records[0][0], values, keys
-}
-
-func TestWriteFullArtifact(t *testing.T) {
-	assert.Equal(t, golden(t, "pg_metadata_full.txt"), writeArtifact(t, fullArtifactMetadata()))
-}
-
-func TestWriteConnectFailure(t *testing.T) {
-	assert.Equal(t, golden(t, "pg_metadata_connect_failure.txt"), writeArtifact(t, connectFailureMetadata()))
+	return headers, values, keys
 }
 
 func TestGoldenKeepsTrailingWhitespace(t *testing.T) {
@@ -145,28 +171,43 @@ func TestGoldenKeepsTrailingWhitespace(t *testing.T) {
 }
 
 func TestBlockHeaderFieldOrder(t *testing.T) {
-	header, _, _ := parseArtifact(t, writeArtifact(t, fullArtifactMetadata()))
+	headers, _, _ := parseArtifact(t, writeArtifact(t, fullArtifactMetadata()))
+	require.Len(t, headers, 2, "the target block and the server block")
 
 	assert.Equal(t, []string{
 		"#",
 		"engine=postgres",
-		"source=pg_metadata",
+		"source=pg_metadata_target",
 		"v=1",
 		"format=csv",
 		"scope=cluster",
+		"db=orders_db",
+		"dbid=",
 		"ts=2026-08-04T09:12:44.118Z",
-	}, strings.Fields(header))
+	}, strings.Fields(headers[0]))
+
+	assert.Equal(t, []string{
+		"#",
+		"engine=postgres",
+		"source=pg_metadata_server",
+		"v=1",
+		"format=csv",
+		"scope=cluster",
+		"db=orders_db",
+		"dbid=16401",
+		"sample=1",
+		"ts=2026-08-04T09:12:44.118Z",
+	}, strings.Fields(headers[1]))
 }
 
-func TestConnectErrorIsTheDiscriminator(t *testing.T) {
-	m := fullArtifactMetadata()
-	m.CaptureMode = ModeUnknown
-	m.ConnectError = ErrTooManyConnections.Error()
+func TestServerBlockCarriesNoConnectError(t *testing.T) {
+	_, values, keys := parseArtifact(t, writeArtifact(t, fullArtifactMetadata()))
 
-	_, values, keys := parseArtifact(t, writeArtifact(t, m))
+	assert.NotContains(t, values, "connect_error",
+		"the key exists only where it can be non-empty, which is the closing block's header")
 
-	assert.Equal(t, "connect_error", keys[len(keys)-1])
-	assert.NotContains(t, values, "current_database")
+	assert.Equal(t, "capture_mode", keys[len(targetFields(fullArtifactMetadata()))],
+		"the server block opens with the capture mode")
 }
 
 func TestQueryErrorStillWritesEveryKey(t *testing.T) {
@@ -219,16 +260,18 @@ func TestValuesAreFlattened(t *testing.T) {
 	assert.Equal(t, "ERROR: permission denied DETAIL: role is not a member", values["query_error"])
 
 	lines := strings.Split(strings.TrimSuffix(artifact, "\n"), "\n")
-	assert.Len(t, lines, len(keys)+2, "one row is one line, plus the block and column headers")
+	assert.Len(t, lines, len(keys)+4,
+		"one row is one line, plus two blocks' block and column headers")
 }
 
-func TestWriteTargetAlone(t *testing.T) {
-	var buf bytes.Buffer
-	require.NoError(t, WriteTarget(&buf, fullArtifactMetadata()))
+func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
+	m := fullArtifactMetadata()
 
-	header, values, keys := parseArtifact(t, buf.String())
+	keys := make([]string, 0, len(targetFields(m)))
+	for _, f := range targetFields(m) {
+		keys = append(keys, f.key)
+	}
 
-	assert.Contains(t, header, "engine=postgres")
 	assert.Equal(t, []string{
 		"agent_ts",
 		"yc360_version",
@@ -238,6 +281,8 @@ func TestWriteTargetAlone(t *testing.T) {
 		"target_username",
 		"target_sslmode",
 	}, keys)
+
+	_, values, _ := parseArtifact(t, writeArtifact(t, m))
 	assert.Equal(t, "db-prod-01.internal", values["target_host"])
 }
 
@@ -250,11 +295,18 @@ func TestWriteErrorsPropagate(t *testing.T) {
 	sink := failingWriter{err: sinkErr}
 
 	m := fullArtifactMetadata()
-	assert.ErrorIs(t, WriteTarget(sink, m), sinkErr)
-	assert.ErrorIs(t, WriteResult(sink, m), sinkErr)
+
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+	assert.ErrorIs(t, collector.WritePrologue(sink, SampleContext{At: testAgentNow}), sinkErr)
+
+	assert.ErrorIs(t,
+		writeMetadataBlock(sink, "pg_metadata_server", nil, serverBlockFields(m), testAgentNow),
+		sinkErr)
 
 	m.QueryError = strings.Repeat("x", 1<<14)
-	assert.ErrorIs(t, WriteResult(sink, m), sinkErr)
+	assert.ErrorIs(t,
+		writeMetadataBlock(sink, "pg_metadata_server", nil, serverBlockFields(m), testAgentNow),
+		sinkErr)
 }
 
 func blockHeader(t *testing.T, source, scope string, fields []headerField) string {

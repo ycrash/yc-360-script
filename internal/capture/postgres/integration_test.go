@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +108,142 @@ func TestMatrix(t *testing.T) {
 				assertSettingsVisibility(t, role, values)
 				assertLogLocation(t, server, role, values)
 				assertReplicationProbe(t, values)
+			})
+		}
+	}
+}
+
+// matrixCaptureSessionsSQL counts this capture's backends, excluding the
+// connection doing the counting - which carries the same application_name,
+// because every connection this package opens does.
+const matrixCaptureSessionsSQL = `SELECT count(*)
+FROM pg_catalog.pg_stat_activity
+WHERE application_name = $1 AND pid <> pg_backend_pid()`
+
+// matrixMetadataWindow is long enough for the count below to land inside it.
+const matrixMetadataWindow = 3 * time.Second
+
+// runMatrixMetadataWindow runs the collector through a real window and, from a
+// second connection while that window is open, counts how many sessions the
+// capture is holding.
+func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int64) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration: matrixMetadataWindow,
+		Target:   target,
+		Collectors: []Collector{
+			NewMetadata(target, "matrix", time.Now()),
+			Health{Interval: time.Second},
+		},
+	}
+
+	var (
+		wg       sync.WaitGroup
+		sessions int64
+		countErr error
+	)
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		time.Sleep(matrixMetadataWindow / 3)
+		sessions, countErr = matrixCountCaptureSessions(target)
+	}()
+
+	results := window.Run(context.Background())
+	wg.Wait()
+
+	require.NoError(t, countErr)
+
+	return results, sessions
+}
+
+func matrixCountCaptureSessions(target Target) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	var sessions int64
+	if err := conn.QueryRow(ctx, matrixCaptureSessionsSQL, ApplicationName).Scan(&sessions); err != nil {
+		return 0, err
+	}
+
+	return sessions, nil
+}
+
+// TestMatrixMetadataWindow is the empirical form of the claim this slice makes:
+// routing pg_metadata.txt through the window changed what writes it and nothing
+// about what it says. TestMatrix above still pins Collect itself, on the same
+// sweep, by calling it directly.
+func TestMatrixMetadataWindow(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				direct := collectFromMatrix(t, target)
+
+				results, sessions := runMatrixMetadataWindow(t, target)
+				require.Len(t, results, 2)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"the capability read must complete for every role on every version")
+				require.Equal(t, 1, results[0].SamplesWritten, "Once() is one reading")
+
+				assert.EqualValues(t, 1, sessions,
+					"two artifacts, one connection: before this slice the metadata capture "+
+						"dialled a second one of its own")
+
+				content, err := os.ReadFile(results[0].Artifact.FileName)
+				require.NoError(t, err)
+				results[0].File.Close()
+				results[1].File.Close()
+
+				artifact := string(content)
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				headers, values, keys := parseArtifact(t, artifact)
+
+				require.Len(t, headers, 4, "preamble, target block, server block, closing block")
+				for i, source := range []string{
+					"source=pg_metadata ",
+					"source=pg_metadata_target ",
+					"source=pg_metadata_server ",
+					"source=pg_metadata ",
+				} {
+					assert.Contains(t, headers[i], source, "block %d", i)
+				}
+
+				// The frame moved and the content did not - asserted against a
+				// real server rather than against the agent's own fixtures.
+				_, directValues, directKeys := parseArtifact(t, writeArtifact(t, direct))
+				assert.Equal(t, directKeys, keys,
+					"the window writes exactly the keys the direct call does")
+
+				assert.Equal(t, directValues["capture_mode"], values["capture_mode"],
+					"and reaches the same conclusion about the mode by either route")
+
+				assert.Equal(t, "matrix", values["yc360_version"],
+					"the version stamped before the connection survives Collect's fresh value")
+				assert.Equal(t, role.user, values["current_user"])
+				assert.NotContains(t, values, "connect_error",
+					"the key exists only in the closing block's header")
 			})
 		}
 	}
