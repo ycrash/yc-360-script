@@ -136,8 +136,17 @@ func assign(dest, value any) error {
 	target := d.Elem()
 
 	if value == nil {
-		target.Set(reflect.Zero(target.Type()))
-		return nil
+		// pgx has no scan plan from NULL into a destination that cannot hold
+		// one - it fails the statement rather than writing a zero. The fake has
+		// to refuse it too, or a non-pointer scan destination looks safe here
+		// and costs the whole block against a real server.
+		switch target.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+			target.Set(reflect.Zero(target.Type()))
+			return nil
+		}
+
+		return fmt.Errorf("cannot scan NULL into %s", target.Type())
 	}
 
 	v := reflect.ValueOf(value)

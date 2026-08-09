@@ -1,0 +1,14 @@
+# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z

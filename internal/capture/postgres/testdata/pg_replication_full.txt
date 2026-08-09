@@ -1,0 +1,23 @@
+# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+4021,16385,replicator,replica-01,10.0.4.12,,54432,2026-08-07T09:14:02.114Z,,streaming,2A/B4001200,2A/B4001200,2A/B4001100,2A/B4000F80,0.4,0.9,1.2,0,async,2026-08-07T14:32:04.902Z
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+orders_cdc_slot,pgoutput,logical,16401,orders_db,false,false,,,5518821,2A/A1002000,2A/A1002000,extended,1073741824,true
+replica_01_slot,,physical,,,false,true,4021,,,2A/B3FF0000,,reserved,3221225472,false
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+4021,16385,replicator,replica-01,10.0.4.12,,54432,2026-08-07T09:14:02.114Z,,streaming,2A/B41C4880,2A/B41C4880,2A/B41C4880,2A/B41C4300,0.31,0.62,0.88,0,async,2026-08-07T14:32:14.941Z
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+orders_cdc_slot,pgoutput,logical,16401,orders_db,false,false,,,5518821,2A/A1002000,2A/A1002000,extended,1071644672,true
+replica_01_slot,,physical,,,false,true,4021,,,2A/B41C0000,,reserved,3221225472,false
+# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
+4021,16385,replicator,replica-01,10.0.4.12,,54432,2026-08-07T09:14:02.114Z,,streaming,2A/B4380140,2A/B4380140,2A/B4379F00,2A/B4371880,1.05,2.44,4.02,0,async,2026-08-07T14:32:24.918Z
+# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase
+orders_cdc_slot,pgoutput,logical,16401,orders_db,false,false,,,5518821,2A/A1002000,2A/A1002000,extended,1069547520,true
+replica_01_slot,,physical,,,false,true,4021,,,2A/B4370000,,reserved,3221225472,false
+# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z
