@@ -123,6 +123,9 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 
 	assert.Equal(t, "pgCapacity", pgDTCapacity)
 
+	assert.Equal(t, "pgReplication", pgDTReplication,
+		"the unabbreviated form the server team assigned, not the pgRepl this slice proposed")
+
 	taken := []string{
 		"meta", "gc", "td", "hd", "ns", "df", "ps", "top", "vmstat", "dmesg",
 		"agentlog", "cpuprofile", "kernel", "ping", "hdsub", "lp", "accessLog", "applog",
@@ -131,10 +134,11 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	}
 
 	postgresDataTypes := map[string]string{
-		"pgDTMetadata": pgDTMetadata,
-		"pgDTBloat":    pgDTBloat,
-		"pgDTHealth":   pgDTHealth,
-		"pgDTCapacity": pgDTCapacity,
+		"pgDTMetadata":    pgDTMetadata,
+		"pgDTBloat":       pgDTBloat,
+		"pgDTHealth":      pgDTHealth,
+		"pgDTCapacity":    pgDTCapacity,
+		"pgDTReplication": pgDTReplication,
 	}
 
 	for name, dt := range postgresDataTypes {
@@ -183,13 +187,11 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTCapacity, pgSampledDataType(postgres.Capacity{}.Artifact()),
 		"pg_capacity.txt has its assigned value")
 
-	assert.Empty(t, pgSampledDataType(postgres.Replication{}.Artifact()),
-		"pg_replication.txt is written into the bundle and not uploaded: pgRepl is proposed and "+
-			"unassigned, and an invented value would be dropped silently at the far end - which "+
-			"is worse than the skip, because the run would report a successful upload")
+	assert.Equal(t, pgDTReplication, pgSampledDataType(postgres.Replication{}.Artifact()),
+		"pg_replication.txt has its assigned value")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_sessions"}),
-		"and so is an artifact that does not exist yet")
+		"an artifact the server team has not assigned a dt for is not uploaded")
 }
 
 func pgMetadataCollector() *postgres.MetadataCollector {
@@ -467,8 +469,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, 4,
-		"every artifact with an assigned dt is uploaded - four of the five written")
+	require.Len(t, uploads, 5, "every artifact the run writes is uploaded")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -479,12 +480,14 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTHealth, "pg_health.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTBloat, "pg_bloat.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTCapacity, "pg_capacity.txt uploaded under the wrong dt")
+	require.Contains(t, byDT, pgDTReplication, "pg_replication.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
-		pgDTMetadata: "source=pg_metadata",
-		pgDTHealth:   "source=pg_health",
-		pgDTBloat:    "source=pg_bloat",
-		pgDTCapacity: "source=pg_capacity",
+		pgDTMetadata:    "source=pg_metadata",
+		pgDTHealth:      "source=pg_health",
+		pgDTBloat:       "source=pg_bloat",
+		pgDTCapacity:    "source=pg_capacity",
+		pgDTReplication: "source=pg_replication",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -501,21 +504,16 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	assert.Equal(t, 4, strings.Count(result.Msg, " | "),
 		"one run-level record, five summaries joined into it")
 
-	replicationSummary := result.Msg[strings.Index(result.Msg, PostgresReplicationFileName):]
-	replicationSummary, _, _ = strings.Cut(replicationSummary, " | ")
-
-	assert.True(t, strings.HasPrefix(replicationSummary, PostgresReplicationFileName+" written"),
-		"the fifth artifact is still written into the bundle")
-	assert.Contains(t, replicationSummary, "not uploaded: dt value not yet assigned",
-		"and skipped by name: pgRepl is proposed and unassigned, and inventing one would be "+
-			"dropped silently at the far end")
-
-	assert.False(t, result.Ok,
-		"which costs the whole run's Ok, and is the reason the dt assignment is chased on day "+
-			"one rather than at release")
+	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
+		"no artifact takes the skip path now that all five dt values are assigned")
 
 	assert.NotContains(t, byDT, "pgRepl",
-		"and nothing is uploaded under the proposed value before the server team confirms it")
+		"and none of them under the abbreviation this slice proposed and the server team did "+
+			"not take: classification is an exact string match, so the near miss is dropped "+
+			"with no error at either end")
+
+	assert.True(t, result.Ok,
+		"all five artifacts transmitted, so the task's Ok must be true")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
