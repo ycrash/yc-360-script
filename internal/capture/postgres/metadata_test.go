@@ -1,18 +1,274 @@
 package postgres
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var errDenied = errors.New("ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)")
+
+// fakeMetadataConn is a window connection that answers the three metadata
+// statements, so the collector can be run through a real window with no server.
+type fakeMetadataConn struct {
+	*fakeWindowConn
+
+	querier *fakeQuerier
+}
+
+func newFakeMetadataConn() *fakeMetadataConn {
+	return &fakeMetadataConn{fakeWindowConn: newFakeWindowConn(), querier: healthyQuerier()}
+}
+
+func (c *fakeMetadataConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if sql == currentDatabaseSQL {
+		return c.fakeWindowConn.QueryRow(ctx, sql, args...)
+	}
+
+	return c.querier.QueryRow(ctx, sql, args...)
+}
+
+// metadataAt is the metadata goldens' clock, on testAgentNow's date so the
+// window's block timestamps and the fixture's agent_ts read as one capture.
+func metadataAt(minute, second, milli int) time.Time {
+	return time.Date(2026, 8, 4, 9, minute, second, milli*int(time.Millisecond), time.UTC)
+}
+
+// runMetadataWindow runs the default 120s window over the collector alone.
+func runMetadataWindow(t *testing.T, clock *scriptedClock, collector *MetadataCollector,
+	connect func(ctx context.Context, target Target) (windowConn, error),
+) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Target:     testTarget(),
+		Duration:   120 * time.Second,
+		Collectors: []Collector{collector},
+		now:        clock.now,
+		after:      clock.after,
+		connect:    connect,
+	}
+
+	return window.Run(context.Background())
+}
+
+// collecting returns a collector whose capture is m, so a golden can pin one
+// server's regime - PostgreSQL 17 on its own host - without a server in it.
+// Mode detection opens the log file it was told about, which no Querier can
+// fake.
+func collecting(m Metadata) *MetadataCollector {
+	collector := NewMetadata(testTarget(), "3.6.1", m.AgentTS)
+	collector.collect = func(context.Context, Querier, Target, time.Time) Metadata { return m }
+
+	return collector
+}
+
+func TestMetadataArtifact(t *testing.T) {
+	artifact := NewMetadata(testTarget(), "3.6.1", testAgentNow).Artifact()
+
+	assert.Equal(t, "pg_metadata", artifact.Name)
+	assert.Equal(t, "pg_metadata.txt", artifact.FileName)
+	assert.Equal(t, "cluster", artifact.Scope,
+		"the capability read describes the server, not the connected database")
+
+	assert.Equal(t, Once(), artifact.Schedule,
+		"a capability read is one reading, taken as the window opens")
+	assert.Equal(t, []time.Duration{0}, artifact.Schedule.offsets(120*time.Second))
+}
+
+func TestMetadataGoldenFull(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 44, 118),
+		metadataAt(12, 44, 119),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 201),
+		metadataAt(14, 44, 125),
+	)
+
+	collector := collecting(fullArtifactMetadata())
+
+	results := runMetadataWindow(t, clock, collector, connectTo(newFakeMetadataConn()))
+
+	require.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 1, results[0].SamplesWritten)
+	assert.Equal(t, bloatGolden(t, "pg_metadata_full.txt"), artifactText(t, results[0]))
+}
+
+func TestMetadataGoldenConnectFailure(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 49, 201),
+		metadataAt(12, 49, 202),
+		metadataAt(12, 54, 215),
+	)
+
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow)
+
+	results := runMetadataWindow(t, clock, collector,
+		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
+
+	require.Equal(t, StatusConnectFailed, results[0].Status)
+	assert.Equal(t, bloatGolden(t, "pg_metadata_connect_failure.txt"), artifactText(t, results[0]))
+}
+
+func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 49, 201),
+		metadataAt(12, 49, 202),
+		metadataAt(12, 54, 215),
+	)
+
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow)
+
+	results := runMetadataWindow(t, clock, collector,
+		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
+
+	artifact := artifactText(t, results[0])
+
+	assert.NotContains(t, artifact, "source=pg_metadata_server",
+		"the server block exists only because a connection did")
+
+	_, values, _ := parseArtifact(t, artifact)
+	assert.NotContains(t, values, "current_database")
+	assert.NotContains(t, values, "capture_mode",
+		"with no connection the mode is unknown by construction, and the closing block "+
+			"says connect_failed about the capture rather than about the server")
+	assert.Equal(t, "orders_db", values["target_database"],
+		"the block a reader can rely on is the one that is always there")
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 3)
+	assert.Contains(t, headers[2], "status=connect_failed samples_expected=1 samples_written=0 "+
+		"connect_error=too_many_connections")
+}
+
+func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 44, 118),
+		metadataAt(12, 44, 119),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 201),
+		metadataAt(14, 44, 125),
+	)
+
+	full := fullArtifactMetadata()
+
+	results := runMetadataWindow(t, clock, collecting(full), connectTo(newFakeMetadataConn()))
+
+	headers, values, keys := parseArtifact(t, artifactText(t, results[0]))
+
+	require.Len(t, headers, 4, "preamble, target block, server block, closing block")
+	assert.Contains(t, headers[1], "source=pg_metadata_target")
+	assert.Contains(t, headers[1], "db=orders_db dbid= ts=",
+		"there is no connection yet, so the configured name and no OID")
+	assert.Contains(t, headers[2], "source=pg_metadata_server")
+	assert.Contains(t, headers[2], "db=orders_db dbid=16401 sample=1 ts=",
+		"and afterwards, what identify read")
+
+	// The frame moved; the content did not. Both lists are asserted against the
+	// ones the writer builds, so a key added to either shows up here.
+	var want []string
+	for _, f := range append(targetFields(full), serverBlockFields(full)...) {
+		want = append(want, f.key)
+	}
+
+	assert.Equal(t, want, keys)
+	assert.Len(t, serverBlockFields(full), 38,
+		"capture_mode plus serverFields' thirty-seven, and no connect_error row")
+	assert.Len(t, targetFields(full), 7)
+
+	assert.Equal(t, ModeDBHost, values["capture_mode"])
+	assert.Equal(t, "3.6.1", values["yc360_version"])
+}
+
+func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+
+	prologue := &countingWriter{}
+	require.NoError(t, collector.WritePrologue(prologue, SampleContext{At: testAgentNow}))
+	assert.Equal(t, 1, prologue.writes)
+	assert.NotEmpty(t, prologue.buf.String())
+
+	sample := &countingWriter{}
+	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), sample,
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+
+	assert.Equal(t, 1, sample.writes,
+		"a write failing between header and body would leave the window's stub "+
+			"behind a half-written block")
+	assert.NotEmpty(t, sample.buf.String())
+}
+
+func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+
+	assert.Equal(t, ModeUnknown, collector.Collected().CaptureMode,
+		"before the sample the mode is unknown, which is also the truth about a "+
+			"run whose connection was refused")
+	assert.Equal(t, "orders_db", collector.Collected().TargetDatabase)
+
+	conn := newFakeMetadataConn()
+	conn.querier.logLocation = fakeRow{err: errDenied}
+
+	var buf bytes.Buffer
+	require.NoError(t, collector.Sample(context.Background(), conn, &buf,
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+
+	collected := collector.Collected()
+
+	assert.Equal(t, "orders_db", collected.CurrentDatabase)
+	assert.Contains(t, collected.CurrentLogfileError, "permission denied for function pg_current_logfile",
+		"the probe error the run log's line for this artifact is rendered from")
+	assert.Equal(t, "3.6.1", collected.YC360Version,
+		"Collect returns a fresh value, so the version stamped before the connection is carried across")
+}
+
+func TestMetadataCollectorCarriesNoPasswordThroughFmt(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		assert.NotContains(t, fmt.Sprintf(verb, collector), testPassword,
+			"the collector leaked the password through %s", verb)
+	}
+
+	// The unexported target is why: fmt reaches a nested String method only
+	// through an exported field, so without the collector's own String the
+	// Target would print as a bare struct whatever Target.String says.
+	assert.Contains(t, fmt.Sprintf("%v", collector), "<redacted>")
+
+	assert.NotContains(t, fmt.Sprintf("%#v", collector.Collected()), testPassword,
+		"and what the adapter reads back has no password field to leak")
+}
+
+func TestMetadataSampleCarriesNoPassword(t *testing.T) {
+	conn := newFakeMetadataConn()
+	leak := errors.New("connect failed for password=" + testPassword)
+	conn.querier.serverFacts = fakeRow{err: leak}
+	conn.querier.logLocation = fakeRow{err: leak}
+	conn.querier.replication = fakeRow{err: leak}
+
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+
+	var buf bytes.Buffer
+	require.NoError(t, collector.Sample(context.Background(), conn, &buf,
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+
+	assert.NotContains(t, buf.String(), testPassword)
+	assert.Contains(t, buf.String(), "<redacted>")
+}
 
 func TestCollect(t *testing.T) {
 	m := collect(t, healthyQuerier())
