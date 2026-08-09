@@ -1,4 +1,4 @@
-# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid= status=started window=120s samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid= status=started window=120s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_stat_user_tables v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 tables_written=2 tables_total=2 truncated=false ts=2026-08-07T14:32:05.112Z
 relid,schemaname,relname,n_live_tup,n_dead_tup,n_tup_upd,n_tup_hot_upd,seq_scan,idx_scan,last_autovacuum,last_vacuum,table_size_bytes,index_size_bytes
 16390,public,orders,4210044,412988,884213,689882,88104,4021884,2026-07-25T13:50:00.000Z,2026-07-25T13:50:00.000Z,2415919104,610271232

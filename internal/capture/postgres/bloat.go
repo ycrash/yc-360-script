@@ -85,7 +85,7 @@ func (Bloat) Artifact() Artifact {
 		Name:     "pg_bloat",
 		FileName: "pg_bloat.txt",
 		Scope:    "database",
-		Schedule: ScheduleStartEnd,
+		Schedule: StartEnd(),
 	}
 }
 
@@ -283,37 +283,18 @@ func bloatCells(rows []bloatRow) [][]string {
 			strconv.FormatUint(uint64(row.relid), 10),
 			row.schemaName,
 			row.relName,
-			bloatCount(row.nLiveTup),
-			bloatCount(row.nDeadTup),
-			bloatCount(row.nTupUpd),
-			bloatCount(row.nTupHotUpd),
-			bloatCount(row.seqScan),
-			bloatCount(row.idxScan),
-			bloatTime(row.lastAutovacuum),
-			bloatTime(row.lastVacuum),
-			bloatCount(row.tableSize),
-			bloatCount(row.indexSize),
+			int64Text(row.nLiveTup),
+			int64Text(row.nDeadTup),
+			int64Text(row.nTupUpd),
+			int64Text(row.nTupHotUpd),
+			int64Text(row.seqScan),
+			int64Text(row.idxScan),
+			timeText(row.lastAutovacuum),
+			timeText(row.lastVacuum),
+			int64Text(row.tableSize),
+			int64Text(row.indexSize),
 		}
 	}
 
 	return cells
-}
-
-// bloatCount renders a nullable counter. Empty, never 0 - see bloatRow.
-func bloatCount(v *int64) string {
-	if v == nil {
-		return ""
-	}
-
-	return strconv.FormatInt(*v, 10)
-}
-
-// bloatTime renders a nullable timestamp. A table that has never been vacuumed
-// is empty, not an epoch.
-func bloatTime(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-
-	return timestamp(*t)
 }

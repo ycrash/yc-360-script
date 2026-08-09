@@ -275,26 +275,42 @@ const (
 	matrixNoIdxLive      = 250
 )
 
-type bloatBlock struct {
+// sampleBlock is one collector's block, keyed by its first column - relid for
+// pg_bloat.txt, datid for pg_health.txt, which is the join key either way.
+type sampleBlock struct {
 	header  map[string]string
 	rawHead string
 	columns []string
 	rows    map[string][]string
 }
 
-func parseBloatBlocks(t *testing.T, artifact string) []bloatBlock {
+func parseBloatBlocks(t *testing.T, artifact string) []sampleBlock {
+	t.Helper()
+
+	return parseSampleBlocks(t, artifact, "pg_stat_user_tables")
+}
+
+func parseHealthBlocks(t *testing.T, artifact string) []sampleBlock {
+	t.Helper()
+
+	return parseSampleBlocks(t, artifact, "pg_stat_database")
+}
+
+// parseSampleBlocks reads the blocks one view produced, skipping the window's
+// own preamble and closing block.
+func parseSampleBlocks(t *testing.T, artifact, source string) []sampleBlock {
 	t.Helper()
 
 	var (
-		blocks  []bloatBlock
-		current *bloatBlock
+		blocks  []sampleBlock
+		current *sampleBlock
 	)
 
 	for _, line := range strings.Split(strings.TrimSuffix(artifact, "\n"), "\n") {
 		if strings.HasPrefix(line, "#") {
 			current = nil
 
-			if !strings.Contains(line, "source=pg_stat_user_tables") {
+			if !strings.Contains(line, "source="+source+" ") {
 				continue
 			}
 
@@ -306,7 +322,7 @@ func parseBloatBlocks(t *testing.T, artifact string) []bloatBlock {
 				}
 			}
 
-			blocks = append(blocks, bloatBlock{
+			blocks = append(blocks, sampleBlock{
 				header: header, rawHead: line, rows: map[string][]string{},
 			})
 			current = &blocks[len(blocks)-1]
@@ -330,7 +346,7 @@ func parseBloatBlocks(t *testing.T, artifact string) []bloatBlock {
 	return blocks
 }
 
-func (b bloatBlock) cell(t *testing.T, relid, column string) string {
+func (b sampleBlock) cell(t *testing.T, relid, column string) string {
 	t.Helper()
 
 	row, ok := b.rows[relid]
@@ -347,7 +363,7 @@ func (b bloatBlock) cell(t *testing.T, relid, column string) string {
 	return ""
 }
 
-func (b bloatBlock) relidOf(t *testing.T, schema, name string) string {
+func (b sampleBlock) relidOf(t *testing.T, schema, name string) string {
 	t.Helper()
 
 	for relid, row := range b.rows {
@@ -403,7 +419,7 @@ func TestMatrixBloat(t *testing.T) {
 				assert.Equal(t, blocks[0].columns, blocks[1].columns,
 					"both samples carry identical column sets")
 
-				assert.Equal(t, relidSet(blocks[0]), relidSet(blocks[1]),
+				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[1]),
 					"relid is stable across the two samples")
 
 				for i, block := range blocks {
@@ -424,7 +440,7 @@ func TestMatrixBloat(t *testing.T) {
 	}
 }
 
-func assertMatrixKnownTables(t *testing.T, block bloatBlock) {
+func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	t.Helper()
 
 	orders := block.relidOf(t, "public", "yc_bloat_orders")
@@ -490,7 +506,208 @@ func assertMatrixCapFires(t *testing.T, target Target) {
 	assert.Len(t, blocks[0].rows, capped)
 }
 
-func relidSet(b bloatBlock) []string {
+// matrixHealthSamples is three blocks at a 1s cadence over a 3s window, so five
+// servers times three roles stays under a minute.
+const matrixHealthSamples = 3
+
+// matrixDatabases is what pg_stat_database returns on a matrix container: the
+// shared-objects row, both templates, postgres, and yc_second.
+const matrixDatabases = 5
+
+func runMatrixHealthWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Duration(matrixHealthSamples) * time.Second,
+		Target:     target,
+		Collectors: []Collector{Health{Interval: time.Second}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixHealth(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				stop := matrixKeepCommitting(t, target)
+				results := runMatrixHealthWindow(t, target)
+				stop()
+
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"pg_stat_database masks nothing, so the artifact is complete for every role")
+				require.Equal(t, matrixHealthSamples, results[0].SamplesWritten)
+
+				content, err := os.ReadFile(results[0].Artifact.FileName)
+				require.NoError(t, err)
+				results[0].File.Close()
+
+				artifact := string(content)
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseHealthBlocks(t, artifact)
+				require.Len(t, blocks, matrixHealthSamples)
+
+				connected := blocks[0].header["dbid"]
+				require.NotEmpty(t, connected, "identify read no OID for the connected database")
+
+				for i, block := range blocks {
+					assert.Equal(t, healthColumns, block.columns,
+						"block %d: every sample carries an identical column set", i)
+
+					assert.NotContains(t, block.rawHead, "sessions_fatal=unavailable",
+						"block %d: sessions_fatal exists on 14-18, so the 42703 path is dead code "+
+							"across the supported range", i)
+
+					assert.Equal(t, strconv.Itoa(matrixDatabases), block.header["databases_total"])
+					assert.Equal(t, strconv.Itoa(matrixDatabases), block.header["databases_written"])
+					assert.Equal(t, "false", block.header["truncated"])
+
+					assert.Equal(t, "", block.cell(t, "0", "datname"),
+						"block %d: the shared-objects row accounts for shared relations, not a "+
+							"database, and its NULL datname is written empty", i)
+
+					second := matrixDatidOf(t, block, "yc_second")
+					assert.NotEqual(t, connected, second,
+						"block %d: the capture is connected to postgres and sees yc_second anyway - "+
+							"unfiltered, observed rather than argued", i)
+				}
+
+				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[len(blocks)-1]),
+					"datid is stable across the samples, which is what the server merges on")
+
+				first := matrixCounter(t, blocks[0], connected, "xact_commit")
+				last := matrixCounter(t, blocks[len(blocks)-1], connected, "xact_commit")
+				assert.Greater(t, last, first,
+					"xact_commit for the connected database must climb across the window")
+
+				assertMatrixHealthCapKeepsTheProtectedRows(t, target)
+			})
+		}
+	}
+}
+
+// matrixKeepCommitting holds a second connection open and commits on it until
+// the returned function is called, so xact_commit moves while the window is
+// sampling. Without it a backend flushes its statistics at most once per second
+// (PGSTAT_MIN_INTERVAL on 15 and later), so three identical reads in an idle
+// container would be a legitimate outcome.
+func matrixKeepCommitting(t *testing.T, target Target) (stop func()) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		for ctx.Err() == nil {
+			var one int
+			if err := conn.QueryRow(ctx, "SELECT 1").Scan(&one); err != nil {
+				return
+			}
+
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}
+}
+
+// assertMatrixHealthCapKeepsTheProtectedRows lowers the cap while connected to
+// the database with the highest OID - the case a plain ORDER BY datid gets
+// wrong.
+func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
+	t.Helper()
+
+	target.Database = "yc_second"
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		assert.NoError(t, conn.Close(closeCtx))
+	}()
+
+	var (
+		database string
+		dbid     *string
+	)
+	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).Scan(&database, &dbid))
+	require.Equal(t, "yc_second", database)
+	require.NotNil(t, dbid)
+
+	// Exactly the two rows the inner ordering protects; anything the cap kept
+	// beyond them would weaken the assertion below.
+	const capped = 2
+
+	var buf strings.Builder
+	require.NoError(t, Health{MaxDatabases: capped}.Sample(ctx, conn, &buf, SampleContext{
+		At: time.Now(), Index: 1, Database: database, DBID: *dbid,
+	}))
+
+	blocks := parseHealthBlocks(t, buf.String())
+	require.Len(t, blocks, 1)
+
+	assert.Equal(t, strconv.Itoa(capped), blocks[0].header["databases_written"])
+	assert.Equal(t, strconv.Itoa(matrixDatabases), blocks[0].header["databases_total"],
+		"the real total survives the cap, so a capped block cannot read as complete")
+	assert.Equal(t, "true", blocks[0].header["truncated"])
+
+	assert.Equal(t, []string{"0", *dbid}, rowKeys(blocks[0]),
+		"the shared row and the connected database survive - yc_second has the highest OID, "+
+			"so ordering on datid alone would have dropped the database the header names")
+}
+
+// matrixDatidOf is the datid of the row for datname, which must be present.
+func matrixDatidOf(t *testing.T, block sampleBlock, datname string) string {
+	t.Helper()
+
+	for datid, row := range block.rows {
+		if row[1] == datname {
+			return datid
+		}
+	}
+
+	t.Fatalf("database %s is not in the block", datname)
+
+	return ""
+}
+
+func matrixCounter(t *testing.T, block sampleBlock, datid, column string) int64 {
+	t.Helper()
+
+	value, err := strconv.ParseInt(block.cell(t, datid, column), 10, 64)
+	require.NoError(t, err, "%s must be a number", column)
+
+	return value
+}
+
+func rowKeys(b sampleBlock) []string {
 	relids := make([]string, 0, len(b.rows))
 	for relid := range b.rows {
 		relids = append(relids, relid)
