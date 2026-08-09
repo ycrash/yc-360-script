@@ -200,9 +200,12 @@ func TestBuildConfigSessionSafety(t *testing.T) {
 	assert.Equal(t, 5*time.Second, cfg.ConnectTimeout)
 }
 
-func TestWindowGraceCoversATwoStatementSample(t *testing.T) {
-	assert.Greater(t, WindowGrace, 2*StatementTimeout,
-		"the grace must outlast the statements the final sample is allowed to run")
+func TestDefaultSampleBudgetCoversATwoStatementSample(t *testing.T) {
+	assert.Equal(t, 2*StatementTimeout, DefaultSampleBudget,
+		"the budget must outlast the statements one sample is allowed to run")
+
+	assert.Equal(t, 25*time.Second, DefaultSampleBudget+WindowCloseMargin,
+		"which is what a closing tick owned by one default-budget collector costs")
 }
 
 func TestClassifyConnectError(t *testing.T) {

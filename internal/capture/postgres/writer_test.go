@@ -87,9 +87,6 @@ func connectFailureMetadata() Metadata {
 	}
 }
 
-// writeArtifact renders the two blocks the collector writes, from a value
-// rather than from a capture: what these tests pin is the field lists, where
-// metadata_test.go's goldens pin the frame the window puts around them.
 func writeArtifact(t *testing.T, m Metadata) string {
 	t.Helper()
 
@@ -119,18 +116,6 @@ func golden(t *testing.T, name string) string {
 	return string(content)
 }
 
-// parseArtifact reads an artifact the way testdata/README.md tells a reader to,
-// and is the reference implementation of that rule: split the block headers off
-// by their leading #, then parse what is left as CSV.
-//
-// The headers are deliberately not handed to the CSV reader. headerValue quotes
-// any value containing whitespace, which is every driver message, so a real
-// connect_error= header is a bare " in a non-quoted field - which is a parse
-// error, not a one-field record. TestBlockHeaderIsNotACSVRecord pins that.
-//
-// Every block that has a body opens it with the key,value column header, and
-// the rows of the whole file are merged: the artifact's contract is one key set
-// across the file, whichever block a key lives in.
 func parseArtifact(t *testing.T, artifact string) (headers []string, values map[string]string, keys []string) {
 	t.Helper()
 
@@ -138,10 +123,6 @@ func parseArtifact(t *testing.T, artifact string) (headers []string, values map[
 
 	var body strings.Builder
 
-	// Each block's body is parsed on its own, which is what makes a block
-	// readable without the one before it - and is the only way to know where one
-	// block's column header ends up, since a CSV reader skips blank lines and
-	// would swallow any separator written into the stream.
 	flush := func() {
 		if body.Len() == 0 {
 			return
@@ -219,15 +200,8 @@ func TestBlockHeaderFieldOrder(t *testing.T) {
 	}, strings.Fields(headers[1]))
 }
 
-// TestBlockHeaderIsNotACSVRecord pins the reader requirement testdata/README.md
-// states, and the reason it is stated that way.
-//
-// A block header is a # line to be split on whitespace, never a CSV record. The
-// artifact's body is CSV; its headers are not, and a reader that hands the whole
-// file to a CSV parser breaks on the first real connect failure - which is the
-// case the artifact exists to record.
 func TestBlockHeaderIsNotACSVRecord(t *testing.T) {
-	// Observed, not invented: an unresolvable host, as pgx renders it.
+
 	refusal := "failed to connect to `user=ycrash_monitor database=orders_db`: " +
 		"hostname resolving error: lookup db-prod-01.internal: no such host"
 
@@ -250,7 +224,6 @@ func TestBlockHeaderIsNotACSVRecord(t *testing.T) {
 		"the header is a bare quote in a non-quoted field. If this ever parses cleanly, "+
 			"the reader requirements can be simplified - until then they cannot")
 
-	// The documented rule handles it, because it never parses the header at all.
 	headers, _, _ := parseArtifact(t, header+"key,value\ncapture_mode,unknown\n")
 	require.Len(t, headers, 1)
 	assert.Equal(t, strings.TrimSuffix(header, "\n"), headers[0])

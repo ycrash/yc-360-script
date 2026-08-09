@@ -16,8 +16,7 @@ The goldens:
   always there. PostgreSQL 17 deliberately: `pg_monitor` was not granted
   EXECUTE on `pg_current_logfile()` until 17, so a 14–16 fixture showing
   `has_pg_monitor_role,true` next to `capture_mode,pg-dbhost` would depict a
-  deployment that needs an extra manual grant (`pg_metadata_impl_notes.txt`
-  §2a).
+  deployment that needs an extra manual grant.
 - `pg_metadata_connect_failure.txt` — a run that never reached the server. The
   absence of the server block is the discriminator, and `connect_error=` in the
   closing block's header says why. There is no `capture_mode` row: with no
@@ -49,6 +48,28 @@ The goldens:
   the column stays in the body with every cell empty — a key present in one
   block of a shape is present in every block of that shape. `status=complete`:
   ten of eleven columns is a captured sample, not a failed one.
+- `pg_capacity_pg17.txt` — a complete capture against PostgreSQL 17 or 18:
+  **four sample blocks for two samples**, which is the first artifact where
+  those are different numbers. The checkpoint block is written on both samples; the
+  connection and WAL blocks are gauges — what exists as the window closes, not
+  what happened during it — so they are written once, on the closing sample.
+  `views=pg_stat_checkpointer,pg_stat_bgwriter` because 17 moved three of the
+  five counters into a new view; `buffers_backend` is empty because that column
+  was removed outright, and empty rather than `0` because `0` would mean
+  backends wrote no buffers. The two reset clocks carry different values: the
+  two views reset independently from 17 on, so one column would leave the
+  other's counter with an undetectable reset.
+- `pg_capacity_pre17.txt` — the same capture against 14–16, and the pair is the
+  contract. **Exactly two structural differences are permitted**: `views=`, and
+  a populated `buffers_backend`. Every column header is identical, the two reset
+  clocks are the same value read twice, and anything else moving means the
+  normalisation is incomplete.
+- `pg_capacity_wal_denied.txt` — the least-privilege role. `pg_ls_waldir()`
+  needs `pg_monitor` or superuser, so a role holding only `LOGIN` is denied: the
+  WAL block is its header and its column header with `error=` saying why, the
+  other two blocks are populated, and the artifact is `complete`. One refused
+  read costs its own block, never the reads that succeeded beside it.
+- `pg_capacity_connect_failure.txt` — two lines, as above.
 
 ## Reader requirements
 
@@ -82,9 +103,25 @@ pin the rule below against the driver text that motivates it.
 - **One file may carry more than one `source=`.** The window's own blocks name
   the artifact; a collector's blocks name what they read. `pg_health.txt`
   carries `pg_health` and `pg_stat_database`, `pg_bloat.txt` carries `pg_bloat`
-  and `pg_stat_user_tables`, and `pg_metadata.txt` carries three:
+  and `pg_stat_user_tables`, `pg_metadata.txt` carries three:
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
-  for what was configured, and `pg_metadata_server` for what the server said.
+  for what was configured, and `pg_metadata_server` for what the server said —
+  and `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
+  `pg_stat_activity_by_app` and `pg_ls_waldir`.
+- **One sample may be more than one block, and `samples_expected` counts
+  samples.** `pg_capacity.txt` writes four sample blocks for two samples — one
+  on the opening sample and three on the closing one — and a reader that counted
+  blocks would call that file incomplete. Group a collector's
+  blocks into samples by `sample=`, which every one of them carries; the
+  artifact's own `samples_expected` and `samples_written` are about samples and
+  nothing else.
+- **A block whose own read failed is still written**, with `error=` in its
+  header and no rows under its column header. Within one sample the blocks fail
+  independently: a `pg_capacity.txt` sample can carry two populated blocks and
+  one that says why it is empty, and it is still a complete sample. The
+  artifact-level stub — `sample_error=` on a block naming the artifact — is a
+  different thing, and means the collector could not localise the failure at
+  all.
 
 ### Block header keys
 
@@ -94,9 +131,12 @@ identity and its clock read are readable without parsing the middle.
 
 - A key written with an empty value means "not read" — `dbid=` before a
   connection exists. It is not the same as the key being absent.
-- Header keys, unlike body keys, may be **conditional**: `sizes=`, `reason=`
-  and `connect_error=` appear only when the thing they describe happened, and
-  in each case absence is itself the value.
+- Header keys, unlike body keys, may be **conditional**: `sizes=`, `reason=`,
+  `error=` and `connect_error=` appear only when the thing they describe
+  happened, and in each case absence is itself the value. `pg_capacity.txt`'s
+  connection block goes further and drops its three count keys when the read
+  failed: `groups_total=0` would assert that the server has no connections,
+  where the truth is that nobody could count them.
 - An artifact's preamble carries `schedule=` (`start_end`, `every` or `once`)
   and `interval=` (`10s`, or empty on the other two). Both are written for every
   artifact on every schedule, so the preamble is one fixed key set:
@@ -106,6 +146,12 @@ identity and its clock read are readable without parsing the middle.
   `interval=`.** A sample runs late rather than being skipped, so two blocks
   with near-identical `ts=` mean the sampler was catching up. `interval=` is
   the nominal cadence, there to be compared against `ts=`.
+- **`ts=` is the sample's clock read, not the block's.** Every block of one
+  `sample=` carries the same value, taken before the sample's first statement
+  ran — so in `pg_capacity.txt` the WAL block's `ts=` can precede its own read
+  by as much as two statement timeouts. Equal `ts=` within one `sample=` is by
+  construction and says nothing about the sampler catching up; the rule above
+  applies across samples.
 
 ### Versioning
 
@@ -136,5 +182,5 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go` and `health_test.go`, and argue the resulting diff — never
-hand-edit these files.
+`bloat_test.go`, `health_test.go` and `capacity_test.go`, and argue the
+resulting diff — never hand-edit these files.

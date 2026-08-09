@@ -5,32 +5,27 @@ import (
 	"time"
 )
 
-// The capture runs against server versions 14-18 and, by design, as a role that
-// may hold nothing beyond CONNECT. Every statement here obeys two rules.
+// Two rules for every statement here, because the capture runs against 14-18 as
+// a role that may hold nothing beyond CONNECT.
 //
-// Version safety: a capability is established by asking the catalog, never by
-// comparing server_version_num against a number the agent carries. pg_upgrade
-// carries an old extension schema forward until someone runs ALTER EXTENSION
-// ... UPDATE, so a PG15 server can legitimately expose pg_stat_statements'
-// pre-1.8 column set.
+// Version safety: a capability is asked of the catalog, never derived from
+// server_version_num. pg_upgrade carries an old extension schema forward, so a
+// PG15 server can legitimately expose pg_stat_statements' pre-1.8 columns.
 //
-// Privilege safety: settings are read from pg_settings, never with SHOW or
+// Privilege safety: settings come from pg_settings, never SHOW or
 // current_setting(). The view returns no row for an unknown name where SHOW
-// raises, and omits a GUC_SUPERUSER_ONLY setting for a role without
-// pg_read_all_settings where current_setting(name, true) suppresses only the
-// unknown-name error.
+// raises, and omits a superuser-only setting for a role without
+// pg_read_all_settings where current_setting(name, true) would still raise.
 //
-// The consequence is that serverFactsSQL cannot fail for want of a grant;
-// logLocationSQL genuinely can, which is why it is separate.
+// So serverFactsSQL cannot fail for want of a grant; logLocationSQL can, which
+// is why it is separate.
 
-// timestampLayout is the artifact's timestamp form: RFC 3339 in UTC, to
-// milliseconds.
+// timestampLayout is RFC 3339 in UTC, to milliseconds.
 const timestampLayout = "2006-01-02T15:04:05.000Z"
 
-// capturedSettings is the pg_settings catalogue serverFactsSQL reads, in the
-// order the artifact writes it. Name and destination field are paired here so
-// the list sent to the server, the assignment and the settings_unavailable
-// roll-up cannot drift apart.
+// capturedSettings is what serverFactsSQL reads from pg_settings, in artifact
+// order. Name and destination are paired here so the list sent to the server,
+// the assignment and the settings_unavailable roll-up cannot drift apart.
 var capturedSettings = []struct {
 	name  string
 	field func(*Metadata) *string
@@ -48,13 +43,11 @@ var capturedSettings = []struct {
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
-	// superuser-only. Moved out of logLocationSQL: on 14-16 pg_monitor is denied
-	// pg_current_logfile() and this row went down with the statement, even
-	// though pg_read_all_settings may see it.
+	// superuser-only. Not in logLocationSQL: on 14-16 pg_monitor is denied
+	// pg_current_logfile(), and this row would go down with that statement.
 	{"data_directory", func(m *Metadata) *string { return &m.DataDirectory }},
 }
 
-// settingNames is the $1 argument serverFactsSQL is given.
 func settingNames() []string {
 	names := make([]string, len(capturedSettings))
 	for i, s := range capturedSettings {
@@ -66,15 +59,12 @@ func settingNames() []string {
 
 // serverFactsSQL is the unprivileged statement: identity, run facts, the
 // settings catalogue and every capability probe. No path in it can raise for a
-// role holding only CONNECT.
+// role holding only CONNECT. Settings are in pg_settings.setting form - internal
+// units, so `500` rather than SHOW's `500ms`.
 //
-// Values are recorded in pg_settings.setting form - internal units, so `500`
-// rather than SHOW's `500ms`.
-//
-// The two array_agg subqueries return parallel name and value arrays rather
-// than one 2-D array: no multi-dimensional scan support needed, and text arrays
-// (unlike a json aggregate) pass bytes through without a UTF-8 conversion that
-// could fail on a SQL_ASCII cluster whose log_line_prefix is not valid UTF-8.
+// Parallel name and value arrays rather than one 2-D array or a json aggregate:
+// no multi-dimensional scan support needed, and text arrays pass bytes through
+// without a UTF-8 conversion that could fail on a SQL_ASCII cluster.
 //
 // inet_server_addr() is unwrapped with host() rather than cast to text: the
 // cast renders `172.17.0.2/32`, and the /32 is an artifact of the return type.
@@ -109,21 +99,19 @@ SELECT
     now(),
     clock_timestamp()`
 
-// logLocationSQL is isolated because it is the one statement that can be
-// denied: pg_current_logfile has EXECUTE revoked from PUBLIC and the grant to
-// pg_monitor only landed in PostgreSQL 17, so on 14-16 the denial is the normal
-// outcome for the recommended role. It reads nothing else for the same reason.
+// logLocationSQL is isolated because it is the one statement that can be denied:
+// pg_current_logfile's grant to pg_monitor only landed in PostgreSQL 17, so on
+// 14-16 denial is the normal outcome for the recommended role.
 const logLocationSQL = `SELECT pg_current_logfile()`
 
-// replicationSQL is separated defensively rather than because it is known to
-// need a grant: pg_stat_replication masks columns, not rows.
+// replicationSQL is separated defensively: pg_stat_replication masks columns,
+// not rows, so this is not known to need a grant.
 const replicationSQL = `SELECT count(*) FROM pg_catalog.pg_stat_replication`
 
-// serverFactsRow is serverFactsSQL's result, one field per column in selection
-// order. Every field is a pointer, including columns that cannot be NULL today:
-// a non-pointer destination turns an unexpected NULL into a scan error and
-// loses the whole statement. The arrays are exempt - a NULL array scans into a
-// nil slice natively.
+// serverFactsRow is serverFactsSQL's result, in selection order. Every scalar
+// is a pointer, including columns that cannot be NULL today: a non-pointer
+// destination turns an unexpected NULL into a scan error and loses the whole
+// statement. A NULL array scans into a nil slice natively.
 type serverFactsRow struct {
 	currentDatabase  *string
 	currentUser      *string
@@ -145,7 +133,7 @@ type serverFactsRow struct {
 	serverClock      *time.Time
 }
 
-// dest returns the scan destinations for serverFactsSQL, in selection order.
+// dest is in serverFactsSQL's selection order.
 func (r *serverFactsRow) dest() []any {
 	return []any{
 		&r.currentDatabase,
@@ -169,9 +157,9 @@ func (r *serverFactsRow) dest() []any {
 	}
 }
 
-// settings pairs the two aggregate columns back into a name/value map. They
-// agree by construction; the length guard makes a future edit that breaks that
-// produce missing settings rather than mismatched ones.
+// settings pairs the two aggregate columns back into a map. The length guard
+// makes an edit that breaks their correspondence produce missing settings
+// rather than mismatched ones.
 func (r *serverFactsRow) settings() map[string]string {
 	if len(r.settingNames) != len(r.settingValues) {
 		return nil
@@ -185,8 +173,8 @@ func (r *serverFactsRow) settings() map[string]string {
 	return out
 }
 
-// text renders a nullable text column. NULL and empty are recorded identically:
-// an empty value means "not read", and the *_error keys say why.
+// text records NULL and empty identically: empty means "not read", and the
+// *_error keys say why.
 func text(v *string) string {
 	if v == nil {
 		return ""
@@ -211,8 +199,7 @@ func int32Text(v *int32) string {
 	return strconv.FormatInt(int64(*v), 10)
 }
 
-// int64Text renders a nullable counter. Empty, never 0: empty means "not read"
-// where 0 is a reading.
+// int64Text is empty, never 0: empty means "not read" where 0 is a reading.
 func int64Text(v *int64) string {
 	if v == nil {
 		return ""
@@ -221,9 +208,7 @@ func int64Text(v *int64) string {
 	return strconv.FormatInt(*v, 10)
 }
 
-// timeText renders a nullable timestamp in the artifact's form: UTC, as read.
-// Nothing here subtracts one timestamp from another - that is the server's
-// arithmetic to do.
+// timeText renders a nullable timestamp as read, in UTC.
 func timeText(v *time.Time) string {
 	if v == nil {
 		return ""
