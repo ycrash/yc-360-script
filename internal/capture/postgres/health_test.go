@@ -32,7 +32,6 @@ const (
 
 var testDBStatsReset = time.Date(2026, 7, 20, 2, 0, 0, 0, time.UTC)
 
-// dbStat is one pg_stat_database row as the server would return it.
 type dbStat struct {
 	datid     uint32
 	datname   *string
@@ -49,13 +48,10 @@ type dbStat struct {
 
 type cluster []dbStat
 
-// rows is the uncapped case: databases_total equals the row count.
 func (c cluster) rows() [][]any { return c.rowsOf(int64(len(c)), true) }
 
-// rowsTotal is the capped case: count(*) OVER () after LIMIT dropped rows.
 func (c cluster) rowsTotal(total int64) [][]any { return c.rowsOf(total, true) }
 
-// withoutSessionsFatal is what the fallback statement returns.
 func (c cluster) withoutSessionsFatal() [][]any { return c.rowsOf(int64(len(c)), false) }
 
 func (c cluster) rowsOf(total int64, sessionsFatal bool) [][]any {
@@ -78,8 +74,6 @@ func (c cluster) rowsOf(total int64, sessionsFatal bool) [][]any {
 	return rows
 }
 
-// ordersCluster is the shared row, both templates, the maintenance database and
-// the application's, in the ascending datid the statement returns.
 func ordersCluster(orders dbStat) cluster {
 	return cluster{
 		{datid: 0, hit: 182044, read: 9120},
@@ -171,9 +165,6 @@ func undefinedColumn42703() error {
 	}
 }
 
-// healthGoldenClock scripts a 30s window at the default cadence: the preamble,
-// t0, a pair per tick - the timeline's wait and the sample's ts= - then the
-// closing block.
 func healthGoldenClock(t *testing.T) *scriptedClock {
 	return newScriptedClock(t,
 		at(32, 4, 980),
@@ -188,7 +179,6 @@ func healthGoldenClock(t *testing.T) *scriptedClock {
 	)
 }
 
-// runHealthWindow runs a 30s window, so three samples fit on a page.
 func runHealthWindow(t *testing.T, clock *scriptedClock, target Target, collector Health,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {

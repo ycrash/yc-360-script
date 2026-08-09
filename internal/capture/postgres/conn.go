@@ -29,29 +29,22 @@ const (
 	ConnectTimeout = 5 * time.Second
 
 	// StatementTimeout is the client-side per-statement deadline, applied by
-	// callers: the backstop for when the server-side statement_timeout does not
-	// fire.
+	// callers: the backstop for when the server-side one does not fire.
+	// DefaultHealthInterval is this same 10s, so an interval sample that runs to
+	// its timeout consumes its whole interval - the timeline can stay level
+	// under load but cannot catch up.
 	StatementTimeout = 10 * time.Second
 
-	// ModuleDeadline bounds the one-shot metadata capture. It is not the bound
-	// for a sampled capture, which derives its own from the configured window -
-	// see WindowGrace.
+	// ModuleDeadline bounds the one-shot metadata capture. A sampled capture
+	// derives its own - see Window.moduleDeadline.
 	ModuleDeadline = 30 * time.Second
 
-	// WindowGrace is what a sampled capture adds to its configured window to
-	// reach its module deadline. It exists for the final sample, which starts
-	// at t0+window: two statements at StatementTimeout each, plus room to write
-	// the closing block. Window.Run arms the deadline after connecting so that
-	// budget is not spent before sampling starts.
-	//
-	// Expressed as the arithmetic rather than as 25s so it stays true if
-	// StatementTimeout moves.
-	//
-	// It bounds the final sample's duration, never its start. DefaultHealthInterval
-	// is this same 10s, so an interval sample that runs to its timeout consumes
-	// its whole interval: the timeline can stay level under load but cannot catch
-	// up, and nothing covers a final sample that starts late.
-	WindowGrace = 2*StatementTimeout + 5*time.Second
+	// DefaultSampleBudget is one sample of an artifact that declares none: two
+	// statements at StatementTimeout each.
+	DefaultSampleBudget = 2 * StatementTimeout
+
+	// WindowCloseMargin is room to write the closing block after the last sample.
+	WindowCloseMargin = 5 * time.Second
 )
 
 // tooManyConnections is SQLSTATE 53300: the server is at max_connections.
@@ -64,13 +57,11 @@ var ErrTooManyConnections = errors.New("too_many_connections")
 
 // sessionParams rides in the startup packet rather than in SETs after connect:
 // SETs leave a window in which the session has no statement_timeout and is not
-// read-only, which on a wedged database is exactly when things hang.
+// read-only, which on a wedged database is when things hang.
 //
-// All are PGC_USERSET. idle_session_timeout is pinned to 0 because the sampling
-// window holds an idle session across the gap between samples, and a server
-// default below the window would drop the connection mid-capture; it also sets
-// the package's floor at PostgreSQL 14, where that GUC landed - an unknown name
-// in the startup packet is a FATAL, not a warning.
+// idle_session_timeout is pinned to 0 because the window holds an idle session
+// between samples. It also sets the package's floor at PostgreSQL 14, where that
+// GUC landed: an unknown name in the startup packet is a FATAL.
 var sessionParams = map[string]string{
 	"application_name":                    ApplicationName,
 	"default_transaction_read_only":       "on",
@@ -80,8 +71,8 @@ var sessionParams = map[string]string{
 	"idle_session_timeout":                "0",
 }
 
-// Target is config.Postgres narrowed to what this package needs, which is what
-// keeps config out of this package's imports.
+// Target is config.Postgres narrowed to what this package needs, which keeps
+// config out of this package's imports.
 type Target struct {
 	Host     string
 	Port     int
@@ -91,7 +82,6 @@ type Target struct {
 	SSLMode  string
 }
 
-// String renders the target for logs with the password redacted.
 func (t Target) String() string {
 	password := `""`
 	if t.Password != "" {
@@ -104,28 +94,22 @@ func (t Target) String() string {
 	)
 }
 
-// GoString renders the target for %#v, which ignores String - and
-// capture.WrapRun formats a failing task with %#v into an agent log that is
-// itself uploaded.
-//
-// The receiver is a value because fmt can only reach GoString on a nested,
-// non-addressable struct field through the value method set.
+// GoString redacts under %#v, which ignores String - and WrapRun formats a
+// failing task with %#v into an agent log that is itself uploaded. Value
+// receiver because fmt reaches GoString on a nested, non-addressable struct
+// field only through the value method set.
 func (t Target) GoString() string {
 	return "postgres.Target{" + t.String() + "}"
 }
 
-// Conn is a single pgx connection, not a pool: the capture runs a small fixed
-// set of statements in sequence, and adding load to a database in trouble is
-// the thing to avoid.
+// Conn is a single pgx connection, not a pool.
 type Conn struct {
 	conn *pgx.Conn
 }
 
 // Connect opens one connection to t, classifying a refusal for want of
-// connection slots as ErrTooManyConnections.
-//
-// No returned error exposes the password: it never enters the DSN, and pgx
-// renders a failed connection as user and database only.
+// connection slots as ErrTooManyConnections. No returned error exposes the
+// password: it never enters the DSN.
 func Connect(ctx context.Context, t Target) (*Conn, error) {
 	cfg, err := buildConfig(t)
 	if err != nil {
@@ -140,33 +124,29 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 	return &Conn{conn: conn}, nil
 }
 
-// QueryRow delegates to the underlying connection. The per-statement deadline
-// is the caller's: pgx sends the query here but reads the row in Scan, so a
-// deadline cancelled at this method's return would break the read.
+// QueryRow's per-statement deadline is the caller's: the row is read in Scan,
+// after this returns.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return c.conn.QueryRow(ctx, sql, args...)
 }
 
-// Query reads a row set. The per-statement deadline is the caller's, for the
-// same reason QueryRow's is: the rows are read after this returns.
+// Query's deadline is the caller's, for the same reason QueryRow's is.
 func (c *Conn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return c.conn.Query(ctx, sql, args...)
 }
 
-// Close releases the connection.
 func (c *Conn) Close(ctx context.Context) error {
 	return c.conn.Close(ctx)
 }
 
-// buildConfig turns a Target into a pgx connection config.
 func buildConfig(t Target) (*pgx.ConnConfig, error) {
 	cfg, err := parseConfigWithoutEnvironment(dsn(t))
 	if err != nil {
 		return nil, err
 	}
 
-	// Assigned even when empty: a password is optional, and leaving the field
-	// alone would hand the connection to whatever PGPASSWORD or .pgpass holds.
+	// Assigned even when empty: leaving the field alone would hand the
+	// connection to whatever PGPASSWORD or .pgpass holds.
 	cfg.Password = t.Password
 
 	// Replaced wholesale, not merged: pgx can populate this from the DSN, the
@@ -179,9 +159,9 @@ func buildConfig(t Target) (*pgx.ConnConfig, error) {
 	return cfg, nil
 }
 
-// dsn renders the target in libpq keyword/value form. The password is
-// deliberately absent - buildConfig assigns it after parsing - so a parse error
-// or a logged DSN cannot expose it.
+// dsn renders the target in libpq keyword/value form. The password is absent -
+// buildConfig assigns it after parsing - so a parse error or a logged DSN cannot
+// expose it.
 func dsn(t Target) string {
 	pairs := [][2]string{
 		{"host", t.Host},
@@ -200,9 +180,7 @@ func dsn(t Target) string {
 	return strings.Join(parts, " ")
 }
 
-// quoteDSNValue single quotes v and escapes backslash and single quote. Host,
-// database and user are free-form YAML strings, so the parser input cannot be
-// assumed tame.
+// quoteDSNValue escapes v for libpq. Host, database and user are free-form YAML.
 func quoteDSNValue(v string) string {
 	var b strings.Builder
 	b.Grow(len(v) + 2)
@@ -250,22 +228,17 @@ var libpqEnv = []string{
 	"PGREQUIREAUTH",
 }
 
-// parseConfigMu serializes the environment window in parseConfigWithoutEnvironment.
 var parseConfigMu sync.Mutex
 
 // parseConfigWithoutEnvironment parses dsn with the libpq environment removed,
-// so the config file is the only thing that decides what the capture connects
-// to.
+// so the config file is the only thing deciding what the capture connects to.
 //
-// Cleared for the duration of the parse rather than overridden afterwards,
-// because PGSERVICE cannot be beaten any other way: it makes ParseConfig read a
-// service file, fail outright when that file is missing, and inject settings the
-// DSN does not name. pgx offers no opt-out.
+// Cleared for the parse rather than overridden afterwards, because PGSERVICE
+// cannot be beaten any other way: it makes ParseConfig read a service file, fail
+// outright when that file is missing, and inject settings the DSN does not name.
 //
-// The cost is a process-wide window - the mutex serializes this helper against
-// itself, not against the rest of the agent - during which a sibling capture
-// that execs a child passes on an environment with the PG* variables missing.
-// Accepted: losing the capture entirely to a stray PGSERVICE is worse.
+// The cost is a process-wide window during which a sibling capture that execs a
+// child passes on an environment with the PG* variables missing.
 func parseConfigWithoutEnvironment(dsn string) (*pgx.ConnConfig, error) {
 	parseConfigMu.Lock()
 	defer parseConfigMu.Unlock()
@@ -275,8 +248,6 @@ func parseConfigWithoutEnvironment(dsn string) (*pgx.ConnConfig, error) {
 	return pgx.ParseConfig(dsn)
 }
 
-// clearEnv unsets each named variable and returns a function that restores the
-// ones that were set.
 func clearEnv(names []string) (restore func()) {
 	saved := make(map[string]string, len(names))
 
@@ -294,8 +265,6 @@ func clearEnv(names []string) (restore func()) {
 	}
 }
 
-// classifyConnectError wraps a 53300 refusal in ErrTooManyConnections and
-// returns every other error unchanged.
 func classifyConnectError(err error) error {
 	if err == nil {
 		return nil
@@ -309,12 +278,9 @@ func classifyConnectError(err error) error {
 }
 
 // ConnectErrorText renders a Connect failure for the artifact's connect_error
-// row.
-//
-// A classified failure is written as the bare token the artifact contract pins,
-// not as err.Error(): that reads "too_many_connections: failed to connect to
-// ..." - close enough to pass a careless eye, and wrong for anything matching
-// on it.
+// row. A classified failure is written as the bare token the contract pins, not
+// err.Error(): that reads "too_many_connections: failed to connect to ..." -
+// close enough to pass a careless eye, and wrong for anything matching on it.
 func ConnectErrorText(err error, t Target) string {
 	switch {
 	case err == nil:
@@ -328,13 +294,10 @@ func ConnectErrorText(err error, t Target) string {
 	}
 }
 
-// hasSQLState walks err's tree for a *pgconn.PgError carrying the given
-// SQLSTATE.
-//
-// Not errors.As: pgx joins one error per resolved address, and errors.As stops
-// at the first *pgconn.PgError - so on a host with both an A and an AAAA record
-// an unrelated rejection from the first address would mask a 53300 from the
-// second.
+// hasSQLState walks err's tree for a *pgconn.PgError with the given SQLSTATE.
+// Not errors.As: pgx joins one error per resolved address and errors.As stops at
+// the first *pgconn.PgError, so on a host with both an A and an AAAA record an
+// unrelated rejection from the first would mask a 53300 from the second.
 func hasSQLState(err error, sqlState string) bool {
 	if err == nil {
 		return false

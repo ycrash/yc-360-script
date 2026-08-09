@@ -63,15 +63,6 @@ func chdirToCaptureDir(t *testing.T) string {
 	return resolved
 }
 
-// readPostgresArtifact reads pg_metadata.txt's key,value rows, merged across
-// its blocks: the artifact's contract is one key set per file, and which block
-// a key lives in is the postgres package's business rather than this one's.
-//
-// The block headers are split off by their leading # before the body is parsed,
-// rather than being read as one-field CSV records. A header value is quoted
-// where it needs to be, and real driver text carries commas and quotes: a
-// connect_error= header is not a CSV record and must not be handed to a CSV
-// reader.
 func readPostgresArtifact(t *testing.T) (raw string, values map[string]string) {
 	t.Helper()
 
@@ -130,6 +121,8 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 
 	assert.Equal(t, "pgHealth", pgDTHealth)
 
+	assert.Equal(t, "pgCapacity", pgDTCapacity)
+
 	taken := []string{
 		"meta", "gc", "td", "hd", "ns", "df", "ps", "top", "vmstat", "dmesg",
 		"agentlog", "cpuprofile", "kernel", "ping", "hdsub", "lp", "accessLog", "applog",
@@ -137,21 +130,29 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		nodeDTModuleInventory, nodeDTHandleGrowth, nodeDTGCStats,
 	}
 
-	for _, dt := range taken {
-		assert.NotEqual(t, dt, pgDTMetadata, "pgDTMetadata collides with an existing dt value")
-		assert.NotEqual(t, dt, pgDTBloat, "pgDTBloat collides with an existing dt value")
-		assert.NotEqual(t, dt, pgDTHealth, "pgDTHealth collides with an existing dt value")
+	postgresDataTypes := map[string]string{
+		"pgDTMetadata": pgDTMetadata,
+		"pgDTBloat":    pgDTBloat,
+		"pgDTHealth":   pgDTHealth,
+		"pgDTCapacity": pgDTCapacity,
 	}
 
-	assert.NotEqual(t, pgDTMetadata, pgDTBloat, "two postgres artifacts share a dt")
-	assert.NotEqual(t, pgDTMetadata, pgDTHealth, "two postgres artifacts share a dt")
-	assert.NotEqual(t, pgDTBloat, pgDTHealth, "two postgres artifacts share a dt")
+	for name, dt := range postgresDataTypes {
+		assert.NotContains(t, taken, dt, "%s collides with an existing dt value", name)
+	}
+
+	seen := map[string]string{}
+	for name, dt := range postgresDataTypes {
+		assert.NotContains(t, seen, dt, "%s and %s share a dt", name, seen[dt])
+		seen[dt] = name
+	}
 }
 
 func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_metadata.txt", PostgresMetadataFileName)
 	assert.Equal(t, "pg_health.txt", PostgresHealthFileName)
 	assert.Equal(t, "pg_bloat.txt", PostgresBloatFileName)
+	assert.Equal(t, "pg_capacity.txt", PostgresCapacityFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -165,7 +166,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 3, "every artifact the run writes is named here")
+	assert.Len(t, seen, 4, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -177,6 +178,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Equal(t, pgDTHealth, pgSampledDataType(postgres.Health{}.Artifact()),
 		"pg_health.txt has its assigned value")
+
+	assert.Equal(t, pgDTCapacity, pgSampledDataType(postgres.Capacity{}.Artifact()),
+		"pg_capacity.txt has its assigned value")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_replication"}),
 		"an artifact the server team has not assigned a dt for is not uploaded")
@@ -196,6 +200,28 @@ func TestPostgresBloatFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresHealthFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresHealthFileName, postgres.Health{}.Artifact().FileName)
+}
+
+func TestPostgresCapacityFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresCapacityFileName, postgres.Capacity{}.Artifact().FileName)
+}
+
+func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
+	capacity := postgres.Capacity{}.Artifact()
+	bloat := postgres.Bloat{}.Artifact()
+
+	require.Equal(t, postgres.StartEnd(), capacity.Schedule, "both land on the closing tick")
+	require.Equal(t, postgres.StartEnd(), bloat.Schedule)
+
+	assert.Equal(t, 3*postgres.StatementTimeout, capacity.SampleBudget,
+		"three statements: left at zero, the shared tick would be sized for two")
+	assert.Zero(t, bloat.SampleBudget, "bloat's two statements are the default shape")
+
+	assert.Equal(t, 55*time.Second,
+		capacity.SampleBudget+postgres.DefaultSampleBudget+postgres.WindowCloseMargin,
+		"so the closing tick now costs the window 55s where it cost 25s - a real load "+
+			"commitment against a database already in trouble, and one that should move "+
+			"only deliberately")
 }
 
 func pgCollectedMetadata() postgres.Metadata {
@@ -275,10 +301,10 @@ func readSampledArtifact(t *testing.T, name string) string {
 	return string(content)
 }
 
-// postgresArtifactFiles is every file one run writes, in registration order.
 var postgresArtifactFiles = []string{
 	PostgresHealthFileName,
 	PostgresMetadataFileName,
+	PostgresCapacityFileName,
 	PostgresBloatFileName,
 }
 
@@ -309,8 +335,14 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/12 samples)",
 		"twelve samples expected at 10s over a 2m window, none taken")
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
+	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
-		"all three artifacts report the one refusal, and they report it identically")
+		"all four artifacts report the one refusal, and they report it identically")
+
+	assert.Less(t, strings.Index(result.Msg, PostgresCapacityFileName),
+		strings.Index(result.Msg, PostgresBloatFileName),
+		"capacity samples before bloat at the closing tick: its gauges have one chance in the "+
+			"run, where bloat's second sample has an endpoint already on disk")
 
 	_, values := readPostgresArtifact(t)
 	assert.Equal(t, "127.0.0.1", values["target_host"],
@@ -319,16 +351,6 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and the server block is not, because there was no server to read")
 }
 
-// TestPostgresCaptureOpensOneConnectionPerRun is the assertion this slice
-// exists to make: before it, the metadata task and the window dialled
-// independently, so a cluster at max_connections could refuse whichever lost
-// the race - a failure the run itself caused.
-//
-// The listener accepts and then says nothing, so each dial costs
-// ConnectTimeout and this test with it. That is the price of counting dials
-// rather than TCP connections: a listener that closes at once makes pgx retry
-// the startup with a lower protocol version, which is two accepts for one dial
-// and would make the count mean nothing.
 func TestPostgresCaptureOpensOneConnectionPerRun(t *testing.T) {
 	chdirToCaptureDir(t)
 
@@ -413,7 +435,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, 3, "every artifact with an assigned dt is uploaded")
+	require.Len(t, uploads, 4, "every artifact with an assigned dt is uploaded")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -423,11 +445,13 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTMetadata, "pg_metadata.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTHealth, "pg_health.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTBloat, "pg_bloat.txt uploaded under the wrong dt")
+	require.Contains(t, byDT, pgDTCapacity, "pg_capacity.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
 		pgDTMetadata: "source=pg_metadata",
 		pgDTHealth:   "source=pg_health",
 		pgDTBloat:    "source=pg_bloat",
+		pgDTCapacity: "source=pg_capacity",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -441,21 +465,16 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
 	}
 
-	assert.Equal(t, 2, strings.Count(result.Msg, " | "),
-		"one run-level record, three summaries joined into it")
+	assert.Equal(t, 3, strings.Count(result.Msg, " | "),
+		"one run-level record, four summaries joined into it")
 
 	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
-		"no artifact takes the skip path now that all three dt values are assigned")
+		"no artifact takes the skip path now that all four dt values are assigned")
 
 	assert.True(t, result.Ok,
-		"all three artifacts transmitted, so the task's Ok must be true")
+		"all four artifacts transmitted, so the task's Ok must be true")
 }
 
-// TestPostgresCaptureMetadataLineKeepsItsProbeClauses is what stops the
-// metadata artifact's run-log line regressing to a sample count. Collect never
-// returns an error, so a metadata sample cannot be anything but complete: with
-// the count alone, a capture whose every probe was denied would read as
-// "(1/1 samples)" and say nothing at all.
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 	collected := postgres.Metadata{
 		CaptureMode:         "pg-remote",
@@ -501,8 +520,6 @@ func TestPostgresCaptureIOFailureOnOneArtifactSparesTheOthers(t *testing.T) {
 
 	chdirToCaptureDir(t)
 
-	// A directory where the artifact wants to be: os.Create fails on that one
-	// file and on no other.
 	require.NoError(t, os.Mkdir(PostgresMetadataFileName, 0o755))
 
 	task := &PostgresCapture{Target: withWindow(t, time.Second)}

@@ -13,24 +13,20 @@ import (
 )
 
 // One connection for every sampled artifact, not one each: a pgx connection is
-// not safe for concurrent use, and holding a slot per artifact for the whole
+// not safe for concurrent use, and holding a slot per artifact for a whole
 // window is the wrong thing to do to a database that may be out of them. The
-// cost is that collectors run serially; every block carries its own ts=.
+// cost is that collectors run serially.
 
 // Status values for an artifact's closing block.
 const (
-	// StatusComplete means every scheduled sample was written. A complete
-	// artifact with no rows is an empty database, which is a finding.
+	// StatusComplete means every scheduled sample was written. Complete with no
+	// rows is an empty database, which is a finding.
 	StatusComplete = "complete"
 
-	// StatusPartial means the window ran its course but at least one sample
-	// failed. The stub block for that sample carries the reason.
+	// StatusPartial means the window ran its course but a sample failed.
 	StatusPartial = "partial"
 
-	// StatusCancelled means the caller stopped the window early.
-	StatusCancelled = "cancelled"
-
-	// StatusDeadlineExceeded means the window's own module deadline fired.
+	StatusCancelled        = "cancelled"
 	StatusDeadlineExceeded = "deadline_exceeded"
 
 	// StatusConnectFailed means the window never opened a connection. The file
@@ -43,10 +39,9 @@ const (
 //
 // The invariant the rest of the window rests on: Every's offsets are strictly
 // inside the window and StartEnd's second offset is exactly the window, so the
-// closing tick is always a start-and-end collector's and is never shared.
-// WindowGrace is sized for one final sample, not two (conn.go). Once's single
-// offset is 0, which is strictly inside any positive window too, so a third
-// kind leaves the invariant holding by construction rather than by luck.
+// closing tick is never an interval collector's. It may be shared by any number
+// of start-and-end collectors, and moduleDeadline sums their budgets rather
+// than assuming one owns it.
 type Schedule struct {
 	kind     scheduleKind
 	interval time.Duration
@@ -60,38 +55,31 @@ const (
 	scheduleOnce
 )
 
-// StartEnd samples as the window opens and as it closes.
 func StartEnd() Schedule {
 	return Schedule{kind: scheduleStartEnd}
 }
 
-// Once samples a single time, as the window opens. The schedule a capability
-// read has: one reading, taken before anything it describes has moved.
 func Once() Schedule {
 	return Schedule{kind: scheduleOnce}
 }
 
-// Every samples on a fixed cadence from t0, the last sample one interval before
-// the window closes rather than at it - see the invariant above.
+// Every samples from t0, the last sample one interval before the window closes
+// rather than at it - see the invariant above.
 func Every(d time.Duration) Schedule {
 	return Schedule{kind: scheduleEvery, interval: d}
 }
 
-// offsets is when this schedule's samples are due, as offsets from t0, in
-// order. Known before the window opens, which is what lets the preamble state
-// samples_expected.
-//
-// Total rather than trusting its caller: a non-positive window or interval
-// yields one sample at t0, because a collector that samples nothing is a worse
-// answer than one that samples once.
+// offsets is when this schedule's samples are due, in order. Known before the
+// window opens, which is what lets the preamble state samples_expected. A
+// non-positive window or interval yields one sample at t0.
 func (s Schedule) offsets(window time.Duration) []time.Duration {
 	if window <= 0 {
 		return []time.Duration{0}
 	}
 
-	// Before the not-Every branch below, which reads "not Every, therefore
-	// StartEnd": placed after it, a Once collector would sample twice, and the
-	// second of those would be at the closing tick the invariant above reserves.
+	// Before the branch below, which reads "not Every, therefore StartEnd":
+	// after it, a Once collector would sample twice, the second at the closing
+	// tick the invariant reserves.
 	if s.kind == scheduleOnce {
 		return []time.Duration{0}
 	}
@@ -112,7 +100,6 @@ func (s Schedule) offsets(window time.Duration) []time.Duration {
 	return offsets
 }
 
-// name and intervalText render the schedule for the preamble.
 func (s Schedule) name() string {
 	switch s.kind {
 	case scheduleEvery:
@@ -133,67 +120,83 @@ func (s Schedule) intervalText() string {
 	return windowSeconds(s.interval)
 }
 
-// Artifact is what the window needs to write an artifact's preamble and
-// closing block without asking the collector anything - including when the
-// collector never runs at all.
+// Artifact is what the window needs to write an artifact's preamble and closing
+// block without asking the collector anything - including when the collector
+// never runs at all.
 type Artifact struct {
 	// Name is the source= of the blocks the window writes about the artifact.
-	// A collector's own sample blocks name what they read instead.
+	// A collector's own blocks name what they read instead.
 	Name string
 
-	// FileName is the artifact in the bundle.
 	FileName string
 
 	// Scope is "database" or "cluster" - what the block's rows are about.
 	Scope string
 
 	Schedule Schedule
+
+	// SampleBudget is what one sample is assumed to take, which moduleDeadline
+	// sums for the collectors sharing the closing tick. Zero means
+	// DefaultSampleBudget. Nothing enforces it against the collector.
+	SampleBudget time.Duration
 }
 
-// Collector produces one artifact's sample blocks.
 type Collector interface {
 	Artifact() Artifact
 
-	// Sample writes exactly one block, or writes nothing and returns an error.
-	// It may not write partially: the window writes the stub block for a failed
-	// sample, and cannot do that behind a half-written one.
+	// Sample writes one or more blocks, or writes nothing and returns an error.
+	//
+	// A block whose own read failed is still written - its header, its column
+	// header, and no rows - with error= in that block's header, however many of
+	// the sample's reads failed. So an error means the write failed, not that
+	// any read did.
+	//
+	// The window's stub block is for a collector that cannot localise a
+	// failure, and cannot be written behind a half-written block: a collector
+	// renders its whole sample into one buffer and issues one Write.
 	//
 	// The context is the window's, not a statement's. A collector running more
-	// than one statement applies StatementTimeout to each, so an expensive
-	// statement can fail without taking a cheap one with it.
+	// than one statement applies StatementTimeout to each.
 	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
 }
 
-// Prologue is implemented by a collector whose artifact carries something that
-// is knowable before the connection exists. The window calls it during
-// openArtifacts, after the preamble and before dial, so those bytes are on disk
-// on every failure path - including the process not surviving the connect.
-//
-// Optional rather than a method on Collector, and asserted for rather than
-// declared: Health and Bloat have nothing to write before a connection exists,
-// so they neither implement it nor mention it.
+// Prologue is implemented by a collector carrying something knowable before the
+// connection exists. Called after the preamble and before dial, so those bytes
+// are on disk on every failure path.
 type Prologue interface {
 	WritePrologue(w io.Writer, s SampleContext) error
 }
 
-// SampleContext is what every sample block header needs.
 type SampleContext struct {
-	At    time.Time
-	Index int // 1-based and monotonic: sample=1 with no sample=2 is partial
+	// At is the sample's one clock read, shared by every block that sample
+	// writes: equal ts= within one sample= is by construction, not a sampler
+	// catching up.
+	At time.Time
 
-	// Database and DBID are current_database() and its OID, read once when the
-	// window opens. Before that - in the preamble, and in the closing block of
-	// a run that never connected - Database is the configured name and DBID is
-	// empty.
+	Index int // 1-based: sample=1 with no sample=2 is partial
+
+	// Total is the artifact's SamplesExpected, so a collector can write a block
+	// only at the window's close - Index == Total - without knowing the
+	// schedule. Zero before the first sample, as Index is.
+	Total int
+
+	// Database and DBID are current_database() and its OID. Before the
+	// connection, Database is the configured name and DBID is empty.
 	Database string
 	DBID     string
 
-	// redact renders driver text for a block header, so redaction stays the
-	// window's one rule rather than a password every collector has to hold.
+	// HasPgStatCheckpointer is what a collector whose columns moved in
+	// PostgreSQL 17 selects its statement on. A capability rather than a version
+	// number, which would be wrong the moment a view is backported or a catalog
+	// goes un-upgraded. Read once and shared, so two collectors cannot disagree.
+	// False when identify failed.
+	HasPgStatCheckpointer bool
+
+	// redact keeps password redaction the window's one rule rather than
+	// something every collector has to hold.
 	redact func(error) string
 }
 
-// errorText renders err for a block header, redacted and flattened.
 func (s SampleContext) errorText(err error) string {
 	if s.redact != nil {
 		return s.redact(err)
@@ -204,7 +207,7 @@ func (s SampleContext) errorText(err error) string {
 
 // ArtifactResult is one artifact's outcome. Every field but IOErr is also
 // written into the artifact itself; IOErr is the failure the artifact cannot
-// record about itself, and is the only one the adapter turns into an error.
+// record about itself, and the only one the adapter turns into an error.
 type ArtifactResult struct {
 	Artifact        Artifact
 	File            *os.File
@@ -215,11 +218,9 @@ type ArtifactResult struct {
 	// Err is the last capture-level error, already redacted and flattened.
 	Err string
 
-	// IOErr is a create, write or sync failure on the file.
 	IOErr error
 }
 
-// writable reports whether the artifact still has somewhere to be written.
 func (r ArtifactResult) writable() bool { return r.File != nil && r.IOErr == nil }
 
 // windowConn is what the window needs of a connection. *Conn satisfies it; a
@@ -235,8 +236,8 @@ type Window struct {
 	Duration   time.Duration
 	Collectors []Collector
 
-	// Seams, zero in production: a clock so a test need not wait out a window,
-	// a connection so it needs no server, a grace so the deadline path is
+	// Seams, zero in production: a clock so a test need not wait out a window, a
+	// connection so it needs no server, a grace so the deadline path is
 	// reachable without waiting out the real one.
 	now     func() time.Time
 	after   func(time.Duration) <-chan time.Time
@@ -244,34 +245,54 @@ type Window struct {
 	grace   time.Duration
 }
 
-// moduleDeadline bounds the sampling: the configured duration plus the grace
-// the final sample runs inside. Derived here rather than taken from
-// ModuleDeadline, which stays the one-shot metadata capture's.
+// moduleDeadline is the configured duration plus what the closing tick can
+// cost: the summed budgets of the collectors due there, plus room to write the
+// closing block. Summed rather than a flat grace because the tick can be
+// shared, so the next start-and-end artifact widens it by declaring a budget.
 func (w *Window) moduleDeadline() time.Duration {
 	if w.grace > 0 {
 		return w.Duration + w.grace
 	}
 
-	return w.Duration + WindowGrace
+	budget := time.Duration(0)
+
+	for _, collector := range w.Collectors {
+		artifact := collector.Artifact()
+
+		offsets := artifact.Schedule.offsets(w.Duration)
+		if offsets[len(offsets)-1] == w.Duration {
+			budget += sampleBudget(artifact)
+		}
+	}
+
+	// Nothing on the closing tick: no collectors, or every one a Once. The
+	// deadline still has to cover whatever ran last.
+	if budget == 0 {
+		budget = DefaultSampleBudget
+	}
+
+	return w.Duration + budget + WindowCloseMargin
+}
+
+func sampleBudget(artifact Artifact) time.Duration {
+	if artifact.SampleBudget > 0 {
+		return artifact.SampleBudget
+	}
+
+	return DefaultSampleBudget
 }
 
 // Run opens the window and returns one result per artifact.
 //
-// The order is the design:
+// The order is the design: every file is created and its preamble synced before
+// anything can fail, so a file that exists is never zero bytes and the upload
+// path's empty-file check cannot silently drop it; a refused connection writes
+// every closing block and returns, having nothing to wait for; and the closing
+// blocks are written with no context attached, so an expired deadline cannot
+// stop the record that says the deadline expired.
 //
-//  1. every file is created and its preamble written and synced before
-//     anything can fail, so a file that exists is never zero bytes and the
-//     upload path's empty-file check can never silently drop it;
-//  2. connect. A refused connection writes every closing block and returns: a
-//     run that cannot reach the database has nothing to wait for;
-//  3. read the database and its OID once, for every collector;
-//  4. sample, serially, on the schedule;
-//  5. write every closing block with no context attached, so an expired
-//     deadline cannot stop the record that says the deadline expired.
-//
-// There is no error return. A refused connection is a successful capture of a
-// failure, and the file says so. File I/O is the exception, and lands in
-// ArtifactResult.IOErr.
+// There is no error return - a refused connection is a successful capture of a
+// failure. File I/O is the exception and lands in ArtifactResult.IOErr.
 //
 // The files are left open at their end offset. The caller uploads them - the
 // upload path seeks to zero itself - and closes them.
@@ -286,8 +307,6 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 		}
 	}
 
-	// Before a connection exists: the configured database, always non-empty
-	// after Validate's defaulting, and no OID.
 	sampleCtx := w.baseSampleContext()
 
 	w.openArtifacts(results, sampleCtx)
@@ -301,10 +320,9 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 
 	sampleCtx = w.identify(ctx, conn)
 
-	// Armed here rather than before dial. Connecting and identifying are
-	// separately bounded (ConnectTimeout, StatementTimeout), and counting their
-	// 15s worst case against the module deadline would spend the grace the
-	// final sample needs - on exactly the slow database that needs it most.
+	// Armed after dial: connecting and identifying are separately bounded, and
+	// counting their 15s worst case here would spend the grace the final sample
+	// needs, on exactly the slow database that needs it most.
 	ctx, cancel := context.WithTimeout(ctx, w.moduleDeadline())
 	defer cancel()
 
@@ -315,9 +333,8 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 	return results
 }
 
-// openArtifacts is pass one: a file per artifact, each carrying the one fact a
-// reader cannot reconstruct from a truncated file - how many samples were meant
-// to be in it.
+// openArtifacts writes each preamble, carrying the one fact a reader cannot
+// reconstruct from a truncated file: how many samples were meant to be in it.
 func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext) {
 	for i := range results {
 		artifact := results[i].Artifact
@@ -334,9 +351,8 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 			{"dbid", sampleCtx.DBID},
 			{"status", "started"},
 			{"window", windowSeconds(w.Duration)},
-			// Both keys for every artifact, interval= empty where the schedule
-			// has no cadence: one fixed key set, and samples_expected does not
-			// explain itself without the cadence.
+			// Both keys on every schedule, interval= empty where there is no
+			// cadence: samples_expected does not explain itself without it.
 			{"schedule", artifact.Schedule.name()},
 			{"interval", artifact.Schedule.intervalText()},
 			{"samples_expected", strconv.Itoa(results[i].SamplesExpected)},
@@ -352,17 +368,14 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 	}
 }
 
-// writePrologue writes the block of a collector that has one, between the
-// preamble and the connection. A collector without one is not asked.
 func (w *Window) writePrologue(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
 	prologue, ok := collector.(Prologue)
 	if !ok {
 		return
 	}
 
-	// The base context's At is the zero time, which would date every prologue
-	// block to year one. It gets the same clock read the preamble header took,
-	// one line above, and no Index: there is no sample yet.
+	// The base context's At is the zero time, which would date the block to
+	// year one. It gets the clock read the preamble header took.
 	at := sampleCtx
 	at.At = w.clock()
 
@@ -376,10 +389,8 @@ func (w *Window) writePrologue(result *ArtifactResult, collector Collector, samp
 
 // closeArtifacts is the last pass. stopped is the status that ended the window
 // early, or empty if it ran its course; connectErr is set only when there was
-// never a connection.
-//
-// It takes no context on purpose: this is the record of what happened,
-// including the case where what happened is that the deadline expired.
+// never a connection. It takes no context on purpose: this is the record of
+// what happened, including that the deadline expired.
 func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContext, stopped, connectErr string) {
 	at := w.clock()
 
@@ -416,9 +427,9 @@ func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContex
 	}
 }
 
-// artifactStatus resolves one artifact's outcome. A window stopped early says
-// so whatever the counts are: "cancelled after one of two" is a different fact
-// from "one of two samples failed".
+// artifactStatus resolves one artifact's outcome. A window stopped early says so
+// whatever the counts are: "cancelled after one of two" is a different fact from
+// "one of two samples failed".
 func artifactStatus(result ArtifactResult, stopped, connectErr string) string {
 	switch {
 	case connectErr != "":
@@ -432,7 +443,6 @@ func artifactStatus(result ArtifactResult, stopped, connectErr string) string {
 	}
 }
 
-// sampleEvent is one collector's one sample, at a known offset from t0.
 type sampleEvent struct {
 	at time.Duration
 
@@ -444,8 +454,8 @@ type sampleEvent struct {
 	index int
 }
 
-// timeline merges every collector's offsets into one ordered walk, which is
-// what lets two cadences share one connection without either owning a clock.
+// timeline merges every collector's offsets into one ordered walk, which is what
+// lets two cadences share one connection without either owning a clock.
 func timeline(collectors []Collector, window time.Duration) []sampleEvent {
 	var events []sampleEvent
 
@@ -460,9 +470,8 @@ func timeline(collectors []Collector, window time.Duration) []sampleEvent {
 			return order
 		}
 
-		// Registration order, which the caller picks cheapest first so a
-		// shared tick does not queue a catalogue read behind a statement that
-		// stats every relation's files.
+		// Registration order, which the caller picks so a shared tick does not
+		// queue a cheap read behind an expensive one.
 		return cmp.Compare(a.collector, b.collector)
 	})
 
@@ -476,8 +485,7 @@ func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleCo
 
 	for _, event := range timeline(w.Collectors, w.Duration) {
 		// Offsets are absolute, so one slow sample does not push the next tick
-		// late. An overdue tick fires at once rather than being skipped, and its
-		// block carries the ts= at which it actually happened.
+		// late. An overdue tick fires at once rather than being skipped.
 		if wait := start.Add(event.at).Sub(w.clock()); wait > 0 {
 			select {
 			case <-ctx.Done():
@@ -496,7 +504,6 @@ func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleCo
 	return ""
 }
 
-// sampleOnce takes the one sample this event is for.
 func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult, event sampleEvent) {
 	result := &results[event.collector]
 	if !result.writable() {
@@ -505,6 +512,7 @@ func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx Samp
 
 	at := sampleCtx
 	at.Index = event.index
+	at.Total = result.SamplesExpected
 	at.At = w.clock()
 
 	if err := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); err != nil {
@@ -515,11 +523,10 @@ func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx Samp
 	result.SamplesWritten++
 }
 
-// writeSampleError records a sample the collector could not take. The window
-// writes it because a collector that failed has written nothing, and without
-// this the artifact would have a gap in its sample numbering with nothing
-// saying why. The block names the artifact rather than the view: it is a
-// statement about the sampling.
+// writeSampleError records a sample the collector could not take. A collector
+// that failed has written nothing, and without this the artifact would have a
+// gap in its sample numbering with nothing saying why. The block names the
+// artifact rather than a view: it is a statement about the sampling.
 func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContext, sampleErr error) {
 	result.Err = errorText(sampleErr, w.Target.Password)
 
@@ -537,13 +544,22 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 }
 
 // currentDatabaseSQL reads what every block header written after the connection
-// names. The OID comes from pg_database rather than from a cast of the name, so
-// a database renamed mid-run still resolves.
+// names, plus the one capability a collector selects a statement on. The OID
+// comes from pg_database rather than a cast of the name, so a database renamed
+// mid-run still resolves.
+//
+// The capability expression is character-identical to serverFactsSQL's on
+// purpose: pg_metadata.txt reports that flag and the statement selection reads
+// this one, so two spellings could disagree about what the server has.
 const currentDatabaseSQL = `SELECT current_database()::text,
-       (SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database())`
+       (SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database()),
+       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL`
 
-// identify reads the database and its OID once, for every collector. A failure
-// falls back to the preamble's regime rather than costing the capture.
+// identify reads the database, its OID and the capability flag once, for every
+// collector. A failure falls back to the preamble's regime rather than costing
+// the capture: HasPgStatCheckpointer stays false, so a PostgreSQL 17 server gets
+// the pre-17 statement, which errors, which the collector degrades to a block
+// carrying the reason.
 func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	sampleCtx := w.baseSampleContext()
 
@@ -552,8 +568,9 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 
 	var database string
 	var dbid *string
+	var hasPgStatCheckpointer bool
 
-	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).Scan(&database, &dbid); err != nil {
+	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).Scan(&database, &dbid, &hasPgStatCheckpointer); err != nil {
 		return sampleCtx
 	}
 
@@ -561,13 +578,11 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	if dbid != nil {
 		sampleCtx.DBID = *dbid
 	}
+	sampleCtx.HasPgStatCheckpointer = hasPgStatCheckpointer
 
 	return sampleCtx
 }
 
-// dial opens the window's one connection, bounded by ConnectTimeout: a database
-// that refuses must not cost the capture the wall clock it was going to spend
-// sampling.
 func (w *Window) dial(ctx context.Context) (windowConn, error) {
 	connectCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
@@ -596,8 +611,6 @@ func (w *Window) disconnect(conn windowConn) {
 	_ = conn.Close(ctx)
 }
 
-// baseSampleContext is what every collector is handed before the connection has
-// said otherwise.
 func (w *Window) baseSampleContext() SampleContext {
 	password := w.Target.Password
 
@@ -607,9 +620,9 @@ func (w *Window) baseSampleContext() SampleContext {
 	}
 }
 
-// stoppedStatus distinguishes the window's own deadline from the caller
-// stopping it: context.WithTimeout reports its parent's cancellation as
-// Canceled and its own timer as DeadlineExceeded.
+// stoppedStatus distinguishes the window's own deadline from the caller stopping
+// it: context.WithTimeout reports its parent's cancellation as Canceled and its
+// own timer as DeadlineExceeded.
 func stoppedStatus(ctx context.Context) string {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return StatusDeadlineExceeded
@@ -618,7 +631,7 @@ func stoppedStatus(ctx context.Context) string {
 	return StatusCancelled
 }
 
-// windowSeconds renders the window for a block header. Seconds rather than
+// windowSeconds renders a duration for a block header. Seconds rather than
 // time.Duration's own form: 120s parses in every language the receiver might be
 // written in where 2m0s does not.
 func windowSeconds(d time.Duration) string {
