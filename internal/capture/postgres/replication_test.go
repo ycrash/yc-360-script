@@ -112,6 +112,7 @@ func ordersSenders3() [][]any {
 // max_slot_wal_keep_size set: at its -1 default the column is NULL for every
 // slot in the cluster, so one populated cell beside an empty one would depict
 // something the server cannot produce.
+//
 // The two trailing arguments are the optional set the server has, so one fixture
 // covers a PostgreSQL 18 cluster and a pre-16 one: pass nil and "" and the six
 // columns arrive NULL and the header key is never written, which is exactly what
@@ -738,7 +739,7 @@ func TestReplicationCastsEveryColumnTheDriverHasNoPlanFor(t *testing.T) {
 	assert.NotContains(t, sendersSQL, "\n       usesysid,",
 		"pgx v5.10.0 has no scan plan from oid into a nullable *int32, and usesysid sits "+
 			"mid-scan - so a bare selection would cost the whole block on every cluster that "+
-				"has a WAL sender at all")
+			"has a WAL sender at all")
 	assert.Contains(t, sendersSQL, "host(client_addr)",
 		"unwrapped rather than cast: ::text renders 10.0.4.12/32 and the /32 is an artifact of "+
 			"the return type")
