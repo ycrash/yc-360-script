@@ -82,8 +82,26 @@ The goldens:
   because it is a cluster GUC rather than a per-slot property, so a fixture
   showing one populated cell beside an empty one would depict something the
   server cannot produce.
+  The block carries **21 columns on every supported version**, the last six read
+  through `to_jsonb(s) ->> '...'` because 16, 17 and 18 each added some of them.
+  `optional_columns=` in the header is which of the six the *server* has, read
+  from `pg_attribute` in the same statement — not which are populated:
+  `conflicting` is empty on the physical slot because it does not apply, and
+  listed in the header because PostgreSQL 18 has the column. That distinction is
+  the key's whole job, since an empty cell alone cannot separate *the server
+  does not have this column* from *this column does not apply here*.
+- `pg_replication_pre16.txt` — the same capture against 14 or 15, and the pair is
+  the contract. **Exactly one structural difference is permitted**: the absent
+  `optional_columns=` key. The column header is identical and the last six cells
+  are empty, because the extraction yields NULL on a server without the column
+  rather than raising, which is what lets one statement cover all five versions.
+  The key is *absent* rather than empty: `string_agg` over no matching rows is
+  NULL, and a NULL header value is never written.
 - `pg_replication_none.txt` — a standalone server. Three samples of two
-  header-only blocks, and `status=complete`. This is what most captures look
+  header-only blocks, and `status=complete`. **No `optional_columns=` on any
+  version**, because the presence set rides on the rows and there are none — and
+  that is right, since with no rows there are no empty cells to disambiguate.
+  This is what most captures look
   like, and it is the captured-and-found-nothing shape rather than a failure:
   "no replication is configured" is a finding, not an absence. The honest cost is
   ~26 lines of nothing on the majority of captures; writing the blocks only when

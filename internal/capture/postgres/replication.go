@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -47,10 +49,10 @@ var replicationColumns = []string{
 	"reply_time",
 }
 
-// slotColumns is the same contract for the slots block, slot_name first: it is
-// the join key here, and a better one than pid, being unique and stable across a
-// restart.
-var slotColumns = []string{
+// stableSlotColumns are the pg_replication_slots columns every supported
+// version has, slot_name first: it is the join key here, and a better one than
+// pid, being unique and stable across a restart.
+var stableSlotColumns = []string{
 	"slot_name",
 	"plugin",
 	"slot_type",
@@ -67,6 +69,68 @@ var slotColumns = []string{
 	"safe_wal_size",
 	"two_phase",
 }
+
+// optionalSlotColumns are the pg_replication_slots columns that do not exist on
+// every supported version. Read off pg_attribute on all five running servers on
+// 2026-08-09, not taken from the documentation:
+//
+//	column               | 14 | 15 | 16 | 17 | 18
+//	conflicting          |  - |  - |  x |  x |  x
+//	inactive_since       |  - |  - |  - |  x |  x
+//	invalidation_reason  |  - |  - |  - |  x |  x
+//	failover             |  - |  - |  - |  x |  x
+//	synced               |  - |  - |  - |  x |  x
+//	two_phase_at         |  - |  - |  - |  - |  x
+//
+// Three growth steps inside one supported range, where the checkpoint counters
+// moved once. Four statement variants and three more capability flags is where
+// SampleContext stops being a struct anybody decided to design, so each column
+// is read through to_jsonb instead: on a server without it the extraction
+// yields NULL rather than raising, where a bare SELECT conflicting raises 42703.
+// Measured on 14, and the cast path with it - (... ->> 'inactive_since')
+// ::timestamptz types as timestamp with time zone on a version where the
+// operand is always NULL.
+//
+// The table above is presence, not position: 18 inserts two_phase_at before
+// inactive_since rather than appending it, so attnum order differs between 17
+// and 18 even for the columns they share. Nothing here may derive a column set
+// from attnum order.
+//
+// Name and expression are paired for the reason capturedSettings pairs name and
+// destination: the list the presence probe asks about, the expressions the
+// statement selects and the artifact's column header are all generated from
+// this one slice, so they cannot drift. A bare []string beside six hardcoded
+// literals would leave three lists that merely happen to agree. Adding a column
+// is one entry.
+var optionalSlotColumns = []struct {
+	name string
+	expr string
+}{
+	{"conflicting", `(to_jsonb(s) ->> 'conflicting')::boolean`},
+	{"failover", `(to_jsonb(s) ->> 'failover')::boolean`},
+	{"inactive_since", `(to_jsonb(s) ->> 'inactive_since')::timestamptz`},
+	{"invalidation_reason", `to_jsonb(s) ->> 'invalidation_reason'`},
+	{"synced", `(to_jsonb(s) ->> 'synced')::boolean`},
+	{"two_phase_at", `to_jsonb(s) ->> 'two_phase_at'`},
+}
+
+// optionalSlotColumnNames is settingNames()' analogue: what $1 carries.
+func optionalSlotColumnNames() []string {
+	names := make([]string, len(optionalSlotColumns))
+	for i, column := range optionalSlotColumns {
+		names[i] = column.name
+	}
+
+	return names
+}
+
+// slotColumns is the block's merge contract: the stable set, then the optional
+// names in slice order. Generated rather than restated, so the column header
+// cannot promise a column the body does not carry.
+//
+// slices.Concat rather than append: appending to stableSlotColumns would share
+// its backing array with whatever else reads it.
+var slotColumns = slices.Concat(stableSlotColumns, optionalSlotColumnNames())
 
 // sendersSQL reads the connected WAL senders. The view is column-identical on 14
 // through 18 - read off pg_attribute on all five running servers on 2026-08-09,
@@ -120,12 +184,10 @@ const sendersSQL = `SELECT pid,
 FROM pg_catalog.pg_stat_replication
 ORDER BY pid`
 
-// slotsSQL reads the replication slots. The same cast rule as above applies to
-// datoid (oid), xmin and catalog_xmin (xid) and the two pg_lsn columns.
-//
-// ORDER BY s.slot_name and no cap, for the reasons sendersSQL gives; the bound
-// here is max_replication_slots.
-const slotsSQL = `SELECT s.slot_name::text,
+// stableSlotsSelect is the part of slotsSQL that is the same on every supported
+// version. The same cast rule sendersSQL states applies to datoid (oid), xmin
+// and catalog_xmin (xid) and the two pg_lsn columns.
+const stableSlotsSelect = `SELECT s.slot_name::text,
        s.plugin::text,
        s.slot_type::text,
        s.datoid::text,
@@ -139,9 +201,60 @@ const slotsSQL = `SELECT s.slot_name::text,
        s.confirmed_flush_lsn::text,
        s.wal_status::text,
        s.safe_wal_size,
-       s.two_phase
+       s.two_phase`
+
+// optionalColumnsProbe is which of optionalSlotColumns the server actually has,
+// as a scalar subquery repeated per row - the footing count(*) OVER () has in
+// the other three collectors. It lands in the block header rather than the body.
+//
+// It is read from pg_attribute rather than from to_jsonb(s) ? '...' per row
+// because the block-level question is which columns the *server* has, and the
+// header is where a reader can act on it: conflicting is NULL on 14 because the
+// column does not exist, and NULL on 18 for every physical slot because it does
+// not apply. An empty cell alone cannot tell those apart, and everywhere else in
+// this package an empty cell means "not read".
+//
+// It is still lost when the view returns no rows, which is correct here and not
+// a gap: with no rows there are no empty cells to disambiguate, so the key is
+// absent exactly when it would have nothing to say.
+const optionalColumnsProbe = `       (SELECT string_agg(attname, ',' ORDER BY attname)
+          FROM pg_catalog.pg_attribute
+         WHERE attrelid = to_regclass('pg_catalog.pg_replication_slots')
+           AND attname = ANY($1::text[])
+           AND NOT attisdropped) AS optional_columns`
+
+const slotsFrom = `
 FROM pg_catalog.pg_replication_slots s
 ORDER BY s.slot_name`
+
+// slotsSQL reads the replication slots, one statement for all five versions.
+//
+// ORDER BY s.slot_name and no cap, for the reasons sendersSQL gives; the bound
+// here is max_replication_slots.
+//
+// The cost of the detour, named: to_jsonb(s) builds a jsonb of the whole row,
+// once per row, six times. On a view the server bounds at max_replication_slots
+// that is nothing, and it buys the removal of three capability flags and three
+// statement variants. If a future column makes it expensive, the answer is a
+// variant statement selected on one flag - not a cap.
+var slotsSQL = buildSlotsSQL()
+
+func buildSlotsSQL() string {
+	var sql strings.Builder
+
+	sql.WriteString(stableSlotsSelect)
+
+	for _, column := range optionalSlotColumns {
+		sql.WriteString(",\n       ")
+		sql.WriteString(column.expr)
+	}
+
+	sql.WriteString(",\n")
+	sql.WriteString(optionalColumnsProbe)
+	sql.WriteString(slotsFrom)
+
+	return sql.String()
+}
 
 // Replication captures the primary's replication picture: which replicas are
 // connected and how far behind each is, and which slots are retaining WAL.
@@ -216,8 +329,11 @@ func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.W
 	return writeRows(w, replicationColumns, senderCells(rows))
 }
 
+// writeSlotsBlock writes optional_columns= only when the probe returned a
+// value: NULL on a 14 or 15 server, which have none of them, and absent
+// altogether when the view returned no rows to carry the scalar.
 func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	rows, err := readSlots(ctx, q)
+	rows, optionalColumns, err := readSlots(ctx, q)
 
 	fields := []headerField{
 		{"db", s.Database},
@@ -225,8 +341,12 @@ func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Wri
 		{"sample", strconv.Itoa(s.Index)},
 	}
 
-	if err != nil {
+	switch {
+	case err != nil:
 		fields = append(fields, headerField{"error", s.errorText(err)})
+
+	case optionalColumns != nil:
+		fields = append(fields, headerField{"optional_columns", *optionalColumns})
 	}
 
 	if err := writeBlockHeader(w, "pg_replication_slots", r.Artifact().Scope, fields, s.At); err != nil {
@@ -380,19 +500,37 @@ type slotRow struct {
 	walStatus         *string
 	safeWALSize       *int64
 	twoPhase          *bool
+
+	// The optional set, in optionalSlotColumns' order. Each is NULL both where
+	// the server does not have the column and where the column does not apply -
+	// conflicting is NULL on 14 for the first reason and on 18 for every
+	// physical slot for the second - which is what optional_columns= in the
+	// header exists to separate.
+	conflicting        *bool
+	failover           *bool
+	inactiveSince      *time.Time
+	invalidationReason *string
+	synced             *bool
+	twoPhaseAt         *string
 }
 
-func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, error) {
+// readSlots returns the rows and the presence set the block header carries. The
+// scalar is nil where the server has none of the optional columns, and where the
+// view returned no rows at all.
+func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, *string, error) {
 	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
-	rows, err := q.Query(stmtCtx, slotsSQL)
+	rows, err := q.Query(stmtCtx, slotsSQL, optionalSlotColumnNames())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 
-	var collected []slotRow
+	var (
+		collected       []slotRow
+		optionalColumns *string
+	)
 
 	for rows.Next() {
 		var row slotRow
@@ -413,18 +551,25 @@ func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, error) {
 			&row.walStatus,
 			&row.safeWALSize,
 			&row.twoPhase,
+			&row.conflicting,
+			&row.failover,
+			&row.inactiveSince,
+			&row.invalidationReason,
+			&row.synced,
+			&row.twoPhaseAt,
+			&optionalColumns,
 		); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		collected = append(collected, row)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return collected, nil
+	return collected, optionalColumns, nil
 }
 
 func slotCells(rows []slotRow) [][]string {
@@ -447,6 +592,17 @@ func slotCells(rows []slotRow) [][]string {
 			text(row.walStatus),
 			int64Text(row.safeWALSize),
 			boolText(row.twoPhase),
+			boolText(row.conflicting),
+			boolText(row.failover),
+			// Through timeText rather than as the jsonb extraction rendered it:
+			// the ::timestamptz cast is what keeps this column in the artifact's
+			// timestamp form. Without it the value arrives as
+			// 2026-08-09T06:33:09.115378+00:00 where every other timestamp in
+			// every artifact is 2026-08-09T06:33:09.115Z.
+			timeText(row.inactiveSince),
+			text(row.invalidationReason),
+			boolText(row.synced),
+			text(row.twoPhaseAt),
 		}
 	}
 
