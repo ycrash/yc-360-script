@@ -23,6 +23,7 @@ import (
 // carries no dt=, so the receiver classifies these files by filename alone
 // through YCrashDataType.fromAgentFileName(). Each must equal that enum's
 // agentFileName exactly, or the artifact is dropped with no error at either end.
+// The receiver registers these three names verbatim, confirmed 2026-08-09.
 const PostgresMetadataFileName = "pg_metadata.txt"
 
 // pgDTMetadata is the receiver's data type for pg_metadata.txt. Classification
@@ -46,8 +47,7 @@ const pgDTBloat = "pgBloat"
 const PostgresHealthFileName = "pg_health.txt"
 
 // pgDTHealth is the receiver's data type for pg_health.txt. Drift here drops the
-// artifact silently, as it does for pgDTMetadata. The filename's own
-// registration on the bundle path is still outstanding.
+// artifact silently, as it does for pgDTMetadata.
 const pgDTHealth = "pgHealth"
 
 // pgSampledDataType is the receiver's data type for one of the window's
