@@ -153,6 +153,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_health.txt", PostgresHealthFileName)
 	assert.Equal(t, "pg_bloat.txt", PostgresBloatFileName)
 	assert.Equal(t, "pg_capacity.txt", PostgresCapacityFileName)
+	assert.Equal(t, "pg_replication.txt", PostgresReplicationFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -166,7 +167,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 4, "every artifact the run writes is named here")
+	assert.Len(t, seen, 5, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -182,8 +183,13 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTCapacity, pgSampledDataType(postgres.Capacity{}.Artifact()),
 		"pg_capacity.txt has its assigned value")
 
-	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_replication"}),
-		"an artifact the server team has not assigned a dt for is not uploaded")
+	assert.Empty(t, pgSampledDataType(postgres.Replication{}.Artifact()),
+		"pg_replication.txt is written into the bundle and not uploaded: pgRepl is proposed and "+
+			"unassigned, and an invented value would be dropped silently at the far end - which "+
+			"is worse than the skip, because the run would report a successful upload")
+
+	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_sessions"}),
+		"and so is an artifact that does not exist yet")
 }
 
 func pgMetadataCollector() *postgres.MetadataCollector {
@@ -204,6 +210,27 @@ func TestPostgresHealthFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresCapacityFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresCapacityFileName, postgres.Capacity{}.Artifact().FileName)
+}
+
+func TestPostgresReplicationFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresReplicationFileName, postgres.Replication{}.Artifact().FileName)
+}
+
+func TestPostgresReplicationDoesNotReachTheClosingTick(t *testing.T) {
+	replication := postgres.Replication{}.Artifact()
+
+	require.Equal(t, postgres.Every(postgres.DefaultReplicationInterval), replication.Schedule,
+		"an interval collector, whose offsets are strictly inside the window")
+	assert.Zero(t, replication.SampleBudget,
+		"so it has no share of the closing tick to declare, and two statements is "+
+			"DefaultSampleBudget anyway")
+
+	assert.Equal(t, 55*time.Second,
+		postgres.Capacity{}.Artifact().SampleBudget+postgres.DefaultSampleBudget+
+			postgres.WindowCloseMargin,
+		"the closing tick is still capacity plus bloat, so the module deadline is where the "+
+			"capacity slice left it - a fifth artifact bought no extra load commitment against "+
+			"a database already in trouble")
 }
 
 func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
@@ -301,8 +328,11 @@ func readSampledArtifact(t *testing.T, name string) string {
 	return string(content)
 }
 
+// postgresArtifactFiles is in registration order, which is the order the run's
+// summaries are joined in.
 var postgresArtifactFiles = []string{
 	PostgresHealthFileName,
+	PostgresReplicationFileName,
 	PostgresMetadataFileName,
 	PostgresCapacityFileName,
 	PostgresBloatFileName,
@@ -334,10 +364,12 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 
 	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/12 samples)",
 		"twelve samples expected at 10s over a 2m window, none taken")
+	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/12 samples)",
+		"and the same cadence for replication")
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
-		"all four artifacts report the one refusal, and they report it identically")
+		"all five artifacts report the one refusal, and they report it identically")
 
 	assert.Less(t, strings.Index(result.Msg, PostgresCapacityFileName),
 		strings.Index(result.Msg, PostgresBloatFileName),
@@ -435,7 +467,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, 4, "every artifact with an assigned dt is uploaded")
+	require.Len(t, uploads, 4,
+		"every artifact with an assigned dt is uploaded - four of the five written")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -465,14 +498,24 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
 	}
 
-	assert.Equal(t, 3, strings.Count(result.Msg, " | "),
-		"one run-level record, four summaries joined into it")
+	assert.Equal(t, 4, strings.Count(result.Msg, " | "),
+		"one run-level record, five summaries joined into it")
 
-	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
-		"no artifact takes the skip path now that all four dt values are assigned")
+	replicationSummary := result.Msg[strings.Index(result.Msg, PostgresReplicationFileName):]
+	replicationSummary, _, _ = strings.Cut(replicationSummary, " | ")
 
-	assert.True(t, result.Ok,
-		"all four artifacts transmitted, so the task's Ok must be true")
+	assert.True(t, strings.HasPrefix(replicationSummary, PostgresReplicationFileName+" written"),
+		"the fifth artifact is still written into the bundle")
+	assert.Contains(t, replicationSummary, "not uploaded: dt value not yet assigned",
+		"and skipped by name: pgRepl is proposed and unassigned, and inventing one would be "+
+			"dropped silently at the far end")
+
+	assert.False(t, result.Ok,
+		"which costs the whole run's Ok, and is the reason the dt assignment is chased on day "+
+			"one rather than at release")
+
+	assert.NotContains(t, byDT, "pgRepl",
+		"and nothing is uploaded under the proposed value before the server team confirms it")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
