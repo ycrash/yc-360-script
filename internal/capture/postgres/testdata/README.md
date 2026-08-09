@@ -70,6 +70,26 @@ The goldens:
   other two blocks are populated, and the artifact is `complete`. One refused
   read costs its own block, never the reads that succeeded beside it.
 - `pg_capacity_connect_failure.txt` — two lines, as above.
+- `pg_replication_full.txt` — a complete interval capture of a primary, on a 30s
+  window so three samples fit on a page. **Two blocks per sample**: the
+  connected WAL senders and the replication slots, in that order, sharing one
+  `sample=` and one `ts=`. One replica and two slots — a physical slot held by
+  the replica whose `active_pid` equals the `pid` in the block above it, and an
+  abandoned logical slot with no consumer, which is the WAL-exhaustion incident.
+  The slots are ordered by `slot_name`, so the logical one leads. `safe_wal_size`
+  is populated, which means this fixture's cluster has `max_slot_wal_keep_size`
+  set: at its `-1` default the column is NULL for **every** slot in the cluster,
+  because it is a cluster GUC rather than a per-slot property, so a fixture
+  showing one populated cell beside an empty one would depict something the
+  server cannot produce.
+- `pg_replication_none.txt` — a standalone server. Three samples of two
+  header-only blocks, and `status=complete`. This is what most captures look
+  like, and it is the captured-and-found-nothing shape rather than a failure:
+  "no replication is configured" is a finding, not an absence. The honest cost is
+  ~26 lines of nothing on the majority of captures; writing the blocks only when
+  non-empty would make an absent block ambiguous between *no replicas* and *the
+  sample never ran*.
+- `pg_replication_connect_failure.txt` — two lines, as above.
 
 ## Reader requirements
 
@@ -106,12 +126,16 @@ pin the rule below against the driver text that motivates it.
   and `pg_stat_user_tables`, `pg_metadata.txt` carries three:
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, and `pg_metadata_server` for what the server said —
-  and `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
-  `pg_stat_activity_by_app` and `pg_ls_waldir`.
+  `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
+  `pg_stat_activity_by_app` and `pg_ls_waldir` — and `pg_replication.txt`
+  carries three: `pg_replication`, `pg_stat_replication` and
+  `pg_replication_slots`.
 - **One sample may be more than one block, and `samples_expected` counts
   samples.** `pg_capacity.txt` writes four sample blocks for two samples — one
   on the opening sample and three on the closing one — and a reader that counted
-  blocks would call that file incomplete. Group a collector's
+  blocks would call that file incomplete. `pg_replication.txt` is the stronger
+  case: it writes two blocks on **every** sample, so its block count is never
+  its sample count. Group a collector's
   blocks into samples by `sample=`, which every one of them carries; the
   artifact's own `samples_expected` and `samples_written` are about samples and
   nothing else.
@@ -182,5 +206,6 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `health_test.go` and `capacity_test.go`, and argue the
-resulting diff — never hand-edit these files.
+`bloat_test.go`, `health_test.go`, `capacity_test.go` and
+`replication_test.go`, and argue the resulting diff — never hand-edit these
+files.

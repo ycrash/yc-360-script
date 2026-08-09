@@ -208,6 +208,19 @@ func int64Text(v *int64) string {
 	return strconv.FormatInt(*v, 10)
 }
 
+// float64Text carries int64Text's rule onto the three replication lag columns,
+// where it is the difference between "no report yet" and "caught up": empty
+// means not read, and 0 would be a reading of zero lag. FormatFloat with
+// precision -1 renders the shortest form that round-trips, so 0.4 does not
+// arrive as 0.40000000000000002.
+func float64Text(v *float64) string {
+	if v == nil {
+		return ""
+	}
+
+	return strconv.FormatFloat(*v, 'f', -1, 64)
+}
+
 // timeText renders a nullable timestamp as read, in UTC.
 func timeText(v *time.Time) string {
 	if v == nil {
