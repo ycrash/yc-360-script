@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -90,9 +91,6 @@ func (f *fakeCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s
 	return writeRows(w, []string{"relid"}, [][]string{{"16390"}})
 }
 
-// fakePrologueCollector is a fake that has something to write before the
-// connection exists. It proves Prologue against the window alone: no collector
-// in the package needs to be linked for the mechanism to be exercised.
 type fakePrologueCollector struct {
 	*fakeCollector
 
@@ -119,9 +117,10 @@ func (f *fakePrologueCollector) WritePrologue(w io.Writer, s SampleContext) erro
 }
 
 type fakeWindowConn struct {
-	database    string
-	dbid        *string
-	identifyErr error
+	database              string
+	dbid                  *string
+	hasPgStatCheckpointer bool
+	identifyErr           error
 
 	closed bool
 }
@@ -139,7 +138,7 @@ func (c *fakeWindowConn) QueryRow(ctx context.Context, sql string, args ...any) 
 		return fakeRow{err: c.identifyErr}
 	}
 
-	return fakeRow{values: []any{c.database, c.dbid}}
+	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer}}
 }
 
 func (c *fakeWindowConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -449,11 +448,110 @@ func TestWindowModuleDeadlineIsTheWindowPlusGrace(t *testing.T) {
 
 	require.NotEmpty(t, collector.deadlines)
 	assert.WithinRange(t, collector.deadlines[0],
-		before.Add(window.Duration+WindowGrace), after.Add(window.Duration+WindowGrace),
+		before.Add(window.Duration+DefaultSampleBudget+WindowCloseMargin), after.Add(window.Duration+DefaultSampleBudget+WindowCloseMargin),
 		"the module deadline is the window plus the grace")
 
 	assert.WithinRange(t, connectDeadline,
 		before.Add(ConnectTimeout), after.Add(ConnectTimeout))
+}
+
+func TestWindowModuleDeadlineSizesTheClosingTick(t *testing.T) {
+	const window = 120 * time.Second
+
+	edges := func(budget time.Duration) *fakeCollector {
+		collector := newFakeCollector("pg_edges")
+		collector.artifact.SampleBudget = budget
+
+		return collector
+	}
+
+	interval := func() *fakeCollector {
+		collector := newFakeCollector("pg_interval")
+		collector.artifact.Schedule = Every(10 * time.Second)
+		collector.artifact.SampleBudget = time.Minute
+
+		return collector
+	}
+
+	capability := func() *fakeCollector {
+		collector := newFakeCollector("pg_once")
+		collector.artifact.Schedule = Once()
+		collector.artifact.SampleBudget = time.Minute
+
+		return collector
+	}
+
+	for _, tc := range []struct {
+		name       string
+		collectors []Collector
+		want       time.Duration
+	}{
+		{
+			name:       "one start-and-end collector is the arithmetic the flat grace gave",
+			collectors: []Collector{edges(0)},
+			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+		{
+			name:       "two share the closing tick, so their budgets sum",
+			collectors: []Collector{edges(0), edges(3 * StatementTimeout)},
+			want:       window + DefaultSampleBudget + 3*StatementTimeout + WindowCloseMargin,
+		},
+		{
+			name:       "an interval collector contributes nothing, however many samples it takes",
+			collectors: []Collector{interval(), edges(0)},
+			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+		{
+			name:       "and neither does a once collector",
+			collectors: []Collector{capability(), edges(0)},
+			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+		{
+			name:       "with nothing on the closing tick, a default sample's worth is still reserved",
+			collectors: []Collector{capability(), interval()},
+			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+		{
+			name:       "and with no collectors at all",
+			collectors: nil,
+			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deadline := (&Window{Duration: window, Collectors: tc.collectors}).moduleDeadline()
+
+			assert.Equal(t, tc.want, deadline)
+		})
+	}
+}
+
+func TestWindowModuleDeadlineOnADegenerateWindowCoversEveryCollector(t *testing.T) {
+	edges := newFakeCollector("pg_edges")
+	edges.artifact.SampleBudget = 3 * StatementTimeout
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	capability := newFakeCollector("pg_once")
+	capability.artifact.Schedule = Once()
+
+	window := &Window{Duration: 0, Collectors: []Collector{edges, interval, capability}}
+
+	assert.Equal(t, 3*StatementTimeout+2*DefaultSampleBudget+WindowCloseMargin,
+		window.moduleDeadline(),
+		"a window with no span has one tick and every collector is on it, so the deadline "+
+			"covers the samples that will actually be taken - Validate refuses this window anyway")
+}
+
+func TestWindowModuleDeadlineGraceOverrideWins(t *testing.T) {
+	window := &Window{
+		Duration:   10 * time.Millisecond,
+		grace:      200 * time.Millisecond,
+		Collectors: []Collector{newFakeCollector("pg_edges")},
+	}
+
+	assert.Equal(t, 210*time.Millisecond, window.moduleDeadline(),
+		"the seam that makes the deadline path reachable without waiting out the real one")
 }
 
 func TestWindowModuleDeadlineExcludesTheConnect(t *testing.T) {
@@ -473,7 +571,7 @@ func TestWindowModuleDeadlineExcludesTheConnect(t *testing.T) {
 	window.Run(context.Background())
 
 	require.NotEmpty(t, collector.deadlines)
-	assert.False(t, collector.deadlines[0].Before(connectReturned.Add(window.Duration+WindowGrace)),
+	assert.False(t, collector.deadlines[0].Before(connectReturned.Add(window.Duration+DefaultSampleBudget+WindowCloseMargin)),
 		"the deadline was armed before connecting, spending grace the final sample needs")
 }
 
@@ -504,6 +602,73 @@ func TestWindowWritesTheStubBlockForAFailedSample(t *testing.T) {
 		"driver text is quoted, so it cannot break k=v tokenisation")
 
 	assert.Contains(t, headers[2], "status=partial samples_expected=2 samples_written=1")
+}
+
+func threeBlockSample(w io.Writer, s SampleContext) error {
+	var sample bytes.Buffer
+
+	for _, source := range []string{"first_view", "second_view", "third_view"} {
+		err := writeBlockHeader(&sample, source, "cluster", []headerField{
+			{"db", s.Database},
+			{"dbid", s.DBID},
+			{"sample", strconv.Itoa(s.Index)},
+		}, s.At)
+		if err != nil {
+			return err
+		}
+
+		if err := writeRows(&sample, []string{"relid"}, [][]string{{"16390"}}); err != nil {
+			return err
+		}
+	}
+
+	_, err := w.Write(sample.Bytes())
+
+	return err
+}
+
+func TestWindowCountsASampleRatherThanItsBlocks(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_multi")
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		return threeBlockSample(w, s)
+	}
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	assert.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 2, results[0].SamplesExpected)
+	assert.Equal(t, 2, results[0].SamplesWritten,
+		"a sample is one sample however many blocks it wrote")
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 8, "preamble, three blocks per sample, closing block")
+
+	assert.Contains(t, headers[0], "samples_expected=2",
+		"samples_expected counts samples, so a file with six sample blocks and two samples "+
+			"is correct rather than a miscount")
+	assert.Contains(t, headers[len(headers)-1],
+		"status=complete samples_expected=2 samples_written=2",
+		"and the block count reaches neither the counter nor the status")
+
+	for _, source := range []string{"first_view", "second_view", "third_view"} {
+		assert.Contains(t, artifactText(t, results[0]), "source="+source,
+			"every block of the sample is on disk, and the window named none of them")
+	}
+}
+
+func TestWindowMultiBlockSampleIsStillOneWrite(t *testing.T) {
+	writer := &countingWriter{}
+
+	require.NoError(t, threeBlockSample(writer, SampleContext{
+		At: testWindowStart, Index: 1, Total: 2, Database: "orders_db", DBID: "16401",
+	}))
+
+	assert.Equal(t, 1, writer.writes,
+		"N blocks, one buffer, one Write: a write failing between two of them would leave "+
+			"the window's stub behind a half-written sample")
+	assert.Equal(t, 3, strings.Count(writer.buf.String(), "# engine=postgres"))
 }
 
 func TestWindowRedactsThePasswordFromASampleError(t *testing.T) {
@@ -601,6 +766,40 @@ func TestWindowFallsBackToTheConfiguredDatabaseWhenIdentifyFails(t *testing.T) {
 		"an unidentified database is still a captured one")
 	assert.Equal(t, "orders_configured", collector.seen[0].Database)
 	assert.Empty(t, collector.seen[0].DBID)
+	assert.False(t, collector.seen[0].HasPgStatCheckpointer,
+		"and the capability is false, which on a PostgreSQL 17 server is the pre-17 statement "+
+			"and an error the collector records rather than a silent wrong answer")
+}
+
+func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pg_stat_checkpointer=%v", present), func(t *testing.T) {
+			clock := newFakeClock()
+
+			first := newFakeCollector("pg_first")
+			second := newFakeCollector("pg_second")
+
+			window := newTestWindow(t, clock, first, second)
+			window.connect = func(ctx context.Context, target Target) (windowConn, error) {
+				conn := newFakeWindowConn()
+				conn.hasPgStatCheckpointer = present
+
+				return conn, nil
+			}
+
+			window.Run(context.Background())
+
+			for _, collector := range []*fakeCollector{first, second} {
+				require.Len(t, collector.seen, 2)
+
+				for _, s := range collector.seen {
+					assert.Equal(t, present, s.HasPgStatCheckpointer,
+						"one read as the window opens, the same answer for every collector "+
+							"and every sample - two collectors cannot disagree about the server")
+				}
+			}
+		})
+	}
 }
 
 func TestWindowClosesTheConnection(t *testing.T) {
@@ -815,7 +1014,8 @@ func TestWindowRunsTwoCadencesOnOneConnection(t *testing.T) {
 		"interval#11@1m40s", "interval#12@1m50s",
 	}, order[2:13], "every intermediate tick is the interval collector's alone")
 	assert.Equal(t, "edges#2@2m0s", order[13],
-		"the closing tick is the start-and-end collector's alone - what WindowGrace is sized for")
+		"the closing tick is never the interval collector's - the half of the invariant "+
+			"the deadline's arithmetic still rests on")
 }
 
 func TestWindowOnceSamplesAtTheStartAndNotAtTheClosingTick(t *testing.T) {
@@ -837,8 +1037,6 @@ func TestWindowOnceSamplesAtTheStartAndNotAtTheClosingTick(t *testing.T) {
 	require.Len(t, capability.seen, 1)
 	assert.Equal(t, testWindowStart, capability.seen[0].At, "and it is taken as the window opens")
 
-	// The invariant WindowGrace is sized on, re-asserted against the new kind
-	// rather than assumed to have survived it.
 	events := timeline([]Collector{capability, edges}, 120*time.Second)
 	require.NotEmpty(t, events)
 	assert.Equal(t, sampleEvent{at: 120 * time.Second, collector: 1, index: 2}, events[len(events)-1],
@@ -907,6 +1105,7 @@ func TestWindowPrologueCarriesTheWindowsClockNotTheZeroTime(t *testing.T) {
 	assert.Equal(t, testWindowStart, collector.seenPrologue[0].At,
 		"a zero At would date every prologue block to year one")
 	assert.Zero(t, collector.seenPrologue[0].Index, "there is no sample yet")
+	assert.Zero(t, collector.seenPrologue[0].Total, "and so no total either")
 	assert.Equal(t, "orders_configured", collector.seenPrologue[0].Database,
 		"and no connection, so the database is the configured name and there is no OID")
 	assert.Empty(t, collector.seenPrologue[0].DBID)
@@ -977,6 +1176,64 @@ func sampleIndexes(seen []SampleContext) []int {
 	}
 
 	return indexes
+}
+
+func TestWindowSampleCarriesItsArtifactsTotal(t *testing.T) {
+	clock := newFakeClock()
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	capability := newFakeCollector("pg_once")
+	capability.artifact.Schedule = Once()
+
+	edges := newFakeCollector("pg_edges")
+
+	results := newTestWindow(t, clock, interval, capability, edges).Run(context.Background())
+
+	for i, tc := range []struct {
+		collector *fakeCollector
+		want      int
+	}{
+		{interval, 12},
+		{capability, 1},
+		{edges, 2},
+	} {
+		require.Equal(t, tc.want, results[i].SamplesExpected)
+		require.Len(t, tc.collector.seen, tc.want)
+
+		for _, s := range tc.collector.seen {
+			assert.Equal(t, tc.want, s.Total,
+				"Total is the artifact's own SamplesExpected, not the window's busiest schedule")
+		}
+
+		assert.Equal(t, tc.want, tc.collector.seen[tc.want-1].Index,
+			"so the closing sample is the one where Index == Total, on every cadence")
+	}
+}
+
+func TestWindowDegenerateWindowMakesTheOneSampleTheLast(t *testing.T) {
+	clock := newFakeClock()
+
+	edges := newFakeCollector("pg_edges")
+
+	interval := newFakeCollector("pg_interval")
+	interval.artifact.Schedule = Every(10 * time.Second)
+
+	window := newTestWindow(t, clock, edges, interval)
+	window.Duration = 0
+
+	results := window.Run(context.Background())
+
+	for i, collector := range []*fakeCollector{edges, interval} {
+		assert.Equal(t, 1, results[i].SamplesExpected)
+		require.Len(t, collector.seen, 1)
+
+		assert.Equal(t, 1, collector.seen[0].Index)
+		assert.Equal(t, 1, collector.seen[0].Total,
+			"a window with no span is one reading of everything, so an end-of-window block "+
+				"lands at t0 rather than never - no special case in the collector")
+	}
 }
 
 func TestWindowIntervalTicksAreAbsoluteNotRelativeToTheLastSample(t *testing.T) {

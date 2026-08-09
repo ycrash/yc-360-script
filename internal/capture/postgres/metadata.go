@@ -14,49 +14,35 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// The capture modes, detected rather than configured: where the agent is
-// installed decides, and the agent's job is to report which one it got.
+// The capture modes, detected rather than configured. ModeDBHost means the
+// server's current log file is readable by this process, so the log-derived
+// artifacts are available; ModeUnknown means detection could not run, and the
+// server treats it like ModeRemote.
 const (
-	// ModeDBHost: the server's current log file is readable by this process, so
-	// the log-derived artifacts are available.
-	ModeDBHost = "pg-dbhost"
-
-	// ModeRemote: it is not - logging_collector is off, or the agent is not on
-	// the database host.
-	ModeRemote = "pg-remote"
-
-	// ModeUnknown: detection could not run. The server treats it like
-	// ModeRemote.
+	ModeDBHost  = "pg-dbhost"
+	ModeRemote  = "pg-remote"
 	ModeUnknown = "unknown"
 )
 
-// Querier is the seam that makes every statement in this package testable
-// without a live server.
+// Querier is the seam that makes every statement testable without a server.
 type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// RowQuerier is Querier widened to row sets, for the artifacts that read more
-// than one row.
+// RowQuerier is Querier widened to row sets.
 type RowQuerier interface {
 	Querier
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// Metadata is what a capture found, written to pg_metadata.txt one field per
-// row in declaration order.
-//
-// Every server-derived field holds the value exactly as the server rendered it,
-// and an empty string means it was not read. That is the artifact's contract:
-// once a connection exists every key is written, with the *Error fields saying
-// why a value is empty, so a reader never has to guess whether a missing key
-// means an old agent or a failed query.
-//
-// Nothing here is derived - the arithmetic is left to the server. There is
-// deliberately no password field.
+// Metadata is written to pg_metadata.txt one field per row in declaration order.
+// Every server-derived field holds the value as the server rendered it, and an
+// empty string means it was not read. Once a connection exists every key is
+// written, with the *Error fields saying why one is empty, so a missing key means
+// an old agent rather than a failed query. There is deliberately no password.
 type Metadata struct {
-	// Known from configuration. AgentTS and YC360Version are supplied by the
-	// caller rather than read here, so the golden tests are deterministic.
+	// Known from configuration; AgentTS and YC360Version are supplied so the
+	// golden tests are deterministic.
 	AgentTS        time.Time
 	YC360Version   string
 	TargetHost     string
@@ -65,12 +51,10 @@ type Metadata struct {
 	TargetUsername string
 	TargetSSLMode  string
 
-	// ConnectError is set by the caller, the only thing that knows about it. A
-	// non-empty value tells a reader the file stops here.
+	// ConnectError is set by the caller. Non-empty means the file stops here.
 	CaptureMode  string
 	ConnectError string
 
-	// From serverFactsSQL: identity and run facts.
 	CurrentDatabase     string
 	CurrentUser         string
 	BackendPID          string
@@ -82,10 +66,9 @@ type Metadata struct {
 	Version             string
 	ServerVersionNum    string
 
-	// From serverFactsSQL: the pg_settings catalogue. A setting the role may not
-	// see, or that this version lacks, is written empty and named in
-	// SettingsUnavailable - which distinguishes "no libraries configured" from
-	// "not visible to this role".
+	// A setting the role may not see, or that this version lacks, is written
+	// empty and named in SettingsUnavailable - which distinguishes "no libraries
+	// configured" from "not visible to this role".
 	MaxConnections          string
 	LoggingCollector        string
 	LogDestination          string
@@ -97,18 +80,15 @@ type Metadata struct {
 	SharedPreloadLibraries  string
 	SettingsUnavailable     string
 
-	// The evidence behind CaptureMode, so the conclusion is reproducible from
-	// the file rather than asserted by it. DataDirectory arrives with the
-	// settings catalogue so a denied pg_current_logfile() cannot cost the row a
-	// relative logfile resolves against.
+	// The evidence behind CaptureMode. DataDirectory arrives with the settings
+	// catalogue so a denied pg_current_logfile() cannot cost the row a relative
+	// logfile resolves against.
 	DataDirectory          string
 	CurrentLogfile         string
 	CurrentLogfileResolved string
 	CurrentLogfileReadable string
 	CurrentLogfileError    string
 
-	// From serverFactsSQL: the capability probes every later artifact's query
-	// selection reads.
 	HasPgMonitorRole        string
 	HasPgStatStatements     string
 	PgStatStatementsVersion string
@@ -116,44 +96,35 @@ type Metadata struct {
 	HasSessionFatalStats    string
 	ComputeQueryID          string
 
-	// From replicationSQL.
 	ReplicationConfigured string
 	ReplicationProbeError string
 
-	// From serverFactsSQL: its failure, and the clock reads it carries.
 	QueryError           string
 	ServerNow            string
 	ServerClockTimestamp string
 	AgentTSAtClockRead   time.Time
 }
 
-// MetadataCollector writes pg_metadata.txt as one of the window's collectors:
-// the target block before the connection exists, the server block from the one
-// sample its Once() schedule gives it.
+// MetadataCollector writes the target block before the connection exists and the
+// server block from the one sample its Once() schedule gives it.
 //
-// It is the package's only stateful collector, and the only one held by pointer
-// where Health{} and Bloat{} are values. Sample keeps what it collected because
-// the run log's line for this artifact is a reading - which capture mode the run
-// got, and which probes were denied - rather than the sample count every other
-// artifact reports, and a count of 1/1 is true and useless. Collected() is that
-// read, and it is safe because Window.Run is synchronous.
+// The package's only stateful collector, and so the only one held by pointer:
+// the run log's line for this artifact is a reading rather than a sample count.
+// Collected() is safe because Window.Run is synchronous.
 type MetadataCollector struct {
 	target       Target
 	yc360Version string
 	agentNow     time.Time
 
-	// collect is a seam, nil in production: a golden fixture pins one server's
-	// regime without a server in that regime - the readable log file mode
-	// detection needs cannot be faked through a Querier.
+	// collect is a seam, nil in production: the readable log file mode detection
+	// needs cannot be faked through a Querier.
 	collect func(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata
 
 	collected Metadata
 }
 
-// NewMetadata builds the collector from what is knowable before the connection.
-// Collect returns a Metadata rather than filling one in, so the target, the
-// agent's version and its clock read are held here until it does - and they are
-// what Collected() reports if the connection never happens.
+// NewMetadata builds the collector from what is knowable before the connection,
+// which is what Collected() reports if the connection never happens.
 func NewMetadata(t Target, yc360Version string, agentNow time.Time) *MetadataCollector {
 	m := &MetadataCollector{
 		target:       t,
@@ -171,22 +142,16 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time) *MetadataCol
 		TargetUsername:     t.Username,
 		TargetSSLMode:      t.SSLMode,
 
-		// Unknown until collectLogLocation says otherwise, which is also the
-		// truth about a run whose connection was refused.
+		// Unknown until collectLogLocation says otherwise, which is the truth
+		// about a run whose connection was refused.
 		CaptureMode: ModeUnknown,
 	}
 
 	return m
 }
 
-// String renders the collector for logs with the password redacted, and
-// GoString does the same for %#v.
-//
-// Target's own pair does not cover this and cannot: fmt reaches a nested String
-// method only through an exported field, and target is not one - so a collector
-// printed without these would render its Target, and the password in it, as a
-// bare struct. That is also why nothing holds a collector in a struct it logs;
-// Collected() returns a Metadata, which has no password field at all.
+// String and GoString redact the password. Target's own pair cannot: fmt reaches
+// a nested String method only through an exported field, and target is not one.
 func (m *MetadataCollector) String() string {
 	return fmt.Sprintf("postgres.MetadataCollector{target=%s yc360_version=%s capture_mode=%s}",
 		m.target, m.yc360Version, m.collected.CaptureMode)
@@ -203,9 +168,8 @@ func (m *MetadataCollector) Artifact() Artifact {
 	}
 }
 
-// WritePrologue writes the pg_metadata_target block: what the run was aimed at,
-// which is knowable before the network and is therefore the block a reader can
-// rely on being there whatever happened next.
+// WritePrologue writes what the run was aimed at, which is knowable before the
+// network and so survives any later failure.
 func (m *MetadataCollector) WritePrologue(w io.Writer, s SampleContext) error {
 	return writeMetadataBlock(w, "pg_metadata_target", []headerField{
 		{"db", s.Database},
@@ -213,17 +177,13 @@ func (m *MetadataCollector) WritePrologue(w io.Writer, s SampleContext) error {
 	}, targetFields(m.collected), s.At)
 }
 
-// Sample runs the capture and writes the pg_metadata_server block: what the
-// server said, which exists only because a connection did.
-//
-// Collect never returns an error - each probe records its own failure in a
-// field - so the only way this fails is the write, which the window records as
-// the artifact's IOErr.
+// Sample writes what the server said. Collect never returns an error - each
+// probe records its own failure in a field - so only the write can fail.
 func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	collected := m.collectWith(ctx, q)
 
-	// Collect returns a fresh value rather than filling one in, so the version
-	// stamped before the connection has to be carried across.
+	// Collect returns a fresh value, so the pre-connection version is carried
+	// across by hand.
 	collected.YC360Version = m.yc360Version
 
 	m.collected = collected
@@ -235,9 +195,6 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 	}, serverBlockFields(collected), s.At)
 }
 
-// Collected is what the last sample read, or what was configured if there was
-// never one. The adapter reads it after the window closes to render the run
-// log's line for this artifact.
 func (m *MetadataCollector) Collected() Metadata { return m.collected }
 
 func (m *MetadataCollector) collectWith(ctx context.Context, q Querier) Metadata {
@@ -248,10 +205,8 @@ func (m *MetadataCollector) collectWith(ctx context.Context, q Querier) Metadata
 	return Collect(ctx, q, m.target, m.agentNow)
 }
 
-// writeMetadataBlock renders one block whole and writes it once, the Collector
-// contract's rule rather than one collector's: a write failing between the
-// header and the body would leave the window's stub block behind a half-written
-// block.
+// writeMetadataBlock renders whole and writes once: a write failing between the
+// header and the body would leave the window's stub behind a half-written block.
 func writeMetadataBlock(w io.Writer, source string, header []headerField, fields []field, at time.Time) error {
 	var block bytes.Buffer
 
@@ -268,8 +223,8 @@ func writeMetadataBlock(w io.Writer, source string, header []headerField, fields
 	return err
 }
 
-// metadataScope is the artifact's and both of its body blocks': every row is
-// about the cluster, and db=/dbid= mean connected through rather than about.
+// metadataScope: every row is about the cluster, and db=/dbid= mean connected
+// through rather than about.
 const metadataScope = "cluster"
 
 // Collect runs the three statements and resolves the capture mode. It never
@@ -277,8 +232,7 @@ const metadataScope = "cluster"
 // artifact is still written. The statements are split along the privilege
 // boundary so one missing grant costs one section rather than everything.
 //
-// agentNow is the clock read that pairs with ServerNow, passed in so the golden
-// tests are deterministic.
+// agentNow is the clock read that pairs with ServerNow.
 func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata {
 	m := Metadata{
 		AgentTS:            agentNow,
@@ -289,8 +243,8 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 		TargetUsername:     t.Username,
 		TargetSSLMode:      t.SSLMode,
 
-		// collectLogLocation overwrites this on any path that reaches a
-		// conclusion, so an early return cannot look like a determined mode.
+		// collectLogLocation overwrites this on any path that concludes, so an
+		// early return cannot look like a determined mode.
 		CaptureMode: ModeUnknown,
 	}
 
@@ -305,9 +259,8 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 	return m
 }
 
-// collectServerFacts runs serverFactsSQL. Its failure is recorded in QueryError
-// and leaves every field it would have filled empty - a degradation, not a
-// loss: the target block and the capture mode survive.
+// collectServerFacts records its failure in QueryError and leaves the fields it
+// would have filled empty; the target block and the capture mode survive.
 func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
@@ -341,11 +294,9 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	m.ServerClockTimestamp = timeText(row.serverClock)
 }
 
-// applySettings writes each returned setting into its field and names the rest
-// in SettingsUnavailable. A name is missing either because the role may not see
-// it or because this version lacks it; the artifact records the fact and leaves
-// the judgement to a reader, who has server_version_num and has_pg_monitor_role
-// in the same file.
+// applySettings writes each returned setting into its field and names the rest in
+// SettingsUnavailable - missing either because the role may not see it or because
+// this version lacks it, which a reader tells apart from the same file.
 func applySettings(m *Metadata, settings map[string]string) {
 	var unavailable []string
 
@@ -363,20 +314,18 @@ func applySettings(m *Metadata, settings map[string]string) {
 	m.SettingsUnavailable = strings.Join(unavailable, ",")
 }
 
-// collectLogLocation runs logLocationSQL and resolves the capture mode.
-//
-// The mode predicts "can this process read the server's log file", so that is
-// what is tested rather than inferred from the configured host. A relative
-// logfile resolves against m.DataDirectory, which is why this runs after
-// collectServerFacts.
+// collectLogLocation resolves the capture mode. The mode predicts "can this
+// process read the server's log file", so that is tested rather than inferred
+// from the configured host. A relative logfile resolves against m.DataDirectory,
+// which is why this runs after collectServerFacts.
 func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
 	var logfile *string
 	if err := q.QueryRow(ctx, logLocationSQL).Scan(&logfile); err != nil {
-		// Unknown rather than guessed: a denial says nothing about where the
-		// agent runs, and on 14-16 it is the normal outcome for pg_monitor.
+		// Left unknown: a denial says nothing about where the agent runs, and on
+		// 14-16 it is the normal outcome for pg_monitor.
 		m.CurrentLogfileError = errorText(err, password)
 		return
 	}
@@ -384,9 +333,8 @@ func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password st
 	m.CurrentLogfile = text(logfile)
 
 	if m.CurrentLogfile == "" {
-		// logging_collector is off. An agent genuinely on the database host is
-		// recorded as remote, which is harmless: the log-derived artifacts are
-		// unavailable either way.
+		// logging_collector is off, so an agent genuinely on the database host is
+		// recorded as remote - harmless, the log artifacts are gone either way.
 		m.CaptureMode = ModeRemote
 		return
 	}
@@ -408,9 +356,8 @@ func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password st
 	m.CaptureMode = ModeRemote
 }
 
-// resolveLogfile turns pg_current_logfile's answer into a path on this host,
-// resolving a relative one against the data directory. It reports false when
-// there is nothing to resolve against.
+// resolveLogfile turns pg_current_logfile's answer into a path on this host. It
+// reports false when a relative path has nothing to resolve against.
 func resolveLogfile(logfile, dataDirectory string) (string, bool) {
 	if isAbsolutePath(logfile) {
 		return logfile, true
@@ -423,15 +370,13 @@ func resolveLogfile(logfile, dataDirectory string) (string, bool) {
 	return filepath.Join(dataDirectory, logfile), true
 }
 
-// isAbsolutePath reports whether the server's path is absolute. A leading slash
-// counts even where filepath would not say so: the agent can be a Windows host
-// talking to a POSIX server.
+// isAbsolutePath counts a leading slash even where filepath would not: the agent
+// can be a Windows host talking to a POSIX server.
 func isAbsolutePath(p string) bool {
 	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
-// isReadable reports whether this process can open the path for reading. Opened
-// rather than stat'd because permission, not existence, is the question.
+// isReadable opens rather than stats: permission, not existence, is the question.
 func isReadable(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -442,9 +387,8 @@ func isReadable(path string) bool {
 	return true
 }
 
-// collectReplication runs replicationSQL. A reader must check is_in_recovery
-// before trusting the answer: on a standby pg_stat_replication is legitimately
-// empty, so false there is expected topology rather than a finding.
+// collectReplication's answer needs is_in_recovery to read: on a standby
+// pg_stat_replication is legitimately empty, so false is topology, not a finding.
 func collectReplication(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
@@ -462,10 +406,8 @@ func collectReplication(ctx context.Context, q Querier, m *Metadata, password st
 	m.ReplicationConfigured = strconv.FormatBool(*count > 0)
 }
 
-// errorText renders err for an artifact field. The redaction is defence in
-// depth - the password is in no statement and no argument today. The flattening
-// keeps the struct itself free of multi-line values, so a caller logging one
-// gets one line.
+// errorText renders err for an artifact field. Redaction is defence in depth -
+// the password is in no statement and no argument today.
 func errorText(err error, password string) string {
 	if err == nil {
 		return ""

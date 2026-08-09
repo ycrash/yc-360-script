@@ -113,19 +113,12 @@ func TestMatrix(t *testing.T) {
 	}
 }
 
-// matrixCaptureSessionsSQL counts this capture's backends, excluding the
-// connection doing the counting - which carries the same application_name,
-// because every connection this package opens does.
 const matrixCaptureSessionsSQL = `SELECT count(*)
 FROM pg_catalog.pg_stat_activity
 WHERE application_name = $1 AND pid <> pg_backend_pid()`
 
-// matrixMetadataWindow is long enough for the count below to land inside it.
 const matrixMetadataWindow = 3 * time.Second
 
-// runMatrixMetadataWindow runs the collector through a real window and, from a
-// second connection while that window is open, counts how many sessions the
-// capture is holding.
 func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int64) {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -186,10 +179,6 @@ func matrixCountCaptureSessions(target Target) (int64, error) {
 	return sessions, nil
 }
 
-// TestMatrixMetadataWindow is the empirical form of the claim this slice makes:
-// routing pg_metadata.txt through the window changed what writes it and nothing
-// about what it says. TestMatrix above still pins Collect itself, on the same
-// sweep, by calling it directly.
 func TestMatrixMetadataWindow(t *testing.T) {
 	for _, server := range matrixServers {
 		for _, role := range matrixRoles {
@@ -230,8 +219,6 @@ func TestMatrixMetadataWindow(t *testing.T) {
 					assert.Contains(t, headers[i], source, "block %d", i)
 				}
 
-				// The frame moved and the content did not - asserted against a
-				// real server rather than against the agent's own fixtures.
 				_, directValues, directKeys := parseArtifact(t, writeArtifact(t, direct))
 				assert.Equal(t, directKeys, keys,
 					"the window writes exactly the keys the direct call does")
@@ -412,8 +399,6 @@ const (
 	matrixNoIdxLive      = 250
 )
 
-// sampleBlock is one collector's block, keyed by its first column - relid for
-// pg_bloat.txt, datid for pg_health.txt, which is the join key either way.
 type sampleBlock struct {
 	header  map[string]string
 	rawHead string
@@ -433,8 +418,6 @@ func parseHealthBlocks(t *testing.T, artifact string) []sampleBlock {
 	return parseSampleBlocks(t, artifact, "pg_stat_database")
 }
 
-// parseSampleBlocks reads the blocks one view produced, skipping the window's
-// own preamble and closing block.
 func parseSampleBlocks(t *testing.T, artifact, source string) []sampleBlock {
 	t.Helper()
 
@@ -577,21 +560,6 @@ func TestMatrixBloat(t *testing.T) {
 	}
 }
 
-// assertMatrixDeadTuples checks the fixture's dead tuples against the block's
-// own n_tup_upd rather than against the bare constant, so the two captured
-// columns cross-check each other.
-//
-// The constant alone is wrong in both directions once a container has been up
-// for a while. A stray UPDATE - a hand-run query between test runs - leaves its
-// old row version dead too, so the count climbs above matrixOrdersDead; and
-// PostgreSQL's opportunistic page pruning can reclaim those update-made dead
-// tuples again on ordinary access, so it can fall back. Neither says anything
-// about the reading, and both broke this assertion on the pg16 container.
-//
-// What must not happen still fails here: a vacuum would take the DELETE's dead
-// tuples with it, dropping the count below the lower bound. On a container
-// nothing has written to, updated is 0 and the two bounds collapse to the exact
-// count the fixture makes.
 func assertMatrixDeadTuples(t *testing.T, block sampleBlock, orders string) {
 	t.Helper()
 
@@ -675,12 +643,8 @@ func assertMatrixCapFires(t *testing.T, target Target) {
 	assert.Len(t, blocks[0].rows, capped)
 }
 
-// matrixHealthSamples is three blocks at a 1s cadence over a 3s window, so five
-// servers times three roles stays under a minute.
 const matrixHealthSamples = 3
 
-// matrixDatabases is what pg_stat_database returns on a matrix container: the
-// shared-objects row, both templates, postgres, and yc_second.
 const matrixDatabases = 5
 
 func runMatrixHealthWindow(t *testing.T, target Target) []ArtifactResult {
@@ -762,11 +726,6 @@ func TestMatrixHealth(t *testing.T) {
 	}
 }
 
-// matrixKeepCommitting holds a second connection open and commits on it until
-// the returned function is called, so xact_commit moves while the window is
-// sampling. Without it a backend flushes its statistics at most once per second
-// (PGSTAT_MIN_INTERVAL on 15 and later), so three identical reads in an idle
-// container would be a legitimate outcome.
 func matrixKeepCommitting(t *testing.T, target Target) (stop func()) {
 	t.Helper()
 
@@ -801,9 +760,6 @@ func matrixKeepCommitting(t *testing.T, target Target) (stop func()) {
 	}
 }
 
-// assertMatrixHealthCapKeepsTheProtectedRows lowers the cap while connected to
-// the database with the highest OID - the case a plain ORDER BY datid gets
-// wrong.
 func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 	t.Helper()
 
@@ -823,15 +779,14 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 	}()
 
 	var (
-		database string
-		dbid     *string
+		database              string
+		dbid                  *string
+		hasPgStatCheckpointer bool
 	)
-	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).Scan(&database, &dbid))
+	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).Scan(&database, &dbid, &hasPgStatCheckpointer))
 	require.Equal(t, "yc_second", database)
 	require.NotNil(t, dbid)
 
-	// Exactly the two rows the inner ordering protects; anything the cap kept
-	// beyond them would weaken the assertion below.
 	const capped = 2
 
 	var buf strings.Builder
@@ -852,7 +807,6 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 			"so ordering on datid alone would have dropped the database the header names")
 }
 
-// matrixDatidOf is the datid of the row for datname, which must be present.
 func matrixDatidOf(t *testing.T, block sampleBlock, datname string) string {
 	t.Helper()
 
@@ -885,4 +839,391 @@ func rowKeys(b sampleBlock) []string {
 	sort.Strings(relids)
 
 	return relids
+}
+
+const matrixCapacityWindow = 3 * time.Second
+
+const matrixHeldSessions = 3
+
+type capacityMatrixBlock struct {
+	header  map[string]string
+	rawHead string
+	columns []string
+	rows    [][]string
+}
+
+func parseCapacityBlocks(t *testing.T, artifact, source string) []capacityMatrixBlock {
+	t.Helper()
+
+	var (
+		blocks  []capacityMatrixBlock
+		current *capacityMatrixBlock
+	)
+
+	for _, line := range strings.Split(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			current = nil
+
+			if !strings.Contains(line, "source="+source+" ") {
+				continue
+			}
+
+			header := map[string]string{}
+			for _, token := range strings.Fields(strings.TrimPrefix(line, "# ")) {
+				if key, value, found := strings.Cut(token, "="); found {
+					header[key] = value
+				}
+			}
+
+			blocks = append(blocks, capacityMatrixBlock{header: header, rawHead: line})
+			current = &blocks[len(blocks)-1]
+
+			continue
+		}
+
+		if current == nil {
+			continue
+		}
+
+		cells := strings.Split(line, ",")
+		if current.columns == nil {
+			current.columns = cells
+			continue
+		}
+
+		current.rows = append(current.rows, cells)
+	}
+
+	return blocks
+}
+
+func (b capacityMatrixBlock) index(t *testing.T, column string) int {
+	t.Helper()
+
+	for i, name := range b.columns {
+		if name == column {
+			return i
+		}
+	}
+
+	t.Fatalf("column %s is not in the block", column)
+
+	return -1
+}
+
+func (b capacityMatrixBlock) only(t *testing.T, column string) string {
+	t.Helper()
+
+	require.Len(t, b.rows, 1, "%s is a one-row block", b.header["source"])
+
+	return b.rows[0][b.index(t, column)]
+}
+
+func runMatrixCapacityWindow(t *testing.T, target Target, between func()) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   matrixCapacityWindow,
+		Target:     target,
+		Collectors: []Collector{Capacity{}},
+	}
+
+	var wg sync.WaitGroup
+
+	if between != nil {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			time.Sleep(matrixCapacityWindow / 3)
+			between()
+		}()
+	}
+
+	results := window.Run(context.Background())
+	wg.Wait()
+
+	return results
+}
+
+func TestMatrixCapacity(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				release := matrixHoldSessions(t, target, matrixHeldSessions)
+
+				var between func()
+				if role.superuser {
+					between = func() { matrixExec(t, target, "CHECKPOINT") }
+				}
+
+				results := runMatrixCapacityWindow(t, target, between)
+				release()
+
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"a denied read costs its own block, never the artifact")
+				require.Equal(t, 2, results[0].SamplesWritten)
+
+				artifact := matrixArtifactText(t, results[0])
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				checkpoints := parseCapacityBlocks(t, artifact, "pg_checkpointer")
+				require.Len(t, checkpoints, 2, "the counters are read at both edges of the window")
+
+				assertMatrixCheckpointShape(t, server, checkpoints)
+				assertMatrixCheckpointCounters(t, role, checkpoints)
+
+				connections := parseCapacityBlocks(t, artifact, "pg_stat_activity_by_app")
+				require.Len(t, connections, 1, "a gauge, written once as the window closes")
+				assertMatrixConnectionVisibility(t, role, connections[0])
+
+				wal := parseCapacityBlocks(t, artifact, "pg_ls_waldir")
+				require.Len(t, wal, 1)
+				assertMatrixWAL(t, role, wal[0])
+
+				if role.superuser {
+					assertMatrixResetClocksAreTwo(t, server, target)
+				}
+			})
+		}
+	}
+}
+
+func assertMatrixCheckpointShape(t *testing.T, server matrixServer, blocks []capacityMatrixBlock) {
+	t.Helper()
+
+	views := "pg_stat_bgwriter"
+	if server.major >= 17 {
+		views = "pg_stat_checkpointer,pg_stat_bgwriter"
+	}
+
+	for i, block := range blocks {
+		assert.NotContains(t, block.rawHead, "error=",
+			"block %d: reading the checkpoint counters needs no grant", i)
+
+		assert.Equal(t, checkpointColumns, block.columns,
+			"block %d: one column set on every version is what the normalisation buys", i)
+		assert.Equal(t, views, block.header["views"],
+			"block %d: three of the five counters moved views in 17, and views= is where the "+
+				"artifact says which server it read", i)
+
+		if server.major >= 17 {
+			assert.Empty(t, block.only(t, "buffers_backend"),
+				"block %d: the column was removed in 17, and empty is not 0", i)
+		} else {
+			assert.NotEmpty(t, block.only(t, "buffers_backend"),
+				"block %d: below 17 it is a reading", i)
+		}
+
+		assert.NotEmpty(t, block.only(t, "buffers_clean"),
+			"block %d: the one counter that stayed in pg_stat_bgwriter", i)
+		assert.NotEmpty(t, block.only(t, "checkpointer_stats_reset"), "block %d", i)
+		assert.NotEmpty(t, block.only(t, "bgwriter_stats_reset"), "block %d", i)
+	}
+}
+
+func assertMatrixCheckpointCounters(t *testing.T, role matrixRole, blocks []capacityMatrixBlock) {
+	t.Helper()
+
+	first := matrixCheckpointCounter(t, blocks[0], "checkpoints_req")
+	last := matrixCheckpointCounter(t, blocks[1], "checkpoints_req")
+
+	if role.superuser {
+		assert.Greater(t, last, first,
+			"the run issued a CHECKPOINT between the two samples, so the requested count climbs")
+
+		return
+	}
+
+	assert.GreaterOrEqual(t, last, first,
+		"an unprivileged role cannot force a checkpoint, so only the direction is assertable")
+}
+
+func matrixCheckpointCounter(t *testing.T, block capacityMatrixBlock, column string) int64 {
+	t.Helper()
+
+	value, err := strconv.ParseInt(block.only(t, column), 10, 64)
+	require.NoError(t, err, "%s must be a number", column)
+
+	return value
+}
+
+func assertMatrixConnectionVisibility(t *testing.T, role matrixRole, block capacityMatrixBlock) {
+	t.Helper()
+
+	assert.NotContains(t, block.rawHead, "error=", "counting pg_stat_activity needs no grant")
+	assert.Equal(t, connectionColumns, block.columns)
+	assert.Equal(t, "false", block.header["truncated"])
+
+	assert.GreaterOrEqual(t, matrixConnectionCount(t, block, ApplicationName, "client backend"),
+		int64(matrixHeldSessions+1),
+		"every role sees its own backends in full: the window's connection and the %d held "+
+			"open beside it, under the agent's own application_name",
+		matrixHeldSessions)
+
+	checkpointer := matrixConnectionCount(t, block, "", "checkpointer")
+	masked := matrixConnectionCount(t, block, "", "")
+
+	if role.privileged() {
+		assert.Positive(t, checkpointer,
+			"a privileged role sees the server's own processes as their own backend_type - which "+
+				"is what keeps them out of a client-connection count read against max_connections")
+		assert.Positive(t, matrixConnectionCount(t, block, "", "walwriter"))
+		assert.Zero(t, masked, "and nothing is masked into an unnamed, untyped row")
+
+		return
+	}
+
+	assert.Zero(t, checkpointer, "an unprivileged role cannot see another backend's type")
+	assert.GreaterOrEqual(t, masked, int64(2),
+		"and the backends it cannot see collapse into one row with both dimensions empty")
+}
+
+func matrixConnectionCount(t *testing.T, block capacityMatrixBlock, application, backendType string) int64 {
+	t.Helper()
+
+	var (
+		name  = block.index(t, "application_name")
+		kind  = block.index(t, "backend_type")
+		count = block.index(t, "active_connections")
+	)
+
+	for _, row := range block.rows {
+		if row[name] != application || row[kind] != backendType {
+			continue
+		}
+
+		value, err := strconv.ParseInt(row[count], 10, 64)
+		require.NoError(t, err, "active_connections must be a number")
+
+		return value
+	}
+
+	return 0
+}
+
+func assertMatrixWAL(t *testing.T, role matrixRole, block capacityMatrixBlock) {
+	t.Helper()
+
+	assert.Equal(t, walColumns, block.columns,
+		"the column header is written whether or not the read succeeded")
+
+	if role.privileged() {
+		assert.NotContains(t, block.rawHead, "error=",
+			"pg_ls_waldir() is granted to pg_monitor, so the recommended role reads it")
+
+		value, err := strconv.ParseInt(block.only(t, "wal_bytes"), 10, 64)
+		require.NoError(t, err, "wal_bytes must be a number")
+		assert.Positive(t, value, "a running server always has WAL")
+
+		return
+	}
+
+	assert.Contains(t, block.rawHead, "error=", "a role holding only LOGIN is denied")
+	assert.Contains(t, block.rawHead, "pg_ls_waldir")
+	assert.Contains(t, block.rawHead, "42501")
+	assert.Empty(t, block.rows,
+		"the column header with no row: captured nothing, and the header says why")
+}
+
+func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Target) {
+	t.Helper()
+
+	results := runMatrixCapacityWindow(t, target, func() {
+		matrixExec(t, target, "SELECT pg_stat_reset_shared('bgwriter')")
+	})
+
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].IOErr)
+
+	blocks := parseCapacityBlocks(t, matrixArtifactText(t, results[0]), "pg_checkpointer")
+	require.Len(t, blocks, 2)
+
+	assert.NotEqual(t, blocks[0].only(t, "bgwriter_stats_reset"), blocks[1].only(t, "bgwriter_stats_reset"),
+		"resetting bgwriter must move bgwriter's own clock")
+
+	if server.major >= 17 {
+		assert.Equal(t,
+			blocks[0].only(t, "checkpointer_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+			"and must leave pg_stat_checkpointer's where it was: two views, two clocks, which is "+
+				"why one column would leave the other view's counter with an undetectable reset")
+
+		return
+	}
+
+	assert.NotEqual(t,
+		blocks[0].only(t, "checkpointer_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+		"below 17 the reset takes the checkpoint counters with it, because they are one view")
+	assert.Equal(t,
+		blocks[1].only(t, "bgwriter_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+		"and one clock is read into both columns")
+}
+
+func matrixHoldSessions(t *testing.T, target Target, n int) (release func()) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	held := make([]*Conn, 0, n)
+
+	for range n {
+		conn, err := Connect(ctx, target)
+		require.NoError(t, err)
+
+		held = append(held, conn)
+	}
+
+	return func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		for _, conn := range held {
+			_ = conn.Close(closeCtx)
+		}
+	}
+}
+
+func matrixExec(t *testing.T, target Target, sql string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	rows, err := conn.Query(ctx, sql)
+	if !assert.NoError(t, err, "%s", sql) {
+		return
+	}
+
+	rows.Close()
+	assert.NoError(t, rows.Err(), "%s", sql)
+}
+
+func matrixArtifactText(t *testing.T, result ArtifactResult) string {
+	t.Helper()
+
+	content, err := os.ReadFile(result.Artifact.FileName)
+	require.NoError(t, err)
+	result.File.Close()
+
+	return string(content)
 }

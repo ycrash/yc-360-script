@@ -21,8 +21,6 @@ import (
 
 var errDenied = errors.New("ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)")
 
-// fakeMetadataConn is a window connection that answers the three metadata
-// statements, so the collector can be run through a real window with no server.
 type fakeMetadataConn struct {
 	*fakeWindowConn
 
@@ -41,13 +39,10 @@ func (c *fakeMetadataConn) QueryRow(ctx context.Context, sql string, args ...any
 	return c.querier.QueryRow(ctx, sql, args...)
 }
 
-// metadataAt is the metadata goldens' clock, on testAgentNow's date so the
-// window's block timestamps and the fixture's agent_ts read as one capture.
 func metadataAt(minute, second, milli int) time.Time {
 	return time.Date(2026, 8, 4, 9, minute, second, milli*int(time.Millisecond), time.UTC)
 }
 
-// runMetadataWindow runs the default 120s window over the collector alone.
 func runMetadataWindow(t *testing.T, clock *scriptedClock, collector *MetadataCollector,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {
@@ -66,10 +61,6 @@ func runMetadataWindow(t *testing.T, clock *scriptedClock, collector *MetadataCo
 	return window.Run(context.Background())
 }
 
-// collecting returns a collector whose capture is m, so a golden can pin one
-// server's regime - PostgreSQL 17 on its own host - without a server in it.
-// Mode detection opens the log file it was told about, which no Querier can
-// fake.
 func collecting(m Metadata) *MetadataCollector {
 	collector := NewMetadata(testTarget(), "3.6.1", m.AgentTS)
 	collector.collect = func(context.Context, Querier, Target, time.Time) Metadata { return m }
@@ -156,10 +147,6 @@ func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
 		"connect_error=too_many_connections")
 }
 
-// TestMetadataArtifactParsesByTheDocumentedRule is TestBlockHeaderIsNotACSVRecord
-// on a whole artifact, because that is where it bit: the goldens' connect_error
-// is the bare token too_many_connections, so nothing here would have shown that
-// an ordinary refusal makes the file unparseable to a CSV-only reader.
 func TestMetadataArtifactParsesByTheDocumentedRule(t *testing.T) {
 	clock := newScriptedClock(t,
 		metadataAt(12, 49, 201),
@@ -214,8 +201,6 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	assert.Contains(t, headers[2], "db=orders_db dbid=16401 sample=1 ts=",
 		"and afterwards, what identify read")
 
-	// The frame moved; the content did not. Both lists are asserted against the
-	// ones the writer builds, so a key added to either shows up here.
 	var want []string
 	for _, f := range append(targetFields(full), serverBlockFields(full)...) {
 		want = append(want, f.key)
@@ -280,9 +265,6 @@ func TestMetadataCollectorCarriesNoPasswordThroughFmt(t *testing.T) {
 			"the collector leaked the password through %s", verb)
 	}
 
-	// The unexported target is why: fmt reaches a nested String method only
-	// through an exported field, so without the collector's own String the
-	// Target would print as a bare struct whatever Target.String says.
 	assert.Contains(t, fmt.Sprintf("%v", collector), "<redacted>")
 
 	assert.NotContains(t, fmt.Sprintf("%#v", collector.Collected()), testPassword,

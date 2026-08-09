@@ -220,8 +220,6 @@ func at(minute, second, milli int) time.Time {
 	return time.Date(2026, 8, 7, 14, minute, second, milli*int(time.Millisecond), time.UTC)
 }
 
-// goldenClock scripts the window's clock reads: the preamble, t0, a pair per
-// tick - the timeline's wait and the sample's ts= - then the closing block.
 func goldenClock(t *testing.T) *scriptedClock {
 	return newScriptedClock(t,
 		at(32, 4, 980),
