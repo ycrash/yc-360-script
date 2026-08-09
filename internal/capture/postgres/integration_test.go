@@ -577,6 +577,39 @@ func TestMatrixBloat(t *testing.T) {
 	}
 }
 
+// assertMatrixDeadTuples checks the fixture's dead tuples against the block's
+// own n_tup_upd rather than against the bare constant, so the two captured
+// columns cross-check each other.
+//
+// The constant alone is wrong in both directions once a container has been up
+// for a while. A stray UPDATE - a hand-run query between test runs - leaves its
+// old row version dead too, so the count climbs above matrixOrdersDead; and
+// PostgreSQL's opportunistic page pruning can reclaim those update-made dead
+// tuples again on ordinary access, so it can fall back. Neither says anything
+// about the reading, and both broke this assertion on the pg16 container.
+//
+// What must not happen still fails here: a vacuum would take the DELETE's dead
+// tuples with it, dropping the count below the lower bound. On a container
+// nothing has written to, updated is 0 and the two bounds collapse to the exact
+// count the fixture makes.
+func assertMatrixDeadTuples(t *testing.T, block sampleBlock, orders string) {
+	t.Helper()
+
+	updated, err := strconv.Atoi(block.cell(t, orders, "n_tup_upd"))
+	require.NoError(t, err, "n_tup_upd must be a number")
+
+	dead, err := strconv.Atoi(block.cell(t, orders, "n_dead_tup"))
+	require.NoError(t, err, "n_dead_tup must be a number")
+
+	assert.GreaterOrEqual(t, dead, matrixOrdersDead,
+		"autovacuum is disabled on the fixture, so the %d tuples its DELETE made dead "+
+			"are still here", matrixOrdersDead)
+
+	assert.LessOrEqual(t, dead, matrixOrdersDead+updated,
+		"every dead tuple is accounted for by the fixture's DELETE or by an UPDATE the "+
+			"block itself reports")
+}
+
 func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	t.Helper()
 
@@ -584,8 +617,7 @@ func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	noIndexes := block.relidOf(t, "public", "yc_bloat_no_indexes")
 
 	assert.Equal(t, strconv.Itoa(matrixOrdersLive), block.cell(t, orders, "n_live_tup"))
-	assert.Equal(t, strconv.Itoa(matrixOrdersDead), block.cell(t, orders, "n_dead_tup"),
-		"autovacuum is disabled on the fixture, so the dead tuples are still here")
+	assertMatrixDeadTuples(t, block, orders)
 	assert.Equal(t, strconv.Itoa(matrixNoIdxLive), block.cell(t, noIndexes, "n_live_tup"))
 
 	assert.Equal(t, "", block.cell(t, noIndexes, "idx_scan"),
