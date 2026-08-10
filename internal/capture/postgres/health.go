@@ -37,15 +37,14 @@ var healthColumns = []string{
 	"stats_reset",
 }
 
-// healthSQLTemplate reads pg_stat_database unfiltered - every database in the
-// cluster, plus the datid=0 shared-objects row. %s is the sessions_fatal
-// expression, so the fallback cannot drift from the statement it replaces.
+// healthSQLTemplate reads pg_stat_database unfiltered - every database, plus the
+// datid=0 shared-objects row. %s is the sessions_fatal expression, so the
+// fallback cannot drift from the statement it replaces.
 //
 // The inner ordering decides which rows survive the cap, keeping the shared row
 // and the connected database: OIDs climb, so a plain ORDER BY datid would drop
-// the database the block header names. The outer one is what a reader sees.
-// Neither sorts on a statistic, which would hand the server a different row set
-// per sample.
+// the database the header names. Neither ordering sorts on a statistic, which
+// would hand the server a different row set per sample.
 const healthSQLTemplate = `SELECT datid,
        datname,
        blks_hit,
@@ -106,11 +105,11 @@ func (h Health) Artifact() Artifact {
 
 // Sample reads every row of pg_stat_database and writes one block.
 //
-// sessions_fatal arrived in PostgreSQL 14, the bottom of the supported range,
-// so the 42703 retry is unreachable here and exists so an older server gets ten
-// of eleven columns instead of a file of stub blocks. It is safe because each
-// sample is an independent autocommit statement. The outcome is deliberately
-// not remembered between samples.
+// sessions_fatal arrived in PostgreSQL 14, the bottom of the supported range, so
+// the 42703 retry is unreachable here and exists so an older server gets ten of
+// eleven columns rather than a file of stub blocks. Safe because each sample is
+// an independent autocommit statement; the outcome is deliberately not
+// remembered between samples.
 func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	rows, total, err := h.read(ctx, q, healthSQL, s)
 
