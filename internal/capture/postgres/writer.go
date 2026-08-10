@@ -108,12 +108,10 @@ type headerField struct {
 //	# engine=postgres source=<source> v=<n> format=csv scope=<scope> [k=v ...] ts=<ts>
 //
 // The fixed keys bracket the caller's, so a reader finds the block's identity
-// and its clock read without parsing the middle.
-//
-// An empty value is still written (dbid= before a connection exists) and means
-// "not read". Header keys, unlike body keys, may also be conditional - error=
-// and connect_error= appear only when what they describe happened, and absence
-// is itself the value.
+// and its clock read without parsing the middle. An empty value is still written
+// (dbid= before a connection exists) and means "not read". Header keys, unlike
+// body keys, may also be conditional - error= and connect_error= appear only
+// when what they describe happened, and absence is itself the value.
 func writeBlockHeader(w io.Writer, source, scope string, fields []headerField, ts time.Time) error {
 	tokens := make([]string, 0, len(fields)+6)
 
@@ -144,10 +142,9 @@ const maxHeaderValue = 200
 // tokenisation. QuoteToGraphic rather than Quote: Quote escapes non-ASCII to
 // \uXXXX, and a database or relation name may legally be non-ASCII.
 //
-// The parser rule this pins: split on unquoted whitespace; a value beginning
-// with a double quote runs to the next unescaped double quote; the escapes
-// inside it are the set strconv.Unquote accepts, which includes \xNN, \uNNNN
-// and \UNNNNNNNN alongside \" \\ \t.
+// The parser rule this pins: split on unquoted whitespace, and a value beginning
+// with a double quote runs to the next unescaped one, escaped by the set
+// strconv.Unquote accepts.
 func headerValue(s string) string {
 	s = truncateRunes(singleLine(s), maxHeaderValue)
 

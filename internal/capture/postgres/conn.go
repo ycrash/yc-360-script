@@ -29,10 +29,9 @@ const (
 	ConnectTimeout = 5 * time.Second
 
 	// StatementTimeout is the client-side per-statement deadline, applied by
-	// callers: the backstop for when the server-side one does not fire.
-	// DefaultHealthInterval is this same 10s, so an interval sample that runs to
-	// its timeout consumes its whole interval - the timeline can stay level
-	// under load but cannot catch up.
+	// callers, backstopping the server-side one. DefaultHealthInterval is the
+	// same 10s, so a sample that runs to its timeout consumes its whole
+	// interval: the timeline can stay level under load but cannot catch up.
 	StatementTimeout = 10 * time.Second
 
 	// ModuleDeadline bounds the one-shot metadata capture. A sampled capture
@@ -125,12 +124,11 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 }
 
 // QueryRow's per-statement deadline is the caller's: the row is read in Scan,
-// after this returns.
+// after this returns. Query's is the caller's for the same reason.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return c.conn.QueryRow(ctx, sql, args...)
 }
 
-// Query's deadline is the caller's, for the same reason QueryRow's is.
 func (c *Conn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return c.conn.Query(ctx, sql, args...)
 }
@@ -231,13 +229,12 @@ var libpqEnv = []string{
 var parseConfigMu sync.Mutex
 
 // parseConfigWithoutEnvironment parses dsn with the libpq environment removed,
-// so the config file is the only thing deciding what the capture connects to.
+// so the config file alone decides what the capture connects to. Cleared for the
+// parse rather than overridden after, because PGSERVICE cannot be beaten any
+// other way: it makes ParseConfig read a service file, fail outright when that
+// file is missing, and inject settings the DSN does not name.
 //
-// Cleared for the parse rather than overridden afterwards, because PGSERVICE
-// cannot be beaten any other way: it makes ParseConfig read a service file, fail
-// outright when that file is missing, and inject settings the DSN does not name.
-//
-// The cost is a process-wide window during which a sibling capture that execs a
+// The cost is a process-wide window in which a sibling capture that execs a
 // child passes on an environment with the PG* variables missing.
 func parseConfigWithoutEnvironment(dsn string) (*pgx.ConnConfig, error) {
 	parseConfigMu.Lock()

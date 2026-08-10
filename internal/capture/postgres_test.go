@@ -330,8 +330,6 @@ func readSampledArtifact(t *testing.T, name string) string {
 	return string(content)
 }
 
-// postgresArtifactFiles is in registration order, which is the order the run's
-// summaries are joined in.
 var postgresArtifactFiles = []string{
 	PostgresHealthFileName,
 	PostgresReplicationFileName,

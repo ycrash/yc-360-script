@@ -61,17 +61,12 @@ const (
 	colSlotTwoPhaseAt
 )
 
-// pg18OptionalColumns is what the presence probe returns on PostgreSQL 18:
-// string_agg over pg_attribute ordered by attname, which for this set is also
-// optionalSlotColumns' own order.
 const pg18OptionalColumns = "conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at"
 
 var testSlotInactiveSince = time.Date(2026, 8, 7, 11, 2, 41, 330*int(time.Millisecond), time.UTC)
 
 var testWALSenderStart = time.Date(2026, 8, 7, 9, 14, 2, 114*int(time.Millisecond), time.UTC)
 
-// ordersWALSender is the replica in the golden: one async streaming standby,
-// connected over TCP with log_hostname off, holding no xmin.
 func ordersWALSender(sent, write, flush, replay string,
 	writeLag, flushLag, replayLag float64, reply time.Time,
 ) []any {
@@ -104,19 +99,6 @@ func ordersSenders3() [][]any {
 		1.05, 2.44, 4.02, at(32, 24, 918))}
 }
 
-// ordersSlots is one connected physical slot and one abandoned logical slot -
-// the shape the artifact exists for. Ordered by slot_name, so the logical one
-// leads.
-//
-// safe_wal_size is populated on both, which means the fixture's cluster has
-// max_slot_wal_keep_size set: at its -1 default the column is NULL for every
-// slot in the cluster, so one populated cell beside an empty one would depict
-// something the server cannot produce.
-//
-// The two trailing arguments are the optional set the server has, so one fixture
-// covers a PostgreSQL 18 cluster and a pre-16 one: pass nil and "" and the six
-// columns arrive NULL and the header key is never written, which is exactly what
-// the extraction produces against a server without them.
 func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
 	inactiveSince *time.Time, optionalColumns string,
 ) [][]any {
@@ -146,10 +128,6 @@ func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
 			"replica_01_slot", nil, ptr("physical"), nil, nil,
 			ptr(false), ptr(true), ptr(int32(4021)), nil, nil,
 			ptr(restartLSN), nil, ptr("reserved"), ptr(int64(3221225472)), ptr(false),
-			// conflicting is NULL on a physical slot even on 18, where the
-			// server has the column: it is the logical-decoding conflict flag
-			// and does not apply. That is the pair optional_columns= in the
-			// header exists to tell apart from 14's absence.
 			nil, present(ptr(false)), nil, nil, present(ptr(false)), nil,
 			probe,
 		},

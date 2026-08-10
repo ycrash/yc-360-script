@@ -146,14 +146,11 @@ type Collector interface {
 
 	// Sample writes one or more blocks, or writes nothing and returns an error.
 	//
-	// A block whose own read failed is still written - its header, its column
-	// header, and no rows - with error= in that block's header, however many of
-	// the sample's reads failed. So an error means the write failed, not that
-	// any read did.
-	//
-	// The window's stub block is for a collector that cannot localise a
-	// failure, and cannot be written behind a half-written block: a collector
-	// renders its whole sample into one buffer and issues one Write.
+	// A block whose own read failed is still written - header, column header,
+	// no rows - with error= in its header, so an error from here means the
+	// write failed, not that any read did. The window's stub block is for a
+	// collector that cannot localise a failure, and must not land behind a
+	// half-written block: render the whole sample into one buffer, one Write.
 	//
 	// The context is the window's, not a statement's. A collector running more
 	// than one statement applies StatementTimeout to each.
@@ -285,17 +282,14 @@ func sampleBudget(artifact Artifact) time.Duration {
 // Run opens the window and returns one result per artifact.
 //
 // The order is the design: every file is created and its preamble synced before
-// anything can fail, so a file that exists is never zero bytes and the upload
-// path's empty-file check cannot silently drop it; a refused connection writes
-// every closing block and returns, having nothing to wait for; and the closing
-// blocks are written with no context attached, so an expired deadline cannot
-// stop the record that says the deadline expired.
+// anything can fail, so a file that exists is never zero bytes for the upload
+// path to drop; a refused connection writes every closing block and returns; and
+// the closing blocks take no context, so an expired deadline cannot stop the
+// record saying it expired.
 //
-// There is no error return - a refused connection is a successful capture of a
-// failure. File I/O is the exception and lands in ArtifactResult.IOErr.
-//
-// The files are left open at their end offset. The caller uploads them - the
-// upload path seeks to zero itself - and closes them.
+// No error return - a refused connection is a successful capture of a failure.
+// File I/O is the exception and lands in ArtifactResult.IOErr. Files are left
+// open at their end offset for the caller to upload and close.
 func (w *Window) Run(ctx context.Context) []ArtifactResult {
 	results := make([]ArtifactResult, len(w.Collectors))
 	for i, collector := range w.Collectors {
