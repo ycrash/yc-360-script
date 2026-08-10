@@ -8,17 +8,13 @@ import (
 // Two rules for every statement here, because the capture runs against 14-18 as
 // a role that may hold nothing beyond CONNECT.
 //
-// Version safety: a capability is asked of the catalog, never derived from
-// server_version_num. pg_upgrade carries an old extension schema forward, so a
-// PG15 server can legitimately expose pg_stat_statements' pre-1.8 columns.
+// A capability is asked of the catalog, never derived from server_version_num:
+// pg_upgrade carries an old extension schema forward, so a PG15 server can
+// legitimately expose pg_stat_statements' pre-1.8 columns.
 //
-// Privilege safety: settings come from pg_settings, never SHOW or
-// current_setting(). The view returns no row for an unknown name where SHOW
-// raises, and omits a superuser-only setting for a role without
-// pg_read_all_settings where current_setting(name, true) would still raise.
-//
-// So serverFactsSQL cannot fail for want of a grant; logLocationSQL can, which
-// is why it is separate.
+// Settings come from pg_settings, never SHOW or current_setting(). The view
+// returns no row for an unknown name where SHOW raises, and omits a
+// superuser-only setting where current_setting(name, true) would still raise.
 
 // timestampLayout is RFC 3339 in UTC, to milliseconds.
 const timestampLayout = "2006-01-02T15:04:05.000Z"
@@ -62,12 +58,10 @@ func settingNames() []string {
 // role holding only CONNECT. Settings are in pg_settings.setting form - internal
 // units, so `500` rather than SHOW's `500ms`.
 //
-// Parallel name and value arrays rather than one 2-D array or a json aggregate:
-// no multi-dimensional scan support needed, and text arrays pass bytes through
-// without a UTF-8 conversion that could fail on a SQL_ASCII cluster.
-//
-// inet_server_addr() is unwrapped with host() rather than cast to text: the
-// cast renders `172.17.0.2/32`, and the /32 is an artifact of the return type.
+// Parallel name and value arrays rather than a 2-D array or a json aggregate:
+// text arrays pass bytes through without a UTF-8 conversion that could fail on a
+// SQL_ASCII cluster. host(inet_server_addr()) rather than a cast, which would
+// render 172.17.0.2/32.
 const serverFactsSQL = `WITH s AS (
     SELECT name, COALESCE(setting, '') AS setting
       FROM pg_catalog.pg_settings
@@ -104,8 +98,8 @@ SELECT
 // 14-16 denial is the normal outcome for the recommended role.
 const logLocationSQL = `SELECT pg_current_logfile()`
 
-// replicationSQL is separated defensively: pg_stat_replication masks columns,
-// not rows, so this is not known to need a grant.
+// replicationSQL is separated defensively, though it needs no grant:
+// pg_stat_replication masks columns, never rows.
 const replicationSQL = `SELECT count(*) FROM pg_catalog.pg_stat_replication`
 
 // serverFactsRow is serverFactsSQL's result, in selection order. Every scalar
@@ -208,11 +202,8 @@ func int64Text(v *int64) string {
 	return strconv.FormatInt(*v, 10)
 }
 
-// float64Text carries int64Text's rule onto the three replication lag columns,
-// where it is the difference between "no report yet" and "caught up": empty
-// means not read, and 0 would be a reading of zero lag. FormatFloat with
-// precision -1 renders the shortest form that round-trips, so 0.4 does not
-// arrive as 0.40000000000000002.
+// float64Text carries int64Text's rule. Precision -1 renders the shortest form
+// that round-trips, so 0.4 does not arrive as 0.40000000000000002.
 func float64Text(v *float64) string {
 	if v == nil {
 		return ""

@@ -63,14 +63,13 @@ FROM pg_catalog.pg_stat_bgwriter`
 
 // connectionsSQL counts the processes that exist as the window closes.
 //
-// backend_type groups rather than filters: pg_stat_activity holds one row per
-// server process, and whether the extras are parallel workers or autovacuum
-// workers is a finding. The agent's own session stays in, so the block agrees
-// with a hand-run count(*).
+// backend_type groups rather than filters: whether the extra rows are parallel
+// workers or autovacuum workers is a finding. The agent's own session stays in,
+// so the block agrees with a hand-run count(*).
 //
 // Ordering on a statistic is a ranking, which the other start-and-end collectors
-// forbid because it hands the server a different row set per sample. This block
-// is written once, so a second sample would have to go back to a stable key.
+// forbid. Safe only because this block is written once; a second sample would
+// have to go back to a stable key.
 const connectionsSQL = `SELECT application_name::text,
        backend_type::text,
        count(*) AS active_connections,
@@ -108,12 +107,11 @@ func (Capacity) Artifact() Artifact {
 
 // Sample writes the checkpoint block every time and the two gauges only as the
 // window closes: active_connections and wal_bytes are readings of what exists
-// now, so a start-and-end pair would be two unrelated numbers rather than a
-// delta. Index == Total also holds for a degenerate window's single sample.
+// now, so a start-and-end pair would be two unrelated numbers, not a delta.
+// Index == Total also holds for a degenerate window's single sample.
 //
 // Each block turns its own read failure into an error= header and an empty body,
-// so one denied read never costs the reads that succeeded beside it. An error
-// means the write failed, not that any read did.
+// so an error means the write failed, not that any read did.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	// N blocks, one buffer, one Write: a write failing between two of them would
 	// leave the window's stub block behind a half-written sample.
@@ -208,10 +206,8 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	}
 
 	// A NULL sum writes no row rather than one empty cell: this is the only
-	// single-column body in the package, so an all-empty row is a blank line
-	// that a CSV reader skips. sum() is NULL over a directory with no files,
-	// which is captured-and-found-nothing, and error= is what distinguishes
-	// that from could-not-be-captured.
+	// single-column body in the package, so an all-empty row is a blank line a
+	// CSV reader skips. error= is what separates that from a failed read.
 	var cells [][]string
 	if err == nil && bytesWritten != nil {
 		cells = [][]string{{int64Text(bytesWritten)}}
@@ -292,12 +288,11 @@ func checkpointCells(row *checkpointRow) [][]string {
 	}}
 }
 
-// connectionRow is one (application_name, backend_type) group. backend_type
-// arrives NULL for a backend the role cannot see without pg_read_all_stats: the
-// row still counts, so the total stays right and the grain collapses, which is a
-// finding about the grant. application_name is empty in that case, and for a
-// connection that never set one - masking leaves it empty rather than NULL,
-// checked on 14 through 18.
+// connectionRow is one (application_name, backend_type) group. backend_type is
+// NULL for a backend the role cannot see without pg_read_all_stats: the row
+// still counts, so the total stays right while the grain collapses, which is a
+// finding about the grant. application_name is empty there, and for a connection
+// that never set one - masking leaves it empty rather than NULL on 14 to 18.
 type connectionRow struct {
 	applicationName *string
 	backendType     *string

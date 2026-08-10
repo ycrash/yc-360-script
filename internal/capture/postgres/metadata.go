@@ -230,9 +230,8 @@ const metadataScope = "cluster"
 // Collect runs the three statements and resolves the capture mode. It never
 // returns an error: a failed probe records its failure in the struct and the
 // artifact is still written. The statements are split along the privilege
-// boundary so one missing grant costs one section rather than everything.
-//
-// agentNow is the clock read that pairs with ServerNow.
+// boundary so one missing grant costs one section. agentNow pairs with
+// ServerNow.
 func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata {
 	m := Metadata{
 		AgentTS:            agentNow,
@@ -387,21 +386,11 @@ func isReadable(path string) bool {
 	return true
 }
 
-// collectReplication's answer needs is_in_recovery to read: on a standby
-// pg_stat_replication is legitimately empty, so false is topology, not a finding.
-//
-// That stays true and is incomplete. This counts connected WAL senders and knows
-// nothing about slots, so a cluster with an abandoned slot and no replica reports
-// false beside a populated pg_replication.txt slots block - and that combination
-// is not an edge case, it is the incident: an abandoned slot retains WAL until
-// the volume fills, and this flag says "no replication here" about exactly the
-// cluster whose replication is the problem.
-//
-// Not fixed here, because counting both views moves two shipped
-// pg_metadata_*.txt goldens and belongs to whoever next opens this artifact. The
-// precedence rule is the part that matters and it can be stated now:
-// pg_replication.txt is authoritative for whether replication exists, and this
-// flag answers the narrower question of whether a replica was connected at t0.
+// collectReplication counts connected WAL senders only, so false has two
+// readings: a standby, where pg_stat_replication is legitimately empty, and a
+// cluster whose only replication is an abandoned slot retaining WAL. Read it
+// with is_in_recovery, and treat pg_replication.txt as authoritative for whether
+// replication exists at all.
 func collectReplication(ctx context.Context, q Querier, m *Metadata, password string) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
