@@ -126,6 +126,10 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	assert.Equal(t, "pgReplication", pgDTReplication,
 		"the unabbreviated form the server team assigned, not the pgRepl this slice proposed")
 
+	assert.Equal(t, "pgSessions", pgDTSessions,
+		"assigned as proposed - and the artifact the product is built on, so the value it "+
+			"waited on is the one worth naming first")
+
 	taken := []string{
 		"meta", "gc", "td", "hd", "ns", "df", "ps", "top", "vmstat", "dmesg",
 		"agentlog", "cpuprofile", "kernel", "ping", "hdsub", "lp", "accessLog", "applog",
@@ -139,7 +143,12 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTHealth":      pgDTHealth,
 		"pgDTCapacity":    pgDTCapacity,
 		"pgDTReplication": pgDTReplication,
+		"pgDTSessions":    pgDTSessions,
 	}
+
+	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles),
+		"one dt per artifact the run writes: an artifact added without one is written into "+
+			"the bundle and never transmitted, which no run reports as a failure")
 
 	for name, dt := range postgresDataTypes {
 		assert.NotContains(t, taken, dt, "%s collides with an existing dt value", name)
@@ -158,6 +167,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_bloat.txt", PostgresBloatFileName)
 	assert.Equal(t, "pg_capacity.txt", PostgresCapacityFileName)
 	assert.Equal(t, "pg_replication.txt", PostgresReplicationFileName)
+	assert.Equal(t, "pg_sessions.txt", PostgresSessionsFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -171,7 +181,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 5, "every artifact the run writes is named here")
+	assert.Len(t, seen, 6, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -190,8 +200,11 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTReplication, pgSampledDataType(postgres.Replication{}.Artifact()),
 		"pg_replication.txt has its assigned value")
 
-	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_sessions"}),
-		"an artifact the server team has not assigned a dt for is not uploaded")
+	assert.Equal(t, pgDTSessions, pgSampledDataType(postgres.Sessions{}.Artifact()),
+		"pg_sessions.txt has its assigned value")
+
+	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_slow_queries"}),
+		"and so is an artifact that does not exist yet")
 }
 
 func pgMetadataCollector() *postgres.MetadataCollector {
@@ -216,6 +229,27 @@ func TestPostgresCapacityFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresReplicationFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresReplicationFileName, postgres.Replication{}.Artifact().FileName)
+}
+
+func TestPostgresSessionsFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresSessionsFileName, postgres.Sessions{}.Artifact().FileName)
+}
+
+func TestPostgresSessionsBudgetDoesNotWidenTheModuleDeadline(t *testing.T) {
+	sessions := postgres.Sessions{}.Artifact()
+
+	require.Equal(t, postgres.Every(postgres.DefaultSessionsInterval), sessions.Schedule,
+		"an interval collector, whose offsets are strictly inside the window")
+	assert.Equal(t, 3*time.Second, sessions.SampleBudget,
+		"two statements at this collector's own timeout, declared so the next reader "+
+			"computing the deadline by hand does not have to derive it")
+
+	assert.Equal(t, 55*time.Second,
+		postgres.Capacity{}.Artifact().SampleBudget+postgres.DefaultSampleBudget+
+			postgres.WindowCloseMargin,
+		"the closing tick is still capacity plus bloat, so the module deadline is where the "+
+			"capacity slice left it - a sixth artifact, and the largest, bought no extra load "+
+			"commitment against a database already in trouble")
 }
 
 func TestPostgresReplicationDoesNotReachTheClosingTick(t *testing.T) {
@@ -331,6 +365,7 @@ func readSampledArtifact(t *testing.T, name string) string {
 }
 
 var postgresArtifactFiles = []string{
+	PostgresSessionsFileName,
 	PostgresHealthFileName,
 	PostgresReplicationFileName,
 	PostgresMetadataFileName,
@@ -362,6 +397,9 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Less(t, elapsed, 30*time.Second,
 		"a connect failure waited out the window instead of failing fast")
 
+	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/60 samples)",
+		"sixty samples expected at 2s over a 2m window, none taken - by a wide margin the "+
+			"largest artifact in the bundle, and it reports a refusal like every other")
 	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/12 samples)",
 		"twelve samples expected at 10s over a 2m window, none taken")
 	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/12 samples)",
@@ -369,7 +407,7 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
-		"all five artifacts report the one refusal, and they report it identically")
+		"all six artifacts report the one refusal, and they report it identically")
 
 	assert.Less(t, strings.Index(result.Msg, PostgresCapacityFileName),
 		strings.Index(result.Msg, PostgresBloatFileName),
@@ -467,7 +505,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, 5, "every artifact the run writes is uploaded")
+	require.Len(t, uploads, len(postgresArtifactFiles),
+		"every artifact the run writes is uploaded - six of six, none of them waiting on a dt")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -479,6 +518,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTBloat, "pg_bloat.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTCapacity, "pg_capacity.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTReplication, "pg_replication.txt uploaded under the wrong dt")
+	require.Contains(t, byDT, pgDTSessions, "pg_sessions.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
 		pgDTMetadata:    "source=pg_metadata",
@@ -486,6 +526,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		pgDTBloat:       "source=pg_bloat",
 		pgDTCapacity:    "source=pg_capacity",
 		pgDTReplication: "source=pg_replication",
+		pgDTSessions:    "source=pg_sessions",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -499,19 +540,19 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
 	}
 
-	assert.Equal(t, 4, strings.Count(result.Msg, " | "),
-		"one run-level record, five summaries joined into it")
-
-	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
-		"no artifact takes the skip path now that all five dt values are assigned")
+	assert.Equal(t, 5, strings.Count(result.Msg, " | "),
+		"one run-level record, six summaries joined into it")
 
 	assert.NotContains(t, byDT, "pgRepl",
-		"and none of them under the abbreviation this slice proposed and the server team did "+
-			"not take: classification is an exact string match, so the near miss is dropped "+
-			"with no error at either end")
+		"and none of them under the abbreviation the replication slice proposed and the server "+
+			"team did not take: classification is an exact string match, so the near miss is "+
+			"dropped with no error at either end")
+
+	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
+		"no artifact takes the skip path now that all six dt values are assigned")
 
 	assert.True(t, result.Ok,
-		"all five artifacts transmitted, so the task's Ok must be true")
+		"all six artifacts transmitted, so the task's Ok must be true")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {

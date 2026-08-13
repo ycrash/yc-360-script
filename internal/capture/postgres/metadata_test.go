@@ -207,8 +207,8 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 38,
-		"capture_mode plus serverFields' thirty-seven, and no connect_error row")
+	assert.Len(t, serverBlockFields(full), 40,
+		"capture_mode plus serverFields' thirty-nine, and no connect_error row")
 	assert.Len(t, targetFields(full), 7)
 
 	assert.Equal(t, ModeDBHost, values["capture_mode"])

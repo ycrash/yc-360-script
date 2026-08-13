@@ -77,6 +77,7 @@ type Metadata struct {
 	LogLinePrefix           string
 	LogMinDurationStatement string
 	LogParameterMaxLength   string
+	TrackActivityQuerySize  string
 	SharedPreloadLibraries  string
 	SettingsUnavailable     string
 
@@ -89,7 +90,12 @@ type Metadata struct {
 	CurrentLogfileReadable string
 	CurrentLogfileError    string
 
-	HasPgMonitorRole        string
+	HasPgMonitorRole string
+
+	// Probed with 'usage' not 'member': matches PG15-18's privilege-inheritance gate
+	// (has_privs_of_role); under-claims safely on PG14. HasPgMonitorRole uses 'member'.
+	HasPgReadAllStats string
+
 	HasPgStatStatements     string
 	PgStatStatementsVersion string
 	HasPgStatCheckpointer   string
@@ -284,6 +290,7 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	applySettings(m, row.settings())
 
 	m.HasPgMonitorRole = boolText(row.hasPgMonitorRole)
+	m.HasPgReadAllStats = boolText(row.hasPgReadAllStat)
 	m.PgStatStatementsVersion = text(row.pgStatStatements)
 	m.HasPgStatStatements = strconv.FormatBool(m.PgStatStatementsVersion != "")
 	m.HasPgStatCheckpointer = boolText(row.hasCheckpointer)

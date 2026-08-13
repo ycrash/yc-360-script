@@ -153,7 +153,10 @@ type Collector interface {
 	// half-written block: render the whole sample into one buffer, one Write.
 	//
 	// The context is the window's, not a statement's. A collector running more
-	// than one statement applies StatementTimeout to each.
+	// than one statement applies StatementTimeout to each - or, where its cadence
+	// makes that too long to be its bound, its own shorter one applied
+	// server-side and backstopped by StatementTimeout (Sessions). The constant
+	// names the default per-statement bound, not the only permitted one.
 	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
 }
 

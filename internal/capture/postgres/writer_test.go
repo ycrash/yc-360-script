@@ -49,6 +49,7 @@ func fullArtifactMetadata() Metadata {
 		LogLinePrefix:           "%m [%p] ",
 		LogMinDurationStatement: "500",
 		LogParameterMaxLength:   "1024",
+		TrackActivityQuerySize:  "1024",
 		SharedPreloadLibraries:  "pg_stat_statements,auto_explain",
 
 		DataDirectory:          "/var/lib/postgresql/17/main",
@@ -57,6 +58,7 @@ func fullArtifactMetadata() Metadata {
 		CurrentLogfileReadable: "true",
 
 		HasPgMonitorRole:        "true",
+		HasPgReadAllStats:       "true",
 		HasPgStatStatements:     "true",
 		PgStatStatementsVersion: "1.11",
 		HasPgStatCheckpointer:   "true",

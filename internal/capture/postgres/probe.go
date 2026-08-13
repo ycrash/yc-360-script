@@ -36,6 +36,9 @@ var capturedSettings = []struct {
 	{"log_line_prefix", func(m *Metadata) *string { return &m.LogLinePrefix }},
 	{"log_min_duration_statement", func(m *Metadata) *string { return &m.LogMinDurationStatement }},
 	{"log_parameter_max_length", func(m *Metadata) *string { return &m.LogParameterMaxLength }},
+	// Governs where pg_sessions.txt's query column truncates - mid-token and
+	// unmarked.
+	{"track_activity_query_size", func(m *Metadata) *string { return &m.TrackActivityQuerySize }},
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
@@ -62,6 +65,16 @@ func settingNames() []string {
 // text arrays pass bytes through without a UTF-8 conversion that could fail on a
 // SQL_ASCII cluster. host(inet_server_addr()) rather than a cast, which would
 // render 172.17.0.2/32.
+//
+// The two role probes deliberately differ in mode. pg_monitor keeps 'member',
+// the spelling requirements §2.3 pins. pg_read_all_stats probes 'usage',
+// because its one job is predicting pg_stat_activity's masking and the server
+// has gated that on privilege inheritance since PostgreSQL 15: measured on 15
+// and 18, a NOINHERIT member reads true under 'member' while every foreign
+// query is <insufficient privilege>. 'usage' matches the gate on 15 through 18
+// and can only under-claim on 14, where membership alone suffices - the safe
+// direction, since a flag reading false never renders the sentinel as text.
+// Do not harmonise them.
 const serverFactsSQL = `WITH s AS (
     SELECT name, COALESCE(setting, '') AS setting
       FROM pg_catalog.pg_settings
@@ -90,6 +103,7 @@ SELECT
     ),
     COALESCE((SELECT extversion FROM pg_catalog.pg_extension WHERE extname = 'pg_stat_statements'), ''),
     pg_has_role(current_user, 'pg_monitor', 'member'),
+    pg_has_role(current_user, 'pg_read_all_stats', 'usage'),
     now(),
     clock_timestamp()`
 
@@ -123,6 +137,7 @@ type serverFactsRow struct {
 	hasSessionFatal  *bool
 	pgStatStatements *string
 	hasPgMonitorRole *bool
+	hasPgReadAllStat *bool
 	serverNow        *time.Time
 	serverClock      *time.Time
 }
@@ -146,6 +161,7 @@ func (r *serverFactsRow) dest() []any {
 		&r.hasSessionFatal,
 		&r.pgStatStatements,
 		&r.hasPgMonitorRole,
+		&r.hasPgReadAllStat,
 		&r.serverNow,
 		&r.serverClock,
 	}

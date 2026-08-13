@@ -108,6 +108,94 @@ The goldens:
   non-empty would make an absent block ambiguous between *no replicas* and *the
   sample never ran*.
 - `pg_replication_connect_failure.txt` — two lines, as above.
+- `pg_sessions_full.txt` — a complete interval capture on a 6s window at a 2s
+  cadence, so three samples fit on a page; the default 120s window is the same
+  shape with sixty. **Two blocks per sample**, `pg_stat_activity` then `pg_locks`,
+  sharing one `sample=` and one `ts=`. The cluster is a blocking chain: 1093 holds
+  a row lock and sleeps inside its transaction, 1105 waits on 1093's transaction
+  id and 1106 waits on the tuple lock 1105 now holds. The head of a chain is the
+  session waiting on nothing — 1093 is `active` on `wait_event_type=Timeout`, not
+  on a `Lock`. The three contending rows are byte-identical in every sample, which
+  is what a stuck chain looks like: none of them has issued a new statement, so no
+  clock moves, and `xact_start` is what turns "idle in transaction" from a state
+  into a duration.
+
+  **The chain is why both blocks live in one artifact, and it is readable off the
+  file with two equi-joins and no `pg_blocking_pids()`.** 1105's `transactionid`
+  row is `granted=false` with `waitstart` set, and the `granted=true` row for the
+  same `789` belongs to 1093 — *1093 blocks 1105*. 1106's `tuple` row is
+  `granted=false` on `(relation=16432, page=1, tuple=115)`, and the granted row
+  for that tuple belongs to 1105 — *1105 blocks 1106*. A chain two deep already
+  uses two different join keys, which is why `page` and `tuple` are captured
+  rather than dropped as implementation detail: a capture without them would find
+  one-deep chains and silently truncate deeper ones. `waitstart` is set on exactly
+  the ungranted rows, so one sample carries a wait's duration — but `granted` is
+  the marker and `waitstart` only the clock, since the server is allowed to record
+  it slightly after a wait begins.
+
+  Row 1116 is the capture's own backend, identifiable by
+  `application_name=yc-360-postgres-capture` and captured like every other
+  session: the requirements document asks for `WHERE pid <> pg_backend_pid()`
+  and this statement has no `WHERE` clause at all, so the row count agrees with
+  `pg_capacity.txt`'s and the server drops the row if it wants to. `datid`,
+  `usesysid`, `database` and `relation` are OIDs and the agent never resolves any
+  of them to a name — relation OIDs are per-database and collide across a cluster,
+  so resolving one from the wrong database is silently wrong rather than merely
+  unhelpful. The file shows what that costs: of the relations locked here, only
+  `16432` is a user table the bundle can name from `pg_bloat.txt`; `16439` is its
+  primary-key index and `12073` is `pg_locks` itself, and both stay digits.
+- `pg_sessions_idle.txt` — no contention, which is the shape most captures
+  produce and a finding rather than an absence: no `granted=false` row anywhere,
+  every `waitstart` empty, and a locks block holding only the capture's own read.
+  A backend idle between statements holds no locks at all — 1080 is `idle` with
+  `xact_start` empty, which is exactly what separates it from the incident this
+  artifact exists for, since `pg_stat_activity` still shows the last statement it
+  ran. 1042 is the row `backend_type` exists to separate from an application
+  connection: a background worker, whose `datid` and `datname` are empty because
+  it belongs to no database, and whose `query` is an empty string rather than a
+  NULL. Both render as an empty cell, which is the package's rule everywhere —
+  empty means "not read", never "read as zero".
+- `pg_sessions_least_privilege.txt` — **the file to read carefully.** The same
+  cluster captured by a role holding nothing but `LOGIN`. Every row is present,
+  the counts are right, `status=complete`, and there is no `error=` anywhere: a
+  least-privilege capture of this artifact is *silent*. What degraded is per
+  column, never per artifact. The identity columns survive — `pid`,
+  `datid`/`datname`, `usesysid`/`usename`, `application_name`, and
+  `backend_xid`/`backend_xmin` where the backend holds them — so the capture
+  still says which database, which role and which application, and still names
+  the session holding the transaction the others are queued behind. Thirteen
+  cells are empty: the state, the wait detail, the clocks and the client
+  identity. And `query` carries the literal string `<insufficient privilege>`
+  rather than a NULL — the first column in the feature where the server hands
+  back a sentence instead of an absence, and the one place the artifact's
+  empty-means-not-read rule does not apply. A reader rendering it verbatim
+  shows a cluster of sessions all running a statement by that name. The agent
+  captures it as it arrived and never matches on it; `pg_metadata.txt`'s
+  `has_pg_read_all_stats` is what tells a masked capture from an unmasked one.
+  The capture's own row is unmasked, because a role always sees the sessions it
+  owns — which is part of why the file looks complete.
+
+  **And the `pg_locks` block below it is byte-identical to `pg_sessions_full.txt`'s**,
+  because that view needs no grant at all. The pair is the contract: the two
+  blocks of this artifact degrade in opposite directions, and at the privilege
+  floor the capture still recovers the whole shape of the chain — 1093 holds
+  `789`, 1105 is queued on it since `14:32:03.144`, 1106 is queued behind 1105 for
+  the tuple — while being unable to quote a single statement. A report that
+  suppressed this artifact for being under-privileged would throw that away.
+- `pg_sessions_query_text.txt` — the fixture the parse contract has been missing.
+  Three sessions: one whose `query` carries embedded newlines, one whose `query`
+  carries a line beginning with `#` — the exact shape of a block header — and one
+  carrying commas and double quotes. What it pins: **every data row is exactly
+  one physical line, and no line but a block header begins with `#`.** The first
+  holds because `singleLine` replaces every line break before the row is written,
+  so `encoding/csv` never emits a multi-line record. The second holds because
+  `pid` is the first column and is an integer on every row, which is why the
+  column order is a decision rather than an aesthetic. A line-oriented parser and
+  a record-aware parser therefore read this file identically. One divergence is
+  visible in the first row and is deliberate: the agent collapses *line breaks*
+  only, so the query's internal runs of spaces survive. That is a smaller
+  mutation than "collapse whitespace runs", and it is the one that buys the parse
+  property without further rewriting what the application submitted.
 
 ## Reader requirements
 
@@ -145,15 +233,22 @@ pin the rule below against the driver text that motivates it.
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, and `pg_metadata_server` for what the server said —
   `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
-  `pg_stat_activity_by_app` and `pg_ls_waldir` — and `pg_replication.txt`
+  `pg_stat_activity_by_app` and `pg_ls_waldir` — `pg_replication.txt`
   carries three: `pg_replication`, `pg_stat_replication` and
-  `pg_replication_slots`.
+  `pg_replication_slots` — and `pg_sessions.txt` three: `pg_sessions`,
+  `pg_stat_activity` and `pg_locks`. **One `source=` is one shape**, which is why
+  `pg_capacity.txt` reads the same view under `pg_stat_activity_by_app`: it
+  carries counts per `(application_name, backend_type)` group where
+  `pg_sessions.txt` carries a row per backend, and two shapes under one dispatch
+  key would make the column header load-bearing for dispatch.
 - **One sample may be more than one block, and `samples_expected` counts
   samples.** `pg_capacity.txt` writes four sample blocks for two samples — one
   on the opening sample and three on the closing one — and a reader that counted
-  blocks would call that file incomplete. `pg_replication.txt` is the stronger
-  case: it writes two blocks on **every** sample, so its block count is never
-  its sample count. Group a collector's
+  blocks would call that file incomplete. `pg_replication.txt` and
+  `pg_sessions.txt` are the stronger case: both write two blocks on **every**
+  sample, so their block count is never their sample count — and on the default
+  window `pg_sessions.txt` writes 120 sample blocks for 60 samples. Group a
+  collector's
   blocks into samples by `sample=`, which every one of them carries; the
   artifact's own `samples_expected` and `samples_written` are about samples and
   nothing else.
@@ -174,8 +269,15 @@ identity and its clock read are readable without parsing the middle.
 - A key written with an empty value means "not read" — `dbid=` before a
   connection exists. It is not the same as the key being absent.
 - Header keys, unlike body keys, may be **conditional**: `sizes=`, `reason=`,
-  `error=` and `connect_error=` appear only when the thing they describe
-  happened, and in each case absence is itself the value. `pg_capacity.txt`'s
+  `queries_truncated=`, `error=` and `connect_error=` appear only when the thing
+  they describe happened, and in each case absence is itself the value.
+  `pg_sessions.txt`'s is the one to read as a distinction rather than a warning:
+  its absence means every `query` cell is the server's own text, and its presence
+  means the agent cut that many of them at its own 8192-rune cap, marking each
+  with a trailing `...`. The server's own truncation, at
+  `track_activity_query_size`, ends a statement mid-token with no marker at all —
+  `pg_metadata.txt` records that limit so the two stay tellable apart.
+  `pg_capacity.txt`'s
   connection block goes further and drops its three count keys when the read
   failed: `groups_total=0` would assert that the server has no connections,
   where the truth is that nobody could count them.
@@ -224,6 +326,5 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `health_test.go`, `capacity_test.go` and
-`replication_test.go`, and argue the resulting diff — never hand-edit these
-files.
+`bloat_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go` and
+`sessions_test.go`, and argue the resulting diff — never hand-edit these files.
