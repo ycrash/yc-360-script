@@ -30,6 +30,7 @@ const (
 	colHasSessionFatal
 	colPgStatStatements
 	colHasPgMonitorRole
+	colHasPgReadAllStats
 	colServerNow
 	colServerClock
 
@@ -54,6 +55,7 @@ func fullSettings() map[string]string {
 		"log_line_prefix":            "%m [%p] ",
 		"log_min_duration_statement": "500",
 		"log_parameter_max_length":   "1024",
+		"track_activity_query_size":  "1024",
 		"shared_preload_libraries":   "pg_stat_statements,auto_explain",
 		"compute_query_id":           "auto",
 		"data_directory":             "/var/lib/postgresql/15/main",
@@ -94,6 +96,7 @@ func serverFactsValues() []any {
 	v[colHasSessionFatal] = ptr(true)
 	v[colPgStatStatements] = ptr("1.10")
 	v[colHasPgMonitorRole] = ptr(true)
+	v[colHasPgReadAllStats] = ptr(true)
 	v[colServerNow] = ptr(testServerNow)
 	v[colServerClock] = ptr(testServerClock)
 
@@ -221,6 +224,7 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"log_line_prefix",
 		"log_min_duration_statement",
 		"log_parameter_max_length",
+		"track_activity_query_size",
 		"shared_preload_libraries",
 		"compute_query_id",
 		"data_directory",
@@ -409,7 +413,8 @@ func TestSettingsNoneVisible(t *testing.T) {
 	m := collect(t, q)
 
 	assert.Equal(t, "max_connections,logging_collector,log_destination,log_directory,log_filename,"+
-		"log_line_prefix,log_min_duration_statement,log_parameter_max_length,shared_preload_libraries,"+
+		"log_line_prefix,log_min_duration_statement,log_parameter_max_length,"+
+		"track_activity_query_size,shared_preload_libraries,"+
 		"compute_query_id,data_directory", m.SettingsUnavailable)
 	assert.Empty(t, m.QueryError)
 	assert.Equal(t, "orders_db", m.CurrentDatabase)

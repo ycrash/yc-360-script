@@ -1,0 +1,77 @@
+# engine=postgres source=pg_sessions v=1 format=csv scope=cluster db=orders_db dbid= status=started window=6s schedule=every interval=2s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_activity v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 sessions_written=4 sessions_total=4 truncated=false ts=2026-08-07T14:32:05.061Z
+pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
+1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
+1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
+1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
+1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+# engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:05.061Z
+pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
+1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,relation,16401,16439,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,transactionid,,,,,,789,,,,4/1052,ExclusiveLock,true,false,
+1093,virtualxid,,,,,4/1052,,,,,4/1052,ExclusiveLock,true,true,
+1105,relation,16401,16432,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,relation,16401,16439,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,transactionid,,,,,,789,,,,7/331,ShareLock,false,false,2026-08-07T14:32:03.144Z
+1105,transactionid,,,,,,790,,,,7/331,ExclusiveLock,true,false,
+1105,tuple,16401,16432,1,115,,,,,,7/331,ExclusiveLock,true,false,
+1105,virtualxid,,,,,7/331,,,,,7/331,ExclusiveLock,true,true,
+1106,relation,16401,16432,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,relation,16401,16439,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,transactionid,,,,,,791,,,,9/12,ExclusiveLock,true,false,
+1106,tuple,16401,16432,1,115,,,,,,9/12,ExclusiveLock,false,false,2026-08-07T14:32:03.205Z
+1106,virtualxid,,,,,9/12,,,,,9/12,ExclusiveLock,true,true,
+1116,relation,16401,12073,,,,,,,,3/88,AccessShareLock,true,true,
+1116,virtualxid,,,,,3/88,,,,,3/88,ExclusiveLock,true,true,
+# engine=postgres source=pg_stat_activity v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 sessions_written=4 sessions_total=4 truncated=false ts=2026-08-07T14:32:07.055Z
+pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
+1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
+1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
+1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
+1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+# engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:07.055Z
+pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
+1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,relation,16401,16439,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,transactionid,,,,,,789,,,,4/1052,ExclusiveLock,true,false,
+1093,virtualxid,,,,,4/1052,,,,,4/1052,ExclusiveLock,true,true,
+1105,relation,16401,16432,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,relation,16401,16439,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,transactionid,,,,,,789,,,,7/331,ShareLock,false,false,2026-08-07T14:32:03.144Z
+1105,transactionid,,,,,,790,,,,7/331,ExclusiveLock,true,false,
+1105,tuple,16401,16432,1,115,,,,,,7/331,ExclusiveLock,true,false,
+1105,virtualxid,,,,,7/331,,,,,7/331,ExclusiveLock,true,true,
+1106,relation,16401,16432,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,relation,16401,16439,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,transactionid,,,,,,791,,,,9/12,ExclusiveLock,true,false,
+1106,tuple,16401,16432,1,115,,,,,,9/12,ExclusiveLock,false,false,2026-08-07T14:32:03.205Z
+1106,virtualxid,,,,,9/12,,,,,9/12,ExclusiveLock,true,true,
+1116,relation,16401,12073,,,,,,,,3/88,AccessShareLock,true,true,
+1116,virtualxid,,,,,3/88,,,,,3/88,ExclusiveLock,true,true,
+# engine=postgres source=pg_stat_activity v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 sessions_written=4 sessions_total=4 truncated=false ts=2026-08-07T14:32:09.052Z
+pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
+1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
+1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
+1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
+1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+# engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:09.052Z
+pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
+1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,relation,16401,16439,,,,,,,,4/1052,RowExclusiveLock,true,true,
+1093,transactionid,,,,,,789,,,,4/1052,ExclusiveLock,true,false,
+1093,virtualxid,,,,,4/1052,,,,,4/1052,ExclusiveLock,true,true,
+1105,relation,16401,16432,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,relation,16401,16439,,,,,,,,7/331,RowExclusiveLock,true,true,
+1105,transactionid,,,,,,789,,,,7/331,ShareLock,false,false,2026-08-07T14:32:03.144Z
+1105,transactionid,,,,,,790,,,,7/331,ExclusiveLock,true,false,
+1105,tuple,16401,16432,1,115,,,,,,7/331,ExclusiveLock,true,false,
+1105,virtualxid,,,,,7/331,,,,,7/331,ExclusiveLock,true,true,
+1106,relation,16401,16432,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,relation,16401,16439,,,,,,,,9/12,RowExclusiveLock,true,true,
+1106,transactionid,,,,,,791,,,,9/12,ExclusiveLock,true,false,
+1106,tuple,16401,16432,1,115,,,,,,9/12,ExclusiveLock,false,false,2026-08-07T14:32:03.205Z
+1106,virtualxid,,,,,9/12,,,,,9/12,ExclusiveLock,true,true,
+1116,relation,16401,12073,,,,,,,,3/88,AccessShareLock,true,true,
+1116,virtualxid,,,,,3/88,,,,,3/88,ExclusiveLock,true,true,
+# engine=postgres source=pg_sessions v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:11.070Z

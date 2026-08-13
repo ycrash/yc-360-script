@@ -72,6 +72,7 @@ func serverFields(m Metadata) []field {
 		{"log_line_prefix", m.LogLinePrefix},
 		{"log_min_duration_statement", m.LogMinDurationStatement},
 		{"log_parameter_max_length", m.LogParameterMaxLength},
+		{"track_activity_query_size", m.TrackActivityQuerySize},
 		{"shared_preload_libraries", m.SharedPreloadLibraries},
 		{"settings_unavailable", m.SettingsUnavailable},
 
@@ -82,6 +83,7 @@ func serverFields(m Metadata) []field {
 		{"current_logfile_error", m.CurrentLogfileError},
 
 		{"has_pg_monitor_role", m.HasPgMonitorRole},
+		{"has_pg_read_all_stats", m.HasPgReadAllStats},
 		{"has_pg_stat_statements", m.HasPgStatStatements},
 		{"pg_stat_statements_version", m.PgStatStatementsVersion},
 		{"has_pg_stat_checkpointer", m.HasPgStatCheckpointer},
