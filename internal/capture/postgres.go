@@ -13,10 +13,9 @@ import (
 	"yc-agent/internal/config"
 )
 
-// A cross-repo contract, this name and the four below: a -onlyCapture bundle
-// carries no dt=, so the receiver classifies by filename alone through
-// YCrashDataType.fromAgentFileName(). Each must equal that enum's agentFileName
-// exactly, or the artifact is dropped with no error at either end.
+// PostgresMetadataFileName and the five below must equal
+// YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
+// bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
 
 // The receiver's data types, the same contract: classification is an exact
@@ -39,6 +38,10 @@ const PostgresReplicationFileName = "pg_replication.txt"
 
 const pgDTReplication = "pgReplication"
 
+const PostgresSessionsFileName = "pg_sessions.txt"
+
+const pgDTSessions = "pgSessions"
+
 // pgSampledDataType is empty for an artifact the server team has not assigned
 // one. An invented dt is dropped silently, so an unassigned artifact is written
 // into the bundle and its upload skipped with a message naming the reason.
@@ -58,6 +61,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_replication":
 		return pgDTReplication
+
+	case "pg_sessions":
+		return pgDTSessions
 	}
 
 	return ""
@@ -100,19 +106,11 @@ func (p *PostgresCapture) Run() (Result, error) {
 		Target:   target,
 		Duration: p.captureDuration(),
 
-		// Registration order is sampling order on a shared tick, and buys
-		// something at each of the two.
-		//
-		// At t0, where all five sample, it is cheapest first: bloat's size
-		// functions stat every relation's files, so bloat is last, and
-		// replication's two GUC-bounded views sit above metadata's three
-		// catalogue reads.
-		//
-		// At the closing tick, which only capacity and bloat can reach, it is the
-		// reading with no second chance first: capacity's connection and WAL
-		// blocks are written once in the run, where bloat's second sample is one
-		// endpoint of a delta whose other endpoint is already on disk.
+		// Registration order is sampling order on the shared tick, not a timing
+		// guarantee: cheapest reads go first at t0, and at the closing tick
+		// (capacity, bloat) the reading with no second chance goes first.
 		Collectors: []postgres.Collector{
+			postgres.Sessions{},
 			postgres.Health{},
 			postgres.Replication{},
 			metadata,

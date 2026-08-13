@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"os"
 	"slices"
@@ -293,6 +294,21 @@ func assertServerFacts(t *testing.T, server matrixServer, role matrixRole, value
 
 	assert.Equal(t, strconv.FormatBool(role.superuser || role.monitor), values["has_pg_monitor_role"],
 		"pg_has_role(..., 'member') is true for a superuser as well as for a member")
+
+	assert.Equal(t, strconv.FormatBool(role.superuser || role.monitor), values["has_pg_read_all_stats"],
+		"the gate pg_stat_activity actually applies, where pg_monitor merely includes it - a "+
+			"role granted pg_read_all_stats directly reads everything while the monitor flag "+
+			"says false. Probed with 'usage' rather than 'member', because since PostgreSQL 15 "+
+			"the server gates on privilege inheritance and a NOINHERIT member under 'member' "+
+			"reads true while every foreign query is masked - a divergence the three matrix "+
+			"roles cannot exhibit, since all of them are INHERIT")
+
+	querySize, err := strconv.Atoi(values["track_activity_query_size"])
+	assert.NoError(t, err,
+		"pg_settings.setting is raw internal units, so this is a number of bytes and never "+
+			"SHOW's 1kB - which is what lets a report tell a server-truncated query from a "+
+			"malformed one")
+	assert.Positive(t, querySize)
 }
 
 func assertCapabilities(t *testing.T, server matrixServer, values map[string]string) {
@@ -887,7 +903,8 @@ func parseCapacityBlocks(t *testing.T, artifact, source string) []capacityMatrix
 			continue
 		}
 
-		cells := strings.Split(line, ",")
+		cells := parseCSVRecord(t, line)
+
 		if current.columns == nil {
 			current.columns = cells
 			continue
@@ -897,6 +914,18 @@ func parseCapacityBlocks(t *testing.T, artifact, source string) []capacityMatrix
 	}
 
 	return blocks
+}
+
+func parseCSVRecord(t *testing.T, line string) []string {
+	t.Helper()
+
+	reader := csv.NewReader(strings.NewReader(line))
+	reader.FieldsPerRecord = -1
+
+	record, err := reader.Read()
+	require.NoError(t, err, "not a CSV record: %s", line)
+
+	return record
 }
 
 func (b capacityMatrixBlock) index(t *testing.T, column string) int {
@@ -1651,4 +1680,483 @@ func assertMatrixSlotsRoundTrip(t *testing.T, block capacityMatrixBlock) {
 				"cluster GUC rather than a per-slot property - so this column is empty for "+
 				"every slot, never mixed")
 	}
+}
+
+const matrixSessionsWindow = 2 * time.Second
+
+const matrixChainAppName = "yc-360-matrix-chain"
+
+const (
+	matrixChainRowSQL    = "SELECT id FROM yc_bloat_orders ORDER BY id LIMIT 1 FOR UPDATE"
+	matrixAdvisoryFirst  = 1
+	matrixAdvisorySecond = 2
+)
+
+func TestMatrixSessions(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			assertMatrixSessionViewColumns(t, server)
+
+			chain := matrixHoldBlockingChain(t, server)
+			defer chain.release()
+
+			sessions := map[string]capacityMatrixBlock{}
+			locks := map[string]capacityMatrixBlock{}
+
+			for _, role := range matrixRoles {
+				t.Run(role.user, func(t *testing.T) {
+					target := matrixTarget(server, role)
+
+					results := runMatrixSessionsWindow(t, target)
+					require.Len(t, results, 1)
+					require.NoError(t, results[0].IOErr)
+
+					require.Equal(t, StatusComplete, results[0].Status,
+						"neither view needs a grant: pg_locks is open to a role holding only "+
+							"LOGIN, and pg_stat_activity masks columns rather than refusing "+
+							"the statement or dropping the row")
+					require.Equal(t, 2, results[0].SamplesWritten)
+
+					artifact := matrixArtifactText(t, results[0])
+					assert.NotContains(t, artifact, target.Password,
+						"the artifact carries the password")
+
+					activityBlocks := parseCapacityBlocks(t, artifact, "pg_stat_activity")
+					require.Len(t, activityBlocks, 2, "one activity block on every sample")
+
+					lockBlocks := parseCapacityBlocks(t, artifact, "pg_locks")
+					require.Len(t, lockBlocks, 2, "and one locks block beside it")
+
+					for _, block := range append(activityBlocks, lockBlocks...) {
+						assert.NotContains(t, block.rawHead, "error=",
+							"%s: the statement ran, which is what says every column it names "+
+								"exists on this version", block.header["source"])
+					}
+
+					assert.Equal(t, sessionColumns, activityBlocks[0].columns)
+					assert.Equal(t, lockColumns, lockBlocks[0].columns)
+
+					assertMatrixSessionsCapturesItsOwnBackend(t, activityBlocks[0])
+
+					sessions[role.user] = activityBlocks[0]
+					locks[role.user] = lockBlocks[0]
+				})
+			}
+
+			t.Run("the chain round-trips", func(t *testing.T) {
+				assertMatrixChainRoundTrips(t, sessions, locks, chain)
+			})
+
+			t.Run("every cast column carries a live value", func(t *testing.T) {
+				assertMatrixSessionsCastsScanLiveValues(t, sessions, locks)
+			})
+
+			t.Run("the privilege floor", func(t *testing.T) {
+				assertMatrixSessionsMasking(t, sessions, chain)
+				assertMatrixLocksNeedNoGrant(t, locks, chain)
+			})
+
+			t.Run("a timed-out statement costs the statement", func(t *testing.T) {
+				assertMatrixSessionsTimeoutSparesTheConnection(t, server)
+			})
+		})
+	}
+}
+
+func runMatrixSessionsWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   matrixSessionsWindow,
+		Target:     target,
+		Collectors: []Collector{Sessions{Interval: time.Second}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func assertMatrixSessionViewColumns(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	assert.ElementsMatch(t, sessionColumns,
+		matrixViewColumns(t, target, "pg_catalog.pg_stat_activity"),
+		"pg_stat_activity is no longer column-identical across the supported range, or the "+
+			"collector stopped taking every column of it")
+
+	assert.ElementsMatch(t, lockColumns,
+		matrixViewColumns(t, target, "pg_catalog.pg_locks"),
+		"pg_locks is no longer column-identical across the supported range, or the collector "+
+			"stopped taking every column of it")
+}
+
+type matrixChain struct {
+	blockerPID string
+	waiterPID  string
+
+	release func()
+}
+
+func matrixHoldBlockingChain(t *testing.T, server matrixServer) matrixChain {
+	t.Helper()
+
+	blocker := matrixWritableConn(t, server)
+	waiter := matrixWritableConn(t, server)
+
+	matrixChainExec(t, blocker, "BEGIN")
+	matrixChainExec(t, blocker, matrixChainRowSQL)
+	matrixChainExec(t, blocker, fmt.Sprintf("SELECT pg_advisory_lock(%d), pg_advisory_lock(%d)",
+		matrixAdvisoryFirst, matrixAdvisorySecond))
+
+	blocked := make(chan struct{})
+
+	go func() {
+		defer close(blocked)
+
+		_, _ = waiter.Exec(context.Background(), "BEGIN; "+matrixChainRowSQL).ReadAll()
+	}()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	blockerPID := strconv.FormatUint(uint64(blocker.PID()), 10)
+	waiterPID := strconv.FormatUint(uint64(waiter.PID()), 10)
+
+	require.Eventually(t, func() bool {
+		return matrixUngrantedLocks(t, target, waiterPID) > 0
+	}, ModuleDeadline, 100*time.Millisecond,
+		"the waiter never blocked, so every assertion below would prove nothing")
+
+	release := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer cancel()
+
+		_, _ = blocker.Exec(ctx, "ROLLBACK").ReadAll()
+		<-blocked
+		_, _ = waiter.Exec(ctx, "ROLLBACK").ReadAll()
+
+		_ = blocker.Close(ctx)
+		_ = waiter.Close(ctx)
+	}
+
+	return matrixChain{blockerPID: blockerPID, waiterPID: waiterPID, release: release}
+}
+
+func matrixWritableConn(t *testing.T, server matrixServer) *pgconn.PgConn {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	config, err := pgconn.ParseConfig(fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
+		target.Host, target.Port, target.Username, target.Password,
+		target.Database, target.SSLMode))
+	require.NoError(t, err)
+
+	config.RuntimeParams["application_name"] = matrixChainAppName
+
+	ctx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+	defer cancel()
+
+	conn, err := pgconn.ConnectConfig(ctx, config)
+	require.NoError(t, err, "open a writable connection to %s", target)
+
+	return conn
+}
+
+func matrixChainExec(t *testing.T, conn *pgconn.PgConn, sql string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	_, err := conn.Exec(ctx, sql).ReadAll()
+	require.NoError(t, err, "%s", sql)
+}
+
+func matrixUngrantedLocks(t *testing.T, target Target, pid string) int {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	var count int
+	require.NoError(t, conn.QueryRow(ctx,
+		"SELECT count(*)::int FROM pg_catalog.pg_locks WHERE pid = $1::int AND NOT granted",
+		pid).Scan(&count))
+
+	return count
+}
+
+func assertMatrixSessionsCapturesItsOwnBackend(t *testing.T, block capacityMatrixBlock) {
+	t.Helper()
+
+	row := block.rowWhere(t, "application_name", ApplicationName)
+
+	assert.NotEmpty(t, block.cell(t, row, "pid"),
+		"the statement has no WHERE clause, so the capture's own backend is in the block like "+
+			"any other - and application_name survives masking, which is what makes this "+
+			"comparison work at every privilege level")
+}
+
+func assertMatrixChainRoundTrips(t *testing.T, sessions, locks map[string]capacityMatrixBlock,
+	chain matrixChain,
+) {
+	t.Helper()
+
+	block, ok := locks["yc_monitor"]
+	require.True(t, ok, "the monitor role's capture is missing")
+
+	var waiting, holding []string
+
+	for _, row := range block.rows {
+		if block.cell(t, row, "locktype") != "transactionid" {
+			continue
+		}
+
+		switch block.cell(t, row, "pid") {
+		case chain.waiterPID:
+			if block.cell(t, row, "granted") == "false" {
+				waiting = row
+			}
+
+		case chain.blockerPID:
+			if block.cell(t, row, "granted") == "true" {
+				holding = row
+			}
+		}
+	}
+
+	require.NotNil(t, waiting, "no ungranted transactionid row for the blocked backend")
+	require.NotNil(t, holding, "no granted transactionid row for the blocking backend")
+
+	assert.Equal(t, block.cell(t, holding, "transactionid"),
+		block.cell(t, waiting, "transactionid"),
+		"the first hop: the ungranted row and the granted row for the same transaction id "+
+			"name the blocker, with one equi-join and no pg_blocking_pids()")
+
+	assert.NotEmpty(t, block.cell(t, waiting, "waitstart"),
+		"and the wait's clock is on the ungranted row, so one sample carries its duration")
+	assert.Empty(t, block.cell(t, holding, "waitstart"),
+		"where a granted row has none")
+
+	activity, ok := sessions["yc_monitor"]
+	require.True(t, ok)
+
+	blocked := activity.rowWhere(t, "pid", chain.waiterPID)
+	assert.Equal(t, "Lock", activity.cell(t, blocked, "wait_event_type"),
+		"and the other block agrees about the same backend, which is the cross-block join the "+
+			"server performs within one sample")
+}
+
+func assertMatrixSessionsCastsScanLiveValues(t *testing.T, sessions, locks map[string]capacityMatrixBlock) {
+	t.Helper()
+
+	populated := func(block capacityMatrixBlock, column string) bool {
+		at := block.index(t, column)
+
+		for _, row := range block.rows {
+			if at < len(row) && row[at] != "" {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	activity, ok := sessions["yc_monitor"]
+	require.True(t, ok)
+
+	for _, column := range []string{
+		"datid", "usesysid", "backend_xid", "backend_xmin", "client_addr", "client_port",
+		"query_id",
+	} {
+		assert.True(t, populated(activity, column),
+			"%s was NULL on every row, so this run proves nothing about its cast", column)
+	}
+
+	block, ok := locks["yc_monitor"]
+	require.True(t, ok)
+
+	for _, column := range []string{
+		"database", "relation", "page", "tuple", "transactionid",
+		"classid", "objid", "objsubid", "waitstart",
+	} {
+		assert.True(t, populated(block, column),
+			"%s was NULL on every row, so this run proves nothing about its cast", column)
+	}
+
+	assertMatrixAdvisoryLocksAreTotallyOrdered(t, block)
+}
+
+func assertMatrixAdvisoryLocksAreTotallyOrdered(t *testing.T, block capacityMatrixBlock) {
+	t.Helper()
+
+	var advisory [][]string
+
+	for _, row := range block.rows {
+		if block.cell(t, row, "locktype") == "advisory" {
+			advisory = append(advisory, row)
+		}
+	}
+
+	require.Len(t, advisory, 2, "the fixture's two advisory locks")
+
+	for _, column := range []string{"pid", "locktype", "relation", "page", "tuple", "mode"} {
+		assert.Equal(t, block.cell(t, advisory[0], column), block.cell(t, advisory[1], column),
+			"%s: the two rows tie on the first draft's sort key, which is why the ordering "+
+				"carries the full lock identity - a nondeterministic cap boundary is exactly "+
+				"what the ordering rule exists to prevent", column)
+	}
+
+	assert.Equal(t, strconv.Itoa(matrixAdvisoryFirst), block.cell(t, advisory[0], "objid"))
+	assert.Equal(t, strconv.Itoa(matrixAdvisorySecond), block.cell(t, advisory[1], "objid"),
+		"and objid is what separates them, in the order the statement asked for")
+}
+
+func assertMatrixSessionsMasking(t *testing.T, sessions map[string]capacityMatrixBlock,
+	chain matrixChain,
+) {
+	t.Helper()
+
+	monitor, ok := sessions["yc_monitor"]
+	require.True(t, ok)
+
+	restricted, ok := sessions["yc_restricted"]
+	require.True(t, ok)
+
+	for _, pid := range []string{chain.blockerPID, chain.waiterPID} {
+		monitorRow := monitor.rowWhere(t, "pid", pid)
+		restrictedRow := restricted.rowWhere(t, "pid", pid)
+
+		for _, column := range []string{
+			"pid", "datid", "datname", "usesysid", "usename", "application_name",
+		} {
+			assert.NotEmpty(t, restricted.cell(t, restrictedRow, column),
+				"%s is the measured identity floor: a least-privilege capture still says "+
+					"which database, which role and which application", column)
+			assert.Equal(t, monitor.cell(t, monitorRow, column),
+				restricted.cell(t, restrictedRow, column),
+				"%s reads the same at both privilege levels", column)
+		}
+
+		for _, column := range []string{
+			"backend_type", "state", "wait_event_type", "backend_start", "xact_start",
+			"query_start", "state_change", "query_id", "client_addr", "client_port",
+		} {
+			assert.NotEmpty(t, monitor.cell(t, monitorRow, column),
+				"%s: the monitor role reads it, which is what makes the emptiness below a "+
+					"privilege result rather than an absent value", column)
+			assert.Empty(t, restricted.cell(t, restrictedRow, column),
+				"%s is masked without pg_read_all_stats", column)
+		}
+
+		query := restricted.cell(t, restrictedRow, "query")
+		assert.NotEmpty(t, query,
+			"query masks to a sentence rather than to NULL - the one column in the feature "+
+				"where an empty cell is not what a denial looks like")
+		assert.NotEqual(t, monitor.cell(t, monitorRow, "query"), query,
+			"and it is not the statement the monitor role reads")
+		t.Logf("masked query renders as %q", query)
+	}
+
+	blockerAsMonitor := monitor.rowWhere(t, "pid", chain.blockerPID)
+	blockerAsRestricted := restricted.rowWhere(t, "pid", chain.blockerPID)
+
+	assert.NotEmpty(t, restricted.cell(t, blockerAsRestricted, "backend_xid"))
+	assert.Equal(t, monitor.cell(t, blockerAsMonitor, "backend_xid"),
+		restricted.cell(t, blockerAsRestricted, "backend_xid"),
+		"which is what lets a least-privilege capture still name the session holding the "+
+			"transaction a chain is queued behind")
+
+	assert.Empty(t, restricted.cell(t, restricted.rowWhere(t, "pid", chain.waiterPID), "backend_xid"))
+	assert.Empty(t, monitor.cell(t, monitor.rowWhere(t, "pid", chain.waiterPID), "backend_xid"),
+		"and the waiter has none to lose")
+}
+
+func assertMatrixLocksNeedNoGrant(t *testing.T, locks map[string]capacityMatrixBlock,
+	chain matrixChain,
+) {
+	t.Helper()
+
+	monitor, ok := locks["yc_monitor"]
+	require.True(t, ok)
+
+	restricted, ok := locks["yc_restricted"]
+	require.True(t, ok)
+
+	fixture := func(block capacityMatrixBlock) [][]string {
+		var rows [][]string
+
+		for _, row := range block.rows {
+			switch block.cell(t, row, "pid") {
+			case chain.blockerPID, chain.waiterPID:
+				rows = append(rows, row)
+			}
+		}
+
+		return rows
+	}
+
+	held := fixture(monitor)
+	require.NotEmpty(t, held, "the chain holds no locks, so this proves nothing")
+
+	assert.Equal(t, held, fixture(restricted),
+		"a role holding nothing but LOGIN reads the same rows and the same columns a "+
+			"pg_monitor member does - so at the privilege floor the capture still shapes the "+
+			"chain while being unable to quote a single statement")
+}
+
+func assertMatrixSessionsTimeoutSparesTheConnection(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	setSessionsTimeout(ctx, conn)
+	defer resetSessionsTimeout(ctx, conn)
+
+	sleep := (SessionsStatementTimeout + time.Second).Seconds()
+
+	rows, err := conn.Query(ctx, "SELECT pg_sleep($1)", sleep)
+	if err == nil {
+		for rows.Next() {
+		}
+
+		err = rows.Err()
+		rows.Close()
+	}
+
+	require.Error(t, err, "pg_sleep(%.1f) outran the sample's own statement timeout", sleep)
+	assert.True(t, hasSQLState(err, "57014"),
+		"the server cancelled the statement and said so through the normal protocol: %v", err)
+
+	var alive int
+	require.NoError(t, conn.QueryRow(ctx, "SELECT 1").Scan(&alive),
+		"the connection did not survive its own statement timeout, which is the failure the "+
+			"server-side SET exists to prevent")
+	assert.Equal(t, 1, alive)
 }
