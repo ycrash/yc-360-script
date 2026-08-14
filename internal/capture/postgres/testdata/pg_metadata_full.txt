@@ -30,6 +30,11 @@ log_line_prefix,%m [%p]
 log_min_duration_statement,500
 log_parameter_max_length,1024
 track_activity_query_size,1024
+track_io_timing,off
+pg_stat_statements.max,5000
+pg_stat_statements.track,top
+pg_stat_statements.track_planning,off
+pg_stat_statements.track_utility,on
 shared_preload_libraries,"pg_stat_statements,auto_explain"
 settings_unavailable,
 data_directory,/var/lib/postgresql/17/main

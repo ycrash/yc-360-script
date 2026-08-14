@@ -126,6 +126,9 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	assert.Equal(t, "pgReplication", pgDTReplication,
 		"the unabbreviated form the server team assigned, not the pgRepl this slice proposed")
 
+	assert.Equal(t, "pgSlowQueries", pgDTSlowQueries,
+		"assigned as proposed, from the namespace the previous slices established")
+
 	assert.Equal(t, "pgSessions", pgDTSessions,
 		"assigned as proposed - and the artifact the product is built on, so the value it "+
 			"waited on is the one worth naming first")
@@ -144,6 +147,7 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTCapacity":    pgDTCapacity,
 		"pgDTReplication": pgDTReplication,
 		"pgDTSessions":    pgDTSessions,
+		"pgDTSlowQueries": pgDTSlowQueries,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles),
@@ -168,6 +172,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_capacity.txt", PostgresCapacityFileName)
 	assert.Equal(t, "pg_replication.txt", PostgresReplicationFileName)
 	assert.Equal(t, "pg_sessions.txt", PostgresSessionsFileName)
+	assert.Equal(t, "pg_slow_queries.txt", PostgresSlowQueriesFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -181,7 +186,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 6, "every artifact the run writes is named here")
+	assert.Len(t, seen, 7, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -200,10 +205,13 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 	assert.Equal(t, pgDTReplication, pgSampledDataType(postgres.Replication{}.Artifact()),
 		"pg_replication.txt has its assigned value")
 
+	assert.Equal(t, pgDTSlowQueries, pgSampledDataType(postgres.SlowQueries{}.Artifact()),
+		"pg_slow_queries.txt has its assigned value")
+
 	assert.Equal(t, pgDTSessions, pgSampledDataType(postgres.Sessions{}.Artifact()),
 		"pg_sessions.txt has its assigned value")
 
-	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_slow_queries"}),
+	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_explain"}),
 		"and so is an artifact that does not exist yet")
 }
 
@@ -233,6 +241,20 @@ func TestPostgresReplicationFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresSessionsFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresSessionsFileName, postgres.Sessions{}.Artifact().FileName)
+}
+
+func TestPostgresSlowQueriesFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresSlowQueriesFileName, postgres.SlowQueries{}.Artifact().FileName)
+}
+
+func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
+	require.Equal(t, postgres.StartEnd(), postgres.SlowQueries{}.Artifact().Schedule,
+		"a start-and-end collector, so its second offset is exactly the closing tick "+
+			"and its budget joins capacity's and bloat's there")
+
+	assert.Equal(t, 3*postgres.StatementTimeout, postgres.SlowQueries{}.Artifact().SampleBudget,
+		"a preflight and two reads, declared rather than under-stated: buying a shorter "+
+			"deadline by lying about the arithmetic is the one thing this number must not do")
 }
 
 func TestPostgresSessionsBudgetDoesNotWidenTheModuleDeadline(t *testing.T) {
@@ -371,6 +393,7 @@ var postgresArtifactFiles = []string{
 	PostgresMetadataFileName,
 	PostgresCapacityFileName,
 	PostgresBloatFileName,
+	PostgresSlowQueriesFileName,
 }
 
 func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
@@ -506,7 +529,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, uploads, len(postgresArtifactFiles),
-		"every artifact the run writes is uploaded - six of six, none of them waiting on a dt")
+		"every artifact the run writes is uploaded - seven of seven, none of them waiting on a dt")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -519,6 +542,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTCapacity, "pg_capacity.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTReplication, "pg_replication.txt uploaded under the wrong dt")
 	require.Contains(t, byDT, pgDTSessions, "pg_sessions.txt uploaded under the wrong dt")
+	require.Contains(t, byDT, pgDTSlowQueries, "pg_slow_queries.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
 		pgDTMetadata:    "source=pg_metadata",
@@ -527,6 +551,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		pgDTCapacity:    "source=pg_capacity",
 		pgDTReplication: "source=pg_replication",
 		pgDTSessions:    "source=pg_sessions",
+		pgDTSlowQueries: "source=pg_slow_queries",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -540,8 +565,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
 	}
 
-	assert.Equal(t, 5, strings.Count(result.Msg, " | "),
-		"one run-level record, six summaries joined into it")
+	assert.Equal(t, 6, strings.Count(result.Msg, " | "),
+		"one run-level record, seven summaries joined into it")
 
 	assert.NotContains(t, byDT, "pgRepl",
 		"and none of them under the abbreviation the replication slice proposed and the server "+
@@ -549,10 +574,10 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 			"dropped with no error at either end")
 
 	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
-		"no artifact takes the skip path now that all six dt values are assigned")
+		"no artifact takes the skip path now that all seven dt values are assigned")
 
 	assert.True(t, result.Ok,
-		"all six artifacts transmitted, so the task's Ok must be true")
+		"all seven artifacts transmitted, so the task's Ok must be true")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {

@@ -543,6 +543,21 @@ func TestWindowModuleDeadlineOnADegenerateWindowCoversEveryCollector(t *testing.
 			"covers the samples that will actually be taken - Validate refuses this window anyway")
 }
 
+func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
+	window := &Window{
+		Duration: 120 * time.Second,
+		Collectors: []Collector{
+			Sessions{}, Health{}, Replication{},
+			NewMetadata(Target{}, "3.6.1", time.Time{}),
+			Capacity{}, Bloat{}, SlowQueries{},
+		},
+	}
+
+	assert.Equal(t, 205*time.Second, window.moduleDeadline(),
+		"120s window, plus Capacity's 30s, Bloat's 20s default and SlowQueries' 30s on the "+
+			"closing tick, plus the 5s close margin")
+}
+
 func TestWindowModuleDeadlineGraceOverrideWins(t *testing.T) {
 	window := &Window{
 		Duration:   10 * time.Millisecond,

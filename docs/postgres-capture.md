@@ -55,11 +55,41 @@ Two consequences worth knowing before you plan a rollout:
 
 ## Which database to name
 
+**Name the application database. The default is `postgres`, and it costs you two
+of the seven artifacts — silently, with both files reporting `status=complete`.**
+
 `database:` is optional and defaults to `postgres`, which exists on effectively
-every cluster. The cluster-wide artifacts do not care which database you connect
-through. Naming the application database is what enables the database-scoped
-ones — `pg_bloat.txt` reads `pg_stat_user_tables`, which only ever shows the
-connected database's tables.
+every cluster. Most of the artifacts do not care which database you connect
+through. Two of them care completely:
+
+- `pg_bloat.txt` reads `pg_stat_user_tables`, which only ever shows the connected
+  database's tables. Pointed at `postgres`, it captures a column header and no
+  rows.
+- `pg_slow_queries.txt` reads `pg_stat_statements`, and this one is the
+  surprising case. The extension holds statistics for the **whole cluster**, but
+  its view exists only in the databases where `CREATE EXTENSION` was actually
+  run. So a capture connected to `postgres` while the extension lives in
+  `orders_db` has nothing to read — no query statistics at all, on a cluster
+  where they are all being collected.
+
+The second one says so, in the file, rather than leaving you to work it out:
+
+```
+# ... source=pg_stat_statements ... library_loaded=true reason=extension_absent ...
+```
+
+`reason=` is one of four, and they have four different remedies:
+
+| `reason=` | What happened | Fix |
+| --- | --- | --- |
+| `extension_absent` | No `pg_stat_statements` in this database | `CREATE EXTENSION pg_stat_statements` here, or point `database:` at the one that has it |
+| `not_in_search_path` | Installed in a schema this session does not resolve — `extension_schema=` names it, `schema_usage=false` means the role lacks USAGE on it rather than the path being wrong | Add the schema to the role's `search_path`, or `GRANT USAGE` on it |
+| `extension_too_old` | Below the 1.8 floor — `extension_version=` says which | `ALTER EXTENSION pg_stat_statements UPDATE` (one command, no restart) |
+| `library_not_loaded` | The extension objects exist but the library is not in `shared_preload_libraries` | Add it and restart |
+
+None of the four is an error: the capture worked, and what it found was a
+configuration. `library_loaded=` is on the header of every capture regardless, so
+a cluster with two of these problems at once shows both.
 
 ## Which role to use
 
@@ -74,7 +104,7 @@ The capture is read-only — it sets `default_transaction_read_only`,
 `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` on
 its own session — so `pg_monitor` is the whole grant it needs.
 
-**Without `pg_monitor`, three artifacts lose data, and they lose it three
+**Without `pg_monitor`, four artifacts lose data, and they lose it four
 different ways.**
 
 A role holding only `LOGIN` is *denied* some statements outright. Those failures
@@ -117,11 +147,74 @@ others are queued behind. `pg_locks` needs no grant at all, so the *shape* of a
 blocking chain is still recoverable: who holds what, and who is queued behind
 whom. What is lost is what any of those sessions was running.
 
-The flag to read here is `has_pg_read_all_stats`, not `has_pg_monitor_role`:
-that is the gate the server actually applies, and a role granted
-`pg_read_all_stats` directly sees everything while the monitor flag says false.
-`pg_monitor` includes it, which is why the one grant above is still the whole
-answer.
+`pg_slow_queries.txt` is the fourth case and it has the worst shape of all of
+them: **it keeps every number and loses the key.**
+
+`pg_stat_statements` returns every row to any role, and every counter in every
+row is exact — `calls`, `total_exec_time`, `rows`, the block counters, all
+correct. What a role without `pg_read_all_stats` does not get is `queryid`, which
+reads NULL on every statement the role does not own, with `query` carrying the
+same `<insufficient privilege>` sentinel:
+
+```csv
+queryid,userid,dbid,toplevel,...,calls,total_exec_time,...,query
+,10,16401,true,...,128400,9820410.5,...,<insufficient privilege>
+```
+
+On a typical cluster that is most of the file. Measured on a matrix container:
+277 of 319 rows.
+
+The counters are real, so the artifact is not worthless — but `queryid` is the
+key, and without it those rows cannot be matched between the start and end
+samples, cannot be told apart from each other, and cannot be joined to
+`pg_sessions.txt`'s `query_id`. The window delta the report is built from does
+not exist for them. And nothing in the file says so: no `error=`, the right row
+count, `status=complete`.
+
+The one thing that reads normally is the statements the capture role executed
+itself, which always keep their key — including the agent's own. Since NULLs sort
+last, those rows also come first in the block.
+
+The flag to read for both of the last two artifacts is `has_pg_read_all_stats`,
+not `has_pg_monitor_role`: that is the gate the server actually applies, and a
+role granted `pg_read_all_stats` directly sees everything while the monitor flag
+says false. `pg_monitor` includes it, which is why the one grant above is still
+the whole answer.
+
+## What leaves the database
+
+Read this before the first capture goes anywhere outside your perimeter.
+
+`pg_slow_queries.txt` and `pg_sessions.txt` carry **SQL statement text**. For
+ordinary queries that text is normalised — constants are replaced with `$1`,
+`$2` and so on, so values from your data do not travel with it.
+
+**Utility statements are the exception, and they are stored verbatim.** Under the
+default `pg_stat_statements.track_utility = on`, DDL and other utility commands
+are recorded exactly as submitted, literals included. Measured on PostgreSQL 18:
+
+```
+CREATE ROLE app_user LOGIN PASSWORD 'hunter2'   ← stored complete, with the password
+ALTER ROLE app_user PASSWORD 'hunter2'          ← likewise
+COPY t FROM PROGRAM 'some command'              ← likewise
+```
+
+So if anyone has ever run role DDL against a cluster, that cleartext is sitting
+in `pg_stat_statements` and a capture will pick it up. Any role holding
+`pg_read_all_stats` — which is to say the role this document recommends — can
+read it.
+
+Three things follow:
+
+- **The bundle inherits the exposure; the agent does not create it.** The value
+  is in your database, put there by whoever ran the statement, and the agent
+  captures the column as the server returns it.
+- **`pg_metadata.txt` records whether the exposure is possible.** The
+  `pg_stat_statements.track_utility` row says whether utility statements are
+  tracked at all. Setting it to `off` closes it for future statements; the
+  entries already recorded stay until they age out or the statistics are reset.
+- **`-onlyCapture` keeps everything local.** It writes the bundle and uploads
+  nothing, which is the mode to use while a security review is pending.
 
 ## Where to run it
 

@@ -59,7 +59,20 @@ func fullSettings() map[string]string {
 		"shared_preload_libraries":   "pg_stat_statements,auto_explain",
 		"compute_query_id":           "auto",
 		"data_directory":             "/var/lib/postgresql/15/main",
+
+		"track_io_timing":                   "off",
+		"pg_stat_statements.max":            "5000",
+		"pg_stat_statements.track":          "top",
+		"pg_stat_statements.track_planning": "off",
+		"pg_stat_statements.track_utility":  "on",
 	}
+}
+
+var pgStatStatementsSettings = []string{
+	"pg_stat_statements.max",
+	"pg_stat_statements.track",
+	"pg_stat_statements.track_planning",
+	"pg_stat_statements.track_utility",
 }
 
 func settingsColumns(settings map[string]string) (names []string, values []string) {
@@ -225,6 +238,11 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"log_min_duration_statement",
 		"log_parameter_max_length",
 		"track_activity_query_size",
+		"track_io_timing",
+		"pg_stat_statements.max",
+		"pg_stat_statements.track",
+		"pg_stat_statements.track_planning",
+		"pg_stat_statements.track_utility",
 		"shared_preload_libraries",
 		"compute_query_id",
 		"data_directory",
@@ -363,6 +381,33 @@ func TestSettingsFullVisibility(t *testing.T) {
 	assert.Empty(t, m.SettingsUnavailable)
 
 	assert.Equal(t, "500", m.LogMinDurationStatement)
+
+	assert.Equal(t, "off", m.TrackIOTiming)
+	assert.Equal(t, "5000", m.PgStatStatementsMax)
+	assert.Equal(t, "top", m.PgStatStatementsTrack)
+	assert.Equal(t, "off", m.PgStatStatementsTrackPlanning)
+	assert.Equal(t, "on", m.PgStatStatementsTrackUtility)
+}
+
+func TestSettingsLibraryNotLoaded(t *testing.T) {
+	visible := fullSettings()
+	for _, name := range pgStatStatementsSettings {
+		delete(visible, name)
+	}
+
+	visible["shared_preload_libraries"] = "auto_explain"
+
+	q := healthyQuerier()
+	q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(visible)
+
+	m := collect(t, q)
+
+	assert.Equal(t, "pg_stat_statements.max,pg_stat_statements.track,"+
+		"pg_stat_statements.track_planning,pg_stat_statements.track_utility", m.SettingsUnavailable)
+
+	assert.Empty(t, m.PgStatStatementsMax)
+	assert.Equal(t, "off", m.TrackIOTiming, "a core GUC, which does not depend on the library")
+	assert.Empty(t, m.QueryError, "an unloaded library returns no row rather than erroring")
 }
 
 func TestSettingsRestrictedRole(t *testing.T) {
@@ -414,7 +459,9 @@ func TestSettingsNoneVisible(t *testing.T) {
 
 	assert.Equal(t, "max_connections,logging_collector,log_destination,log_directory,log_filename,"+
 		"log_line_prefix,log_min_duration_statement,log_parameter_max_length,"+
-		"track_activity_query_size,shared_preload_libraries,"+
+		"track_activity_query_size,track_io_timing,pg_stat_statements.max,"+
+		"pg_stat_statements.track,pg_stat_statements.track_planning,"+
+		"pg_stat_statements.track_utility,shared_preload_libraries,"+
 		"compute_query_id,data_directory", m.SettingsUnavailable)
 	assert.Empty(t, m.QueryError)
 	assert.Equal(t, "orders_db", m.CurrentDatabase)

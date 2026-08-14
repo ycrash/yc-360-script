@@ -73,6 +73,11 @@ func serverFields(m Metadata) []field {
 		{"log_min_duration_statement", m.LogMinDurationStatement},
 		{"log_parameter_max_length", m.LogParameterMaxLength},
 		{"track_activity_query_size", m.TrackActivityQuerySize},
+		{"track_io_timing", m.TrackIOTiming},
+		{"pg_stat_statements.max", m.PgStatStatementsMax},
+		{"pg_stat_statements.track", m.PgStatStatementsTrack},
+		{"pg_stat_statements.track_planning", m.PgStatStatementsTrackPlanning},
+		{"pg_stat_statements.track_utility", m.PgStatStatementsTrackUtility},
 		{"shared_preload_libraries", m.SharedPreloadLibraries},
 		{"settings_unavailable", m.SettingsUnavailable},
 
