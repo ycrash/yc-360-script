@@ -17,6 +17,25 @@ The goldens:
   EXECUTE on `pg_current_logfile()` until 17, so a 14–16 fixture showing
   `has_pg_monitor_role,true` next to `capture_mode,pg-dbhost` would depict a
   deployment that needs an extra manual grant.
+  **Five of the settings rows exist to say what a zero in `pg_slow_queries.txt`
+  means**, and they are populated here rather than empty for the same
+  fixture-honesty reason: this cluster carries `pg_stat_statements` in
+  `shared_preload_libraries`, and the extension's four GUCs exist in
+  `pg_settings` exactly while the library is loaded, so empty cells beside a
+  loaded library would depict a state the server cannot produce. The values are
+  `pg_settings.setting`'s raw internal units — `5000`, `off`, `top` — never
+  `SHOW`'s rendered forms. `track_io_timing,off` and
+  `pg_stat_statements.track_planning,off` are the server's defaults, and they
+  are why whole columns of `pg_slow_queries.txt` read `0` on an ordinary
+  cluster: not "no I/O waiting" and not "planning is free", but *not measured*.
+  **And `settings_unavailable` has changed meaning as a result.** Before this
+  slice every captured setting was a core GUC, so a non-empty value meant a
+  denial or a server too old to know the name. Now a perfectly healthy cluster
+  that never preloaded the library lists those four names there — which is
+  useful, because it separates *the library is not loaded* from *the extension
+  is not created in this database*, two causes of the same empty artifact, and
+  it agrees with `pg_slow_queries.txt`'s own `library_loaded=` from the other
+  side. A reader treating the field as an alarm on its own will now raise one.
 - `pg_metadata_connect_failure.txt` — a run that never reached the server. The
   absence of the server block is the discriminator, and `connect_error=` in the
   closing block's header says why. There is no `capture_mode` row: with no
@@ -196,6 +215,131 @@ The goldens:
   only, so the query's internal runs of spaces survive. That is a smaller
   mutation than "collapse whitespace runs", and it is the one that buys the parse
   property without further rewriting what the application submitted.
+- `pg_slow_queries_full.txt` — a complete start-and-end capture against an
+  extension-1.12 server. **Two blocks per sample and 37 columns**, the widest
+  block in the feature, where the requirements document names eight. Read the
+  first and last rows of the two `pg_stat_statements` blocks together and the
+  artifact's whole purpose is on the page: `128740 − 128400 = 340` calls, and
+  `(9891810.5 − 9820410.5) / 340 = 210.0` ms — the report's headline number,
+  computed server-side from two blocks and nothing else. The agent joins
+  nothing.
+  **The `pg_stat_statements_info` block is what says that arithmetic means
+  anything, and the requirements document does not ask for it.** `stats_reset`
+  reads the same value in both samples here, which is the file saying no counter
+  reset happened inside the window; had it moved, every delta above would be
+  `end − start` across a reset — a large negative number, or worse, a small
+  positive one that looks entirely plausible, with no in-band signal anywhere in
+  the counters. `dealloc` is `0`; had it risen, entries were evicted because
+  `pg_stat_statements.max` was exceeded, and eviction plus re-insertion restarts
+  a `queryid`'s counters from zero, so its delta reads as a query that got
+  dramatically faster. Neither is detectable from the 37 columns beside them.
+  **The block leads sample 1 and closes sample 2**, and that is a decision rather
+  than a layout: with a fixed statements-then-info order at both ends, a full
+  reset landing between the opening statements read and its info read would
+  invalidate the whole file while leaving the two `stats_reset` values equal.
+  Read outermost, the two readings enclose every other read in the window.
+  Within one `sample=` the block order is parser-neutral — it dispatches on
+  `source=` — and both blocks carry the sample's single clock read as `ts=`.
+  What the block cannot see is a **targeted** `pg_stat_statements_reset(userid,
+  dbid, queryid)`: verified live on 18, it moves neither value. On extension
+  1.11+ the per-row `stats_since` is the counter-signal; below 1.11 a targeted
+  reset is undetectable, which is a documented limitation rather than a gap the
+  agent can close.
+  **The row order is by `queryid` ascending and it is not the readable order.**
+  That is deliberate: the block is ordered on identity and never on a statistic,
+  because a top-N taken independently at each endpoint can select two different
+  sets and leave a query with no baseline to delta against. A fixture in a
+  friendlier order would depict something the statement cannot return.
+  **`blk_read_time` and `blk_write_time` are empty while `shared_blk_read_time`
+  and `shared_blk_write_time` are `0`, in the same row.** Extension 1.11 renamed
+  that pair *and re-scoped it* — before 1.11 it counted shared and local block
+  I/O together — so they are two output columns and never both populated.
+  Empty means the server does not have the column; `0` means it has it and
+  `track_io_timing` is off. `optional_columns=` says which of the eleven the
+  server had, and `pg_metadata.txt`'s `track_io_timing` says why the ones it had
+  read zero. The same reading applies to the four plan columns, which are `0` on
+  every row because `pg_stat_statements.track_planning` is off by default.
+  **The fourth row of sample 2 is the agent's own opening read**, `calls=1`,
+  under the capture role's `userid`. It is the only genuinely *new* entry the
+  capture adds between the endpoints — every other collector's statements are
+  entries in both samples, and their deltas are the window's capture cost
+  itemised. This view has no `application_name` column, so `userid` and the
+  statement text are the only handles a receiver has for telling capture
+  overhead from customer workload.
+- `pg_slow_queries_pre17.txt` — the same capture against an extension-1.10
+  server, and the pair is the contract. **Exactly three structural differences
+  are permitted**: the `blk_*_time` pair populated where the other file leaves
+  it empty and the four 1.11 columns empty where the other populates them, both
+  `*_since` columns empty, and a different `optional_columns=`. The column
+  header is byte-identical, which is what one statement covering extension 1.8
+  through 1.12 buys — the eleven varying columns are read out of a `to_jsonb` of
+  the row, where a version without the column yields NULL rather than raising
+  42703. Note which servers this is: 1.10 ships on PostgreSQL **15 and 16**,
+  1.9 on 14, 1.11 on 17 and 1.12 on 18 — two server versions sharing one
+  extension version, which is why `server_version_num` cannot even name this
+  axis, let alone select on it.
+- `pg_slow_queries_least_privilege.txt` — the file to read carefully, and the
+  inverse of `pg_sessions_least_privilege.txt`. Every row is present, every
+  counter is exact, `statements_total` is right, there is no `error=` anywhere
+  and the artifact is `complete` — **and three of the four rows have no key.**
+  A role without `pg_read_all_stats` reads `queryid` NULL and `query` as the
+  `<insufficient privilege>` sentinel on every row it does not own, while
+  `calls`, `total_exec_time` and the block counters stay correct: measured as
+  `yc_restricted`, 277 of 319 rows on 18 and 124 of 152 on 14. Those rows cannot
+  be merged against the other sample, told apart from each other, or joined to
+  `pg_sessions.txt`'s `query_id`. In `pg_stat_activity` the identity survives
+  masking and the detail is lost, so a least-privilege capture still shapes the
+  blocking chain; here the detail survives and the identity does not.
+  **The one surviving row leads, and that is the sort key working.** A role
+  always sees the statements it executed itself, so the agent's own read keeps
+  its `queryid` — and `ORDER BY … ASC` puts NULLs last, so the attributable rows
+  sort first and a cap that binds at this privilege level sheds the
+  unattributable ones first. Nothing in this file says the capture was degraded.
+  `pg_metadata.txt`'s `has_pg_read_all_stats` does, and the count of empty lead
+  cells does; that is the whole of the discriminator.
+- `pg_slow_queries_query_text.txt` — this artifact's half of the parse contract,
+  and it has one case `pg_sessions_query_text.txt` does not. Six rows: a query
+  with embedded newlines, one carrying a line that begins with `#`, one with
+  commas and double quotes, one multi-byte, one whose `query` is **NULL** — the
+  shape the extension's documentation permits when its external query-text file
+  has been discarded, where the row costs a cell rather than the block — and one
+  masked row. What it pins is the same claim: **every data row is exactly one
+  physical line, and no line but a block header begins with `#`.**
+  **The second half of that claim holds for a different reason here, which is
+  the thing a reviewer should check rather than assume.** In `pg_sessions.txt`
+  the argument was that `pid` leads and is an integer on every row. Here the
+  lead cell is `queryid`, which is *empty* on every masked row — so a data line
+  can begin with a comma, and the last row of this file does. A line beginning
+  with `,` is not a line beginning with `#`, so the contract holds; but the
+  sessions argument does not transfer unchanged, and the comment on
+  `statementColumnSpecs` says so.
+- `pg_slow_queries_extension_absent.txt` — a complete two-sample capture of a
+  database where `CREATE EXTENSION pg_stat_statements` was never run. Ten lines,
+  not one data row, and **no `error=` anywhere**: `pg_stat_statements` holds
+  cluster-wide statistics but its view exists only in the databases the
+  extension was created in, so a capture pointed at `postgres` while the
+  extension lives in `orders_db` has nothing to read — and that is a finding
+  about the configuration, not a read that failed. `reason=extension_absent`
+  carries it, on all four blocks, because one cause has to read as one cause;
+  `library_loaded=true` beside it is the second half of the diagnosis, saying
+  the cluster's problem is `CREATE EXTENSION` and not
+  `shared_preload_libraries`. Three other reasons share the shape and are the
+  fixtures' business rather than a golden's: `not_in_search_path` (with
+  `schema_usage=` separating a path problem from a USAGE denial),
+  `extension_too_old`, and `library_not_loaded`.
+  **The block order is the other thing this file pins.** `pg_stat_statements_info`
+  leads sample 1 and closes sample 2, so the two `stats_reset` readings enclose
+  everything between the endpoints.
+  **And it is the golden that does not move when the info block gains its
+  read** — its four blocks were already header-only under the shared `reason=`,
+  which is that rule visibly working. The one state where the two blocks of a
+  sample carry *different* reasons is `reason=view_absent` on the info block,
+  and it is exactly one extension version wide: measured on 18 by installing
+  each in turn, 1.7 has neither `total_exec_time` nor the info view, **1.8 has
+  the first and not the second**, and 1.9 has both. So a healthy extension at
+  the floor reads its statements normally beside an info block that says the
+  view has not been written yet — and `view_absent` never appears beside one of
+  the four absences, where it would read as a second, unrelated problem.
 
 ## Reader requirements
 

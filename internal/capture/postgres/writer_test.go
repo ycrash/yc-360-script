@@ -50,7 +50,14 @@ func fullArtifactMetadata() Metadata {
 		LogMinDurationStatement: "500",
 		LogParameterMaxLength:   "1024",
 		TrackActivityQuerySize:  "1024",
-		SharedPreloadLibraries:  "pg_stat_statements,auto_explain",
+
+		TrackIOTiming:                 "off",
+		PgStatStatementsMax:           "5000",
+		PgStatStatementsTrack:         "top",
+		PgStatStatementsTrackPlanning: "off",
+		PgStatStatementsTrackUtility:  "on",
+
+		SharedPreloadLibraries: "pg_stat_statements,auto_explain",
 
 		DataDirectory:          "/var/lib/postgresql/17/main",
 		CurrentLogfile:         "log/postgresql-2026-08-04_000000.csv",

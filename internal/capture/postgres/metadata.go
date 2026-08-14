@@ -78,8 +78,17 @@ type Metadata struct {
 	LogMinDurationStatement string
 	LogParameterMaxLength   string
 	TrackActivityQuerySize  string
-	SharedPreloadLibraries  string
-	SettingsUnavailable     string
+
+	// Effective values behind pg_slow_queries.txt's zeros. PgStatStatementsMax is postmaster-scoped
+	// (cluster truth); the other four can be session-overridden, and empty when not preloaded.
+	TrackIOTiming                 string
+	PgStatStatementsMax           string
+	PgStatStatementsTrack         string
+	PgStatStatementsTrackPlanning string
+	PgStatStatementsTrackUtility  string
+
+	SharedPreloadLibraries string
+	SettingsUnavailable    string
 
 	// The evidence behind CaptureMode. DataDirectory arrives with the settings
 	// catalogue so a denied pg_current_logfile() cannot cost the row a relative
