@@ -39,6 +39,14 @@ var capturedSettings = []struct {
 	// Governs where pg_sessions.txt's query column truncates - mid-token and
 	// unmarked.
 	{"track_activity_query_size", func(m *Metadata) *string { return &m.TrackActivityQuerySize }},
+	// track_io_timing/track_planning default off, zeroing several
+	// pg_slow_queries.txt columns. The pg_stat_statements.* GUCs below exist
+	// only while the library is preloaded - absent here means that, not denial.
+	{"track_io_timing", func(m *Metadata) *string { return &m.TrackIOTiming }},
+	{"pg_stat_statements.max", func(m *Metadata) *string { return &m.PgStatStatementsMax }},
+	{"pg_stat_statements.track", func(m *Metadata) *string { return &m.PgStatStatementsTrack }},
+	{"pg_stat_statements.track_planning", func(m *Metadata) *string { return &m.PgStatStatementsTrackPlanning }},
+	{"pg_stat_statements.track_utility", func(m *Metadata) *string { return &m.PgStatStatementsTrackUtility }},
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},

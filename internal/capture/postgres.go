@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the five below must equal
+// PostgresMetadataFileName and the six below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -42,6 +42,10 @@ const PostgresSessionsFileName = "pg_sessions.txt"
 
 const pgDTSessions = "pgSessions"
 
+const PostgresSlowQueriesFileName = "pg_slow_queries.txt"
+
+const pgDTSlowQueries = "pgSlowQueries"
+
 // pgSampledDataType is empty for an artifact the server team has not assigned
 // one. An invented dt is dropped silently, so an unassigned artifact is written
 // into the bundle and its upload skipped with a message naming the reason.
@@ -64,6 +68,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_sessions":
 		return pgDTSessions
+
+	case "pg_slow_queries":
+		return pgDTSlowQueries
 	}
 
 	return ""
@@ -108,7 +115,8 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 		// Registration order is sampling order on the shared tick, not a timing
 		// guarantee: cheapest reads go first at t0, and at the closing tick
-		// (capacity, bloat) the reading with no second chance goes first.
+		// (capacity, bloat, slow queries) the reading with no second chance goes
+		// first.
 		Collectors: []postgres.Collector{
 			postgres.Sessions{},
 			postgres.Health{},
@@ -116,6 +124,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			metadata,
 			postgres.Capacity{},
 			postgres.Bloat{},
+			postgres.SlowQueries{},
 		},
 	}
 

@@ -1,0 +1,18 @@
+# engine=postgres source=pg_slow_queries v=1 format=csv scope=cluster db=orders_db dbid= status=started window=6s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_statements_info v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 extension_version=1.10 ts=2026-08-07T14:32:05.061Z
+dealloc,stats_reset
+0,2026-08-07T03:06:21.693Z
+# engine=postgres source=pg_stat_statements v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 extension_version=1.10 extension_schema=public library_loaded=true optional_columns=blk_read_time,blk_write_time,temp_blk_read_time,temp_blk_write_time,toplevel statements_written=3 statements_total=3 truncated=false ts=2026-08-07T14:32:05.061Z
+queryid,userid,dbid,toplevel,plans,total_plan_time,min_plan_time,max_plan_time,calls,total_exec_time,min_exec_time,max_exec_time,rows,shared_blks_hit,shared_blks_read,shared_blks_dirtied,shared_blks_written,local_blks_hit,local_blks_read,local_blks_dirtied,local_blks_written,temp_blks_read,temp_blks_written,blk_read_time,blk_write_time,shared_blk_read_time,shared_blk_write_time,local_blk_read_time,local_blk_write_time,temp_blk_read_time,temp_blk_write_time,wal_records,wal_fpi,wal_bytes,stats_since,minmax_stats_since,query
+-7710234988821003345,10,16401,true,0,0,0,0,55201,18820045.2,1.204,9902.1,55201,1204884,8821,0,0,0,0,0,0,0,0,0,0,,,,,0,0,55201,412,4980112,,,UPDATE orders SET status = $1 WHERE id = $2
+-4821096637582910234,10,16401,true,0,0,0,0,128400,9820410.5,0.812,4120.4,128412,4021884,398210,0,0,0,0,0,0,0,0,0,0,,,,,0,0,0,0,0,,,SELECT * FROM order_items WHERE order_id = $1
+5548219003471002234,10,16401,true,0,0,0,0,884210,42011200.8,0.019,88.2,884210,8821040,12048,0,0,0,0,0,0,0,0,0,0,,,,,0,0,0,0,0,,,SELECT * FROM inventory WHERE sku = $1
+# engine=postgres source=pg_stat_statements v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 extension_version=1.10 extension_schema=public library_loaded=true optional_columns=blk_read_time,blk_write_time,temp_blk_read_time,temp_blk_write_time,toplevel statements_written=3 statements_total=3 truncated=false ts=2026-08-07T14:32:11.020Z
+queryid,userid,dbid,toplevel,plans,total_plan_time,min_plan_time,max_plan_time,calls,total_exec_time,min_exec_time,max_exec_time,rows,shared_blks_hit,shared_blks_read,shared_blks_dirtied,shared_blks_written,local_blks_hit,local_blks_read,local_blks_dirtied,local_blks_written,temp_blks_read,temp_blks_written,blk_read_time,blk_write_time,shared_blk_read_time,shared_blk_write_time,local_blk_read_time,local_blk_write_time,temp_blk_read_time,temp_blk_write_time,wal_records,wal_fpi,wal_bytes,stats_since,minmax_stats_since,query
+-7710234988821003345,10,16401,true,0,0,0,0,55263,18859725.2,1.204,9902.1,55263,1205140,8829,0,0,0,0,0,0,0,0,0,0,,,,,0,0,55263,415,4985340,,,UPDATE orders SET status = $1 WHERE id = $2
+-4821096637582910234,10,16401,true,0,0,0,0,128740,9891810.5,0.812,4120.4,128752,4025901,398340,0,0,0,0,0,0,0,0,0,0,,,,,0,0,0,0,0,,,SELECT * FROM order_items WHERE order_id = $1
+5548219003471002234,10,16401,true,0,0,0,0,884328,42021226.8,0.019,88.2,884328,8821994,12053,0,0,0,0,0,0,0,0,0,0,,,,,0,0,0,0,0,,,SELECT * FROM inventory WHERE sku = $1
+# engine=postgres source=pg_stat_statements_info v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 extension_version=1.10 ts=2026-08-07T14:32:11.020Z
+dealloc,stats_reset
+0,2026-08-07T03:06:21.693Z
+# engine=postgres source=pg_slow_queries v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:32:11.084Z

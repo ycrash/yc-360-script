@@ -2160,3 +2160,695 @@ func assertMatrixSessionsTimeoutSparesTheConnection(t *testing.T, server matrixS
 			"server-side SET exists to prevent")
 	assert.Equal(t, 1, alive)
 }
+
+const matrixSlowQueriesWindow = 2 * time.Second
+
+const (
+	matrixSecondDB     = "yc_second"
+	matrixExtSchema    = "yc_ext"
+	matrixAnchorMarker = "yc_360_matrix_anchor"
+)
+
+var matrixStatementOptionalColumns = map[int]string{
+	14: "blk_read_time,blk_write_time,toplevel",
+	15: "blk_read_time,blk_write_time,temp_blk_read_time,temp_blk_write_time,toplevel",
+	16: "blk_read_time,blk_write_time,temp_blk_read_time,temp_blk_write_time,toplevel",
+	17: "local_blk_read_time,local_blk_write_time,minmax_stats_since,shared_blk_read_time," +
+		"shared_blk_write_time,stats_since,temp_blk_read_time,temp_blk_write_time,toplevel",
+	18: "local_blk_read_time,local_blk_write_time,minmax_stats_since,shared_blk_read_time," +
+		"shared_blk_write_time,stats_since,temp_blk_read_time,temp_blk_write_time,toplevel",
+}
+
+func matrixTargetDB(server matrixServer, role matrixRole, database string) Target {
+	target := matrixTarget(server, role)
+	target.Database = database
+
+	return target
+}
+
+func matrixDDL(t *testing.T, server matrixServer, database string, statements ...string) {
+	t.Helper()
+
+	target := matrixTargetDB(server, matrixSuperuser(t), database)
+
+	config, err := pgconn.ParseConfig(fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
+		target.Host, target.Port, target.Username, target.Password,
+		target.Database, target.SSLMode))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := pgconn.ConnectConfig(ctx, config)
+	require.NoError(t, err, "open a writable connection to %s", target)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	for _, sql := range statements {
+		_, err := conn.Exec(ctx, sql).ReadAll()
+		require.NoError(t, err, "%s", sql)
+	}
+}
+
+func matrixQuery(t *testing.T, target Target, sql string, args ...any) []*string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	rows, err := conn.Query(ctx, sql, args...)
+	require.NoError(t, err, "%s", sql)
+
+	defer rows.Close()
+
+	require.True(t, rows.Next(), "no row: %s", sql)
+
+	values := make([]*string, len(rows.FieldDescriptions()))
+
+	dest := make([]any, len(values))
+	for i := range values {
+		dest[i] = &values[i]
+	}
+
+	require.NoError(t, rows.Scan(dest...))
+	rows.Close()
+	require.NoError(t, rows.Err())
+
+	return values
+}
+
+func runMatrixSlowQueriesWindow(t *testing.T, target Target, collector SlowQueries) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   matrixSlowQueriesWindow,
+		Target:     target,
+		Collectors: []Collector{collector},
+	}
+
+	return window.Run(context.Background())
+}
+
+func matrixSlowQueriesBlocks(t *testing.T, target Target,
+	collector SlowQueries,
+) (statements, info []capacityMatrixBlock) {
+	t.Helper()
+
+	results := runMatrixSlowQueriesWindow(t, target, collector)
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].IOErr)
+	require.Equal(t, StatusComplete, results[0].Status)
+
+	artifact := matrixArtifactText(t, results[0])
+
+	for _, source := range []string{"pg_stat_statements", "pg_stat_statements_info"} {
+		for _, block := range parseCapacityBlocks(t, artifact, source) {
+			assert.NotContains(t, block.rawHead, target.Password,
+				"%s: a block header carries the connection password", source)
+		}
+	}
+
+	return parseCapacityBlocks(t, artifact, "pg_stat_statements"),
+		parseCapacityBlocks(t, artifact, "pg_stat_statements_info")
+}
+
+func matrixAnchor(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	matrixDDL(t, server, "postgres",
+		"CREATE TABLE yc_360_matrix_anchor_tbl (n int)",
+		"INSERT INTO yc_360_matrix_anchor_tbl SELECT g AS "+matrixAnchorMarker+
+			" FROM generate_series(1, 11) g",
+		"SELECT count(*) AS "+matrixAnchorMarker+" FROM yc_360_matrix_anchor_tbl",
+		"DROP TABLE yc_360_matrix_anchor_tbl",
+	)
+}
+
+func TestMatrixSlowQueries(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			assertMatrixStatementViewColumns(t, server)
+
+			matrixAnchor(t, server)
+
+			statements := map[string]capacityMatrixBlock{}
+			infos := map[string]capacityMatrixBlock{}
+			closing := map[string]capacityMatrixBlock{}
+
+			for _, role := range matrixRoles {
+				t.Run(role.user, func(t *testing.T) {
+					target := matrixTarget(server, role)
+
+					statementBlocks, infoBlocks := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+
+					require.Len(t, statementBlocks, 2, "one statements block on every sample")
+					require.Len(t, infoBlocks, 2, "and one info block beside it")
+
+					for _, block := range append(statementBlocks, infoBlocks...) {
+						assert.NotContains(t, block.rawHead, "error=",
+							"%s: the statement ran, which is what says every column it names "+
+								"exists on this extension version", block.header["source"])
+						assert.NotContains(t, block.rawHead, "reason=",
+							"%s: the extension is installed and reachable here",
+							block.header["source"])
+					}
+
+					assert.Equal(t, statementColumns, statementBlocks[0].columns,
+						"the same 37 columns on every extension version, which is what one "+
+							"statement covering 1.8 through 1.12 buys")
+					assert.Equal(t, infoColumns, infoBlocks[0].columns)
+
+					assert.Equal(t, matrixStatementOptionalColumns[server.major],
+						statementBlocks[0].header["optional_columns"],
+						"the header is not lying about which columns the server had")
+
+					assertMatrixInfoReadsAtTheFloor(t, infoBlocks)
+
+					statements[role.user] = statementBlocks[0]
+					infos[role.user] = infoBlocks[0]
+					closing[role.user] = statementBlocks[1]
+				})
+			}
+
+			t.Run("the privilege floor", func(t *testing.T) {
+				assertMatrixStatementMasking(t, statements)
+			})
+
+			t.Run("every cell round-trips", func(t *testing.T) {
+				assertMatrixStatementCellsRoundTrip(t, server, statements[matrixSuperuser(t).user])
+			})
+
+			t.Run("every cast column carries a live value", func(t *testing.T) {
+				assertMatrixStatementCasts(t, statements[matrixSuperuser(t).user])
+			})
+
+			t.Run("the agent's own read appears in the closing sample", func(t *testing.T) {
+				assertMatrixCaptureIsInItsOwnArtifact(t, closing[matrixSuperuser(t).user])
+			})
+
+			t.Run("the cap keeps a prefix of the key space", func(t *testing.T) {
+				assertMatrixStatementCap(t, server)
+			})
+
+			t.Run("the settings hold at the privilege floor", func(t *testing.T) {
+				assertMatrixStatementSettings(t, server)
+			})
+
+			t.Run("the extension is installed per database", func(t *testing.T) {
+				assertMatrixExtensionIsPerDatabase(t, server)
+			})
+
+			t.Run("the floor, both sides", func(t *testing.T) {
+				assertMatrixExtensionFloor(t, server)
+			})
+
+			t.Run("an extension outside search_path", func(t *testing.T) {
+				assertMatrixExtensionNotInSearchPath(t, server)
+			})
+
+			t.Run("resets", func(t *testing.T) {
+				assertMatrixStatementResets(t, server)
+			})
+		})
+	}
+}
+
+func assertMatrixStatementViewColumns(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+	columns := matrixViewColumns(t, target, "pg_stat_statements")
+
+	require.NotEmpty(t, columns, "the extension is not installed in the entrypoint database")
+
+	has := func(name string) bool { return slices.Contains(columns, name) }
+
+	pre111 := server.major <= 16
+
+	assert.Equal(t, pre111, has("blk_read_time"), "pg%d: blk_read_time", server.major)
+	assert.Equal(t, pre111, has("blk_write_time"), "pg%d: blk_write_time", server.major)
+	assert.Equal(t, !pre111, has("shared_blk_read_time"), "pg%d: shared_blk_read_time", server.major)
+	assert.Equal(t, !pre111, has("shared_blk_write_time"), "pg%d: shared_blk_write_time", server.major)
+	assert.Equal(t, !pre111, has("local_blk_read_time"), "pg%d: local_blk_read_time", server.major)
+	assert.Equal(t, !pre111, has("stats_since"), "pg%d: stats_since", server.major)
+	assert.Equal(t, !pre111, has("minmax_stats_since"), "pg%d: minmax_stats_since", server.major)
+
+	assert.Equal(t, server.major >= 15, has("temp_blk_read_time"), "pg%d: temp_blk_read_time", server.major)
+
+	assert.True(t, has("toplevel"), "pg%d: toplevel", server.major)
+
+	assert.True(t, has("total_exec_time"), "pg%d: total_exec_time", server.major)
+
+	present := []string{}
+
+	for _, name := range optionalStatementColumns {
+		if has(name) {
+			present = append(present, name)
+		}
+	}
+
+	sort.Strings(present)
+
+	assert.Equal(t, matrixStatementOptionalColumns[server.major], strings.Join(present, ","),
+		"pg%d: the recorded expectation and the catalogue disagree", server.major)
+}
+
+func assertMatrixInfoReadsAtTheFloor(t *testing.T, blocks []capacityMatrixBlock) {
+	t.Helper()
+
+	for _, block := range blocks {
+		require.Len(t, block.rows, 1, "one row, two columns, no cap and no ordering")
+		assert.NotEmpty(t, block.only(t, "dealloc"),
+			"dealloc is readable by a role holding only LOGIN")
+	}
+
+	assert.Equal(t, blocks[0].only(t, "stats_reset"), blocks[1].only(t, "stats_reset"),
+		"nothing reset the counters inside this window, so every delta in the file is a delta")
+}
+
+func assertMatrixStatementMasking(t *testing.T, blocks map[string]capacityMatrixBlock) {
+	t.Helper()
+
+	privileged := blocks["yc_monitor"]
+	restricted := blocks["yc_restricted"]
+
+	var anchor []string
+
+	for _, row := range privileged.rows {
+		if strings.Contains(privileged.cell(t, row, "query"), matrixAnchorMarker) {
+			anchor = row
+			break
+		}
+	}
+
+	require.NotNil(t, anchor, "the anchor statement is not in the privileged capture")
+
+	var (
+		queryid   = privileged.cell(t, anchor, "queryid")
+		userid    = privileged.cell(t, anchor, "userid")
+		calls     = privileged.cell(t, anchor, "calls")
+		execTime  = privileged.cell(t, anchor, "total_exec_time")
+		anchorSQL = privileged.cell(t, anchor, "query")
+	)
+
+	assert.NotEmpty(t, queryid, "a role with pg_read_all_stats reads the key")
+
+	var masked []string
+
+	for _, row := range restricted.rows {
+		if restricted.cell(t, row, "userid") == userid &&
+			restricted.cell(t, row, "calls") == calls &&
+			restricted.cell(t, row, "total_exec_time") == execTime {
+			masked = row
+			break
+		}
+	}
+
+	require.NotNil(t, masked,
+		"the row is returned to every role - masking takes columns, never rows")
+
+	assert.Empty(t, restricted.cell(t, masked, "queryid"),
+		"and the column it takes is the key, which is what makes this artifact's "+
+			"least-privilege capture unmergeable")
+
+	maskedSQL := restricted.cell(t, masked, "query")
+
+	assert.NotEmpty(t, maskedSQL,
+		"the server substitutes a sentence rather than an absence")
+	assert.NotEqual(t, anchorSQL, maskedSQL,
+		"asserted by inequality rather than against the sentinel's wording, so a future "+
+			"rewording fails informatively instead of pinning the agent to a message it "+
+			"never reads")
+
+	assert.Equal(t, calls, restricted.cell(t, masked, "calls"),
+		"and every counter is exact - which is why the report rule here is a bucket rather "+
+			"than a suppression: these numbers are real and unattributable")
+	assert.Equal(t, execTime, restricted.cell(t, masked, "total_exec_time"))
+
+	var keyed int
+
+	for _, row := range restricted.rows {
+		if restricted.cell(t, row, "queryid") != "" {
+			keyed++
+		}
+	}
+
+	assert.NotZero(t, keyed, "the capture's own reads are the role's own statements")
+	assert.Less(t, keyed, len(restricted.rows), "and most of the block is not")
+
+	for i, row := range restricted.rows {
+		if restricted.cell(t, row, "queryid") == "" {
+			assert.GreaterOrEqual(t, i, keyed,
+				"ASC sorts NULLs last, so a cap that binds at this privilege level sheds "+
+					"the unattributable rows first")
+		}
+	}
+}
+
+func assertMatrixStatementCellsRoundTrip(t *testing.T, server matrixServer, block capacityMatrixBlock) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+	present := matrixViewColumns(t, target, "pg_stat_statements")
+
+	var anchor []string
+
+	for _, row := range block.rows {
+		if strings.Contains(block.cell(t, row, "query"), matrixAnchorMarker) {
+			anchor = row
+			break
+		}
+	}
+
+	require.NotNil(t, anchor, "the anchor statement is not in the capture")
+
+	var (
+		selects []string
+		names   []string
+	)
+
+	for _, spec := range statementColumnSpecs {
+		if !slices.Contains(present, spec.name) {
+			assert.Empty(t, block.cell(t, anchor, spec.name),
+				"%s: absent from this extension version, so the cell is empty rather than zero",
+				spec.name)
+
+			continue
+		}
+
+		names = append(names, spec.name)
+
+		switch spec.name {
+		case "stats_since", "minmax_stats_since":
+			selects = append(selects, fmt.Sprintf(
+				`to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`, spec.name))
+
+		case "query":
+			selects = append(selects, `replace(replace(query, chr(13), ' '), chr(10), ' ')`)
+
+		default:
+			selects = append(selects, spec.name+"::text")
+		}
+	}
+
+	sql := "SELECT " + strings.Join(selects, ", ") + ` FROM pg_stat_statements
+WHERE queryid = $1::bigint AND userid = $2::oid AND dbid = $3::oid`
+
+	values := matrixQuery(t, target, sql,
+		block.cell(t, anchor, "queryid"),
+		block.cell(t, anchor, "userid"),
+		block.cell(t, anchor, "dbid"))
+
+	require.Len(t, values, len(names))
+
+	for i, name := range names {
+		want := ""
+		if values[i] != nil {
+			want = *values[i]
+		}
+
+		assertMatrixSameCell(t, name, want, block.cell(t, anchor, name))
+	}
+}
+
+func assertMatrixSameCell(t *testing.T, name, want, got string) {
+	t.Helper()
+
+	if want == got {
+		return
+	}
+
+	wantFloat, wantErr := strconv.ParseFloat(want, 64)
+	gotFloat, gotErr := strconv.ParseFloat(got, 64)
+
+	if wantErr == nil && gotErr == nil && wantFloat == gotFloat {
+		return
+	}
+
+	assert.Failf(t, "cell does not round-trip",
+		"%s: the artifact says %q where an independent read of the same entry says %q",
+		name, got, want)
+}
+
+func assertMatrixStatementCasts(t *testing.T, block capacityMatrixBlock) {
+	t.Helper()
+
+	var walWritten int
+
+	for _, row := range block.rows {
+		assert.NotEmpty(t, block.cell(t, row, "userid"), "oid, cast to text")
+		assert.NotEmpty(t, block.cell(t, row, "dbid"), "oid, cast to text")
+
+		wal := block.cell(t, row, "wal_bytes")
+		require.NotEmpty(t, wal, "numeric, cast to text")
+
+		if wal != "0" {
+			walWritten++
+		}
+	}
+
+	assert.NotZero(t, walWritten,
+		"wal_bytes is the one cast in this package taken on principle rather than after a "+
+			"measured scan failure - numeric is unbounded where int64 is not - so a live "+
+			"non-zero value is what says the cast is doing its job rather than sitting unused")
+}
+
+func assertMatrixCaptureIsInItsOwnArtifact(t *testing.T, block capacityMatrixBlock) {
+	t.Helper()
+
+	for _, row := range block.rows {
+		if strings.HasPrefix(block.cell(t, row, "query"), "WITH m AS MATERIALIZED") {
+			assert.NotEmpty(t, block.cell(t, row, "queryid"),
+				"a role always sees the statements it executed itself")
+
+			return
+		}
+	}
+
+	t.Fatal("the opening read is not in the closing sample: this view has no application_name, " +
+		"so the agent's own rows are identified by their statement text and the capture role's userid")
+}
+
+func assertMatrixStatementCap(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	blocks, _ := matrixSlowQueriesBlocks(t, target, SlowQueries{MaxStatements: 5})
+	block := blocks[0]
+
+	assert.Equal(t, "5", block.header["statements_written"])
+	assert.Equal(t, "true", block.header["truncated"])
+
+	total, err := strconv.ParseInt(block.header["statements_total"], 10, 64)
+	require.NoError(t, err)
+	assert.Greater(t, total, int64(5),
+		"count(*) OVER () is inside the CTE, so it is the uncapped total")
+
+	require.Len(t, block.rows, 5)
+
+	keys := make([]int64, 0, len(block.rows))
+
+	for _, row := range block.rows {
+		queryid := block.cell(t, row, "queryid")
+		require.NotEmpty(t, queryid, "the superuser reads every key")
+
+		key, err := strconv.ParseInt(queryid, 10, 64)
+		require.NoError(t, err)
+
+		keys = append(keys, key)
+	}
+
+	assert.True(t, slices.IsSorted(keys),
+		"ordered on identity and never on a statistic: a top-N taken independently at each "+
+			"endpoint selects two different sets and leaves a query with no baseline")
+
+	smallest := matrixQuery(t, target,
+		`SELECT min(queryid)::text FROM pg_stat_statements WHERE queryid IS NOT NULL`)
+	require.NotNil(t, smallest[0])
+
+	assert.Equal(t, *smallest[0], strconv.FormatInt(keys[0], 10),
+		"the prefix starts where the key space does")
+}
+
+func assertMatrixStatementSettings(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	var restricted matrixRole
+
+	for _, role := range matrixRoles {
+		if !role.privileged() {
+			restricted = role
+		}
+	}
+
+	m := collectFromMatrix(t, matrixTarget(server, restricted))
+
+	assert.Equal(t, "off", m.TrackIOTiming)
+	assert.Equal(t, "5000", m.PgStatStatementsMax)
+	assert.Equal(t, "top", m.PgStatStatementsTrack,
+		"the default, which is why toplevel is true on every row of these containers")
+	assert.Equal(t, "off", m.PgStatStatementsTrackPlanning,
+		"the default, which is why plans and the three plan-time columns are structurally zero")
+	assert.Equal(t, "on", m.PgStatStatementsTrackUtility)
+
+	for _, name := range []string{
+		"track_io_timing",
+		"pg_stat_statements.max",
+		"pg_stat_statements.track",
+		"pg_stat_statements.track_planning",
+		"pg_stat_statements.track_utility",
+	} {
+		assert.NotContains(t, splitSettingList(m.SettingsUnavailable), name,
+			"%s reads at the privilege floor, so it carries no superuser-only caveat", name)
+	}
+}
+
+func assertMatrixExtensionIsPerDatabase(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+
+	require.Len(t, statements, 2)
+	require.Len(t, info, 2)
+
+	for _, block := range append(statements, info...) {
+		assert.Equal(t, reasonExtensionAbsent, block.header["reason"],
+			"%s: one cause reads as one cause", block.header["source"])
+		assert.NotContains(t, block.rawHead, "error=",
+			"%s: an extension nobody created is not a read that failed", block.header["source"])
+		assert.Empty(t, block.rows, "%s: header-only", block.header["source"])
+	}
+
+	assert.Equal(t, "true", statements[0].header["library_loaded"],
+		"the second half of the diagnosis: this cluster's problem is CREATE EXTENSION and "+
+			"not shared_preload_libraries")
+
+	assert.Equal(t, statementColumns, statements[0].columns,
+		"the column contract is written even with no rows, which is what keeps the file "+
+			"non-empty and out of the upload path's zero-byte drop")
+}
+
+func assertMatrixExtensionFloor(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+	defer matrixDDL(t, server, matrixSecondDB, "DROP EXTENSION IF EXISTS pg_stat_statements")
+
+	matrixDDL(t, server, matrixSecondDB, "CREATE EXTENSION pg_stat_statements VERSION '1.7'")
+
+	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+
+	for _, block := range append(statements, info...) {
+		assert.Equal(t, reasonExtensionTooOld, block.header["reason"], block.header["source"])
+		assert.Equal(t, "1.7", block.header["extension_version"],
+			"%s: named, so the operator knows which of ALTER EXTENSION ... UPDATE's "+
+				"preconditions they are on", block.header["source"])
+		assert.NotContains(t, block.rawHead, "error=", block.header["source"])
+		assert.Empty(t, block.rows, block.header["source"])
+	}
+
+	matrixDDL(t, server, matrixSecondDB,
+		"DROP EXTENSION pg_stat_statements",
+		"CREATE EXTENSION pg_stat_statements VERSION '1.8'")
+
+	statements, info = matrixSlowQueriesBlocks(t, target, SlowQueries{})
+
+	assert.NotContains(t, statements[0].rawHead, "reason=",
+		"1.8 is a supported extension, not a refused one")
+	assert.NotContains(t, statements[0].rawHead, "error=")
+	assert.Equal(t, "1.8", statements[0].header["extension_version"])
+	assert.Equal(t, "blk_read_time,blk_write_time", statements[0].header["optional_columns"],
+		"the pre-rename pair is what 1.8 has of the eleven, and toplevel is not among them")
+	assert.NotEmpty(t, statements[0].rows, "the floor's accept side returns rows")
+
+	for _, row := range statements[0].rows {
+		assert.Empty(t, statements[0].cell(t, row, "toplevel"),
+			"toplevel arrives at 1.9, so the fourth component of the merge key is a NULL "+
+				"the receiver has to treat as a key value")
+		assert.NotEmpty(t, statements[0].cell(t, row, "total_exec_time"),
+			"which is the column the floor is drawn at")
+	}
+
+	assert.Equal(t, reasonViewAbsent, info[0].header["reason"],
+		"and it is the only state where the two blocks of a sample carry different reasons")
+	assert.NotContains(t, info[0].rawHead, "error=")
+}
+
+func assertMatrixExtensionNotInSearchPath(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+	defer matrixDDL(t, server, matrixSecondDB,
+		"DROP EXTENSION IF EXISTS pg_stat_statements",
+		"DROP SCHEMA IF EXISTS "+matrixExtSchema)
+
+	matrixDDL(t, server, matrixSecondDB,
+		"CREATE SCHEMA "+matrixExtSchema,
+		"CREATE EXTENSION pg_stat_statements SCHEMA "+matrixExtSchema)
+
+	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+
+	for _, block := range append(statements, info...) {
+		assert.Equal(t, reasonNotInSearchPath, block.header["reason"], block.header["source"])
+		assert.NotContains(t, block.rawHead, "error=", block.header["source"])
+	}
+
+	assert.Equal(t, matrixExtSchema, statements[0].header["extension_schema"],
+		"named, because the remedy is a search_path the operator has to write")
+	assert.Equal(t, "true", statements[0].header["schema_usage"],
+		"the superuser has USAGE, so this is a path problem and not a grant one - which is "+
+			"the whole reason the key is here")
+}
+
+func assertMatrixStatementResets(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	target := matrixTarget(server, matrixSuperuser(t))
+
+	before := matrixQuery(t, target, `SELECT stats_reset::text, dealloc::text FROM pg_stat_statements_info`)
+	require.NotNil(t, before[0])
+
+	entry := matrixQuery(t, target,
+		`SELECT userid::text, dbid::text, queryid::text FROM pg_stat_statements
+		  WHERE queryid IS NOT NULL AND query LIKE '%'||$1||'%' LIMIT 1`, matrixAnchorMarker)
+	require.NotNil(t, entry[2], "the anchor entry is gone before the reset item ran")
+
+	matrixDDL(t, server, "postgres", fmt.Sprintf(
+		"SELECT pg_stat_statements_reset(%s, %s, %s)", *entry[0], *entry[1], *entry[2]))
+
+	after := matrixQuery(t, target, `SELECT stats_reset::text, dealloc::text FROM pg_stat_statements_info`)
+
+	assert.Equal(t, *before[0], *after[0],
+		"a targeted reset moves stats_reset not at all - pinned live so a future version "+
+			"that changes the semantics is noticed rather than silently trusted")
+	assert.Equal(t, *before[1], *after[1], "and deallocates nothing")
+
+	matrixDDL(t, server, "postgres", "SELECT pg_stat_statements_reset()")
+
+	full := matrixQuery(t, target, `SELECT stats_reset::text FROM pg_stat_statements_info`)
+
+	assert.NotEqual(t, *before[0], *full[0],
+		"which is the only in-band signal that every delta in a file spans a counter reset")
+}
