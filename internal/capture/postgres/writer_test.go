@@ -47,6 +47,13 @@ func fullArtifactMetadata() Metadata {
 		LogDirectory:            "log",
 		LogFilename:             "postgresql-%Y-%m-%d_%H%M%S.log",
 		LogLinePrefix:           "%m [%p] ",
+		LogRotationAge:          "1440",
+		LogRotationSize:         "10240",
+		LogTimezone:             "Etc/UTC",
+		LogMinMessages:          "warning",
+		LogErrorVerbosity:       "default",
+		LogMinErrorStatement:    "error",
+		LogFileMode:             "0600",
 		LogMinDurationStatement: "500",
 		LogParameterMaxLength:   "1024",
 		TrackActivityQuerySize:  "1024",
@@ -63,6 +70,8 @@ func fullArtifactMetadata() Metadata {
 		CurrentLogfile:         "log/postgresql-2026-08-04_000000.csv",
 		CurrentLogfileResolved: "/var/lib/postgresql/17/main/log/postgresql-2026-08-04_000000.csv",
 		CurrentLogfileReadable: "true",
+		LogResolvedBy:          resolvedByCurrentLogfiles,
+		LogFormats:             "csvlog",
 
 		HasPgMonitorRole:        "true",
 		HasPgReadAllStats:       "true",
@@ -172,6 +181,36 @@ func parseArtifact(t *testing.T, artifact string) (headers []string, values map[
 	flush()
 
 	return headers, values, keys
+}
+
+func TestEveryShippedGoldenDeclaresOneFormat(t *testing.T) {
+	entries, err := filepath.Glob(filepath.Join("testdata", "*.txt"))
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+
+	for _, path := range entries {
+		name := filepath.Base(path)
+
+		t.Run(name, func(t *testing.T) {
+			want := "format=csv"
+			if strings.HasPrefix(name, "pg_deadlocks_") || strings.HasPrefix(name, "pg_timeouts_") {
+				want = "format=text"
+			}
+
+			headers := 0
+			for line := range strings.SplitSeq(golden(t, name), "\n") {
+				if !strings.HasPrefix(line, "# engine=postgres ") {
+					continue
+				}
+
+				headers++
+				assert.Contains(t, strings.Fields(line), want,
+					"every block of one file declares that file's format, the header-only ones included")
+			}
+
+			assert.NotZero(t, headers, "a golden with no block header is not a golden")
+		})
+	}
 }
 
 func TestGoldenKeepsTrailingWhitespace(t *testing.T) {

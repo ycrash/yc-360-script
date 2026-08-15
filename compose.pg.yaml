@@ -1,5 +1,6 @@
 # PostgreSQL 14-18 for the capture matrix.
 #
+#   mkdir -p /tmp/yc-pglogs/pg{14,15,16,17,18} && chmod 777 /tmp/yc-pglogs/pg*
 #   docker compose -f compose.pg.yaml up -d --wait
 #   go test -tags pgintegration ./internal/capture/postgres/...
 #   docker compose -f compose.pg.yaml down -v
@@ -8,28 +9,32 @@
 # The version and privilege rules this module rests on are not findable by
 # reading Go code or by testing against a single server.
 #
-# Every server gets the same command line and the same init script, so a
-# difference the matrix reports is a difference in the server version rather
-# than in the fixture.
+# The mkdir is a prerequisite, not a convenience. pg_current_logfile() returns a
+# path in the SERVER's namespace and the agent has to open that same string in
+# its own, so each service bind-mounts a host directory at the identical
+# absolute path and points log_directory at it. Without the directories, the
+# containers cannot write their logs and TestMatrixLogTail skips with this
+# command in its message. /tmp rather than a path under the repository because
+# Docker Desktop shares /tmp by default on macOS.
+#
+# log_file_mode=0644 is what makes those files readable from the host: the
+# default is 0600 and they are owned by uid 999, which the host user is not.
+# That is the measured permission model of a real installation turned into a
+# fixture line - and it is exactly the question the fixture therefore CANNOT
+# ask, which is why manual-tests/9-log-tail.sh exists.
+#
+# Every server gets the same init script and the same command line except for
+# two settings, both of which encode the version in a path - which is what this
+# file already does with the published port. Because YAML merge keys REPLACE a
+# sequence rather than extend it, a service declaring its own command: or
+# volumes: loses the anchor's whole list, so both are spelled out per service.
+# The five blocks are a lockstep edit: change one, change all five.
 
 x-pg-common: &pg-common
   environment:
     # Test fixture only: throwaway containers on a developer's machine, on
     # loopback. Nothing here is a credential.
     POSTGRES_PASSWORD: yc-superuser-pw
-  command:
-    - postgres
-    # Preloaded because it has to be before it can be created, and its schema
-    # version - which moves independently of the server - is read back here.
-    - -c
-    - shared_preload_libraries=pg_stat_statements
-    # Makes pg_current_logfile() return a path rather than NULL. Without it, a
-    # denial and an absent log file both arrive as an empty current_logfile, and
-    # the privilege split this matrix exists to pin is unobservable.
-    - -c
-    - logging_collector=on
-  volumes:
-    - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
   healthcheck:
     test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
     interval: 2s
@@ -43,23 +48,94 @@ services:
     <<: *pg-common
     image: postgres:14
     ports: ["15414:5432"]
+    command:
+      - postgres
+      # Preloaded because it has to be before it can be created, and its schema
+      # version - which moves independently of the server - is read back here.
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      # Makes pg_current_logfile() return a path rather than NULL, and makes
+      # current_logfiles exist at all. Without it, a denial and an absent log
+      # file both arrive as an empty current_logfile, and the privilege split
+      # this matrix exists to pin is unobservable.
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/tmp/yc-pglogs/pg14
+      - -c
+      - log_file_mode=0644
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-pglogs/pg14:/tmp/yc-pglogs/pg14
 
   pg15:
     <<: *pg-common
     image: postgres:15
     ports: ["15415:5432"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/tmp/yc-pglogs/pg15
+      - -c
+      - log_file_mode=0644
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-pglogs/pg15:/tmp/yc-pglogs/pg15
 
   pg16:
     <<: *pg-common
     image: postgres:16
     ports: ["15416:5432"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/tmp/yc-pglogs/pg16
+      - -c
+      - log_file_mode=0644
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-pglogs/pg16:/tmp/yc-pglogs/pg16
 
   pg17:
     <<: *pg-common
     image: postgres:17
     ports: ["15417:5432"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/tmp/yc-pglogs/pg17
+      - -c
+      - log_file_mode=0644
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-pglogs/pg17:/tmp/yc-pglogs/pg17
 
   pg18:
     <<: *pg-common
     image: postgres:18
     ports: ["15418:5432"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=/tmp/yc-pglogs/pg18
+      - -c
+      - log_file_mode=0644
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-pglogs/pg18:/tmp/yc-pglogs/pg18

@@ -1,0 +1,12 @@
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=stderr log_formats=stderr log_path=log/postgresql-2026-08-15_100224.log log_resolved_by=current_logfiles log_locality=local capture_mode=pg-dbhost matched_by=message from_offset=153 to_offset=153 matched=0 bytes=0 ts=2026-08-07T14:32:05.020Z
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=153 to_offset=496 matched=1 bytes=188 ts=2026-08-07T14:32:15.020Z
+2026-08-15 10:01:40.031 UTC [25993] ERROR:  canceling statement due to statement timeout
+2026-08-15 10:01:40.031 UTC [25993] STATEMENT:  SET statement_timeout='300ms'; SELECT pg_sleep(2);
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=3 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=496 to_offset=935 matched=1 bytes=284 ts=2026-08-07T14:32:25.020Z
+2026-08-15 10:01:41.480 UTC [26007] ERROR:  canceling statement due to lock timeout
+2026-08-15 10:01:41.480 UTC [26007] CONTEXT:  while updating tuple (0,3) in relation "yc_dl"
+2026-08-15 10:01:41.480 UTC [26007] STATEMENT:  SET lock_timeout='300ms'; UPDATE yc_dl SET v=8 WHERE id=1;
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=stderr log_resolved_by=current_logfiles from_offset=935 to_offset=1191 matched=1 bytes=101 ts=2026-08-07T14:32:35.040Z
+2026-08-15 10:00:41.302 UTC [7301] FATAL:  terminating connection due to idle-in-transaction timeout
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z

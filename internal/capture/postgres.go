@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the six below must equal
+// PostgresMetadataFileName and the eight below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -46,6 +46,16 @@ const PostgresSlowQueriesFileName = "pg_slow_queries.txt"
 
 const pgDTSlowQueries = "pgSlowQueries"
 
+// pg_explain.txt has no constant or collector yet; pgSampledDataType's gate
+// below covers that case when it arrives.
+const PostgresDeadlocksFileName = "pg_deadlocks.txt"
+
+const pgDTDeadlocks = "pgDeadlocks"
+
+const PostgresTimeoutsFileName = "pg_timeouts.txt"
+
+const pgDTTimeouts = "pgTimeouts"
+
 // pgSampledDataType is empty for an artifact the server team has not assigned
 // one. An invented dt is dropped silently, so an unassigned artifact is written
 // into the bundle and its upload skipped with a message naming the reason.
@@ -71,6 +81,12 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_slow_queries":
 		return pgDTSlowQueries
+
+	case "pg_deadlocks":
+		return pgDTDeadlocks
+
+	case "pg_timeouts":
+		return pgDTTimeouts
 	}
 
 	return ""
@@ -114,10 +130,13 @@ func (p *PostgresCapture) Run() (Result, error) {
 		Duration: p.captureDuration(),
 
 		// Registration order is sampling order on the shared tick, not a timing
-		// guarantee: cheapest reads go first at t0, and at the closing tick
-		// (capacity, bloat, slow queries) the reading with no second chance goes
-		// first.
+		// guarantee. Log tails go first so from_offset is set before other
+		// collectors' statements reach the log; otherwise cheapest reads go first
+		// at t0, and at the closing tick (capacity, bloat, slow queries) the
+		// reading with no second chance goes first.
 		Collectors: []postgres.Collector{
+			postgres.NewDeadlocks(),
+			postgres.NewTimeouts(),
 			postgres.Sessions{},
 			postgres.Health{},
 			postgres.Replication{},

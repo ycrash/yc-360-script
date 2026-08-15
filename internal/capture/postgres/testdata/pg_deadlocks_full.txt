@@ -1,0 +1,14 @@
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=stderr log_formats=stderr log_path=log/postgresql-2026-08-15_100224.log log_resolved_by=current_logfiles log_locality=local capture_mode=pg-dbhost matched_by=message from_offset=153 to_offset=153 matched=0 bytes=0 ts=2026-08-07T14:32:05.020Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=153 to_offset=308 matched=0 bytes=0 ts=2026-08-07T14:32:15.020Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=3 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=308 to_offset=1284 matched=1 bytes=821 ts=2026-08-07T14:32:25.020Z
+2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected
+2026-08-15 10:00:34.543 UTC [25666] DETAIL:  Process 25666 waits for ShareLock on transaction 948; blocked by process 25651.
+	Process 25651 waits for ShareLock on transaction 949; blocked by process 25666.
+	Process 25666: BEGIN; UPDATE yc_dl SET v=2 WHERE id=2; SELECT pg_sleep(2); UPDATE yc_dl SET v=2 WHERE id=1; COMMIT;
+	Process 25651: BEGIN; UPDATE yc_dl SET v=1 WHERE id=1; SELECT pg_sleep(2); UPDATE yc_dl SET v=1 WHERE id=2; COMMIT;
+2026-08-15 10:00:34.543 UTC [25666] HINT:  See server log for query details.
+2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation "yc_dl"
+2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  BEGIN; UPDATE yc_dl SET v=2 WHERE id=2; SELECT pg_sleep(2); UPDATE yc_dl SET v=2 WHERE id=1; COMMIT;
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=stderr log_resolved_by=current_logfiles from_offset=1284 to_offset=1439 matched=0 bytes=0 ts=2026-08-07T14:32:35.040Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z
