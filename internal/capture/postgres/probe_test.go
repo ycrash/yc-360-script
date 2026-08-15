@@ -54,11 +54,19 @@ func fullSettings() map[string]string {
 		"log_filename":               "postgresql-%Y-%m-%d_%H%M%S.log",
 		"log_line_prefix":            "%m [%p] ",
 		"log_min_duration_statement": "500",
-		"log_parameter_max_length":   "1024",
-		"track_activity_query_size":  "1024",
-		"shared_preload_libraries":   "pg_stat_statements,auto_explain",
-		"compute_query_id":           "auto",
-		"data_directory":             "/var/lib/postgresql/15/main",
+
+		"log_rotation_age":          "1440",
+		"log_rotation_size":         "10240",
+		"log_timezone":              "Etc/UTC",
+		"log_min_messages":          "warning",
+		"log_error_verbosity":       "default",
+		"log_min_error_statement":   "error",
+		"log_file_mode":             "0600",
+		"log_parameter_max_length":  "1024",
+		"track_activity_query_size": "1024",
+		"shared_preload_libraries":  "pg_stat_statements,auto_explain",
+		"compute_query_id":          "auto",
+		"data_directory":            "/var/lib/postgresql/15/main",
 
 		"track_io_timing":                   "off",
 		"pg_stat_statements.max":            "5000",
@@ -189,7 +197,7 @@ func (f *fakeQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx
 	switch sql {
 	case serverFactsSQL:
 		return f.serverFacts
-	case logLocationSQL:
+	case logLocationSQL, logLocationFormatSQL:
 		return f.logLocation
 	case replicationSQL:
 		return f.replication
@@ -225,7 +233,10 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 	q := healthyQuerier()
 	collect(t, q)
 
-	require.Equal(t, []string{serverFactsSQL, logLocationSQL, replicationSQL}, q.sql, "three statements, in order")
+	require.Equal(t, []string{serverFactsSQL, logLocationFormatSQL, replicationSQL}, q.sql,
+		"three statements, in order - and the middle one names the format, because the "+
+			"no-argument form's documented preference is stderr first, the inverse of the "+
+			"order that serves the matcher")
 	require.Len(t, q.args[0], 1)
 
 	assert.Equal(t, []string{
@@ -235,6 +246,13 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"log_directory",
 		"log_filename",
 		"log_line_prefix",
+		"log_rotation_age",
+		"log_rotation_size",
+		"log_timezone",
+		"log_min_messages",
+		"log_error_verbosity",
+		"log_min_error_statement",
+		"log_file_mode",
 		"log_min_duration_statement",
 		"log_parameter_max_length",
 		"track_activity_query_size",
@@ -248,7 +266,9 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"data_directory",
 	}, q.args[0][0])
 
-	assert.Empty(t, q.args[1], "logLocationSQL takes no parameters")
+	assert.Equal(t, []any{"csvlog"}, q.args[1],
+		"the format the cluster's log_destination declares, so a cluster writing both csvlog "+
+			"and stderr does not hand back the harder of the two")
 	assert.Empty(t, q.args[2], "replicationSQL takes no parameters")
 }
 
@@ -458,7 +478,9 @@ func TestSettingsNoneVisible(t *testing.T) {
 	m := collect(t, q)
 
 	assert.Equal(t, "max_connections,logging_collector,log_destination,log_directory,log_filename,"+
-		"log_line_prefix,log_min_duration_statement,log_parameter_max_length,"+
+		"log_line_prefix,log_rotation_age,log_rotation_size,log_timezone,log_min_messages,"+
+		"log_error_verbosity,log_min_error_statement,log_file_mode,"+
+		"log_min_duration_statement,log_parameter_max_length,"+
 		"track_activity_query_size,track_io_timing,pg_stat_statements.max,"+
 		"pg_stat_statements.track,pg_stat_statements.track_planning,"+
 		"pg_stat_statements.track_utility,shared_preload_libraries,"+

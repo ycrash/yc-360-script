@@ -139,6 +139,18 @@ type Artifact struct {
 	// sums for the collectors sharing the closing tick. Zero means
 	// DefaultSampleBudget. Nothing enforces it against the collector.
 	SampleBudget time.Duration
+
+	// Format is the body format, formatCSV when empty.
+	// Header-only blocks (preamble/closing/stub) still carry the real format=, or a receiver dispatching on the first block misparses the file.
+	Format string
+}
+
+func artifactFormat(artifact Artifact) string {
+	if artifact.Format == "" {
+		return formatCSV
+	}
+
+	return artifact.Format
 }
 
 type Collector interface {
@@ -165,6 +177,12 @@ type Collector interface {
 // are on disk on every failure path.
 type Prologue interface {
 	WritePrologue(w io.Writer, s SampleContext) error
+}
+
+// Epilogue: called with no context; must bound its own work.
+// Exists because Every's offsets stop short of the window close.
+type Epilogue interface {
+	WriteEpilogue(w io.Writer, s SampleContext) error
 }
 
 type SampleContext struct {
@@ -343,7 +361,7 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 		}
 		results[i].File = file
 
-		err = writeBlockHeader(file, artifact.Name, artifact.Scope, []headerField{
+		err = writeBlockHeaderFormat(file, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
 			{"db", sampleCtx.Database},
 			{"dbid", sampleCtx.DBID},
 			{"status", "started"},
@@ -384,13 +402,30 @@ func (w *Window) writePrologue(result *ArtifactResult, collector Collector, samp
 	syncArtifact(result.File)
 }
 
+// writeEpilogue: a collector's last write, guarded by writable(); no context, since closeArtifacts has none.
+func (w *Window) writeEpilogue(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
+	epilogue, ok := collector.(Epilogue)
+	if !ok || !result.writable() {
+		return
+	}
+
+	at := sampleCtx
+	at.At = w.clock()
+
+	if err := epilogue.WriteEpilogue(result.File, at); err != nil {
+		result.IOErr = fmt.Errorf("failed to write %s: %w", result.Artifact.FileName, err)
+		return
+	}
+
+	syncArtifact(result.File)
+}
+
 // closeArtifacts is the last pass. stopped is the status that ended the window
 // early, or empty if it ran its course; connectErr is set only when there was
 // never a connection. It takes no context on purpose: this is the record of
 // what happened, including that the deadline expired.
 func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContext, stopped, connectErr string) {
-	at := w.clock()
-
+	// Drains run before the clock read below, so the closing timestamp doesn't predate their bytes.
 	for i := range results {
 		results[i].Status = artifactStatus(results[i], stopped, connectErr)
 
@@ -398,6 +433,13 @@ func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContex
 			results[i].Err = connectErr
 		}
 
+		// Must run after Status is set: an epilogue IOErr makes writable() false, skipping the closing block.
+		w.writeEpilogue(&results[i], w.Collectors[i], sampleCtx)
+	}
+
+	at := w.clock()
+
+	for i := range results {
 		if !results[i].writable() {
 			continue
 		}
@@ -415,7 +457,7 @@ func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContex
 		}
 
 		artifact := results[i].Artifact
-		if err := writeBlockHeader(results[i].File, artifact.Name, artifact.Scope, fields, at); err != nil {
+		if err := writeBlockHeaderFormat(results[i].File, artifact.Name, artifact.Scope, artifactFormat(artifact), fields, at); err != nil {
 			results[i].IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, err)
 			continue
 		}
@@ -529,7 +571,7 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 
 	artifact := result.Artifact
 
-	err := writeBlockHeader(result.File, artifact.Name, artifact.Scope, []headerField{
+	err := writeBlockHeaderFormat(result.File, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
 		{"db", sampleCtx.Database},
 		{"dbid", sampleCtx.DBID},
 		{"sample", strconv.Itoa(sampleCtx.Index)},

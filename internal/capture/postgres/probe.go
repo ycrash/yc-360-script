@@ -34,6 +34,15 @@ var capturedSettings = []struct {
 	// superuser-only
 	{"log_filename", func(m *Metadata) *string { return &m.LogFilename }},
 	{"log_line_prefix", func(m *Metadata) *string { return &m.LogLinePrefix }},
+	// log_rotation_age is minutes, log_rotation_size is kB (1440/10240 by
+	// default, measured on all five). The rest gate what reaches the log.
+	{"log_rotation_age", func(m *Metadata) *string { return &m.LogRotationAge }},
+	{"log_rotation_size", func(m *Metadata) *string { return &m.LogRotationSize }},
+	{"log_timezone", func(m *Metadata) *string { return &m.LogTimezone }},
+	{"log_min_messages", func(m *Metadata) *string { return &m.LogMinMessages }},
+	{"log_error_verbosity", func(m *Metadata) *string { return &m.LogErrorVerbosity }},
+	{"log_min_error_statement", func(m *Metadata) *string { return &m.LogMinErrorStatement }},
+	{"log_file_mode", func(m *Metadata) *string { return &m.LogFileMode }},
 	{"log_min_duration_statement", func(m *Metadata) *string { return &m.LogMinDurationStatement }},
 	{"log_parameter_max_length", func(m *Metadata) *string { return &m.LogParameterMaxLength }},
 	// Governs where pg_sessions.txt's query column truncates - mid-token and

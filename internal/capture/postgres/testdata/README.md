@@ -340,6 +340,62 @@ The goldens:
   the floor reads its statements normally beside an info block that says the
   view has not been written yet — and `view_absent` never appears beside one of
   the four absences, where it would read as a second, unrelated problem.
+- `pg_deadlocks_full.txt` — **the first artifact here that is not CSV**, and the
+  only shape in the bundle whose body is opaque bytes. A 30-second window on a
+  cluster logging to `stderr`, with one real deadlock: sample 1 seeks to EOF and
+  matches nothing, sample 2 reads unrelated traffic, the event lands in sample 3
+  — the first read taken *after* it was written, which is the sense in which the
+  ten-second interval is a latency and not a loss — and the drain closes the
+  final interval `Every`'s offsets leave open.
+  **`bytes=` is the parsing contract and nothing else is.** Read the header line,
+  read exactly that many bytes, expect the next header line; where `bytes=` is
+  absent, as on the preamble and the closing block, there is no body. Never scan
+  for a terminator: a first log line begins with the expansion of
+  `log_line_prefix`, which the customer configures and which may legally begin
+  with `#`. `bytes=` counts **bytes, not runes**, and the body may not be valid
+  UTF-8 — this is the one artifact whose content the agent does not encode.
+  The body always ends with a newline, which is a convenience for a pager and
+  for `grep` and is *not* the contract.
+  **The event's bytes are measured**, from a `postgres:18` container on
+  2026-08-15, and two things in them are not in requirements §2.3: `ERROR:` is
+  followed by **two** spaces, and the report continues past `DETAIL:` into
+  `HINT:`, `CONTEXT:` and `STATEMENT:`. A matcher written from the document
+  matches nothing, on every server, forever, while reporting `status=complete`.
+  The `log_path=` here is relative because the fixture's data directory is the
+  test's working directory, which is what makes the golden reproducible on every
+  machine; a real server reports an absolute one.
+- `pg_deadlocks_csvlog.txt` — the same event as a CSV *record* spanning four
+  physical lines, its `DETAIL` inside a quoted field with real newlines in it.
+  This is the fixture that shows why the body is length-delimited: in `csvlog` a
+  body line can begin with anything at all, `#` included. `matched_by=sqlstate`,
+  because the format carries `40P01` in a dedicated column and a five-character
+  code is exact where a message is translatable.
+- `pg_deadlocks_jsonlog.txt` — the same event again, as one JSON line. The only
+  format with no boundary problem at all: one line, one event.
+- `pg_deadlocks_remote.txt` — Mode R, and **the file the "not observable"
+  rendering is built against.** Twelve header-only blocks, each
+  `reason=unreadable capture_mode=pg-remote`, and **no `matched=` key anywhere in
+  it**. The missing key is the design: `matched=0` is a measurement — the log was
+  read and held no event — where a `reason=` is an absence of measurement.
+  Writing `matched=0` beside a reason would put a number in the file that a
+  receiver can sum, average or render as a green tick. `status=complete` is
+  honest: every scheduled sample was written, and the artifact's content is the
+  reason it is empty. Four causes produce this shape and each is written rather
+  than summarised — `collector_off`, `unresolved`, `unreadable`, `mode_unknown`.
+- `pg_timeouts_full.txt` — all three timeout types in one window, at their
+  measured line counts: the statement timeout is two lines, the lock timeout is
+  three (its `CONTEXT:` names the relation and the tuple), and **the
+  idle-in-transaction `FATAL` is one**. That last one is the fixture that would
+  have prevented a bug in the requirements document, which shows a `STATEMENT:`
+  line PostgreSQL does not write and cannot: the timeout fires precisely because
+  the backend is running no statement. A parser implementing "the line plus the
+  following `STATEMENT:` line" either drops the event or attaches the *next*
+  event's statement to it — inventing a statement for the timeout a DBA uses to
+  find which application leaked a transaction.
+- `pg_timeouts_unreadable.txt` — the outcome an operator hits first, and the one
+  artifact in the feature with no fallback of any kind. `pg_health.txt`'s
+  `pg_stat_database.deadlocks` counter is a substitute for deadlocks in Mode R;
+  **nothing anywhere counts timeouts.**
 
 ## Reader requirements
 
@@ -470,5 +526,13 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go` and
-`sessions_test.go`, and argue the resulting diff — never hand-edit these files.
+`bloat_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
+resulting diff — never hand-edit these files.
+
+The six `pg_deadlocks_*` and `pg_timeouts_*` goldens are written by a real
+`Window` over a real log file in a temporary directory, so what is checked in is
+the bytes the agent wrote rather than a transcription. The log bytes those tests
+feed it are themselves measured from a running server — which is the whole
+mitigation for a requirements document that describes a log line PostgreSQL does
+not write.

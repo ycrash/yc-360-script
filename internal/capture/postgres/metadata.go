@@ -75,6 +75,13 @@ type Metadata struct {
 	LogDirectory            string
 	LogFilename             string
 	LogLinePrefix           string
+	LogRotationAge          string
+	LogRotationSize         string
+	LogTimezone             string
+	LogMinMessages          string
+	LogErrorVerbosity       string
+	LogMinErrorStatement    string
+	LogFileMode             string
 	LogMinDurationStatement string
 	LogParameterMaxLength   string
 	TrackActivityQuerySize  string
@@ -98,6 +105,11 @@ type Metadata struct {
 	CurrentLogfileResolved string
 	CurrentLogfileReadable string
 	CurrentLogfileError    string
+
+	// Shared with pg_deadlocks.txt/pg_timeouts.txt: all three run the same log resolution, so they
+	// can disagree about a moment (rotation, reload) but never about the method.
+	LogResolvedBy string
+	LogFormats    string
 
 	HasPgMonitorRole string
 
@@ -329,46 +341,44 @@ func applySettings(m *Metadata, settings map[string]string) {
 	m.SettingsUnavailable = strings.Join(unavailable, ",")
 }
 
-// collectLogLocation resolves the capture mode. The mode predicts "can this
-// process read the server's log file", so that is tested rather than inferred
-// from the configured host. A relative logfile resolves against m.DataDirectory,
-// which is why this runs after collectServerFacts.
+// collectLogLocation shares resolveLogSource with pg_deadlocks.txt/pg_timeouts.txt so all three
+// agree on method. Mode is tested (log file actually readable), not inferred from the configured host.
 func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password string) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
-	defer cancel()
+	source := resolveLogSource(ctx, q, logSettingsFromMetadata(m),
+		func(err error) string { return errorText(err, password) })
 
-	var logfile *string
-	if err := q.QueryRow(ctx, logLocationSQL).Scan(&logfile); err != nil {
-		// Left unknown: a denial says nothing about where the agent runs, and on
-		// 14-16 it is the normal outcome for pg_monitor.
-		m.CurrentLogfileError = errorText(err, password)
+	m.CaptureMode = source.captureMode()
+	m.LogResolvedBy = source.resolvedBy
+	m.LogFormats = source.formatNames()
+
+	// Last route's error, not the only route's: before disk routes existed, a denied
+	// pg_current_logfile() was the whole story.
+	m.CurrentLogfileError = source.err
+
+	if source.raw != "" {
+		m.CurrentLogfile = source.raw
+	}
+
+	if source.path == "" {
 		return
 	}
 
-	m.CurrentLogfile = text(logfile)
+	m.CurrentLogfileResolved = source.path
+	m.CurrentLogfileReadable = strconv.FormatBool(source.reason != reasonUnreadable)
+}
 
-	if m.CurrentLogfile == "" {
-		// logging_collector is off, so an agent genuinely on the database host is
-		// recorded as remote - harmless, the log artifacts are gone either way.
-		m.CaptureMode = ModeRemote
-		return
+// logSettingsFromMetadata reuses collectServerFacts's read rather than querying settings again.
+// read is false when that statement failed, distinguishing "no path found" from "couldn't resolve".
+func logSettingsFromMetadata(m *Metadata) logSettings {
+	return logSettings{
+		dataDirectory:    m.DataDirectory,
+		logDirectory:     m.LogDirectory,
+		logFilename:      m.LogFilename,
+		loggingCollector: m.LoggingCollector,
+		logDestination:   m.LogDestination,
+		serverAddr:       m.InetServerAddr,
+		read:             m.QueryError == "",
 	}
-
-	resolved, ok := resolveLogfile(m.CurrentLogfile, m.DataDirectory)
-	if !ok {
-		m.CaptureMode = ModeRemote
-		return
-	}
-
-	m.CurrentLogfileResolved = resolved
-	m.CurrentLogfileReadable = strconv.FormatBool(isReadable(resolved))
-
-	if m.CurrentLogfileReadable == "true" {
-		m.CaptureMode = ModeDBHost
-		return
-	}
-
-	m.CaptureMode = ModeRemote
 }
 
 // resolveLogfile turns pg_current_logfile's answer into a path on this host. It

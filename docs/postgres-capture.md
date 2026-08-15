@@ -204,6 +204,17 @@ in `pg_stat_statements` and a capture will pick it up. Any role holding
 `pg_read_all_stats` — which is to say the role this document recommends — can
 read it.
 
+**In Mode H the exposure is larger, and it is not normalised at all.**
+`pg_deadlocks.txt` and `pg_timeouts.txt` copy the server's log verbatim, and a
+deadlock's `DETAIL` reproduces each participant's statement **as submitted** —
+literals included — as does every `STATEMENT:` line beside a timeout. On a real
+application that is `UPDATE customers SET ssn = '…' WHERE email = '…'`.
+`log_parameter_max_length` does **not** bound this, though it looks as though it
+should: that setting bounds bind parameters logged with a statement, and the
+text here is the statement. The agent cannot redact it and does not try — a
+redacting agent is an agent parsing SQL. `MaxEventBytes` bounds the volume, not
+the sensitivity, and `-onlyCapture` is the control that exists.
+
 Three things follow:
 
 - **The bundle inherits the exposure; the agent does not create it.** The value
@@ -222,14 +233,72 @@ Run it anywhere with network reachability to the database and you get every
 artifact sourced from SQL — the only supported mode for managed PostgreSQL (RDS,
 Aurora, Cloud SQL, Azure Database).
 
-Run it on the database host and the log-derived artifacts become available too,
-since the agent can read the log directory. "On the database host" does not mean
-"as the `postgres` OS user": a service account with read access to the log
-directory is the right footprint.
+Run it on the database host and two more artifacts become available:
+`pg_deadlocks.txt` and `pg_timeouts.txt`, which come from the server's log file
+rather than from a query. They are the only record in the bundle of what the
+database *did to a transaction* — the participants of a deadlock, and which
+statement a timeout killed — and neither needs any logging configuration:
+`log_min_messages = warning` and `deadlock_timeout = 1000` are the defaults, so
+every default installation logs all four events.
 
 Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`) always describe
 the machine that ran the script, which is the database host only in the second
 mode.
+
+## Mode H is a permission, not a location
+
+**"On the database host" is not enough, and a default installation denies it.**
+Measured on PostgreSQL 14 through 18: the data directory is `0700`, the log
+directory inside it is `0700`, every log file is `0600`, and
+`log_file_mode = 0600`. A dedicated service account reads none of it, so an agent
+sitting on the database host reports `capture_mode=pg-remote` and both log
+artifacts say `reason=unreadable` with the path they could not open.
+
+That is the outcome you hit first. Three deployments make Mode H actually work:
+
+1. **Run the agent as the `postgres` OS user.** Works everywhere and needs no
+   configuration change. It is also the largest footprint for a binary that
+   uploads what it reads.
+2. **Move `log_directory` outside the data directory**, set
+   `log_file_mode = 0640`, and put the agent's account in the `postgres` group.
+   This is the recommended footprint. Both halves are needed — without moving the
+   directory, the `0700` above it denies everything regardless of the file mode —
+   and `log_file_mode` needs a reload and applies only to files created after it,
+   so either wait for a rotation or force one with `SELECT pg_rotate_logfile()`.
+   Group membership is snapshotted at session start, so start the agent from a
+   fresh login.
+3. **A group-accessible data directory** — `initdb --allow-group-access`, `0750`
+   — plus `log_file_mode = 0640`. Only available if the cluster was initialised
+   that way; it cannot be applied to a running cluster.
+
+**And a fourth reality that is none of the three: the Debian family does not run
+the logging collector at all.** Debian and Ubuntu packaging ships
+`logging_collector = off` and redirects the server's stderr through the cluster
+wrapper to `/var/log/postgresql/postgresql-NN-main.log` — a file PostgreSQL
+cannot name, so the agent refuses to guess at it. Both artifacts report
+`reason=collector_off` in every deployment until the collector is enabled. The
+PGDG RPM packaging and the official containers run the collector, and are
+deployments 1–3 territory.
+
+Whichever you get, the artifact says which: every block carries `capture_mode=`
+and `log_resolved_by=`, and where there is no log to read it carries a `reason=`
+— `collector_off`, `unresolved`, `unreadable` or `mode_unknown` — and **no
+`matched=` key at all**. That absence is deliberate. `matched=0` means the log
+was read and held no event; a `reason=` means there was nothing to read, and
+there is no zero for a report to render as "no deadlocks occurred".
+
+Two more keys carry the same distinction inside a block that *did* read
+something. `scan_truncated=true skipped_bytes=<n>` says the log outgrew what one
+sample reads, so an event may have occurred in the gap. `resolved_late=true`
+says this block's `from_offset` is where the artifact's coverage *begins* rather
+than where the last one ended — the log was not readable at the start of the
+window, and what was written before the tail got a handle was never read. Both
+mean the same thing to a report: the `matched=` beside them counts a shorter
+window than the preamble's `window=`.
+
+`pg_health.txt`'s `pg_stat_database.deadlocks` counter is a fallback for
+deadlocks — a count, without participants. **Nothing anywhere counts timeouts**,
+so `pg_timeouts.txt` is the one artifact in the feature with no substitute.
 
 ## One sampler per cluster
 
