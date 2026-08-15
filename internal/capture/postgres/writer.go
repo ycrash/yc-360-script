@@ -13,6 +13,14 @@ import (
 // existing reader would get wrong.
 const artifactVersion = 1
 
+// The two body formats; a receiver dispatches on format=, not
+// filename. formatText's end is given by the block header's bytes= key, never
+// by scanning for the next '#' — see logtail.go.
+const (
+	formatCSV  = "csv"
+	formatText = "text"
+)
+
 // Every artifact is a sequence of blocks: a header line, then a CSV body. Bodies
 // go through encoding/csv rather than a hand-rolled join - version() and
 // shared_preload_libraries contain commas in practice, and an identifier can
@@ -70,6 +78,13 @@ func serverFields(m Metadata) []field {
 		{"log_directory", m.LogDirectory},
 		{"log_filename", m.LogFilename},
 		{"log_line_prefix", m.LogLinePrefix},
+		{"log_rotation_age", m.LogRotationAge},
+		{"log_rotation_size", m.LogRotationSize},
+		{"log_timezone", m.LogTimezone},
+		{"log_min_messages", m.LogMinMessages},
+		{"log_error_verbosity", m.LogErrorVerbosity},
+		{"log_min_error_statement", m.LogMinErrorStatement},
+		{"log_file_mode", m.LogFileMode},
 		{"log_min_duration_statement", m.LogMinDurationStatement},
 		{"log_parameter_max_length", m.LogParameterMaxLength},
 		{"track_activity_query_size", m.TrackActivityQuerySize},
@@ -86,6 +101,8 @@ func serverFields(m Metadata) []field {
 		{"current_logfile_resolved", m.CurrentLogfileResolved},
 		{"current_logfile_readable", m.CurrentLogfileReadable},
 		{"current_logfile_error", m.CurrentLogfileError},
+		{"log_resolved_by", m.LogResolvedBy},
+		{"log_formats", m.LogFormats},
 
 		{"has_pg_monitor_role", m.HasPgMonitorRole},
 		{"has_pg_read_all_stats", m.HasPgReadAllStats},
@@ -119,14 +136,23 @@ type headerField struct {
 // (dbid= before a connection exists) and means "not read". Header keys, unlike
 // body keys, may also be conditional - error= and connect_error= appear only
 // when what they describe happened, and absence is itself the value.
+//
+// It keeps its signature and its twelve collector callers: format=csv is correct
+// at every one of them, and a parameter reading formatCSV twelve times is noise
+// at sites where the format has never been in question. A collector writing a
+// text body calls writeBlockHeaderFormat directly.
 func writeBlockHeader(w io.Writer, source, scope string, fields []headerField, ts time.Time) error {
+	return writeBlockHeaderFormat(w, source, scope, formatCSV, fields, ts)
+}
+
+func writeBlockHeaderFormat(w io.Writer, source, scope, format string, fields []headerField, ts time.Time) error {
 	tokens := make([]string, 0, len(fields)+6)
 
 	tokens = append(tokens,
 		"engine=postgres",
 		"source="+headerValue(source),
 		"v="+strconv.Itoa(artifactVersion),
-		"format=csv",
+		"format="+headerValue(format),
 		"scope="+headerValue(scope),
 	)
 

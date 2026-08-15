@@ -116,6 +116,30 @@ func (f *fakePrologueCollector) WritePrologue(w io.Writer, s SampleContext) erro
 	}, s.At)
 }
 
+type fakeEpilogueCollector struct {
+	*fakeCollector
+
+	epilogue func(w io.Writer, s SampleContext) error
+
+	seenEpilogue []SampleContext
+}
+
+func newFakeEpilogueCollector(name string) *fakeEpilogueCollector {
+	return &fakeEpilogueCollector{fakeCollector: newFakeCollector(name)}
+}
+
+func (f *fakeEpilogueCollector) WriteEpilogue(w io.Writer, s SampleContext) error {
+	f.seenEpilogue = append(f.seenEpilogue, s)
+
+	if f.epilogue != nil {
+		return f.epilogue(w, s)
+	}
+
+	return writeBlockHeader(w, f.artifact.Name, f.artifact.Scope, []headerField{
+		{"drain", "true"},
+	}, s.At)
+}
+
 type fakeWindowConn struct {
 	database              string
 	dbid                  *string
@@ -588,6 +612,36 @@ func TestWindowModuleDeadlineExcludesTheConnect(t *testing.T) {
 	require.NotEmpty(t, collector.deadlines)
 	assert.False(t, collector.deadlines[0].Before(connectReturned.Add(window.Duration+DefaultSampleBudget+WindowCloseMargin)),
 		"the deadline was armed before connecting, spending grace the final sample needs")
+}
+
+func TestWindowArtifactFormatReachesEveryBlockItWrites(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		format string
+		want   string
+	}{
+		{name: "empty renders csv", format: "", want: "format=csv"},
+		{name: "text renders text", format: formatText, want: "format=text"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clock := newFakeClock()
+
+			collector := newFakeCollector("pg_fake")
+			collector.artifact.Format = tt.format
+			collector.sample = func(context.Context, SampleContext, io.Writer) error {
+				return errors.New("ERROR: canceling statement due to statement timeout")
+			}
+
+			results := newTestWindow(t, clock, collector).Run(context.Background())
+
+			headers := headersOf(t, results[0])
+			require.Len(t, headers, 4, "the preamble, two stubs and the closing block")
+
+			for _, header := range headers {
+				assert.Contains(t, strings.Fields(header), tt.want, header)
+			}
+		})
+	}
 }
 
 func TestWindowWritesTheStubBlockForAFailedSample(t *testing.T) {
@@ -1161,6 +1215,149 @@ func TestWindowPrologueFailureIsIsolated(t *testing.T) {
 	assert.NoError(t, results[1].IOErr, "and it costs the other artifacts nothing")
 	assert.Equal(t, StatusComplete, results[1].Status)
 	assert.Equal(t, 2, results[1].SamplesWritten)
+}
+
+func TestWindowWritesTheEpilogueAfterTheLastSampleAndBeforeTheClosingBlock(t *testing.T) {
+	clock := newFakeClock()
+	collector := newFakeEpilogueCollector("pg_fake")
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 5, "preamble, two samples, the drain, the closing block")
+
+	assert.Contains(t, headers[3], "drain=true")
+	assert.Contains(t, headers[4], "status=complete")
+
+	require.Len(t, collector.seenEpilogue, 1, "the epilogue is one call, not one per sample")
+	assert.Equal(t, testWindowStart.Add(120*time.Second), collector.seenEpilogue[0].At,
+		"and it carries the window's clock rather than the last sample's")
+}
+
+func TestWindowEpilogueIsNotASample(t *testing.T) {
+	clock := newFakeClock()
+	collector := newFakeEpilogueCollector("pg_fake")
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	assert.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 2, results[0].SamplesExpected)
+	assert.Equal(t, 2, results[0].SamplesWritten,
+		"the drain is a block that says what it is, never a sample: samples_written stays "+
+			"arithmetic about the schedule")
+}
+
+func TestWindowDoesNotAskACollectorWithoutAnEpilogue(t *testing.T) {
+	clock := newFakeClock()
+
+	plain := newFakeCollector("pg_plain")
+	withEpilogue := newFakeEpilogueCollector("pg_epilogue")
+
+	results := newTestWindow(t, clock, plain, withEpilogue).Run(context.Background())
+
+	assert.Len(t, headersOf(t, results[0]), 4, "preamble, two samples, closing block")
+	assert.NotContains(t, artifactText(t, results[0]), "drain=true")
+
+	assert.Len(t, headersOf(t, results[1]), 5)
+}
+
+func TestWindowEpilogueFailureLandsInIOErrAndSkipsTheClosingBlock(t *testing.T) {
+	clock := newFakeClock()
+
+	failing := newFakeEpilogueCollector("pg_failing")
+	failing.epilogue = func(io.Writer, SampleContext) error {
+		return errors.New("no space left on device")
+	}
+
+	healthy := newFakeCollector("pg_healthy")
+
+	results := newTestWindow(t, clock, failing, healthy).Run(context.Background())
+
+	require.Error(t, results[0].IOErr)
+	assert.Equal(t, StatusComplete, results[0].Status, "the status is computed before the drain")
+	assert.Equal(t, 2, results[0].SamplesWritten)
+
+	headers := headersOf(t, results[0])
+	assert.Len(t, headers, 3, "preamble and two samples: a file whose last write failed gets no more")
+	assert.NotContains(t, artifactText(t, results[0]), "status=complete")
+
+	assert.NoError(t, results[1].IOErr, "and it costs the other artifacts nothing")
+}
+
+func TestWindowEpilogueRunsOnACancelledWindow(t *testing.T) {
+	clock := newFakeClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	collector := newFakeEpilogueCollector("pg_fake")
+	collector.artifact.Schedule = Every(10 * time.Second)
+	collector.sample = func(context.Context, SampleContext, io.Writer) error {
+		cancel()
+		return nil
+	}
+
+	results := newTestWindow(t, clock, collector).Run(ctx)
+
+	assert.Equal(t, StatusCancelled, results[0].Status)
+	assert.Len(t, collector.seenEpilogue, 1,
+		"the drain takes no context, so a window that died at t+10s still writes what it held")
+
+	headers := headersOf(t, results[0])
+	assert.Contains(t, headers[len(headers)-2], "drain=true")
+	assert.Contains(t, headers[len(headers)-1], "status=cancelled")
+}
+
+func TestWindowEpilogueRunsOnAnExpiredDeadline(t *testing.T) {
+	clock := newFakeClock()
+	collector := newFakeEpilogueCollector("pg_fake")
+
+	window := newTestWindow(t, clock, collector)
+	window.Duration = 10 * time.Millisecond
+	window.grace = 200 * time.Millisecond
+	window.after = func(d time.Duration) <-chan time.Time { return time.After(time.Minute) }
+
+	results := window.Run(context.Background())
+
+	assert.Equal(t, StatusDeadlineExceeded, results[0].Status)
+	assert.Len(t, collector.seenEpilogue, 1)
+	assert.Contains(t, artifactText(t, results[0]), "drain=true")
+}
+
+func TestWindowEpilogueRunsOnTheConnectFailurePath(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeEpilogueCollector("pg_fake")
+	collector.epilogue = func(io.Writer, SampleContext) error {
+		return nil
+	}
+
+	window := newTestWindow(t, clock, collector)
+	window.connect = func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections }
+
+	results := window.Run(context.Background())
+
+	require.Equal(t, StatusConnectFailed, results[0].Status)
+	assert.Len(t, collector.seenEpilogue, 1,
+		"closeArtifacts runs on the connect-failure path, so the epilogue does too")
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 2, "preamble and closing block: a collector with nothing to drain writes nothing")
+	assert.Contains(t, headers[1], "status=connect_failed")
+}
+
+func TestWindowEpilogueIsNotCalledForAnArtifactWithNoFile(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeEpilogueCollector("pg_fake")
+
+	window := newTestWindow(t, clock, collector)
+
+	require.NoError(t, os.Mkdir(collector.artifact.FileName, 0o700))
+
+	results := window.Run(context.Background())
+
+	require.Error(t, results[0].IOErr)
+	assert.Empty(t, collector.seenEpilogue)
 }
 
 func TestWindowIntervalSampleNumberingIsPerArtifact(t *testing.T) {

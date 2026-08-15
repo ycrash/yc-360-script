@@ -207,8 +207,8 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 45,
-		"capture_mode plus serverFields' forty-four, and no connect_error row")
+	assert.Len(t, serverBlockFields(full), 54,
+		"capture_mode plus serverFields' fifty-three, and no connect_error row")
 	assert.Len(t, targetFields(full), 7)
 
 	assert.Equal(t, ModeDBHost, values["capture_mode"])
@@ -336,28 +336,52 @@ func TestCollectServerFactsFailure(t *testing.T) {
 	assert.Equal(t, "log/postgresql-2026-08-04_000000.csv", m.CurrentLogfile)
 	assert.Empty(t, m.DataDirectory)
 	assert.Empty(t, m.CurrentLogfileResolved)
-	assert.Equal(t, ModeRemote, m.CaptureMode)
+	assert.Equal(t, ModeUnknown, m.CaptureMode,
+		"every route reads the settings this statement collects, so a failure here is "+
+			"detection that could not run rather than detection that found nothing")
 	assert.Equal(t, "true", m.ReplicationConfigured)
 }
 
-func TestCollectLogLocationDenied(t *testing.T) {
+func TestCollectLogLocationDeniedFallsThroughToTheDisk(t *testing.T) {
+	dir := t.TempDir()
+
+	logfile := filepath.Join(dir, "postgresql-2026-08-04_000000.log")
+	require.NoError(t, os.WriteFile(logfile, []byte("LOG: ready\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "current_logfiles"),
+		[]byte("stderr postgresql-2026-08-04_000000.log\n"), 0o600))
+
+	q := healthyQuerier()
+	q.logLocation = fakeRow{err: errDenied}
+
+	settings := fullSettings()
+	settings["data_directory"] = dir
+	q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(settings)
+
+	m := collect(t, q)
+
+	assert.Equal(t, ModeDBHost, m.CaptureMode, "the 14 to 16 case, and the reason for the slice")
+	assert.Equal(t, resolvedByCurrentLogfiles, m.LogResolvedBy)
+	assert.Equal(t, "stderr", m.LogFormats)
+
+	assert.Equal(t, logfile, m.CurrentLogfileResolved)
+	assert.Equal(t, "true", m.CurrentLogfileReadable)
+	assert.Empty(t, m.CurrentLogfileError, "no route had to report one")
+
+	assert.Equal(t, "orders_db", m.CurrentDatabase)
+	assert.Empty(t, m.QueryError)
+}
+
+func TestCollectRecordsTheLastRoutesError(t *testing.T) {
 	q := healthyQuerier()
 	q.logLocation = fakeRow{err: errDenied}
 
 	m := collect(t, q)
 
 	assert.Contains(t, m.CurrentLogfileError, "permission denied for function pg_current_logfile")
-	assert.Equal(t, ModeUnknown, m.CaptureMode, "a denial says nothing about where the agent runs")
-
-	assert.Empty(t, m.CurrentLogfile)
-	assert.Empty(t, m.CurrentLogfileResolved)
-	assert.Empty(t, m.CurrentLogfileReadable)
+	assert.Equal(t, ModeRemote, m.CaptureMode, "no route produced a path")
+	assert.Empty(t, m.LogResolvedBy)
 
 	assert.Equal(t, "/var/lib/postgresql/15/main", m.DataDirectory)
-
-	assert.Equal(t, "orders_db", m.CurrentDatabase)
-	assert.Equal(t, "150004", m.ServerVersionNum)
-	assert.Equal(t, "200", m.MaxConnections)
 	assert.Empty(t, m.QueryError)
 }
 
@@ -471,12 +495,12 @@ func TestCaptureMode(t *testing.T) {
 			wantReadable: "",
 		},
 		{
-			name: "log location denied",
+			name: "log location denied and no route resolves",
 			setup: func(t *testing.T, dir string) (any, string, string) {
 				return nil, dir, ""
 			},
 			logLocationErr: errDenied,
-			wantMode:       ModeUnknown,
+			wantMode:       ModeRemote,
 			wantReadable:   "",
 		},
 	}
@@ -510,6 +534,53 @@ func TestCaptureMode(t *testing.T) {
 			assert.Equal(t, resolved, m.CurrentLogfileResolved)
 		})
 	}
+}
+
+func TestCaptureModeResolvesByGlobWhereNeitherTheFileNorTheFunctionIsReachable(t *testing.T) {
+	logDirectory := t.TempDir()
+
+	older := filepath.Join(logDirectory, "postgresql-2026-08-04_000000.csv")
+	newest := filepath.Join(logDirectory, "postgresql-2026-08-04_120000.csv")
+	require.NoError(t, os.WriteFile(older, []byte("old\n"), 0o600))
+	require.NoError(t, os.WriteFile(newest, []byte("new\n"), 0o600))
+
+	stale := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(older, stale, stale))
+
+	q := healthyQuerier()
+	q.logLocation = fakeRow{err: errDenied}
+
+	settings := fullSettings()
+	settings["data_directory"] = filepath.Join(logDirectory, "unreadable")
+	settings["log_directory"] = logDirectory
+	q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(settings)
+
+	m := collect(t, q)
+
+	assert.Equal(t, ModeDBHost, m.CaptureMode)
+	assert.Equal(t, resolvedByGlob, m.LogResolvedBy)
+	assert.Equal(t, newest, m.CurrentLogfileResolved,
+		"the newest match, and the .log suffix replaced with .csv because log_filename names "+
+			"only the stderr file")
+	assert.Equal(t, "true", m.CurrentLogfileReadable)
+}
+
+func TestCaptureModeAtThePrivilegeFloorHasNoRouteAtAll(t *testing.T) {
+	q := healthyQuerier()
+	q.logLocation = fakeRow{err: errDenied}
+
+	settings := fullSettings()
+	for _, name := range []string{"data_directory", "log_directory", "log_filename"} {
+		delete(settings, name)
+	}
+	q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(settings)
+
+	m := collect(t, q)
+
+	assert.Equal(t, ModeRemote, m.CaptureMode)
+	assert.Empty(t, m.LogResolvedBy)
+	assert.Empty(t, m.CurrentLogfileResolved)
+	assert.Contains(t, m.CurrentLogfileError, "permission denied for function pg_current_logfile")
 }
 
 func TestCollectCarriesNoPassword(t *testing.T) {

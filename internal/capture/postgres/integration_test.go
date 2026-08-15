@@ -3,10 +3,14 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -354,37 +358,48 @@ func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]s
 	}
 }
 
+func matrixFunctionAllowed(server matrixServer, role matrixRole) bool {
+	return role.superuser || (role.monitor && server.major >= 17)
+}
+
 func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
 	t.Helper()
 
-	allowed := role.superuser || (role.monitor && server.major >= 17)
-
-	t.Logf("pg%d/%s: capture_mode=%s current_logfile=%q error=%q",
-		server.major, role.user, values["capture_mode"],
+	t.Logf("pg%d/%s: capture_mode=%s resolved_by=%s current_logfile=%q error=%q",
+		server.major, role.user, values["capture_mode"], values["log_resolved_by"],
 		values["current_logfile"], values["current_logfile_error"])
 
-	if !allowed {
+	if !role.privileged() {
+		assert.Equal(t, ModeRemote, values["capture_mode"],
+			"no route produced a path, which is remote rather than unknown")
+		assert.Empty(t, values["log_resolved_by"])
 		assert.NotEmpty(t, values["current_logfile_error"],
-			"pg_current_logfile() is denied to this role on PostgreSQL %d", server.major)
-		assert.Equal(t, ModeUnknown, values["capture_mode"],
-			"a denied probe leaves the mode unknown rather than guessing at it")
-		assert.Empty(t, values["current_logfile"])
-
-		if role.privileged() {
-			assert.NotEmpty(t, values["data_directory"],
-				"data_directory rides in the settings catalogue and survives this denial")
-		}
+			"pg_current_logfile() is denied to a bare LOGIN role on every supported version")
 
 		return
 	}
 
-	assert.Empty(t, values["current_logfile_error"])
-	assert.NotEmpty(t, values["current_logfile"], "logging_collector is on, so there is a current log file")
+	want := resolvedByGlob
+	if matrixFunctionAllowed(server, role) {
+		want = resolvedByFunction
+		assert.Empty(t, values["current_logfile_error"])
+	} else {
+		assert.NotEmpty(t, values["current_logfile_error"],
+			"the last route's error, which on %d is the denial the glob then rode past", server.major)
+	}
+
+	assert.Equal(t, want, values["log_resolved_by"])
+
+	assert.Equal(t, ModeDBHost, values["capture_mode"],
+		"before this slice, pg%d with this role reported pg-remote from the database host itself",
+		server.major)
 
 	assert.NotEmpty(t, values["current_logfile_resolved"])
+	assert.Equal(t, "true", values["current_logfile_readable"])
+	assert.Equal(t, "stderr", values["log_formats"])
 
-	assert.NotEqual(t, ModeUnknown, values["capture_mode"])
-	assert.NotEmpty(t, values["current_logfile_readable"])
+	assert.NotEmpty(t, values["data_directory"],
+		"data_directory rides in the settings catalogue whatever the function does")
 }
 
 func assertReplicationProbe(t *testing.T, values map[string]string) {
@@ -1293,6 +1308,34 @@ func matrixSuperuser(t *testing.T) matrixRole {
 	}
 
 	t.Fatal("the matrix has no superuser role, and creating a WAL sender needs REPLICATION")
+
+	return matrixRole{}
+}
+
+func matrixMonitor(t *testing.T) matrixRole {
+	t.Helper()
+
+	for _, role := range matrixRoles {
+		if role.monitor {
+			return role
+		}
+	}
+
+	t.Fatal("the matrix has no pg_monitor role")
+
+	return matrixRole{}
+}
+
+func matrixRestricted(t *testing.T) matrixRole {
+	t.Helper()
+
+	for _, role := range matrixRoles {
+		if !role.privileged() {
+			return role
+		}
+	}
+
+	t.Fatal("the matrix has no floor role")
 
 	return matrixRole{}
 }
@@ -2851,4 +2894,640 @@ func assertMatrixStatementResets(t *testing.T, server matrixServer) {
 
 	assert.NotEqual(t, *before[0], *full[0],
 		"which is the only in-band signal that every delta in a file spans a counter reset")
+}
+
+func matrixLogDir(server matrixServer) string {
+	return fmt.Sprintf("/tmp/yc-pglogs/pg%d", server.major)
+}
+
+func requireMatrixLogDir(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	if _, err := os.Stat(matrixLogDir(server)); err != nil {
+		t.Skipf("the log bind mount is missing: run\n\n"+
+			"  mkdir -p /tmp/yc-pglogs/pg{14,15,16,17,18} && chmod 777 /tmp/yc-pglogs/pg*\n"+
+			"  docker compose -f compose.pg.yaml down -v && docker compose -f compose.pg.yaml up -d --wait\n\n%v", err)
+	}
+}
+
+type matrixTail struct {
+	t    *testing.T
+	conn *Conn
+
+	collector interface {
+		Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
+		WriteEpilogue(w io.Writer, s SampleContext) error
+	}
+
+	index int
+}
+
+func newMatrixTail(t *testing.T, target Target, collector interface {
+	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
+	WriteEpilogue(w io.Writer, s SampleContext) error
+},
+) *matrixTail {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err, "connect to %s", target)
+
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	})
+
+	return &matrixTail{t: t, conn: conn, collector: collector}
+}
+
+func (m *matrixTail) sample() textBlock {
+	m.t.Helper()
+
+	m.index++
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	var buf bytes.Buffer
+	require.NoError(m.t, m.collector.Sample(ctx, m.conn, &buf, SampleContext{
+		At:       time.Now(),
+		Index:    m.index,
+		Total:    12,
+		Database: "postgres",
+		redact:   func(err error) string { return errorText(err, "") },
+	}))
+
+	blocks := parseTextArtifact(m.t, buf.String())
+	require.Len(m.t, blocks, 1)
+
+	return blocks[0]
+}
+
+func (m *matrixTail) drain() []textBlock {
+	m.t.Helper()
+
+	var buf bytes.Buffer
+	require.NoError(m.t, m.collector.WriteEpilogue(&buf, SampleContext{At: time.Now(), Database: "postgres"}))
+
+	return parseTextArtifact(m.t, buf.String())
+}
+
+func matrixLogConn(t *testing.T, server matrixServer, database string) *pgconn.PgConn {
+	t.Helper()
+
+	target := matrixTargetDB(server, matrixSuperuser(t), database)
+
+	config, err := pgconn.ParseConfig(fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
+		target.Host, target.Port, target.Username, target.Password,
+		target.Database, target.SSLMode))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := pgconn.ConnectConfig(ctx, config)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	})
+
+	return conn
+}
+
+func matrixLogExec(t *testing.T, conn *pgconn.PgConn, sql string) error {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	_, err := conn.Exec(ctx, sql).ReadAll()
+
+	return err
+}
+
+func matrixDeadlockTable(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	matrixDDL(t, server, "yc_second",
+		"CREATE TABLE yc_dl (id int PRIMARY KEY, v int)",
+		"INSERT INTO yc_dl VALUES (1, 1), (2, 2), (3, 3)")
+
+	t.Cleanup(func() { matrixDDL(t, server, "yc_second", "DROP TABLE IF EXISTS yc_dl") })
+}
+
+func matrixGenerateDeadlock(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	a := matrixLogConn(t, server, "yc_second")
+	b := matrixLogConn(t, server, "yc_second")
+
+	require.NoError(t, matrixLogExec(t, a, "BEGIN; UPDATE yc_dl SET v = v + 1 WHERE id = 1"))
+	require.NoError(t, matrixLogExec(t, b, "BEGIN; UPDATE yc_dl SET v = v + 1 WHERE id = 2"))
+
+	var (
+		wg            sync.WaitGroup
+		errA, errB    error
+		crossedFirst  = "UPDATE yc_dl SET v = v + 1 WHERE id = 2"
+		crossedSecond = "UPDATE yc_dl SET v = v + 1 WHERE id = 1"
+	)
+
+	wg.Add(2)
+
+	go func() { defer wg.Done(); errA = matrixLogExec(t, a, crossedFirst) }()
+	go func() { defer wg.Done(); errB = matrixLogExec(t, b, crossedSecond) }()
+
+	wg.Wait()
+
+	require.False(t, errA == nil && errB == nil, "one of the two crossed updates must be the victim")
+
+	_ = matrixLogExec(t, a, "ROLLBACK")
+	_ = matrixLogExec(t, b, "ROLLBACK")
+}
+
+func TestMatrixLogTailResolution(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				block := newMatrixTail(t, target, NewDeadlocks()).sample()
+
+				_, err := matrixCurrentLogfile(t, target)
+				if matrixFunctionAllowed(server, role) {
+					assert.NoError(t, err, "pg_current_logfile() is granted here")
+				} else {
+					require.Error(t, err, "pg_current_logfile() is denied to %s on pg%d",
+						role.user, server.major)
+					assert.Contains(t, err.Error(), "permission denied for function pg_current_logfile")
+				}
+
+				if !role.privileged() {
+					assert.Equal(t, reasonUnresolved, block.fields["reason"],
+						"the privilege floor has no route at all")
+					assert.False(t, block.has("matched"))
+
+					return
+				}
+
+				assert.Equal(t, ModeDBHost, block.fields["capture_mode"],
+					"Mode H resolves on 14 through 18 alike - which it did not before this slice")
+
+				want := resolvedByGlob
+				if matrixFunctionAllowed(server, role) {
+					want = resolvedByFunction
+				}
+
+				assert.Equal(t, want, block.fields["log_resolved_by"],
+					"route 1 cannot fire from the host: current_logfiles is in the container's "+
+						"private data directory")
+
+				assert.Equal(t, "stderr", block.fields["log_format"])
+				assert.Equal(t, matchedByMessage, block.fields["matched_by"])
+				assert.Equal(t, "0", block.fields["matched"], "sample 1 seeks to EOF")
+				assert.True(t, strings.HasPrefix(block.fields["log_path"], matrixLogDir(server)))
+			})
+		}
+	}
+}
+
+func matrixCurrentLogfile(t *testing.T, target Target) (string, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	var logfile *string
+	if err := conn.QueryRow(ctx, logLocationSQL).Scan(&logfile); err != nil {
+		return "", err
+	}
+
+	return text(logfile), nil
+}
+
+func TestMatrixLogTailDeadlock(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixDeadlockTable(t, server)
+
+			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewDeadlocks())
+			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+
+			matrixGenerateDeadlock(t, server)
+
+			block := matrixTailUntilMatched(t, server, tail)
+
+			assert.Equal(t, "1", block.fields["matched"])
+			assert.Contains(t, block.body, "deadlock detected")
+			assert.Equal(t, 2, strings.Count(block.body, " waits for ShareLock"),
+				"both participants of the wait cycle")
+			assert.Equal(t, 4, strings.Count(block.body, "Process "),
+				"the DETAIL is four lines - two waits and two statements - and three of them "+
+					"are TAB continuations a line-oriented reader would mis-attribute")
+			assert.Contains(t, block.body, "CONTEXT:",
+				"and the line requirements §2.3 stops before, which names the relation and the tuple")
+			assert.Contains(t, block.body, "STATEMENT:")
+
+			size, err := strconv.Atoi(block.fields["bytes"])
+			require.NoError(t, err)
+			assert.Equal(t, size, len(block.body))
+		})
+	}
+}
+
+func matrixLogMarker(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	matrixDDL(t, server, "postgres",
+		"DO $$ BEGIN RAISE WARNING 'yc-360 log tail marker'; END $$")
+}
+
+func matrixTailUntilMatched(t *testing.T, server matrixServer, tail *matrixTail) textBlock {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+
+	for {
+		matrixLogMarker(t, server)
+
+		block := tail.sample()
+		if block.fields["matched"] != "0" && block.fields["matched"] != "" {
+			return block
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("no event reached the log within the deadline: %s", block.header)
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func TestMatrixLogTailTimeouts(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixDeadlockTable(t, server)
+
+			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewTimeouts())
+			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+
+			worker := matrixLogConn(t, server, "yc_second")
+			require.Error(t, matrixLogExec(t, worker,
+				"SET statement_timeout = '300ms'; SELECT pg_sleep(2)"))
+			require.NoError(t, matrixLogExec(t, worker, "RESET statement_timeout"))
+
+			holder := matrixLogConn(t, server, "yc_second")
+			require.NoError(t, matrixLogExec(t, holder, "BEGIN; UPDATE yc_dl SET v = v + 1 WHERE id = 3"))
+
+			require.Error(t, matrixLogExec(t, worker,
+				"SET lock_timeout = '300ms'; UPDATE yc_dl SET v = v + 1 WHERE id = 3"))
+			require.NoError(t, matrixLogExec(t, holder, "ROLLBACK"))
+
+			idle := matrixLogConn(t, server, "yc_second")
+			require.NoError(t, matrixLogExec(t, idle,
+				"SET idle_in_transaction_session_timeout = '400ms'; BEGIN; SELECT 1"))
+			time.Sleep(1500 * time.Millisecond)
+
+			matrixLogMarker(t, server)
+
+			body := matrixDrainBodies(t, tail)
+
+			assert.Contains(t, body, "canceling statement due to statement timeout")
+			assert.Contains(t, body, "canceling statement due to lock timeout")
+			assert.Contains(t, body, "terminating connection due to idle-in-transaction timeout")
+
+			assert.Contains(t, body, "CONTEXT:  while updating tuple",
+				"the lock timeout's third line")
+
+			idleLine := matrixEventStartingWith(t, body, "terminating connection due to idle-in-transaction timeout")
+			assert.Equal(t, 1, strings.Count(idleLine, "\n"),
+				"the idle-in-transaction FATAL is one line and cannot have a STATEMENT: line - "+
+					"the timeout fires precisely because the backend is running no statement")
+			assert.NotContains(t, idleLine, "STATEMENT:")
+		})
+	}
+}
+
+func matrixDrainBodies(t *testing.T, tail *matrixTail) string {
+	t.Helper()
+
+	var body strings.Builder
+
+	for range 6 {
+		body.WriteString(tail.sample().body)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	for _, block := range tail.drain() {
+		body.WriteString(block.body)
+	}
+
+	return body.String()
+}
+
+func matrixEventStartingWith(t *testing.T, body, message string) string {
+	t.Helper()
+
+	at := strings.Index(body, message)
+	require.GreaterOrEqual(t, at, 0, "no event carrying %q in:\n%s", message, body)
+
+	start := strings.LastIndexByte(body[:at], '\n') + 1
+
+	rest := body[start:]
+	if next := strings.Index(rest[1:], "\n20"); next >= 0 {
+		rest = rest[:next+2]
+	}
+
+	return rest
+}
+
+func TestMatrixLogTailBoundaryUnderLoad(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixDeadlockTable(t, server)
+
+			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewDeadlocks())
+			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+
+			noise := matrixLogConn(t, server, "yc_second")
+
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						_ = matrixLogExec(t, noise, "SELECT 1/0")
+						time.Sleep(20 * time.Millisecond)
+					}
+				}
+			}()
+
+			matrixGenerateDeadlock(t, server)
+
+			close(stop)
+			wg.Wait()
+
+			matrixLogMarker(t, server)
+
+			var body strings.Builder
+			for range 6 {
+				body.WriteString(tail.sample().body)
+				time.Sleep(300 * time.Millisecond)
+			}
+
+			copied := body.String()
+
+			assert.Equal(t, 1, strings.Count(copied, "deadlock detected"),
+				"exactly one event in the copied bytes, whatever else the server was logging")
+			assert.NotContains(t, copied, "division by zero",
+				"and the unrelated ERRORs around it are not swept in")
+		})
+	}
+}
+
+func TestMatrixLogTailRotation(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixDeadlockTable(t, server)
+
+			tail := newMatrixTail(t, matrixTarget(server, matrixSuperuser(t)), NewDeadlocks())
+			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+
+			matrixGenerateDeadlock(t, server)
+			first := matrixTailUntilMatched(t, server, tail)
+
+			matrixDDL(t, server, "postgres", "SELECT pg_rotate_logfile()")
+			time.Sleep(time.Second)
+
+			matrixGenerateDeadlock(t, server)
+			matrixLogMarker(t, server)
+
+			var (
+				rotated bool
+				body    strings.Builder
+			)
+
+			for range 20 {
+				matrixLogMarker(t, server)
+
+				block := tail.sample()
+				body.WriteString(block.body)
+
+				if block.fields["rotated"] == "true" {
+					rotated = true
+				}
+
+				if rotated && strings.Contains(body.String(), "deadlock detected") {
+					break
+				}
+
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			assert.True(t, rotated, "the tail follows the rotation through the route that resolved it")
+			assert.Equal(t, 1, strings.Count(body.String(), "deadlock detected"),
+				"the second event, once and only once - the old handle is drained before the "+
+					"new file is opened, and nothing is read twice")
+			assert.Equal(t, 1, strings.Count(first.body, "deadlock detected"))
+		})
+	}
+}
+
+func TestMatrixLogTailStructuredFormats(t *testing.T) {
+	for _, format := range []logFormat{logFormatCSV, logFormatJSON} {
+		for _, server := range matrixServers {
+			requireMatrixLogDir(t, server)
+
+			t.Run(fmt.Sprintf("%s/pg%d", format, server.major), func(t *testing.T) {
+				if format == logFormatJSON && server.major < 15 {
+					t.Skip(`jsonlog is PostgreSQL 15+: 14 answers "log format \"jsonlog\" is not supported"`)
+				}
+
+				matrixDeadlockTable(t, server)
+
+				matrixDDL(t, server, "postgres",
+					fmt.Sprintf("ALTER SYSTEM SET log_destination = '%s'", format),
+					"SELECT pg_reload_conf()")
+
+				t.Cleanup(func() {
+					matrixDDL(t, server, "postgres",
+						"ALTER SYSTEM RESET log_destination", "SELECT pg_reload_conf()")
+				})
+
+				time.Sleep(2 * time.Second)
+
+				tail := newMatrixTail(t, matrixTarget(server, matrixSuperuser(t)), NewDeadlocks())
+
+				block := tail.sample()
+				require.Equal(t, string(format), block.fields["log_format"],
+					"the destination the cluster declares, not the one it defaults to")
+				require.Equal(t, matchedBySQLState, block.fields["matched_by"],
+					"a five-character error code is exact, locale-independent and version-independent")
+
+				matrixGenerateDeadlock(t, server)
+
+				matched := matrixTailUntilMatched(t, server, tail)
+
+				assert.Contains(t, matched.body, "deadlock detected")
+				assert.Contains(t, matched.body, "40P01")
+
+				size, err := strconv.Atoi(matched.fields["bytes"])
+				require.NoError(t, err)
+				assert.Equal(t, size, len(matched.body))
+			})
+		}
+	}
+}
+
+func TestMatrixLogTailUnreadable(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			requireUnprivileged(t)
+
+			tail := newMatrixTail(t, matrixTarget(server, matrixSuperuser(t)), NewDeadlocks())
+			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+
+			matrixDDL(t, server, "postgres", "SELECT pg_rotate_logfile()")
+			time.Sleep(2 * time.Second)
+
+			current, err := matrixCurrentLogfile(t, matrixTarget(server, matrixSuperuser(t)))
+			require.NoError(t, err)
+
+			matrixMakeUnreadable(t, server, current)
+
+			var unreadable textBlock
+
+			for range 10 {
+				block := tail.sample()
+				if block.fields["reason"] == reasonUnreadable {
+					unreadable = block
+					break
+				}
+
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			require.NotEmpty(t, unreadable.header, "the tail never reported the unreadable file")
+
+			assert.Equal(t, current, unreadable.fields["log_path"], "and it names what it could not open")
+			assert.Equal(t, "false", unreadable.fields["log_readable"])
+			assert.False(t, unreadable.has("matched"),
+				"the outcome of a correct-looking Mode H deployment, and it is never a zero")
+		})
+	}
+}
+
+func matrixMakeUnreadable(t *testing.T, server matrixServer, path string) {
+	t.Helper()
+
+	restore := func() {
+		_ = os.Chmod(path, 0o644)
+		matrixChmodInContainer(t, server, path, "0644", false)
+	}
+
+	_ = os.Chmod(path, 0)
+	if !isReadable(path) {
+		t.Cleanup(restore)
+		return
+	}
+
+	matrixChmodInContainer(t, server, path, "0000", true)
+	if !isReadable(path) {
+		t.Cleanup(restore)
+		return
+	}
+
+	restore()
+	t.Skipf("neither this host nor the container can make %s unreadable to the test process; "+
+		"manual-tests/9-log-tail.sh is where this case is checked against a real installation", path)
+}
+
+func matrixChmodInContainer(t *testing.T, server matrixServer, path, mode string, strict bool) {
+	t.Helper()
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		if strict {
+			t.Skip("docker is not on PATH, and this case needs to chmod a file owned by the container")
+		}
+
+		return
+	}
+
+	compose := os.Getenv("YC_PG_COMPOSE")
+	if compose == "" {
+		compose = filepath.Join("..", "..", "..", "compose.pg.yaml")
+	}
+
+	cmd := exec.Command("docker", "compose", "-f", compose, "exec", "-T",
+		fmt.Sprintf("pg%d", server.major), "chmod", mode, path)
+
+	out, err := cmd.CombinedOutput()
+	if strict {
+		require.NoError(t, err, "docker compose exec chmod: %s", out)
+	}
+}
+
+func TestMatrixLogSettingsAtThePrivilegeFloor(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			target := matrixTarget(server, matrixRestricted(t))
+			values := assertArtifactComplete(t, target, collectFromMatrix(t, target))
+
+			assert.Equal(t, "1440", values["log_rotation_age"])
+			assert.Equal(t, "10240", values["log_rotation_size"])
+
+			for _, name := range []string{
+				"log_timezone",
+				"log_min_messages",
+				"log_error_verbosity",
+				"log_min_error_statement",
+				"log_file_mode",
+			} {
+				assert.NotEmpty(t, values[name],
+					"%s decides what a matched= count or a reason=unreadable means, and it "+
+						"reads at the floor", name)
+			}
+
+			assert.NotContains(t, splitSettingList(values["settings_unavailable"]), "log_rotation_age",
+				"none of the seven is superuser-only")
+		})
+	}
 }
