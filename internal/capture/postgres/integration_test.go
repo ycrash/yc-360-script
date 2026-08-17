@@ -1274,10 +1274,6 @@ func matrixArtifactText(t *testing.T, result ArtifactResult) string {
 	return string(content)
 }
 
-// The replication matrix creates and drops its own slots and WAL sender, so
-// pg_matrix_init.sql stays untouched and no other matrix test has to
-// re-baseline.
-
 const matrixReplicationWindow = 2 * time.Second
 
 const matrixWALSenderName = "yc-360-matrix-walsender"
@@ -1287,9 +1283,6 @@ const (
 	matrixReservedSlot = "yc_matrix_reserved"
 )
 
-// matrixOptionalColumns is which of the six optional pg_replication_slots
-// columns each version has. Empty means the header key is absent rather than
-// empty: string_agg over no matching rows is NULL, and a NULL is never written.
 var matrixOptionalColumns = map[int]string{
 	14: "",
 	15: "",
@@ -1340,14 +1333,6 @@ func matrixRestricted(t *testing.T) matrixRole {
 	return matrixRole{}
 }
 
-// matrixStartWALSender gives pg_stat_replication a row, with no standby and no
-// second container.
-//
-// replication=database rather than replication=true: a logical replication
-// connection names a database, so pg_hba's `host all all all` matches it, where
-// a physical one needs a `host replication` line the postgres image does not add
-// for connections from outside the container. It still streams physically,
-// which is what puts state=streaming and a sent_lsn on the row.
 func matrixStartWALSender(t *testing.T, server matrixServer) (stop func()) {
 	t.Helper()
 
@@ -1375,9 +1360,6 @@ func matrixStartWALSender(t *testing.T, server matrixServer) (stop func()) {
 	require.NotEmpty(t, identified)
 	require.NotEmpty(t, identified[0].Rows)
 
-	// IDENTIFY_SYSTEM's third column is the current WAL position: start from
-	// there rather than from 0/0, which would ask the server for WAL it has
-	// long recycled.
 	lsn := string(identified[0].Rows[0][2])
 
 	streaming := make(chan struct{})
@@ -1385,8 +1367,6 @@ func matrixStartWALSender(t *testing.T, server matrixServer) (stop func()) {
 	go func() {
 		defer close(streaming)
 
-		// Runs until the context is cancelled. The error on the way out is the
-		// teardown rather than a failure, so it is deliberately not asserted.
 		_, _ = conn.Exec(ctx, "START_REPLICATION "+lsn+" TIMELINE 1").ReadAll()
 	}()
 
@@ -1447,9 +1427,6 @@ func matrixWALSenderState(t *testing.T, target Target) string {
 	return *state
 }
 
-// matrixCreateSlot creates one physical slot and returns its drop. Without
-// immediately_reserve the slot has NULL restart_lsn and NULL wal_status
-// together, which is why the round-trip needs two slots rather than one.
 func matrixCreateSlot(t *testing.T, server matrixServer, name string, reserve bool) (drop func()) {
 	t.Helper()
 
@@ -1547,9 +1524,6 @@ func TestMatrixReplication(t *testing.T) {
 	}
 }
 
-// matrixSenderViewColumns is pg_stat_replication's own column set, which the
-// artifact renames three of. Recorded here rather than derived from
-// replicationColumns, so that comparing the two is a measurement.
 var matrixSenderViewColumns = []string{
 	"pid", "usesysid", "usename", "application_name", "client_addr",
 	"client_hostname", "client_port", "backend_start", "backend_xmin", "state",
@@ -1558,8 +1532,6 @@ var matrixSenderViewColumns = []string{
 	"sync_priority", "sync_state", "reply_time",
 }
 
-// matrixSlotViewColumns is pg_replication_slots' column set on one version: the
-// stable fifteen plus whichever optional ones this version has.
 func matrixSlotViewColumns(server matrixServer) []string {
 	optional := matrixOptionalColumns[server.major]
 	if optional == "" {
@@ -1608,10 +1580,6 @@ func matrixViewColumns(t *testing.T, target Target, view string) []string {
 	return columns
 }
 
-// assertMatrixViewColumns asks the server what each view holds, which is the
-// only form of this check that catches a column being added. The artifact reads
-// a fixed list, so its own header is identical across versions by construction;
-// a missing column surfaces as error= on the block, but a new one is silent.
 func assertMatrixViewColumns(t *testing.T, server matrixServer) {
 	t.Helper()
 
@@ -1639,16 +1607,11 @@ func assertMatrixSenderColumns(t *testing.T, block capacityMatrixBlock) {
 	assert.Contains(t, block.rawHead, "scope=cluster ")
 }
 
-// assertMatrixMasking covers the one privilege finding here that is silent:
-// every other costs a statement and says so in an error= header, where this one
-// returns the row and empties the columns carrying the answer.
 func assertMatrixMasking(t *testing.T, block capacityMatrixBlock, role matrixRole) {
 	t.Helper()
 
 	row := block.rowWhere(t, "application_name", matrixWALSenderName)
 
-	// The columns that survive masking. pid being one is what makes a
-	// non-pointer scan destination safe.
 	assert.NotEmpty(t, block.cell(t, row, "pid"))
 	assert.NotEmpty(t, block.cell(t, row, "usesysid"))
 	assert.NotEmpty(t, block.cell(t, row, "usename"))

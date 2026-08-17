@@ -130,7 +130,6 @@ type Options struct {
 	NodejsWorkerProfileCount int      `yaml:"nodejsWorkerProfileCount" usage:"Node.js hook-mode: max worker_threads isolates to CPU-profile when -nodejsWorkerCPUProfile is set (1-100, default 10). Hottest workers first."`
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
 
-	// PostgreSQL capture target
 	Postgres *Postgres `yaml:"postgres"`
 }
 

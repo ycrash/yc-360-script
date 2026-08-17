@@ -28,8 +28,7 @@ func Run() error {
 	m3Mode := config.GlobalConfig.M3
 	apiMode := config.GlobalConfig.Port > 0
 
-	// The postgres: block is a capture target in its own right, and its presence
-	// is the switch - there is no flag and no enabled: field.
+	// A configured postgres: block is itself the target switch.
 	dbTargetMode := config.GlobalConfig.Postgres.IsConfigured()
 
 	if err := checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode); err != nil {
@@ -45,8 +44,7 @@ func Run() error {
 		go runAPIMode()
 	}
 
-	// A database-only run is an on-demand run with no process; checkRunTargets
-	// has already ruled out an application target alongside it.
+	// Database-only runs share the on-demand path; checkRunTargets already excludes an app target here.
 	if onDemandMode || dbTargetMode {
 		runOnDemandMode()
 	} else {
@@ -120,11 +118,9 @@ func runM3Mode() {
 	m3App.RunLoop()
 }
 
-// checkRunTargets validates the capture targets a run nominates. Separate from
-// Run so the rules can be exercised without starting a capture.
+// checkRunTargets validates which capture targets a run may combine.
 func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode bool) error {
-	// Validation: if no mode is specified (neither M3, OnDemand, API Mode, nor a
-	// database target), abort here
+	// Validation: abort if no mode is specified (M3, OnDemand, API, or a database target).
 	if !onDemandMode && !apiMode && !m3Mode && !dbTargetMode {
 		logger.Error().Msg(`No target given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode, or configure a postgres: block for a database capture. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`)
 
@@ -139,9 +135,8 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode bool) error {
 		return ErrConflictingMode
 	}
 
-	// Validation: the database target and an application target are separate
-	// runs. Refused rather than picking a winner, which would produce a bundle
-	// that looks complete and is missing a target.
+	// Validation: database and app targets are separate runs, refused rather than
+	// picking a winner, which would silently produce an incomplete bundle.
 	if dbTargetMode && (onDemandMode || m3Mode || apiMode) {
 		logger.Error().Msg("A postgres: block and an application target can not run together - " +
 			"the database capture is a separate run. Use a configuration file with no postgres: " +
@@ -170,8 +165,7 @@ func runOnDemandMode() {
 	}
 
 	for i, pid := range resolveCapturePids(pidStr) {
-		// The database target has no pid relationship: a token resolving to
-		// several processes still gets one pg_metadata.txt.
+		// SkipPostgres for i>0: one database capture per run, not per pid.
 		var opts []ondemand.CaptureOptions
 		if i > 0 {
 			opts = append(opts, ondemand.CaptureOptions{SkipPostgres: true})
@@ -181,15 +175,12 @@ func runOnDemandMode() {
 	}
 }
 
-// resolveCapturePids turns the -p value into the list of pids to capture.
-//
-// The empty string never reaches the token fallback, which is the reason this
-// is a function: an empty token matches every ps line, so a database-only run
-// would fan out into one full capture per process on the host.
+// resolveCapturePids turns the -p value into pids to capture.
+// An empty string is handled directly rather than falling through to the
+// token match, which would otherwise match every process on the host.
 func resolveCapturePids(pidStr string) []int {
 	if pidStr == "" {
-		// Pid 0 is the no-process capture: FullCapture skips everything that
-		// needs a target process.
+		// Pid 0 signals no target process; FullCapture skips process-dependent captures.
 		return []int{0}
 	}
 
