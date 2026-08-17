@@ -52,28 +52,31 @@ func errRow(err error) fakeRow        { return fakeRow{err: err} }
 func repeatRow(r fakeRow) []fakeRow   { return []fakeRow{r} }
 func queueRow(r ...fakeRow) []fakeRow { return r }
 
-func checkpointValues(timed, requested, checkpointBuffers, cleanBuffers int64, backendBuffers *int64,
+// testCheckpointsTimed holds still across the window: only requested checkpoints move.
+const testCheckpointsTimed int64 = 842
+
+func checkpointValues(requested, checkpointBuffers, cleanBuffers int64, backendBuffers *int64,
 	checkpointerReset, bgwriterReset time.Time,
 ) fakeRow {
 	return rowResult(
-		ptr(timed), ptr(requested), ptr(checkpointBuffers), ptr(cleanBuffers), backendBuffers,
+		ptr(testCheckpointsTimed), ptr(requested), ptr(checkpointBuffers), ptr(cleanBuffers), backendBuffers,
 		&checkpointerReset, &bgwriterReset,
 	)
 }
 
 func ordersCheckpointsPre17() []fakeRow {
 	return queueRow(
-		checkpointValues(842, 12, 1204882, 88104, ptr(int64(310884)),
+		checkpointValues(12, 1204882, 88104, ptr(int64(310884)),
 			testDBStatsReset, testDBStatsReset),
-		checkpointValues(842, 15, 1205410, 88220, ptr(int64(311002)),
+		checkpointValues(15, 1205410, 88220, ptr(int64(311002)),
 			testDBStatsReset, testDBStatsReset),
 	)
 }
 
 func ordersCheckpointsPG17() []fakeRow {
 	return queueRow(
-		checkpointValues(842, 12, 1204882, 88104, nil, testDBStatsReset, testBgwriterReset),
-		checkpointValues(842, 15, 1205410, 88220, nil, testDBStatsReset, testBgwriterReset),
+		checkpointValues(12, 1204882, 88104, nil, testDBStatsReset, testBgwriterReset),
+		checkpointValues(15, 1205410, 88220, nil, testDBStatsReset, testBgwriterReset),
 	)
 }
 
@@ -161,7 +164,7 @@ func capacityGoldenClock(t *testing.T) *scriptedClock {
 	)
 }
 
-func runCapacityWindow(t *testing.T, clock *scriptedClock, collector Capacity,
+func runCapacityWindow(t *testing.T, clock *scriptedClock,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {
 	t.Helper()
@@ -170,7 +173,7 @@ func runCapacityWindow(t *testing.T, clock *scriptedClock, collector Capacity,
 	window := &Window{
 		Target:     testTarget(),
 		Duration:   120 * time.Second,
-		Collectors: []Collector{collector},
+		Collectors: []Collector{Capacity{}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -496,7 +499,7 @@ func TestCapacityFailedSampleIsStillACompleteSample(t *testing.T) {
 	conn.connections = repeat(errResult(errors.New("ERROR: permission denied")))
 	conn.wal = repeatRow(errRow(errors.New("ERROR: permission denied")))
 
-	results := runCapacityWindow(t, capacityGoldenClock(t), Capacity{}, connectTo(conn))
+	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	assert.Equal(t, StatusComplete, results[0].Status,
 		"a sample of degraded blocks is a sample: the window's stub is for a collector that "+
@@ -650,7 +653,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.hasPgStatCheckpointer = true
 
-	results := runCapacityWindow(t, capacityGoldenClock(t), Capacity{}, connectTo(conn))
+	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, four sample blocks")
@@ -661,7 +664,7 @@ func TestCapacityGoldenPre17(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.hasPgStatCheckpointer = false
 
-	results := runCapacityWindow(t, capacityGoldenClock(t), Capacity{}, connectTo(conn))
+	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_capacity_pre17.txt"), artifactText(t, results[0]))
@@ -673,7 +676,7 @@ func TestCapacityGoldenWALDenied(t *testing.T) {
 	conn.wal = repeatRow(errRow(errors.New(
 		"ERROR: permission denied for function pg_ls_waldir (SQLSTATE 42501)")))
 
-	results := runCapacityWindow(t, capacityGoldenClock(t), Capacity{}, connectTo(conn))
+	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
 		"the least-privilege role gets two populated blocks and one that says why it is empty")
@@ -683,7 +686,7 @@ func TestCapacityGoldenWALDenied(t *testing.T) {
 func TestCapacityGoldenConnectFailure(t *testing.T) {
 	clock := newScriptedClock(t, at(32, 4, 980), at(32, 9, 994))
 
-	results := runCapacityWindow(t, clock, Capacity{},
+	results := runCapacityWindow(t, clock,
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
 
 	require.Equal(t, StatusConnectFailed, results[0].Status)

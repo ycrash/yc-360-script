@@ -249,7 +249,6 @@ func TestBlockHeaderFieldOrder(t *testing.T) {
 }
 
 func TestBlockHeaderIsNotACSVRecord(t *testing.T) {
-
 	refusal := "failed to connect to `user=ycrash_monitor database=orders_db`: " +
 		"hostname resolving error: lookup db-prod-01.internal: no such host"
 
@@ -386,17 +385,18 @@ func TestWriteErrorsPropagate(t *testing.T) {
 		sinkErr)
 }
 
-func blockHeader(t *testing.T, source, scope string, fields []headerField) string {
+// blockHeader renders at the database scope, the one every caller below asserts on.
+func blockHeader(t *testing.T, source string, fields []headerField) string {
 	t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(t, writeBlockHeader(&buf, source, scope, fields, testAgentNow))
+	require.NoError(t, writeBlockHeader(&buf, source, "database", fields, testAgentNow))
 
 	return buf.String()
 }
 
 func TestBlockHeaderPlacesCallerFieldsBetweenScopeAndTimestamp(t *testing.T) {
-	header := blockHeader(t, "pg_stat_user_tables", "database", []headerField{
+	header := blockHeader(t, "pg_stat_user_tables", []headerField{
 		{"db", "orders_db"},
 		{"dbid", "16401"},
 		{"sample", "1"},
@@ -421,15 +421,15 @@ func TestBlockHeaderPlacesCallerFieldsBetweenScopeAndTimestamp(t *testing.T) {
 func TestBlockHeaderWithoutFieldsHasNoStraySeparator(t *testing.T) {
 	assert.Equal(t,
 		"# engine=postgres source=pg_bloat v=1 format=csv scope=database ts=2026-08-04T09:12:44.118Z\n",
-		blockHeader(t, "pg_bloat", "database", nil))
+		blockHeader(t, "pg_bloat", nil))
 
-	assert.Equal(t, blockHeader(t, "pg_bloat", "database", nil),
-		blockHeader(t, "pg_bloat", "database", []headerField{}),
+	assert.Equal(t, blockHeader(t, "pg_bloat", nil),
+		blockHeader(t, "pg_bloat", []headerField{}),
 		"an empty field list renders as no fields, not as an empty token")
 }
 
 func TestBlockHeaderKeepsKeysWithEmptyValues(t *testing.T) {
-	assert.Contains(t, blockHeader(t, "pg_bloat", "database", []headerField{
+	assert.Contains(t, blockHeader(t, "pg_bloat", []headerField{
 		{"db", "orders_db"},
 		{"dbid", ""},
 	}), " db=orders_db dbid= ts=")

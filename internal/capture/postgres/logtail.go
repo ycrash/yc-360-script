@@ -487,7 +487,7 @@ func globPattern(filename string) string {
 // substituteExtension is PostgreSQL's own rule for the non-stderr destinations:
 // a trailing .log is replaced, anything else is appended to.
 func substituteExtension(filename string, format logFormat) string {
-	extension := ""
+	var extension string
 
 	switch format {
 	case logFormatCSV:
@@ -1472,7 +1472,9 @@ func appendEvent(body, event []byte, read *tailRead) []byte {
 
 		truncated := make([]byte, 0, MaxEventBytes)
 		truncated = append(truncated, event[:MaxEventBytes-len(eventTruncationMark)]...)
-		event = append(truncated, eventTruncationMark...)
+		truncated = append(truncated, eventTruncationMark...)
+
+		event = truncated
 	}
 
 	body = append(body, event...)
