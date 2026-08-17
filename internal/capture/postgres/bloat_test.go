@@ -232,7 +232,7 @@ func goldenClock(t *testing.T) *scriptedClock {
 	)
 }
 
-func runBloatWindow(t *testing.T, clock *scriptedClock, target Target, collector Bloat,
+func runBloatWindow(t *testing.T, clock *scriptedClock, target Target,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {
 	t.Helper()
@@ -241,7 +241,7 @@ func runBloatWindow(t *testing.T, clock *scriptedClock, target Target, collector
 	window := &Window{
 		Target:     target,
 		Duration:   120 * time.Second,
-		Collectors: []Collector{collector},
+		Collectors: []Collector{Bloat{}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -323,7 +323,7 @@ func TestBloatColumnOrder(t *testing.T) {
 }
 
 func TestBloatGoldenFull(t *testing.T) {
-	results := runBloatWindow(t, goldenClock(t), testTarget(), Bloat{},
+	results := runBloatWindow(t, goldenClock(t), testTarget(),
 		connectTo(newFakeBloatConn()))
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -333,7 +333,7 @@ func TestBloatGoldenFull(t *testing.T) {
 func TestBloatGoldenConnectFailure(t *testing.T) {
 	clock := newScriptedClock(t, at(32, 4, 980), at(32, 9, 994))
 
-	results := runBloatWindow(t, clock, testTarget(), Bloat{},
+	results := runBloatWindow(t, clock, testTarget(),
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
 
 	require.Equal(t, StatusConnectFailed, results[0].Status)
@@ -357,7 +357,7 @@ func TestBloatGoldenSampleError(t *testing.T) {
 		rowsResult(ordersSampleEnd()),
 	)
 
-	results := runBloatWindow(t, clock, testTarget(), Bloat{}, connectTo(conn))
+	results := runBloatWindow(t, clock, testTarget(), connectTo(conn))
 
 	require.Equal(t, StatusPartial, results[0].Status)
 	assert.Equal(t, 1, results[0].SamplesWritten)
@@ -372,7 +372,7 @@ func TestBloatGoldenEmptyDatabase(t *testing.T) {
 	target := testTarget()
 	target.Database = "postgres"
 
-	results := runBloatWindow(t, goldenClock(t), target, Bloat{}, connectTo(conn))
+	results := runBloatWindow(t, goldenClock(t), target, connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
 		"the capture worked and there was nothing to capture")
@@ -465,7 +465,7 @@ func TestBloatSizesUnavailableReasonIsRedacted(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.sizes = repeat(errResult(fmt.Errorf("dial failed for %s", testPassword)))
 
-	results := runBloatWindow(t, goldenClock(t), testTarget(), Bloat{}, connectTo(conn))
+	results := runBloatWindow(t, goldenClock(t), testTarget(), connectTo(conn))
 
 	artifact := artifactText(t, results[0])
 	assert.NotContains(t, artifact, testPassword)

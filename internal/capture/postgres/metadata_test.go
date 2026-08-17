@@ -430,7 +430,6 @@ func TestCaptureMode(t *testing.T) {
 		{
 			name: "logging_collector off",
 			setup: func(t *testing.T, dir string) (any, string, string) {
-
 				return nil, dir, ""
 			},
 			wantMode:     ModeRemote,
@@ -584,7 +583,6 @@ func TestCaptureModeAtThePrivilegeFloorHasNoRouteAtAll(t *testing.T) {
 }
 
 func TestCollectCarriesNoPassword(t *testing.T) {
-
 	leak := errors.New("connect failed for password=" + testPassword)
 
 	q := &fakeQuerier{

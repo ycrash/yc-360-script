@@ -316,13 +316,16 @@ func (d *logDir) append(content string) {
 	require.NoError(d.t, f.Close())
 }
 
-func (d *logDir) rotate(name string) string {
+// rotatedLogfile is the hour boundary every rotation in these tests crosses.
+const rotatedLogfile = "postgresql-2026-08-15_110000.log"
+
+func (d *logDir) rotate() string {
 	d.t.Helper()
 
 	old := time.Now().Add(-time.Minute)
 	require.NoError(d.t, os.Chtimes(d.path, old, old))
 
-	d.path = filepath.Join(d.logDirectory, name)
+	d.path = filepath.Join(d.logDirectory, rotatedLogfile)
 	require.NoError(d.t, os.WriteFile(d.path, nil, 0o644))
 
 	return d.path
@@ -526,7 +529,7 @@ func TestResolveLogSourceRoutes(t *testing.T) {
 		settings.dataDirectory = ""
 		settings.logDirectory = dir.logDirectory
 
-		newest := dir.rotate("postgresql-2026-08-15_110000.log")
+		newest := dir.rotate()
 
 		source := resolveLogSource(context.Background(), deniedQuerier(settings), settings, nil)
 
@@ -779,7 +782,7 @@ func TestTailReopensARotationTargetItCouldNotOpenAtTheTime(t *testing.T) {
 	h := newDeadlockHarness(t, deniedQuerier(dir.settings()))
 	require.Equal(t, resolvedByCurrentLogfiles, h.next().fields["log_resolved_by"])
 
-	dir.rotate("postgresql-2026-08-15_110000.log")
+	dir.rotate()
 	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_110000.log")
 	require.NoError(t, os.Chmod(dir.path, 0o000))
 
@@ -815,7 +818,7 @@ func TestTailResumesTheFileItLostRatherThanRereadingIt(t *testing.T) {
 	dir.append(measuredDeadlock + unrelatedTraffic)
 	require.Equal(t, "1", h.next().fields["matched"])
 
-	rotated := dir.rotate("postgresql-2026-08-15_110000.log")
+	rotated := dir.rotate()
 	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_110000.log")
 	require.NoError(t, os.Chmod(rotated, 0o000))
 	h.next()
@@ -917,7 +920,7 @@ func TestTailFollowsRotationThroughEveryRoute(t *testing.T) {
 			dir.append(generation)
 
 			superseded := dir.path
-			dir.rotate("postgresql-2026-08-15_110000.log")
+			dir.rotate()
 			tt.after(dir, q)
 			dir.append(generation)
 
@@ -948,7 +951,7 @@ func TestTailGlobRouteDrainsEveryGenerationInOrder(t *testing.T) {
 	require.Equal(t, resolvedByGlob, h.next().fields["log_resolved_by"])
 
 	dir.append(measuredDeadlock + unrelatedTraffic)
-	dir.rotate("postgresql-2026-08-15_110000.log")
+	dir.rotate()
 	dir.append(measuredDeadlock + unrelatedTraffic)
 
 	rotated := h.next()
@@ -968,7 +971,7 @@ func TestTailClosesTheSupersededHandleOnRotation(t *testing.T) {
 	h.next()
 	superseded := collector.tail.file
 
-	dir.rotate("postgresql-2026-08-15_110000.log")
+	dir.rotate()
 	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_110000.log")
 
 	h.next()

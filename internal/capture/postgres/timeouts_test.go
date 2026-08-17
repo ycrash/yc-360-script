@@ -45,7 +45,7 @@ func TestTimeoutsCapturesAllThreeTypesAtTheirMeasuredLineCounts(t *testing.T) {
 		{name: "idle in transaction", fixture: measuredIdleTimeout, lines: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			body, _, _, matched, _ := matchOnce(logFormatStderr, timeoutMatch, tt.fixture+unrelatedTraffic)
+			body, matched := matchBody(logFormatStderr, timeoutMatch, tt.fixture+unrelatedTraffic)
 
 			require.Equal(t, 1, matched)
 			assert.Equal(t, tt.fixture, body)
@@ -58,7 +58,7 @@ func TestTimeoutsIdleInTransactionFatalDoesNotAbsorbTheNextEventsStatement(t *te
 	next := "2026-08-15 10:00:42.000 UTC [7455] LOG:  duration: 1200.522 ms\n" +
 		"2026-08-15 10:00:42.000 UTC [7455] STATEMENT:  SELECT * FROM order_items WHERE order_id = 9910\n"
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, timeoutMatch, measuredIdleTimeout+next)
+	body, matched := matchBody(logFormatStderr, timeoutMatch, measuredIdleTimeout+next)
 
 	require.Equal(t, 1, matched)
 	assert.Equal(t, measuredIdleTimeout, body)
@@ -67,7 +67,7 @@ func TestTimeoutsIdleInTransactionFatalDoesNotAbsorbTheNextEventsStatement(t *te
 }
 
 func TestTimeoutsLockTimeoutKeepsItsContextLine(t *testing.T) {
-	body, _, _, matched, _ := matchOnce(logFormatStderr, timeoutMatch, measuredLockTimeout+unrelatedTraffic)
+	body, matched := matchBody(logFormatStderr, timeoutMatch, measuredLockTimeout+unrelatedTraffic)
 
 	require.Equal(t, 1, matched)
 	assert.Contains(t, body, `CONTEXT:  while updating tuple (0,3) in relation "yc_dl"`,
@@ -93,7 +93,7 @@ func TestTimeoutsAreMatchedBySQLStateInTheStructuredFormats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			record := timeoutCSV("ERROR", tt.sqlstate, tt.message)
 
-			body, _, _, matched, _ := matchOnce(logFormatCSV, timeoutMatch, record+unrelatedCSV)
+			body, matched := matchBody(logFormatCSV, timeoutMatch, record+unrelatedCSV)
 
 			require.Equal(t, 1, matched)
 			assert.Equal(t, record, body)
@@ -119,7 +119,7 @@ func TestTimeoutsSharedSQLStatesArePairedWithTheirMessage(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, matched, _ := matchOnce(logFormatCSV, timeoutMatch,
+			_, matched := matchBody(logFormatCSV, timeoutMatch,
 				timeoutCSV("ERROR", tt.sqlstate, tt.message)+unrelatedCSV)
 
 			assert.Zero(t, matched)

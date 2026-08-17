@@ -41,6 +41,13 @@ func matchOnce(format logFormat, m eventMatch, data string) (body, carry string,
 	return string(rawBody), string(rawCarry), carryIsEvent, matched, read
 }
 
+// matchBody is matchOnce for the cases that assert on the block alone, with no carry to hand back.
+func matchBody(format logFormat, m eventMatch, data string) (string, int) {
+	rawBody, _, _, matched := matchEvents([]byte(data), format, m, &tailRead{})
+
+	return string(rawBody), matched
+}
+
 func TestDeadlocksArtifact(t *testing.T) {
 	artifact := NewDeadlocks().Artifact()
 
@@ -82,7 +89,7 @@ func TestDeadlocksSeparatorToleranceSurvivesTheMeasuredGap(t *testing.T) {
 		"one space":           oneSpace,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, fixture+unrelatedTraffic)
+			_, matched := matchBody(logFormatStderr, deadlockMatch, fixture+unrelatedTraffic)
 			assert.Equal(t, 1, matched)
 		})
 	}
@@ -110,7 +117,7 @@ func TestDeadlocksTabRuleDoesNotDependOnTheLogLinePrefix(t *testing.T) {
 		"\tProcess 25651: BEGIN; UPDATE yc_dl SET v=1 WHERE id=1;\n" +
 		"STATEMENT:  BEGIN; UPDATE yc_dl SET v=2 WHERE id=2;\n"
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, unprefixed+"LOG:  checkpoint starting: time\n")
+	body, matched := matchBody(logFormatStderr, deadlockMatch, unprefixed+"LOG:  checkpoint starting: time\n")
 
 	require.Equal(t, 1, matched)
 	assert.Equal(t, unprefixed, body)
@@ -124,7 +131,7 @@ func TestDeadlocksMultiLineStatementIsOneEvent(t *testing.T) {
 		"\tbadcol\n" +
 		"\tFROM yc_dl;\n"
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, multiline+unrelatedTraffic)
+	body, matched := matchBody(logFormatStderr, deadlockMatch, multiline+unrelatedTraffic)
 
 	assert.Equal(t, 1, matched, "one event, not three")
 	assert.Equal(t, multiline, body)
@@ -135,7 +142,7 @@ func TestDeadlocksBoundaryBiasIsToOverCopy(t *testing.T) {
 		"a line from nowhere that names no severity\n" +
 		"2026-08-15 10:00:35.000 UTC [25666] LOG:  checkpoint starting: time\n"
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, withStray)
+	body, matched := matchBody(logFormatStderr, deadlockMatch, withStray)
 
 	require.Equal(t, 1, matched)
 	assert.Contains(t, body, "a line from nowhere")
@@ -146,7 +153,7 @@ func TestDeadlocksSecondaryTextContainingASeverityDoesNotEndTheEvent(t *testing.
 	tricky := "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
 		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  INSERT INTO audit(msg) VALUES ('ERROR:  boom');\n"
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, tricky+unrelatedTraffic)
+	body, matched := matchBody(logFormatStderr, deadlockMatch, tricky+unrelatedTraffic)
 
 	require.Equal(t, 1, matched)
 	assert.Equal(t, tricky, body,
@@ -169,7 +176,7 @@ func TestDeadlocksInEveryFormat(t *testing.T) {
 		{name: "jsonlog", format: logFormatJSON, fixture: measuredDeadlockJSON, unrelated: unrelatedJSON, matchedBy: matchedBySQLState},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			body, _, _, matched, _ := matchOnce(tt.format, deadlockMatch, tt.fixture+tt.unrelated)
+			body, matched := matchBody(tt.format, deadlockMatch, tt.fixture+tt.unrelated)
 
 			require.Equal(t, 1, matched)
 			assert.Equal(t, tt.fixture, body,
@@ -193,14 +200,14 @@ func TestDeadlocksCSVRecordSplitMidQuoteParsesWhereItCompleted(t *testing.T) {
 	assert.Equal(t, first, carry)
 	assert.False(t, carryIsEvent)
 
-	body, _, _, matched, _ = matchOnce(logFormatCSV, deadlockMatch, carry+second+unrelatedCSV)
+	body, matched = matchBody(logFormatCSV, deadlockMatch, carry+second+unrelatedCSV)
 
 	assert.Equal(t, 1, matched, "and parses whole in the read where it completed")
 	assert.Equal(t, measuredDeadlockCSV, body)
 }
 
 func TestDeadlocksTwoEventsInOneRead(t *testing.T) {
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch,
+	body, matched := matchBody(logFormatStderr, deadlockMatch,
 		measuredDeadlock+unrelatedTraffic+measuredDeadlock+unrelatedTraffic)
 
 	assert.Equal(t, 2, matched)
@@ -228,7 +235,7 @@ func TestDeadlocksMaxEventLinesBoundsAnEventWithNoEnd(t *testing.T) {
 	endless := "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
 		strings.Repeat("\tstill the same report\n", MaxEventLines*2)
 
-	body, _, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, endless)
+	body, matched := matchBody(logFormatStderr, deadlockMatch, endless)
 
 	require.Equal(t, 1, matched)
 	assert.Equal(t, MaxEventLines, strings.Count(body, "\n"),
@@ -238,7 +245,6 @@ func TestDeadlocksMaxEventLinesBoundsAnEventWithNoEnd(t *testing.T) {
 func TestDeadlocksBytesEqualsTheBodyLengthOnEveryBlock(t *testing.T) {
 	hashPrefixed := strings.ReplaceAll(measuredDeadlock, "2026-08-15 10:00:34.543 UTC [25666] ",
 		"#2026-08-15 10:00:34.543 UTC [25666] ")
-	hashPrefixed = strings.ReplaceAll(hashPrefixed, "\n#2026", "\n#2026")
 
 	invalid := "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
 		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  SELECT '" + string([]byte{0xff, 0xfe}) + "';\n"

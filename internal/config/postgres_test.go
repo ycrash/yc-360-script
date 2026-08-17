@@ -151,7 +151,6 @@ func decodePostgresBlock(t *testing.T, body string) *Postgres {
 }
 
 func TestPostgresValidateCaptureDuration(t *testing.T) {
-
 	withTarget := func(t *testing.T, body string) *Postgres {
 		t.Helper()
 
@@ -615,7 +614,7 @@ func TestPostgresString(t *testing.T) {
 
 		assert.NotContains(t, fmt.Sprintf("%v", p), "s3cr3t")
 
-		assert.NotContains(t, fmt.Sprintf("%s", p), "s3cr3t")
+		assert.NotContains(t, fmt.Sprintf("postgres: %s", p), "s3cr3t")
 		assert.Contains(t, fmt.Sprintf("%v", p), "password=<redacted>")
 
 		wrapper := struct{ Postgres *Postgres }{Postgres: p}

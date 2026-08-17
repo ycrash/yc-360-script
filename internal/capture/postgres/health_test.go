@@ -179,7 +179,7 @@ func healthGoldenClock(t *testing.T) *scriptedClock {
 	)
 }
 
-func runHealthWindow(t *testing.T, clock *scriptedClock, target Target, collector Health,
+func runHealthWindow(t *testing.T, clock *scriptedClock, target Target,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {
 	t.Helper()
@@ -188,7 +188,7 @@ func runHealthWindow(t *testing.T, clock *scriptedClock, target Target, collecto
 	window := &Window{
 		Target:     target,
 		Duration:   30 * time.Second,
-		Collectors: []Collector{collector},
+		Collectors: []Collector{Health{}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -265,7 +265,7 @@ func TestHealthColumnOrder(t *testing.T) {
 }
 
 func TestHealthGoldenFull(t *testing.T) {
-	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), Health{},
+	results := runHealthWindow(t, healthGoldenClock(t), testTarget(),
 		connectTo(newFakeHealthConn()))
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -276,7 +276,7 @@ func TestHealthGoldenFull(t *testing.T) {
 func TestHealthGoldenConnectFailure(t *testing.T) {
 	clock := newScriptedClock(t, at(32, 4, 980), at(32, 9, 994))
 
-	results := runHealthWindow(t, clock, testTarget(), Health{},
+	results := runHealthWindow(t, clock, testTarget(),
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
 
 	require.Equal(t, StatusConnectFailed, results[0].Status)
@@ -291,7 +291,7 @@ func TestHealthGoldenSampleError(t *testing.T) {
 		rowsResult(ordersHealthSample3().rows()),
 	)
 
-	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), Health{}, connectTo(conn))
+	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), connectTo(conn))
 
 	require.Equal(t, StatusPartial, results[0].Status)
 	assert.Equal(t, 2, results[0].SamplesWritten, "the window does not stop: sample 3 is still taken")
@@ -307,7 +307,7 @@ func TestHealthGoldenNoSessionsFatal(t *testing.T) {
 		rowsResult(ordersHealthSample3().withoutSessionsFatal()),
 	)
 
-	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), Health{}, connectTo(conn))
+	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
 		"ten of eleven columns is a complete sample, not a failed one")
@@ -416,7 +416,7 @@ func TestHealthFallbackReasonIsRedacted(t *testing.T) {
 		undefinedColumn42703(), testPassword)))
 	conn.fallback = repeat(rowsResult(ordersHealthSample1().withoutSessionsFatal()))
 
-	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), Health{}, connectTo(conn))
+	results := runHealthWindow(t, healthGoldenClock(t), testTarget(), connectTo(conn))
 
 	artifact := artifactText(t, results[0])
 	assert.NotContains(t, artifact, testPassword)
