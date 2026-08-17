@@ -99,7 +99,10 @@ func ordersSenders3() [][]any {
 		1.05, 2.44, 4.02, at(32, 24, 918))}
 }
 
-func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
+// testSlotConfirmedFlushLSN stays put while restart_lsn advances: the logical slot is not consuming.
+const testSlotConfirmedFlushLSN = "2A/A1002000"
+
+func ordersSlots(restartLSN string, safeWALSize int64,
 	inactiveSince *time.Time, optionalColumns string,
 ) [][]any {
 	present := func(v any) any {
@@ -119,7 +122,7 @@ func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
 		{
 			"orders_cdc_slot", ptr("pgoutput"), ptr("logical"), ptr("16401"), ptr("orders_db"),
 			ptr(false), ptr(false), nil, nil, ptr("5518821"),
-			ptr(confirmedFlushLSN), ptr(confirmedFlushLSN), ptr("extended"), ptr(safeWALSize), ptr(true),
+			ptr(testSlotConfirmedFlushLSN), ptr(testSlotConfirmedFlushLSN), ptr("extended"), ptr(safeWALSize), ptr(true),
 			present(ptr(false)), present(ptr(false)), present(inactiveSince), nil,
 			present(ptr(false)), nil,
 			probe,
@@ -134,9 +137,8 @@ func ordersSlots(restartLSN, confirmedFlushLSN string, safeWALSize int64,
 	}
 }
 
-func ordersSlotsPG18(restartLSN, confirmedFlushLSN string, safeWALSize int64) [][]any {
-	return ordersSlots(restartLSN, confirmedFlushLSN, safeWALSize,
-		&testSlotInactiveSince, pg18OptionalColumns)
+func ordersSlotsPG18(restartLSN string, safeWALSize int64) [][]any {
+	return ordersSlots(restartLSN, safeWALSize, &testSlotInactiveSince, pg18OptionalColumns)
 }
 
 type fakeReplicationConn struct {
@@ -158,9 +160,9 @@ func newFakeReplicationConn() *fakeReplicationConn {
 			rowsResult(ordersSenders3()),
 		),
 		slots: queue(
-			rowsResult(ordersSlotsPG18("2A/B3FF0000", "2A/A1002000", 1073741824)),
-			rowsResult(ordersSlotsPG18("2A/B41C0000", "2A/A1002000", 1071644672)),
-			rowsResult(ordersSlotsPG18("2A/B4370000", "2A/A1002000", 1069547520)),
+			rowsResult(ordersSlotsPG18("2A/B3FF0000", 1073741824)),
+			rowsResult(ordersSlotsPG18("2A/B41C0000", 1071644672)),
+			rowsResult(ordersSlotsPG18("2A/B4370000", 1069547520)),
 		),
 	}
 }
@@ -195,7 +197,7 @@ func replicationGoldenClock(t *testing.T) *scriptedClock {
 	)
 }
 
-func runReplicationWindow(t *testing.T, clock *scriptedClock, collector Replication,
+func runReplicationWindow(t *testing.T, clock *scriptedClock,
 	connect func(ctx context.Context, target Target) (windowConn, error),
 ) []ArtifactResult {
 	t.Helper()
@@ -204,7 +206,7 @@ func runReplicationWindow(t *testing.T, clock *scriptedClock, collector Replicat
 	window := &Window{
 		Target:     testTarget(),
 		Duration:   30 * time.Second,
-		Collectors: []Collector{collector},
+		Collectors: []Collector{Replication{}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -213,9 +215,9 @@ func runReplicationWindow(t *testing.T, clock *scriptedClock, collector Replicat
 	return window.Run(context.Background())
 }
 
-func replicationSampleContext(index int) SampleContext {
+func replicationSampleContext() SampleContext {
 	return SampleContext{
-		At: at(32, 5, 61), Index: index, Total: 3,
+		At: at(32, 5, 61), Index: 1, Total: 3,
 		Database: "orders_db", DBID: "16401",
 	}
 }
@@ -224,7 +226,7 @@ func takeReplicationSample(t *testing.T, conn *fakeReplicationConn) string {
 	t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(t, Replication{}.Sample(context.Background(), conn, &buf, replicationSampleContext(1)))
+	require.NoError(t, Replication{}.Sample(context.Background(), conn, &buf, replicationSampleContext()))
 
 	return buf.String()
 }
@@ -345,12 +347,12 @@ func TestReplicationOptionalColumnsHeaderKey(t *testing.T) {
 	}{
 		{
 			name:  "PostgreSQL 18 has all six, and the header says so",
-			slots: ordersSlotsPG18("2A/B3FF0000", "2A/A1002000", 1073741824),
+			slots: ordersSlotsPG18("2A/B3FF0000", 1073741824),
 			want:  "optional_columns=" + pg18OptionalColumns,
 		},
 		{
 			name:  "PostgreSQL 16 has one",
-			slots: ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "conflicting"),
+			slots: ordersSlots("2A/B3FF0000", 1073741824, nil, "conflicting"),
 			want:  "optional_columns=conflicting",
 		},
 	} {
@@ -366,7 +368,7 @@ func TestReplicationOptionalColumnsHeaderKey(t *testing.T) {
 
 	t.Run("PostgreSQL 14 and 15 have none, so the key is absent rather than empty", func(t *testing.T) {
 		conn := newFakeReplicationConn()
-		conn.slots = repeat(rowsResult(ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "")))
+		conn.slots = repeat(rowsResult(ordersSlots("2A/B3FF0000", 1073741824, nil, "")))
 
 		block := capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"]
 
@@ -454,7 +456,7 @@ func TestReplicationWritesTheWholeSampleInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, Replication{}.Sample(context.Background(), newFakeReplicationConn(), writer,
-		replicationSampleContext(1)))
+		replicationSampleContext()))
 
 	assert.Equal(t, 1, writer.writes,
 		"two blocks, one buffer, one Write: a write failing between them would leave the "+
@@ -572,7 +574,7 @@ func TestReplicationBlocksFailIndependently(t *testing.T) {
 
 		var buf bytes.Buffer
 		require.NoError(t, Replication{}.Sample(context.Background(), conn, &buf,
-			replicationSampleContext(1)),
+			replicationSampleContext()),
 			"two refused reads are not an error: Sample fails only when it cannot write")
 
 		blocks := capacityBlocks(t, buf.String())
@@ -595,7 +597,7 @@ func TestReplicationFailedSampleIsStillACompleteSample(t *testing.T) {
 	conn.senders = repeat(errResult(errors.New("ERROR: permission denied")))
 	conn.slots = repeat(errResult(errors.New("ERROR: permission denied")))
 
-	results := runReplicationWindow(t, replicationGoldenClock(t), Replication{}, connectTo(conn))
+	results := runReplicationWindow(t, replicationGoldenClock(t), connectTo(conn))
 
 	assert.Equal(t, StatusComplete, results[0].Status,
 		"a sample of degraded blocks is a sample: the window's stub is for a collector that "+
@@ -608,7 +610,7 @@ func TestReplicationSampleErrorsOnlyOnAWriteFailure(t *testing.T) {
 	sinkErr := errors.New("no space left on device")
 
 	err := Replication{}.Sample(context.Background(), newFakeReplicationConn(),
-		failingWriter{err: sinkErr}, replicationSampleContext(1))
+		failingWriter{err: sinkErr}, replicationSampleContext())
 
 	require.ErrorIs(t, err, sinkErr, "which the window turns into IOErr rather than into a stub")
 }
@@ -724,7 +726,7 @@ func TestReplicationCastsEveryColumnTheDriverHasNoPlanFor(t *testing.T) {
 }
 
 func TestReplicationGoldenFull(t *testing.T) {
-	results := runReplicationWindow(t, replicationGoldenClock(t), Replication{},
+	results := runReplicationWindow(t, replicationGoldenClock(t),
 		connectTo(newFakeReplicationConn()))
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -735,12 +737,12 @@ func TestReplicationGoldenFull(t *testing.T) {
 func TestReplicationGoldenPre16(t *testing.T) {
 	conn := newFakeReplicationConn()
 	conn.slots = queue(
-		rowsResult(ordersSlots("2A/B3FF0000", "2A/A1002000", 1073741824, nil, "")),
-		rowsResult(ordersSlots("2A/B41C0000", "2A/A1002000", 1071644672, nil, "")),
-		rowsResult(ordersSlots("2A/B4370000", "2A/A1002000", 1069547520, nil, "")),
+		rowsResult(ordersSlots("2A/B3FF0000", 1073741824, nil, "")),
+		rowsResult(ordersSlots("2A/B41C0000", 1071644672, nil, "")),
+		rowsResult(ordersSlots("2A/B4370000", 1069547520, nil, "")),
 	)
 
-	results := runReplicationWindow(t, replicationGoldenClock(t), Replication{}, connectTo(conn))
+	results := runReplicationWindow(t, replicationGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
 		"one statement covers 14 through 18: the extraction returns NULL rather than raising")
@@ -752,7 +754,7 @@ func TestReplicationGoldenNone(t *testing.T) {
 	conn.senders = repeat(rowsResult(nil))
 	conn.slots = repeat(rowsResult(nil))
 
-	results := runReplicationWindow(t, replicationGoldenClock(t), Replication{}, connectTo(conn))
+	results := runReplicationWindow(t, replicationGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
 		"a standalone server is a complete capture that found nothing")
@@ -762,7 +764,7 @@ func TestReplicationGoldenNone(t *testing.T) {
 func TestReplicationGoldenConnectFailure(t *testing.T) {
 	clock := newScriptedClock(t, at(32, 4, 980), at(32, 9, 994))
 
-	results := runReplicationWindow(t, clock, Replication{},
+	results := runReplicationWindow(t, clock,
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
 
 	require.Equal(t, StatusConnectFailed, results[0].Status)

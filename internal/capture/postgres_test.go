@@ -114,7 +114,6 @@ type recordedPostgresUpload struct {
 }
 
 func TestPostgresDataTypeConstant(t *testing.T) {
-
 	assert.Equal(t, "pgMeta", pgDTMetadata)
 
 	assert.Equal(t, "pgBloat", pgDTBloat)
