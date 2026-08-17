@@ -13,7 +13,7 @@ import (
 func postgresValidateFixture(pg *config.Postgres) config.Config {
 	return config.Config{
 		Options: config.Options{
-			OnlyCapture:  true, // sidesteps the -s / -k requirement
+			OnlyCapture:  true,
 			JavaHomePath: "/usr/lib/jvm/java-11",
 			Postgres:     pg,
 		},
@@ -53,7 +53,6 @@ func TestValidatePostgres(t *testing.T) {
 		assert.Equal(t, "require", pg.SSLMode, "lowercased")
 		assert.Equal(t, "sup3r-s3cr3t", pg.Password, "expanded")
 
-		// And the logged form still hides it.
 		assert.NotContains(t, pg.String(), "sup3r-s3cr3t")
 	})
 

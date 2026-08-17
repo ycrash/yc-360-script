@@ -5,23 +5,17 @@ import (
 	"time"
 )
 
-// Two rules for every statement here, because the capture runs against 14-18 as
-// a role that may hold nothing beyond CONNECT.
-//
-// A capability is asked of the catalog, never derived from server_version_num:
-// pg_upgrade carries an old extension schema forward, so a PG15 server can
-// legitimately expose pg_stat_statements' pre-1.8 columns.
-//
-// Settings come from pg_settings, never SHOW or current_setting(). The view
-// returns no row for an unknown name where SHOW raises, and omits a
-// superuser-only setting where current_setting(name, true) would still raise.
+// Runs against PG 14-18 as CONNECT-only. Capabilities are probed from the
+// catalog, not server_version_num (pg_upgrade can carry an old extension's
+// pre-upgrade columns forward); settings come from pg_settings, not
+// SHOW/current_setting(), which stays silent instead of raising on an
+// unknown or superuser-only name.
 
 // timestampLayout is RFC 3339 in UTC, to milliseconds.
 const timestampLayout = "2006-01-02T15:04:05.000Z"
 
-// capturedSettings is what serverFactsSQL reads from pg_settings, in artifact
-// order. Name and destination are paired here so the list sent to the server,
-// the assignment and the settings_unavailable roll-up cannot drift apart.
+// capturedSettings pairs name and destination so the server list, the
+// assignment, and settings_unavailable can't drift apart.
 var capturedSettings = []struct {
 	name  string
 	field func(*Metadata) *string
@@ -59,8 +53,8 @@ var capturedSettings = []struct {
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
-	// superuser-only. Not in logLocationSQL: on 14-16 pg_monitor is denied
-	// pg_current_logfile(), and this row would go down with that statement.
+	// superuser-only. Not read via logLocationSQL: pg_monitor lacks the
+	// pg_current_logfile() grant on 14-16.
 	{"data_directory", func(m *Metadata) *string { return &m.DataDirectory }},
 }
 
@@ -73,25 +67,16 @@ func settingNames() []string {
 	return names
 }
 
-// serverFactsSQL is the unprivileged statement: identity, run facts, the
-// settings catalogue and every capability probe. No path in it can raise for a
-// role holding only CONNECT. Settings are in pg_settings.setting form - internal
-// units, so `500` rather than SHOW's `500ms`.
+// Settings are in pg_settings.setting form - internal units, so `500` not
+// SHOW's `500ms`. Name/value arrays, not a 2-D array or json, pass text
+// through without a UTF-8 conversion that could fail on SQL_ASCII;
+// host(inet_server_addr()) avoids the /32 a cast would render.
 //
-// Parallel name and value arrays rather than a 2-D array or a json aggregate:
-// text arrays pass bytes through without a UTF-8 conversion that could fail on a
-// SQL_ASCII cluster. host(inet_server_addr()) rather than a cast, which would
-// render 172.17.0.2/32.
-//
-// The two role probes deliberately differ in mode. pg_monitor keeps 'member',
-// the spelling requirements §2.3 pins. pg_read_all_stats probes 'usage',
-// because its one job is predicting pg_stat_activity's masking and the server
-// has gated that on privilege inheritance since PostgreSQL 15: measured on 15
-// and 18, a NOINHERIT member reads true under 'member' while every foreign
-// query is <insufficient privilege>. 'usage' matches the gate on 15 through 18
-// and can only under-claim on 14, where membership alone suffices - the safe
-// direction, since a flag reading false never renders the sentinel as text.
-// Do not harmonise them.
+// pg_monitor probes 'member'. pg_read_all_stats
+// probes 'usage' instead: it predicts pg_stat_activity's masking, gated on
+// privilege inheritance since PG15 (a NOINHERIT member reads true under
+// 'member' but is denied the query), and 'usage' only safely under-claims on
+// 14. Do not harmonise the two.
 const serverFactsSQL = `WITH s AS (
     SELECT name, COALESCE(setting, '') AS setting
       FROM pg_catalog.pg_settings
@@ -124,8 +109,7 @@ SELECT
     now(),
     clock_timestamp()`
 
-// logLocationSQL is isolated because it is the one statement that can be denied:
-// pg_current_logfile's grant to pg_monitor only landed in PostgreSQL 17, so on
+// pg_current_logfile's grant to pg_monitor only landed in PostgreSQL 17: on
 // 14-16 denial is the normal outcome for the recommended role.
 const logLocationSQL = `SELECT pg_current_logfile()`
 
@@ -133,10 +117,8 @@ const logLocationSQL = `SELECT pg_current_logfile()`
 // pg_stat_replication masks columns, never rows.
 const replicationSQL = `SELECT count(*) FROM pg_catalog.pg_stat_replication`
 
-// serverFactsRow is serverFactsSQL's result, in selection order. Every scalar
-// is a pointer, including columns that cannot be NULL today: a non-pointer
-// destination turns an unexpected NULL into a scan error and loses the whole
-// statement. A NULL array scans into a nil slice natively.
+// Every scalar is a pointer so an unexpected NULL can't turn into a scan
+// error that loses the whole statement; NULL arrays scan into nil natively.
 type serverFactsRow struct {
 	currentDatabase  *string
 	currentUser      *string

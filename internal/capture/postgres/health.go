@@ -12,17 +12,14 @@ import (
 // DefaultHealthInterval is pg_health.txt's cadence.
 const DefaultHealthInterval = 10 * time.Second
 
-// DefaultMaxDatabases bounds one sample. The block header says when it fired.
+// DefaultMaxDatabases bounds one sample.
 const DefaultMaxDatabases = 1000
 
-// undefinedColumn is the SQLSTATE for a column the server does not have. Only
-// sessions_fatal can raise it here.
+// undefinedColumn (42703) is the SQLSTATE sessions_fatal raises on servers older than PG14.
 const undefinedColumn = "42703"
 
-// healthColumns is the server's merge contract. datid leads because it is the
-// join key - datname moves when a database is renamed mid-window. stats_reset
-// closes because it is the only column that can tell a reader a delta is
-// invalid: a reset is undetectable from the counters themselves.
+// datid, not datname, is the join key: a rename mid-window would move datname.
+// stats_reset trails so a reader can detect a counter reset, undetectable from the counters alone.
 var healthColumns = []string{
 	"datid",
 	"datname",
@@ -37,14 +34,8 @@ var healthColumns = []string{
 	"stats_reset",
 }
 
-// healthSQLTemplate reads pg_stat_database unfiltered - every database, plus the
-// datid=0 shared-objects row. %s is the sessions_fatal expression, so the
-// fallback cannot drift from the statement it replaces.
-//
-// The inner ordering decides which rows survive the cap, keeping the shared row
-// and the connected database: OIDs climb, so a plain ORDER BY datid would drop
-// the database the header names. Neither ordering sorts on a statistic, which
-// would hand the server a different row set per sample.
+// Includes the datid=0 shared-objects row. Inner ORDER BY protects that row and
+// the connected database from the cap (OIDs climb); neither order sorts on a statistic, keeping the row set stable across samples.
 const healthSQLTemplate = `SELECT datid,
        datname,
        blks_hit,
@@ -79,13 +70,12 @@ ORDER BY datid`
 var (
 	healthSQL = fmt.Sprintf(healthSQLTemplate, "sessions_fatal")
 
-	// A NULL of the column's type, so the merged column set is identical either
-	// way.
+	// NULL of the right type, so the merged column set matches either way.
 	healthSQLNoSessionsFatal = fmt.Sprintf(healthSQLTemplate, "NULL::bigint AS sessions_fatal")
 )
 
-// Health captures pg_stat_database across the window. Every column but the
-// timestamps is a cumulative counter, and the arithmetic is the server's.
+// Health captures pg_stat_database each tick. Every column but the timestamps
+// is a cumulative counter - the server does no delta arithmetic.
 type Health struct {
 	// Interval is the cadence. Zero takes DefaultHealthInterval.
 	Interval time.Duration
@@ -103,13 +93,9 @@ func (h Health) Artifact() Artifact {
 	}
 }
 
-// Sample reads every row of pg_stat_database and writes one block.
-//
-// sessions_fatal arrived in PostgreSQL 14, the bottom of the supported range, so
-// the 42703 retry is unreachable here and exists so an older server gets ten of
-// eleven columns rather than a file of stub blocks. Safe because each sample is
-// an independent autocommit statement; the outcome is deliberately not
-// remembered between samples.
+// Sample reads pg_stat_database and writes one block.
+// sessions_fatal arrived in PG14 (our floor), so the 42703 retry below is
+// currently unreachable but keeps pre-14 servers at ten of eleven columns instead of a stub block.
 func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	rows, total, err := h.read(ctx, q, healthSQL, s)
 
@@ -143,8 +129,7 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 		)
 	}
 
-	// One block or nothing: a write failing after the header would leave the
-	// window's stub block behind a half-written body.
+	// Buffered so a header-write failure can't leave a half-written body.
 	var block bytes.Buffer
 
 	// The block names the view it read; the window's own blocks name the
@@ -162,11 +147,8 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 	return err
 }
 
-// healthRow is one database's row. datid is the join key and cannot be NULL.
-// Every other scalar is a pointer so a NULL renders empty rather than costing
-// the statement - datname is NULL on the shared-objects row, stats_reset on a
-// database never reset - and because an empty deadlocks cell means "not read"
-// where 0 means "no deadlocks".
+// healthRow: datid can't be NULL (join key); other fields are pointers so NULLs
+// render as empty cells - datname is NULL on the shared row; an empty deadlocks cell means "not read", not zero.
 type healthRow struct {
 	datid         uint32
 	datName       *string
@@ -227,8 +209,8 @@ func (h Health) read(ctx context.Context, q RowQuerier, sql string, s SampleCont
 	return collected, total, nil
 }
 
-// connectedOID is the OID the cap's inner ordering protects. Nil when identify
-// failed, which degrades to protecting the shared row twice.
+// connectedOID is what the cap's ordering protects; nil (identify failed) just
+// protects the shared row twice.
 func connectedOID(dbid string) *uint32 {
 	oid, err := strconv.ParseUint(dbid, 10, 32)
 	if err != nil {

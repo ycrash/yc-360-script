@@ -12,9 +12,8 @@ import (
 
 const DefaultReplicationInterval = 10 * time.Second
 
-// pid leads: it is the key consecutive samples are stitched on, where
-// application_name is not unique per replica. pid does not survive a WAL sender
-// reconnect, so application_name and client_addr are captured beside it.
+// pid joins samples across ticks (application_name isn't unique per replica);
+// it doesn't survive a WAL sender reconnect, so application_name/client_addr ride along too.
 var replicationColumns = []string{
 	"pid",
 	"usesysid",
@@ -38,8 +37,7 @@ var replicationColumns = []string{
 	"reply_time",
 }
 
-// stableSlotColumns are the pg_replication_slots columns every supported
-// version has.
+// Columns present in every supported PostgreSQL version.
 var stableSlotColumns = []string{
 	"slot_name",
 	"plugin",
@@ -58,12 +56,8 @@ var stableSlotColumns = []string{
 	"two_phase",
 }
 
-// optionalSlotColumns are the pg_replication_slots columns added after 14 - one
-// at 16, four at 17, one at 18. Read through to_jsonb because a server without
-// the column yields NULL there where a bare SELECT raises 42703, so one
-// statement covers every version instead of four variants and three capability
-// flags. Name and expression are paired so $1, the select list and the column
-// header cannot drift; adding a column is one entry.
+// Columns pg_replication_slots gained after 14 (16/17/18). Read via to_jsonb
+// since a bare SELECT would raise 42703 on servers that lack them.
 var optionalSlotColumns = []struct {
 	name string
 	expr string
@@ -85,22 +79,11 @@ func optionalSlotColumnNames() []string {
 	return names
 }
 
-// slices.Concat rather than append: appending to stableSlotColumns would share
-// its backing array.
+// slices.Concat, not append: append would alias stableSlotColumns' backing array.
 var slotColumns = slices.Concat(stableSlotColumns, optionalSlotColumnNames())
 
-// sendersSQL reads the connected WAL senders. The view is column-identical on 14
-// through 18, so there is no variant and no capability flag.
-//
-// Every column typed outside int2/int4/int8, bool, text, float8 and timestamptz
-// is cast here rather than mapped in the scan. usesysid is the load-bearing one:
-// pgx has no scan plan from oid into a nullable *int32, and it sits mid-scan, so
-// selecting it bare would cost the whole block. client_addr takes host() instead,
-// since ::text renders 10.0.4.12/32.
-//
-// ORDER BY pid, never on a lag: ordering on a statistic hands the server a
-// different row set per sample. Uncapped because max_wal_senders bounds the row
-// source and sizes shared memory at startup.
+// Column-identical on PG 14-18. usesysid casts to text since pgx can't scan oid into
+// *int32 mid-scan; client_addr uses host() to avoid /32 CIDR rendering. Ordered by pid, never a lag column, uncapped since max_wal_senders bounds it.
 const sendersSQL = `SELECT pid,
        usesysid::text,
        usename::text,
@@ -124,9 +107,8 @@ const sendersSQL = `SELECT pid,
 FROM pg_catalog.pg_stat_replication
 ORDER BY pid`
 
-// stableSlotsSelect is the part of slotsSQL every supported version shares.
-// sendersSQL's cast rule applies to datoid, xmin, catalog_xmin and the two
-// pg_lsn columns.
+// Shared by every version; casts datoid, xmin, catalog_xmin and the two LSN
+// columns to text for sendersSQL's pgx scan-plan reason.
 const stableSlotsSelect = `SELECT s.slot_name::text,
        s.plugin::text,
        s.slot_type::text,
@@ -143,12 +125,8 @@ const stableSlotsSelect = `SELECT s.slot_name::text,
        s.safe_wal_size,
        s.two_phase`
 
-// optionalColumnsProbe is which of optionalSlotColumns the server has, carried
-// per row as count(*) OVER () is elsewhere and landing in the block header. It
-// answers a question about the server, not the row: conflicting is NULL on 14
-// because the column is absent and NULL on 18 for a physical slot because it
-// does not apply, and an empty cell cannot tell those apart. Lost when the view
-// returns no rows, which is right - there are then no empty cells to separate.
+// Disambiguates NULL-because-absent from NULL-because-not-applicable (e.g.
+// conflicting on PG14 vs. on a physical slot), which an empty cell alone can't.
 const optionalColumnsProbe = `       (SELECT string_agg(attname, ',' ORDER BY attname)
           FROM pg_catalog.pg_attribute
          WHERE attrelid = to_regclass('pg_catalog.pg_replication_slots')
@@ -159,9 +137,8 @@ const slotsFrom = `
 FROM pg_catalog.pg_replication_slots s
 ORDER BY s.slot_name`
 
-// slotsSQL reads the slots, one statement for every version. Uncapped for
-// sendersSQL's reason, the bound here being max_replication_slots - which is
-// also why building a jsonb of the row six times per row costs nothing.
+// Uncapped: max_replication_slots bounds the row count, so building a jsonb of
+// each row six times costs nothing.
 var slotsSQL = buildSlotsSQL()
 
 func buildSlotsSQL() string {
@@ -181,14 +158,9 @@ func buildSlotsSQL() string {
 	return sql.String()
 }
 
-// Replication captures which replicas are connected and how far behind each is,
-// and which slots are retaining WAL.
-//
-// pg_replication_slots needs no grant. pg_stat_replication returns its rows to
-// any role but masks every column past application_name to NULL without
-// pg_monitor, so a least-privilege capture of a healthy cluster and of one whose
-// replica is an hour behind are byte-identical in the lag columns. Nothing here
-// can tell them apart; pg_metadata.txt's has_pg_monitor_role can.
+// Replication captures connected WAL senders and retaining slots.
+// pg_stat_replication masks every column past application_name to NULL without
+// pg_monitor, so a healthy and an hour-behind replica look byte-identical here.
 type Replication struct {
 	// Interval is the cadence. Zero takes DefaultReplicationInterval.
 	Interval time.Duration
@@ -201,18 +173,16 @@ func (r Replication) Artifact() Artifact {
 		Scope:    "cluster",
 		Schedule: Every(r.interval()),
 
-		// No SampleBudget: two statements is DefaultSampleBudget, and an
-		// interval collector's offsets are strictly inside the window, so this
-		// one never reaches the closing tick moduleDeadline sums budgets for.
+		// No SampleBudget: two statements is DefaultSampleBudget already, and
+		// interval offsets stay inside the window, never reaching moduleDeadline's closing tick.
 	}
 }
 
-// Sample reads the two views and writes one block each. Each block turns its own
-// read failure into an error= header and an empty body. An error from here means
-// the write failed, not that either read did.
+// Sample reads pg_stat_replication and pg_replication_slots into one block each.
+// A returned error means the write failed - each block already turns its own
+// read failure into an error= header instead.
 func (r Replication) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	// One buffer, one Write: a write failing between the blocks would leave the
-	// window's stub behind a half-written sample.
+	// Buffered so a mid-write failure can't leave a half-written sample.
 	var sample bytes.Buffer
 
 	if err := r.writeSendersBlock(ctx, q, &sample, s); err != nil {
@@ -248,8 +218,8 @@ func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.W
 	return writeRows(w, replicationColumns, senderCells(rows))
 }
 
-// writeSlotsBlock writes optional_columns= only when the probe returned a value:
-// NULL on 14 and 15, and absent when the view returned no rows to carry it.
+// optional_columns= appears only when the probe returned a value (NULL on PG
+// 14/15, absent when the slots view has no rows).
 func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	rows, optionalColumns, err := readSlots(ctx, q)
 
@@ -274,12 +244,10 @@ func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Wri
 	return writeRows(w, slotColumns, slotCells(rows))
 }
 
-// senderRow is one connected WAL sender. pid is the join key and a non-pointer,
-// as bloatRow.relid and healthRow.datid are: a NULL there should cost the
-// statement rather than write a row nothing can join. Safe because pid survives
-// masking, where state and every LSN and lag column do not - which is why every
-// other field is a pointer, so a masked row renders as empty cells rather than
-// costing the block.
+// senderRow is one connected WAL sender. pid is non-pointer since a NULL there
+// should fail the statement, not produce an unjoinable row; every other field
+// is a pointer because pg_monitor masking nulls them, and a masked row should
+// render as empty cells rather than fail the block.
 type senderRow struct {
 	pid             int32
 	usesysid        *string
@@ -384,13 +352,8 @@ func senderCells(rows []senderRow) [][]string {
 	return cells
 }
 
-// slotRow is one replication slot. slot_name is the join key and a non-pointer,
-// for senderRow.pid's reason; every other field is a pointer because a slot's
-// NULLs all mean something. plugin, datoid, database and confirmed_flush_lsn are
-// NULL for a physical slot by definition; xmin and catalog_xmin for a slot
-// holding no snapshot; restart_lsn and wal_status together for one that never
-// reserved WAL; safe_wal_size for every slot in the cluster while
-// max_slot_wal_keep_size is at its -1 default.
+// slotRow: pointer fields' NULLs are meaningful - plugin/datoid/database/
+// confirmed_flush_lsn are NULL by definition for a physical slot; safe_wal_size is NULL cluster-wide while max_slot_wal_keep_size sits at its -1 default.
 type slotRow struct {
 	slotName          string
 	plugin            *string
@@ -408,9 +371,8 @@ type slotRow struct {
 	safeWALSize       *int64
 	twoPhase          *bool
 
-	// In optionalSlotColumns' order. Each is NULL both where the server lacks
-	// the column and where it does not apply, which optional_columns= in the
-	// header separates.
+	// Matches optionalSlotColumns' order; optional_columns= in the header
+	// disambiguates NULL-because-absent from NULL-because-not-applicable.
 	conflicting        *bool
 	failover           *bool
 	inactiveSince      *time.Time
@@ -419,8 +381,8 @@ type slotRow struct {
 	twoPhaseAt         *string
 }
 
-// readSlots returns the rows and the presence set for the block header, nil
-// where the server has none of the optional columns and where there are no rows.
+// readSlots returns the rows and the presence set for the block header; the
+// latter is nil if the server has none of the optional columns or there are no rows.
 func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, *string, error) {
 	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
@@ -498,9 +460,7 @@ func slotCells(rows []slotRow) [][]string {
 			boolText(row.twoPhase),
 			boolText(row.conflicting),
 			boolText(row.failover),
-			// Through timeText, not as the extraction rendered it: the
-			// ::timestamptz cast is what keeps this in the artifact's timestamp
-			// form rather than jsonb's +00:00 offset form.
+			// timeText, not raw text: the ::timestamptz cast avoids jsonb's +00:00 offset form.
 			timeText(row.inactiveSince),
 			text(row.invalidationReason),
 			boolText(row.synced),

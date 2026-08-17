@@ -41,18 +41,12 @@ var Wg sync.WaitGroup
 type CaptureOptions struct {
 	DotnetAsyncGCPaths map[int]string // pid → absolute path to accumulated async GC log
 
-	// SkipPostgres suppresses the database capture for this call: FullCapture
-	// runs once per pid, and the database target has no pid relationship.
-	//
-	// Unreachable while agent.Run refuses a database target alongside an
-	// application one, but that exclusion is a product decision. Spelled as an
-	// opt-out so a call site that forgets it duplicates the capture visibly
-	// rather than disabling it silently.
+	// SkipPostgres suppresses the database capture for this call.
 	SkipPostgres bool
 }
 
-// withSkipPostgres returns opts with the database capture suppressed, merging
-// rather than replacing: M3 threads DotnetAsyncGCPaths through here.
+// withSkipPostgres merges the flag into opts rather than replacing it, so M3's
+// DotnetAsyncGCPaths survives.
 func withSkipPostgres(opts []CaptureOptions) []CaptureOptions {
 	merged := CaptureOptions{}
 	if len(opts) > 0 {
@@ -262,13 +256,11 @@ Ignored errors: %v
 	tdPath := config.GlobalConfig.ThreadDumpPath
 	hdPath := config.GlobalConfig.HeapDumpPath
 
-	// A database-only run reaches FullCapture with no target process. Everything
-	// below that reads, probes or executes against the pid is gated on this.
+	// A database-only run reaches FullCapture with no target process; pid-dependent work below is gated on this.
 	pidPassed := pid > 0
 
 	if pidPassed {
-		// UpdatePaths runs the configured gc/td/hdCaptureCmd with whatever pid it
-		// is handed - ungated, that is a customer's own command against pid 0.
+		// Ungated, this would run the customer's gc/td/hdCaptureCmd against pid 0.
 		UpdatePaths(pid, &gcPath, &tdPath, &hdPath)
 	}
 
@@ -334,9 +326,8 @@ Ignored errors: %v
 
 	appRuntime := config.GetAppRuntime(pid)
 
-	// GetAppRuntime(0) returns the "java" default, so without this guard a
-	// database-only run spawns captures against a process that does not exist.
-	// appRuntime stays declared above because the heap-dump block reads it too.
+	// GetAppRuntime(0) defaults to "java"; without this guard a database-only run would spawn Java captures.
+	// appRuntime is declared above pidPassed since the heap-dump block below also reads it.
 	if pidPassed {
 		switch appRuntime {
 		case "dotnet":
@@ -506,14 +497,8 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	//   				Capture PostgreSQL
 	// ------------------------------------------------------------------------------
-	// Alongside ping and kernel: captures with no relationship to the pid. The
-	// block's presence is the switch.
-	//
-	// One task for every database artifact, and it spawns inside this guard so
-	// the run-scoping that keeps a multi-pid run to one database capture covers
-	// it; a spawn outside it would open one capture window per resolved pid. It
-	// holds its window open for the configured captureDuration, which is what
-	// makes a database-only run take minutes.
+	// No pid relationship, like ping/kernel; the postgres: block's presence is the switch.
+	// Holds its window open for captureDuration, which is why a database-only run takes minutes.
 	var pgCapture chan capture.Result
 	skipPostgres := len(opts) > 0 && opts[0].SkipPostgres
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() && !skipPostgres {
@@ -589,8 +574,7 @@ Falling back to capture all configured appLogs without appName filtering.`)
 		}
 	}
 
-	// Auto-discovery probes the pid's open files; with no pid it would only log
-	// an error for the absence.
+	// Auto-discovery probes the pid's open files; skip when there is no pid.
 	if pidPassed && !useGlobalConfigAppLogs {
 		// Auto discover app logs
 		discoveredLogFiles, err := capture.DiscoverOpenedLogFilesByProcess(pid)
@@ -839,9 +823,7 @@ Resp: %s
 	// -------------------------------
 	//     Transmit PostgreSQL artifacts
 	// -------------------------------
-	// One completion record for the whole database capture, however many
-	// artifacts it wrote. This is also where the run waits out the capture
-	// window, by design: running it to completion is what the artifacts are.
+	// One record for the whole database capture; this is where the run blocks until the capture window completes.
 	if pgCapture != nil {
 		logger.Log("Reading result from postgres capture channel")
 		result := <-pgCapture
@@ -910,9 +892,8 @@ Resp: %s
 	// -------------------------------
 	//     Transmit Heap dump result (Java only)
 	// -------------------------------
-	// Gated on the pid as well as the runtime: this block is outside the runtime
-	// switch, and GetAppRuntime's "java" default would write a HEAP DUMP DATA
-	// section into a bundle with no application in it.
+	// pidPassed guard needed: this block is outside the runtime switch, so
+	// GetAppRuntime's "java" default would write HEAP DUMP DATA for a database-only run.
 	if pidPassed && appRuntime != "dotnet" && appRuntime != "nodejs" {
 		ep := fmt.Sprintf("%s/yc-receiver-heap?%s", config.GlobalConfig.Server, parameters)
 		effectiveHd := hd && !config.GlobalConfig.MinimalTouch
@@ -1110,8 +1091,7 @@ const (
 	tagHookMode   = "hook-mode"
 	tagSignalMode = "signal-mode"
 
-	// tagPostgres describes the configuration rather than a detected runtime:
-	// a database-only run has no application runtime to detect.
+	// tagPostgres marks configuration intent, not a detected runtime.
 	tagPostgres = "postgres"
 )
 
@@ -1134,9 +1114,8 @@ func computeSystemTags(appRuntime, nodejsCaptureMode string, postgresConfigured 
 		}
 	}
 
-	// Intent only, deliberately not the mode: that needs a connection, and
-	// meta-info.txt is written before any capture runs. pg_metadata.txt carries
-	// the mode.
+	// Intent only, not the mode: meta-info.txt is written before capture runs;
+	// pg_metadata.txt carries the mode.
 	if postgresConfigured {
 		tags = mergeTags(tags, tagPostgres)
 	}
@@ -1177,9 +1156,8 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	var jv string
 	appRuntime := config.GetAppRuntime(processId)
 
-	// GetAppRuntime(0) returns the "java" default, so a database-only run would
-	// fall through to the java -version exec below and record `javaVersion err:
-	// ...` for an application that was never part of the run.
+	// GetAppRuntime(0) defaults to "java"; without this guard a database-only run
+	// would exec java -version and record a spurious javaVersion error.
 	if processId > 0 {
 		switch appRuntime {
 		case "dotnet":

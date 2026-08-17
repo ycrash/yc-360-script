@@ -73,8 +73,6 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("a configured postgres block conflicts with an application target", func(t *testing.T) {
-		// Run() is safe to call here for the same reason as the cases above:
-		// every one of these returns before any capture starts.
 		for _, tt := range []struct {
 			name    string
 			options config.Options
@@ -93,8 +91,6 @@ func TestRun(t *testing.T) {
 	})
 }
 
-// Tested directly because the case that matters most - a configured block and
-// nothing else - proceeds to a capture, so Run() cannot reach it in a unit test.
 func TestCheckRunTargets(t *testing.T) {
 	logger.Init("", 0, 0, "info")
 
@@ -110,7 +106,6 @@ func TestCheckRunTargets(t *testing.T) {
 		{name: "API mode on its own", apiMode: true},
 		{name: "ondemand and m3", onDemandMode: true, m3Mode: true, want: ErrConflictingMode},
 
-		// The database target and an application target are separate runs.
 		{name: "postgres and a PID", onDemandMode: true, dbTarget: true, want: ErrConflictingMode},
 		{name: "postgres and M3", m3Mode: true, dbTarget: true, want: ErrConflictingMode},
 		{name: "postgres and API mode", apiMode: true, dbTarget: true, want: ErrConflictingMode},
@@ -123,8 +118,6 @@ func TestCheckRunTargets(t *testing.T) {
 	}
 }
 
-// Stands between the database-only invocation and a whole-host capture storm:
-// an empty -p reaching the token fallback matches every process on the machine.
 func TestResolveCapturePids(t *testing.T) {
 	logger.Init("", 0, 0, "info")
 
@@ -141,9 +134,6 @@ func TestResolveCapturePids(t *testing.T) {
 	})
 
 	t.Run("a token that matches nothing captures nothing", func(t *testing.T) {
-		// Not []int{0}: a database-only run is the only thing that may capture
-		// pid 0, and a run with a token is by definition not one - the target
-		// gate refuses a block alongside any -p value.
 		assert.Empty(t, resolveCapturePids("nonexistent-token"))
 	})
 }

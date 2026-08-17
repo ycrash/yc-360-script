@@ -125,7 +125,6 @@ type Options struct {
 	NodejsCPUProfileDuration Duration `yaml:"nodejsCPUProfileDuration" usage:"Node.js hook-mode V8 CPU profile window (1s-300s, default 30s)."`
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
 
-	// PostgreSQL capture target
 	Postgres *Postgres `yaml:"postgres"`
 }
 
