@@ -12,11 +12,8 @@ import (
 // (application_name, backend_type) pairs rather than applications.
 const DefaultMaxConnectionGroups = 1000
 
-// checkpointColumns is the server's merge contract: the pre-17 names on every
-// version, so a receiver carries no mapping table. Two reset clocks because
-// PostgreSQL 17 split the counters across two independently resettable views,
-// where one clock would hide the other view's reset; below 17 they are one
-// column read twice.
+// checkpointColumns uses the pre-17 names on every version, so no mapping table is needed. Two
+// reset-clock columns because PG17 split counters across two independently resettable views.
 var checkpointColumns = []string{
 	"checkpoints_timed",
 	"checkpoints_req",
@@ -35,11 +32,8 @@ var connectionColumns = []string{
 
 var walColumns = []string{"wal_bytes"}
 
-// checkpointSQL reads the two views PostgreSQL 17 split the counters across;
-// both return one row, so the cross join returns one. buffers_backend is a typed
-// NULL rather than a dropped column, so the column set is identical on every
-// version: 0 would mean backends wrote no buffers, empty means 17 stopped
-// counting.
+// checkpointSQL reads the two views PG17 split counters across (both single-row, so the cross join
+// is safe). buffers_backend is a typed NULL, not dropped: 0 would wrongly mean "wrote no buffers".
 const checkpointSQL = `SELECT c.num_timed,
        c.num_requested,
        c.buffers_written,
@@ -50,8 +44,7 @@ const checkpointSQL = `SELECT c.num_timed,
 FROM pg_catalog.pg_stat_checkpointer c,
      pg_catalog.pg_stat_bgwriter b`
 
-// checkpointSQLPre17 reads the same column set from the one view that held it
-// before the split.
+// checkpointSQLPre17 reads the same columns from the one view that held them before PG17 split it.
 const checkpointSQLPre17 = `SELECT checkpoints_timed,
        checkpoints_req,
        buffers_checkpoint,
@@ -61,15 +54,8 @@ const checkpointSQLPre17 = `SELECT checkpoints_timed,
        stats_reset AS bgwriter_stats_reset
 FROM pg_catalog.pg_stat_bgwriter`
 
-// connectionsSQL counts the processes that exist as the window closes.
-//
-// backend_type groups rather than filters: whether the extra rows are parallel
-// workers or autovacuum workers is a finding. The agent's own session stays in,
-// so the block agrees with a hand-run count(*).
-//
-// Ordering on a statistic is a ranking, which the other start-and-end collectors
-// forbid. Safe only because this block is written once; a second sample would
-// have to go back to a stable key.
+// connectionsSQL groups rather than filters by backend_type: parallel/autovacuum workers show as
+// their own rows. ORDER BY count(*) is safe only because this block is written once, not sampled twice.
 const connectionsSQL = `SELECT application_name::text,
        backend_type::text,
        count(*) AS active_connections,
@@ -79,16 +65,13 @@ GROUP BY application_name, backend_type
 ORDER BY count(*) DESC, application_name, backend_type
 LIMIT $1`
 
-// walSQL needs pg_monitor or superuser. A role holding only LOGIN is denied,
-// and the block then says so rather than the artifact failing.
+// walSQL needs pg_monitor or superuser; a LOGIN-only role is denied and the block says so.
 const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
 
-// Capacity captures checkpoint pressure across the window, and the connection
-// distribution and WAL volume as it closes. The checkpoint columns are
-// cumulative counters; the deltas are the server's.
+// Capacity captures checkpoint pressure across the window, and connection distribution and WAL
+// volume as it closes. Checkpoint columns are cumulative counters; deltas are the server's.
 type Capacity struct {
-	// MaxConnectionGroups bounds the connection block. Zero takes
-	// DefaultMaxConnectionGroups.
+	// MaxConnectionGroups bounds the connection block; zero takes DefaultMaxConnectionGroups.
 	MaxConnectionGroups int
 }
 
@@ -99,22 +82,15 @@ func (Capacity) Artifact() Artifact {
 		Scope:    "cluster",
 		Schedule: StartEnd(),
 
-		// Three statements on the closing sample, which moduleDeadline sums
-		// against the other collectors due there.
+		// Three statements on the closing sample; moduleDeadline sums this against other collectors.
 		SampleBudget: 3 * StatementTimeout,
 	}
 }
 
-// Sample writes the checkpoint block every time and the two gauges only as the
-// window closes: active_connections and wal_bytes are readings of what exists
-// now, so a start-and-end pair would be two unrelated numbers, not a delta.
-// Index == Total also holds for a degenerate window's single sample.
-//
-// Each block turns its own read failure into an error= header and an empty body,
-// so an error means the write failed, not that any read did.
+// Sample writes the checkpoint block every time, and the two gauges (active_connections, wal_bytes)
+// only as the window closes, since those are point-in-time readings, not deltas.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	// N blocks, one buffer, one Write: a write failing between two of them would
-	// leave the window's stub block behind a half-written sample.
+	// One buffer, one Write: avoids leaving a half-written sample if a write fails mid-block.
 	var sample bytes.Buffer
 
 	if err := c.writeCheckpointBlock(ctx, q, &sample, s); err != nil {
@@ -136,8 +112,8 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 	return err
 }
 
-// writeCheckpointBlock writes views= whether or not the read succeeded: which
-// variant was attempted is what explains the error beside it.
+// writeCheckpointBlock writes views= whether or not the read succeeded, so it can explain the
+// error beside it.
 func (c Capacity) writeCheckpointBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	row, err := readCheckpoint(ctx, q, s.HasPgStatCheckpointer)
 
@@ -159,9 +135,8 @@ func (c Capacity) writeCheckpointBlock(ctx context.Context, q RowQuerier, w io.W
 	return writeRows(w, checkpointColumns, checkpointCells(row))
 }
 
-// writeConnectionsBlock drops the count keys on a failed read rather than
-// writing zeroes: groups_total=0 would assert that the server has no
-// connections, where the truth is that nobody could count them.
+// writeConnectionsBlock drops the count keys on a failed read rather than writing zeroes:
+// groups_total=0 would falsely assert zero connections.
 func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	rows, total, err := c.readConnections(ctx, q)
 
@@ -205,9 +180,8 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 		return err
 	}
 
-	// A NULL sum writes no row rather than one empty cell: this is the only
-	// single-column body in the package, so an all-empty row is a blank line a
-	// CSV reader skips. error= is what separates that from a failed read.
+	// NULL sum writes no row, not an empty cell: the only single-column body in the package, so an
+	// empty row would be a blank line a CSV reader skips. error= distinguishes this from a failed read.
 	var cells [][]string
 	if err == nil && bytesWritten != nil {
 		cells = [][]string{{int64Text(bytesWritten)}}
@@ -216,8 +190,8 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	return writeRows(w, walColumns, cells)
 }
 
-// checkpointRow's columns are all pointers: buffers_backend is a typed NULL from
-// 17 on, and stats_reset is NULL on a server never reset.
+// checkpointRow's columns are pointers: buffers_backend is a typed NULL from PG17 on; stats_reset
+// is NULL if the server was never reset.
 type checkpointRow struct {
 	checkpointsTimed  *int64
 	checkpointsReq    *int64
@@ -250,9 +224,8 @@ func readCheckpoint(ctx context.Context, q RowQuerier, hasPgStatCheckpointer boo
 	return &row, nil
 }
 
-// checkpointStatement selects on the capability, not a version number. False on
-// a 17 server is the identify fallback, and lands on a block carrying the
-// undefined-column error rather than on a wrong answer.
+// checkpointStatement selects on the capability, not a version number, so a false positive on 17
+// lands on the undefined-column error rather than a wrong answer.
 func checkpointStatement(hasPgStatCheckpointer bool) string {
 	if hasPgStatCheckpointer {
 		return checkpointSQL
@@ -261,9 +234,8 @@ func checkpointStatement(hasPgStatCheckpointer bool) string {
 	return checkpointSQLPre17
 }
 
-// checkpointViews is the block's provenance. source= is the parser's dispatch
-// key and must be stable across versions; views= has to vary, because from 17 on
-// three of these columns do not come from pg_stat_bgwriter at all.
+// checkpointViews is the block's provenance: views= varies since PG17, when three of these columns
+// stopped coming from pg_stat_bgwriter.
 func checkpointViews(hasPgStatCheckpointer bool) string {
 	if hasPgStatCheckpointer {
 		return "pg_stat_checkpointer,pg_stat_bgwriter"
@@ -288,11 +260,8 @@ func checkpointCells(row *checkpointRow) [][]string {
 	}}
 }
 
-// connectionRow is one (application_name, backend_type) group. backend_type is
-// NULL for a backend the role cannot see without pg_read_all_stats: the row
-// still counts, so the total stays right while the grain collapses, which is a
-// finding about the grant. application_name is empty there, and for a connection
-// that never set one - masking leaves it empty rather than NULL on 14 to 18.
+// connectionRow is one (application_name, backend_type) group. backend_type is NULL when the role
+// lacks pg_read_all_stats (row still counts); masking leaves application_name empty, not NULL, on 14-18.
 type connectionRow struct {
 	applicationName *string
 	backendType     *string

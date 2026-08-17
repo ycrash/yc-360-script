@@ -8,12 +8,10 @@ import (
 	"time"
 )
 
-// DefaultMaxTables guards against a pathological schema making the artifact
-// unbounded. When it fires the header says so.
+// DefaultMaxTables bounds one sample against a pathological schema.
 const DefaultMaxTables = 10000
 
-// bloatColumns is the server's merge contract. relid leads because it is the
-// join key - relname alone is not unique across schemas.
+// relid leads: it's the join key, relname alone isn't unique across schemas.
 var bloatColumns = []string{
 	"relid",
 	"schemaname",
@@ -30,13 +28,12 @@ var bloatColumns = []string{
 	"index_size_bytes",
 }
 
-// Two statements, split on cost: the size functions stat every relation's files
-// on a filesystem that may itself be sick, and as one statement a large schema
-// would exceed statement_timeout and lose the dead-tuple counts with it.
+// Split into two statements: the size functions stat every relation's files on
+// a filesystem that may itself be sick, and as one statement a large schema
+// could exceed statement_timeout and lose the dead-tuple counts with it.
 
-// bloatStatsSQL is S1. ORDER BY relid is determinism and nothing else: ordering
-// on a statistic changes between the two samples by construction, and capping on
-// it would hand the server two different table sets to merge.
+// ORDER BY relid for determinism only: ordering on a statistic would change
+// between the two samples and cap on two different table sets.
 const bloatStatsSQL = `SELECT relid,
        schemaname::text,
        relname::text,
@@ -53,18 +50,17 @@ FROM pg_catalog.pg_stat_user_tables
 ORDER BY relid
 LIMIT $1`
 
-// bloatSizesSQL is S2, over exactly S1's relids rather than a second scan of
-// the view, which could return a different row set. The LEFT JOIN means a
-// relation dropped between the two statements yields NULL sizes rather than
-// putting a vanished OID into a size function.
+// Queries S1's relids directly, not a second view scan that could return a
+// different row set. LEFT JOIN: a relation dropped between statements yields
+// NULL sizes rather than a vanished OID reaching a size function.
 const bloatSizesSQL = `SELECT o AS relid,
        pg_table_size(c.oid) AS table_size_bytes,
        pg_indexes_size(c.oid) AS index_size_bytes
 FROM unnest($1::oid[]) AS o
 LEFT JOIN pg_catalog.pg_class c ON c.oid = o`
 
-// Bloat captures pg_stat_user_tables at both edges of the window. The ratios and
-// deltas are the server's, computed by joining the two blocks on relid.
+// Bloat captures pg_stat_user_tables at both edges of the window; deltas are
+// computed downstream by joining the two blocks on relid.
 type Bloat struct {
 	// MaxTables bounds one sample. Zero takes DefaultMaxTables.
 	MaxTables int
@@ -79,11 +75,9 @@ func (Bloat) Artifact() Artifact {
 	}
 }
 
-// Sample runs S1, then S2 over S1's relids, and writes one block.
-//
-// A failed S1 returns an error having written nothing, and the window records
-// the missing sample. A failed S2 is not an error: losing two columns is not
-// losing the sample, so the sizes are written empty and the header says why.
+// Sample runs S1, then S2 over S1's relids, and writes one block. A failed S1
+// errors and writes nothing; a failed S2 leaves sizes empty but still writes
+// the sample.
 func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	rows, total, err := b.readStats(ctx, q)
 	if err != nil {
@@ -108,12 +102,10 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 		)
 	}
 
-	// One block or nothing: a write failing after the header would leave the
-	// window's stub block behind a half-written body.
+	// Buffered so a write failure never leaves a half-written body.
 	var block bytes.Buffer
 
-	// The block names the view it read; the window's own blocks name the
-	// artifact.
+	// Named for the view read; the window's own blocks name the artifact.
 	if err := writeBlockHeader(&block, "pg_stat_user_tables", b.Artifact().Scope, fields, s.At); err != nil {
 		return err
 	}
@@ -127,10 +119,9 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 	return err
 }
 
-// bloatRow is one table's row, held between the two statements so the sizes can
-// be merged onto it by relid. Every counter is a pointer because 0 for idx_scan
-// means "indexed and never scanned", which is a finding, where empty means "no
-// indexes", which is not.
+// bloatRow holds one table between the two statements so sizes can be merged
+// onto it by relid. Counters are pointers: 0 for idx_scan means "indexed,
+// never scanned" (a finding); nil means "no indexes".
 type bloatRow struct {
 	relid          uint32
 	schemaName     string
@@ -199,9 +190,9 @@ func (b Bloat) readStats(ctx context.Context, q RowQuerier) ([]bloatRow, int64, 
 	return collected, total, nil
 }
 
-// readBloatSizes merges S2's two columns onto rows, in place. Nothing is
-// assigned until the whole result has been read, so a failure part-way through
-// leaves every row's sizes empty rather than some sized and some not.
+// readBloatSizes merges S2 onto rows in place. Nothing is assigned until the
+// whole result is read, so a failure mid-read leaves every row's sizes empty
+// rather than some sized and some not.
 func readBloatSizes(ctx context.Context, q RowQuerier, rows []bloatRow) error {
 	if len(rows) == 0 {
 		return nil
@@ -243,9 +234,8 @@ func readBloatSizes(ctx context.Context, q RowQuerier, rows []bloatRow) error {
 	}
 
 	for i := range rows {
-		// A relid absent from the join vanished between the two statements. Its
-		// sizes stay empty, which stays distinct from a relation with no storage
-		// of its own - the size functions report that as 0, not NULL.
+		// A relid absent vanished mid-sample: sizes stay empty, distinct from
+		// "no storage", which the size functions report as 0, not NULL.
 		if found, ok := sizes[rows[i].relid]; ok {
 			rows[i].tableSize = found.table
 			rows[i].indexSize = found.index

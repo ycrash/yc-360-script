@@ -82,7 +82,6 @@ func validate() error {
 		}
 	}
 
-	// PostgreSQL capture target.
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
 		warnings, err := pg.Validate()
 

@@ -19,13 +19,10 @@ type Postgres struct {
 	Password string `yaml:"password"`
 	SSLMode  string `yaml:"sslmode"`
 
-	// CaptureDuration is a pointer because `captureDuration: 0s` and an omitted
-	// key both decode to zero on a value field: nil is absent and takes the
-	// default, where a non-nil zero is a configuration error.
+	// Pointer: nil (key omitted) takes the default; 0s is a configuration error.
 	CaptureDuration *Duration `yaml:"captureDuration"`
 }
 
-// Defaults applied by Validate when the corresponding key is omitted.
 const (
 	DefaultPostgresPort = 5432
 
@@ -38,8 +35,7 @@ const (
 	// DefaultPostgresCaptureDuration matches the host capture's own span.
 	DefaultPostgresCaptureDuration = 120 * time.Second
 
-	// MaxPostgresCaptureDuration bounds a window whatever the file asks for: it
-	// is a load commitment against a shared database.
+	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a shared database.
 	MaxPostgresCaptureDuration = 600 * time.Second
 )
 
@@ -51,8 +47,7 @@ var postgresEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 func (p *Postgres) IsConfigured() bool { return p != nil }
 
-// String redacts the password. It carries captureDuration because the
-// effective-configuration echo is the only place an operator reads it back.
+// String redacts the password.
 func (p *Postgres) String() string {
 	if p == nil {
 		return "<nil>"
@@ -75,24 +70,19 @@ func (p *Postgres) String() string {
 	)
 }
 
-// GoString redacts under %#v, which ignores String - and capture.WrapRun formats
-// a failing task with that verb into an agent log that is itself uploaded.
-//
-// The receiver is a value because fmt can only reach GoString on a nested,
-// non-addressable struct field through the value method set.
+// GoString redacts under %#v (String is skipped); capture.WrapRun logs failing
+// tasks via %#v into an uploaded log. Value receiver: reaches non-addressable struct fields.
 func (p Postgres) GoString() string {
 	return "config.Postgres{" + p.String() + "}"
 }
 
-// Validate normalizes the block in place. Single-call by contract: it applies
-// defaults destructively and emits one-shot warnings.
+// Validate normalizes the block in place; not idempotent (destructive defaults, one-shot warnings).
 func (p *Postgres) Validate() (warnings []string, err error) {
 	if p == nil {
 		return nil, nil
 	}
 
-	// Password is deliberately not trimmed: a quoted YAML scalar preserves
-	// surrounding whitespace, and a password must reach the driver byte-exact.
+	// Password is not trimmed: it must reach the driver byte-exact.
 	p.Host = strings.TrimSpace(p.Host)
 	p.Database = strings.TrimSpace(p.Database)
 	p.Username = strings.TrimSpace(p.Username)
@@ -126,8 +116,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		p.SSLMode = DefaultPostgresSSLMode
 	}
 
-	// Clamped above the ceiling, rejected at or below zero: 900s is an intent
-	// that can be honoured in part, where 0s expresses nothing.
+	// Over-ceiling clamps and warns (partial intent); non-positive is rejected outright.
 	switch {
 	case p.CaptureDuration == nil:
 		p.CaptureDuration = newDuration(DefaultPostgresCaptureDuration)
@@ -217,9 +206,8 @@ func newDuration(d time.Duration) *Duration {
 	return &wrapped
 }
 
-// isZero reports whether the block names no target. CaptureDuration is
-// deliberately absent: a block whose only key is captureDuration has not said
-// what to capture, and "present but empty" is the better error for it.
+// isZero reports whether the block names no target. CaptureDuration is excluded:
+// captureDuration alone hasn't said what to capture, so that case gets the "empty" error.
 func (p *Postgres) isZero() bool {
 	return p.Host == "" &&
 		p.Port == 0 &&

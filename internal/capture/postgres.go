@@ -18,8 +18,8 @@ import (
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
 
-// The receiver's data types, the same contract: classification is an exact
-// string match, so drift drops the artifact silently at the far end.
+// pgDTMetadata and the dt consts below are an exact-match contract with the
+// receiver; drift drops the artifact silently.
 const pgDTMetadata = "pgMeta"
 
 const PostgresBloatFileName = "pg_bloat.txt"
@@ -56,9 +56,9 @@ const PostgresTimeoutsFileName = "pg_timeouts.txt"
 
 const pgDTTimeouts = "pgTimeouts"
 
-// pgSampledDataType is empty for an artifact the server team has not assigned
-// one. An invented dt is dropped silently, so an unassigned artifact is written
-// into the bundle and its upload skipped with a message naming the reason.
+// pgSampledDataType returns "" for an artifact with no assigned dt: an invented
+// value would upload and drop silently, so the caller writes the artifact but
+// skips the upload with an explicit reason instead.
 func pgSampledDataType(artifact postgres.Artifact) string {
 	switch artifact.Name {
 	case "pg_metadata":
@@ -92,27 +92,24 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 	return ""
 }
 
-// PostgresCapture is the run's only database task: every artifact registers as a
-// collector here rather than as a task of its own, which is what keeps one run to
-// one connection. Target is a pointer so %v, %+v and %#v route through
-// config.Postgres's String and GoString, which redact the password.
+// PostgresCapture runs every postgres artifact as one collector each over a
+// single connection. Target is a pointer so %v/%+v/%#v route through
+// config.Postgres's String/GoString, which redact the password.
 type PostgresCapture struct {
 	Capture
 	Target *config.Postgres
 
-	// mu guards cancel, which Run sets and Kill reads from another goroutine.
+	// mu guards cancel, set by Run and read by Kill from another goroutine.
 	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
 // Run opens the window, writes every artifact, and uploads each under its own dt.
 // Only a file-I/O failure returns a non-nil error: a refused connection is a
-// successful capture of a failure, and WrapRun overwrites Result.Msg on error -
+// successful capture of a failure, and WrapRun overwrites Result.Msg on error,
 // which would bury the connect_error the artifacts exist to record.
 func (p *PostgresCapture) Run() (Result, error) {
 	if p.Target == nil {
-		// A result rather than an error keeps a wiring mistake out of WrapRun's
-		// %#v of the task.
 		return Result{Msg: "skipped postgres capture window: no postgres block configured"}, nil
 	}
 
@@ -149,14 +146,11 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	results := window.Run(ctx)
 
-	// Into a value rather than held on the task: Metadata carries no password
-	// where the collector holds the target, and WrapRun logs a failing task
-	// with %#v.
 	return p.uploadArtifacts(results, metadata.Collected())
 }
 
-// Kill is overridden rather than inherited: Capture.Kill returns nil when Cmd is
-// nil, so the capture would ignore teardown and hold the run open.
+// Kill overrides Capture.Kill, which returns nil when Cmd is nil and would
+// otherwise ignore teardown and hold the run open.
 func (p *PostgresCapture) Kill() error {
 	p.mu.Lock()
 	cancel := p.cancel
@@ -176,8 +170,8 @@ func (p *PostgresCapture) setCancel(cancel context.CancelFunc) {
 	p.cancel = cancel
 }
 
-// captureDuration is the configured window. Validate defaults and clamps it, so
-// a nil here means a block that never went through validation.
+// captureDuration returns the configured window, defaulting a nil duration
+// (a config block that never went through Validate).
 func (p *PostgresCapture) captureDuration() time.Duration {
 	if p.Target.CaptureDuration == nil {
 		return config.DefaultPostgresCaptureDuration
@@ -186,8 +180,6 @@ func (p *PostgresCapture) captureDuration() time.Duration {
 	return p.Target.CaptureDuration.Duration()
 }
 
-// uploadArtifacts keeps each capture summary in front of what its transmission
-// had to say.
 func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, collected postgres.Metadata) (Result, error) {
 	defer func() {
 		for _, artifact := range artifacts {
@@ -235,17 +227,14 @@ func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, c
 	return Result{Msg: strings.Join(messages, " | "), Ok: ok}, nil
 }
 
-// postgresArtifactSummary gives pg_metadata.txt a reading rather than a count:
-// its Once() schedule makes "1/1 samples" true and useless, where the capture
-// mode decides which artifacts are possible at all. The adapter is the layer
-// allowed to know which artifact is which; the window deliberately is not.
+// postgresArtifactSummary gives pg_metadata.txt a reading rather than a sample
+// count: its Once() schedule makes "1/1 samples" true and useless.
 func postgresArtifactSummary(artifact postgres.ArtifactResult, collected postgres.Metadata) string {
 	if artifact.Artifact.Name != "pg_metadata" {
 		return postgresArtifactMessage(artifact)
 	}
 
-	// The collector never reached the server, so the window holds the only
-	// account of why.
+	// The window holds the only account of why: the collector never reached the server.
 	if artifact.Status == postgres.StatusConnectFailed {
 		collected.ConnectError = artifact.Err
 	}
@@ -296,8 +285,7 @@ func postgresResultMessage(metadata postgres.Metadata) string {
 
 	parts := []string{fmt.Sprintf("%s written (mode=%s)", PostgresMetadataFileName, metadata.CaptureMode)}
 
-	// Named neutrally rather than as denials: a statement timeout reaches here
-	// identically, and calling that a denial misdirects the reader.
+	// Named neutrally, not as denials: a statement timeout reaches here identically.
 	for _, probe := range []struct{ name, err string }{
 		{"server facts query failed", metadata.QueryError},
 		{"pg_current_logfile failed", metadata.CurrentLogfileError},

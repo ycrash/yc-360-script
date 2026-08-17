@@ -196,15 +196,9 @@ func TestComputeSystemTags(t *testing.T) {
 		{"java default runtime", "java", "", false, ""},
 		{"unknown/empty appRuntime", "", "", false, ""},
 
-		// A database-only run: no pid, so GetAppRuntime's default arrives here.
-		// The tag says a capture was attempted, deliberately not which mode it
-		// got - that needs a connection, and meta-info.txt is written first.
 		{"database-only run", "java", "", true, "postgres"},
 		{"database-only run, unknown runtime", "", "", true, "postgres"},
 
-		// Unreachable while agent.Run refuses a run nominating both targets.
-		// Kept because this function is pure and the merge is the property
-		// under test: a database tag must not replace the runtime tags.
 		{"postgres alongside a nodejs capture merges", "nodejs", "signal", true, "nodejs,signal-mode,postgres"},
 		{"postgres alongside a dotnet capture merges", "dotnet", "", true, ".net,postgres"},
 	}

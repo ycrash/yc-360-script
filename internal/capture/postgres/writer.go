@@ -21,11 +21,6 @@ const (
 	formatText = "text"
 )
 
-// Every artifact is a sequence of blocks: a header line, then a CSV body. Bodies
-// go through encoding/csv rather than a hand-rolled join - version() and
-// shared_preload_libraries contain commas in practice, and an identifier can
-// contain anything at all.
-
 type field struct {
 	key   string
 	value string
@@ -37,7 +32,7 @@ func writeKeyValueBody(w io.Writer, fields []field) error {
 	return writeFields(w, append([]field{{key: "key", value: "value"}}, fields...))
 }
 
-// targetFields is what was configured. There is deliberately no password row.
+// targetFields is what was configured; deliberately no password row.
 func targetFields(m Metadata) []field {
 	return []field{
 		{"agent_ts", timestamp(m.AgentTS)},
@@ -50,15 +45,15 @@ func targetFields(m Metadata) []field {
 	}
 }
 
-// serverBlockFields has deliberately no connect_error row: this block is written
-// only where there was a connection, so the key could only ever be empty. Where
-// it can be non-empty is the closing block's header, which the window writes.
+// serverBlockFields deliberately has no connect_error row: this block is only
+// written where there was a connection. connect_error appears in the closing
+// block's header instead.
 func serverBlockFields(m Metadata) []field {
 	return append([]field{{"capture_mode", m.CaptureMode}}, serverFields(m)...)
 }
 
-// serverFields is every row requiring a connection, in artifact order. All are
-// written whether or not the statement behind them succeeded.
+// serverFields is every row requiring a connection, written whether or not the
+// statement behind it succeeded.
 func serverFields(m Metadata) []field {
 	return []field{
 		{"current_database", m.CurrentDatabase},
@@ -131,16 +126,9 @@ type headerField struct {
 //
 //	# engine=postgres source=<source> v=<n> format=csv scope=<scope> [k=v ...] ts=<ts>
 //
-// The fixed keys bracket the caller's, so a reader finds the block's identity
-// and its clock read without parsing the middle. An empty value is still written
-// (dbid= before a connection exists) and means "not read". Header keys, unlike
-// body keys, may also be conditional - error= and connect_error= appear only
-// when what they describe happened, and absence is itself the value.
-//
-// It keeps its signature and its twelve collector callers: format=csv is correct
-// at every one of them, and a parameter reading formatCSV twelve times is noise
-// at sites where the format has never been in question. A collector writing a
-// text body calls writeBlockHeaderFormat directly.
+// An empty value means "not read" (e.g. dbid= before a connection exists); a
+// missing key (error=, connect_error=) means the thing it describes didn't
+// happen. Always format=csv; a text body calls writeBlockHeaderFormat directly.
 func writeBlockHeader(w io.Writer, source, scope string, fields []headerField, ts time.Time) error {
 	return writeBlockHeaderFormat(w, source, scope, formatCSV, fields, ts)
 }
@@ -171,13 +159,10 @@ func writeBlockHeaderFormat(w io.Writer, source, scope, format string, fields []
 // DETAIL and HINT, and a kilobyte has nowhere to wrap in header space.
 const maxHeaderValue = 200
 
-// headerValue quotes anything that would break the space-delimited k=v
-// tokenisation. QuoteToGraphic rather than Quote: Quote escapes non-ASCII to
-// \uXXXX, and a database or relation name may legally be non-ASCII.
-//
-// The parser rule this pins: split on unquoted whitespace, and a value beginning
-// with a double quote runs to the next unescaped one, escaped by the set
-// strconv.Unquote accepts.
+// headerValue quotes anything that would break space-delimited k=v tokenisation.
+// QuoteToGraphic, not Quote: Quote escapes non-ASCII to \uXXXX, and identifiers
+// may legally be non-ASCII. Parser rule: split on unquoted whitespace; a value
+// starting with " runs to the next unescaped ", per strconv.Unquote's escapes.
 func headerValue(s string) string {
 	s = truncateRunes(singleLine(s), maxHeaderValue)
 
@@ -211,9 +196,8 @@ func truncateRunes(s string, n int) string {
 	return string(runes[:n]) + "..."
 }
 
-// writeRows writes the column header even with no rows - the shape that
+// writeRows writes the column header even with no rows, the shape that
 // distinguishes "captured and found nothing" from "could not be captured".
-// Every cell goes through singleLine: a quoted identifier may contain a break.
 func writeRows(w io.Writer, columns []string, rows [][]string) error {
 	cw := csv.NewWriter(w)
 
@@ -257,10 +241,9 @@ func writeFields(w io.Writer, fields []field) error {
 
 var lineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
-// singleLine collapses line breaks so one row is one line. Not about the
-// encoding - encoding/csv would quote an embedded newline correctly - but about
-// the artifact's claim that it needs no record-aware parsing. This is the one
-// place the agent mutates a captured value.
+// singleLine collapses line breaks so one row is one line - not for the CSV
+// encoding (which would quote a newline fine) but for the artifact's claim that
+// it needs no record-aware parsing. The one place the agent mutates a captured value.
 func singleLine(s string) string {
 	return lineBreaks.Replace(s)
 }
