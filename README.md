@@ -99,6 +99,8 @@ Before running the script, make sure your Node.js application has the yCrash hoo
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
 
+--------
+
 <strong>For Node.js applications:</strong>
 
 + The yc-360 script must be executed with the same user privileges as the Node.js application.
@@ -165,6 +167,8 @@ Before running the script, make sure your Node.js application has the yCrash hoo
 + To detect memory-related issues, **GC logging** must be enabled for your application. You can enable GC logging by using the JVM arguments listed [here](https://docs.ycrash.io/yc-360/faq/how-to-enable-gc-logs.html).
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
+
+-------
 
 <strong>For Node.js applications:</strong>
 
