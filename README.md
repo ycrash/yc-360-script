@@ -304,6 +304,7 @@ You can run the yc-360 script in an AWS Fargate environment using one of the fol
 <strong>Fargate on ECS:</strong>
 
 [Run yc-360 Script in Sidecar Container for ECS Fargate](https://docs.ycrash.io/yc-360/aws-fargate/deployment-options/run-as-sidecar-container-ecs.html) – Add yc-360 as a sidecar container in your ECS task definition to automatically capture metrics and logs from your application container.
+
 **For Node.js applications**, set `NODE_OPTIONS` on your application's container definition before it starts. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for the full setup.
 </details>
 
