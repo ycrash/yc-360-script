@@ -67,8 +67,18 @@ unzip yc-360-latest.zip
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
+<strong>For Java applications:</strong>
+
 ```sh
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
+```
+
+<strong>For Node.js applications:</strong>
+
+Before running the script, make sure your Node.js application has the yCrash hook loaded. This is a one time setup step on the application side, separate from running yc-360 itself. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for how to configure it.
+
+```sh
+./yc -onlyCapture -p {PID} -appRuntime=nodejs -a {APPLICATION_NAME}
 ```
 
 <strong>INFO:</strong>
@@ -81,11 +91,22 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>IMPORTANT TIP:</strong>
 
+<strong>For Java applications:</strong>
+
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
 + To detect memory-related issues, **GC logging** must be enabled for your application. You can enable GC logging by using the JVM arguments listed [here](https://docs.ycrash.io/yc-360/faq/how-to-enable-gc-logs.html).
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
+
+<strong>For Node.js applications:</strong>
+
++ The yc-360 script must be executed with the same user privileges as the Node.js application.
+
++ The yCrash hook must already be loaded in the target process before the script runs. It can't attach to an application after the fact. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for setup.
+
++ GC Log auto discovery works out of the box on Linux, as long as the application was started with `--trace-gc`.
+
 </details>
 
 <details>
@@ -113,8 +134,18 @@ unzip yc-360-latest.zip
 
 When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
 
+<strong>For Java applications:</strong>
+
 ```sh
 ./yc -onlyCapture -p {PID} -j {JAVA_HOME} -a {APPLICATION_NAME}
+```
+
+<strong>For Node.js applications:</strong>
+
+Before running the script, make sure your Node.js application has the yCrash hook loaded. This is a one time setup step on the application side, separate from running yc-360 itself. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for how to configure it.
+
+```sh
+./yc -onlyCapture -p {PID} -appRuntime=nodejs -a {APPLICATION_NAME}
 ```
 
 <strong>INFO:</strong>
@@ -127,11 +158,22 @@ When you execute the below command, the yc-360 script will capture all the artif
 
 <strong>IMPORTANT TIP:</strong>
 
+<strong>For Java applications:</strong>
+
 + The yc-360 script must be executed with the **same user privileges as the Java application**. For example, if the application runs under the `tomcat-user` user, yc-360 script must also be executed by `tomcat-user` user.
 
 + To detect memory-related issues, **GC logging** must be enabled for your application. You can enable GC logging by using the JVM arguments listed [here](https://docs.ycrash.io/yc-360/faq/how-to-enable-gc-logs.html).
 
 + The yc-360 script doesn't capture heap dump by default. Pass `-hd` argument to capture heap dump. For more information, please visit [How to Capture Heap Dump?](https://docs.ycrash.io/yc-360/faq/how-to-capture-heapdump.html)
+
+<strong>For Node.js applications:</strong>
+
++ The yc-360 script must be executed with the same user privileges as the Node.js application.
+
++ The yCrash hook must already be loaded in the target process before the script runs. It can't attach to an application after the fact. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode)for setup.
+
++ GC Log auto discovery works out of the box on macOS, as long as the application was started with `--trace-gc`.
+
 </details>
 
 <details>
@@ -159,6 +201,14 @@ When the command is executed, the yc-360 script captures all artifacts from the 
 
 ```shell
 .\yc -onlyCapture -appRuntime=dotnet -p {PID}
+```
+
+<strong>For Node.js applications:</strong>
+
+Before running the script, make sure your Node.js application has the yCrash hook loaded. This is a one time setup step on the application side, separate from running yc-360 itself. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for how to configure it.
+
+```shell
+.\yc -onlyCapture -p {PID} -appRuntime=nodejs -a {APPLICATION_NAME}
 ```
 
 <strong>INFO:</strong>
@@ -197,6 +247,12 @@ The yc-360 script auto-detects the target runtime by default. If you need to ove
 ```
 Replace {PID} with the process ID of your .NET application.
 
+--------
+**For Node.js applications:
+
++ The yCrash hook must already be loaded in the target process before the script runs. It can't attach to an application after the fact. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for setup.
+
++ GC Log capture on Windows requires `-nodejsGCLogPath` pointing at your application's redirected output file. There's no auto discovery on this platform. See [`nodejsGCLogPath`](https://docs.ycrash.io/yc-360/arguments-description/nodejsGCLogPath.html).
 </details>
 
 <details>
@@ -209,6 +265,9 @@ You can run the yc-360 script in a Docker environment using one of the following
 2. [Run yc-360 Script in Same Container](https://docs.ycrash.io/yc-360/docker-container/deployment-options/run-yc-360-script-in-same-container.html) – Embed the yc-360 script directly inside the application container.
 
 3. [Run yc-360 Script on Host](https://docs.ycrash.io/yc-360/docker-container/deployment-options/run-yc-360-script-on-host.html) – Run the script on the host that is running your Docker containers.
+
+**For Node.js applications**, set `NODE_OPTIONS` as an environment variable on your application's container before you start it. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for the full setup, including how to point both sides at a shared runtime directory in a containerized deployment.
+
 </details>
 
 <details>
@@ -219,6 +278,8 @@ You can run the yc-360 script in a Kubernetes environment using one of the follo
 1. [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/kubernetes/deployment-options/run-as-sidecar-container.html) – Add yc-360 as a separate container in your pod spec.
 
 2. [Run yc-360 Script in Same Container](https://docs.ycrash.io/yc-360/kubernetes/deployment-options/run-in-same-container.html) – Install and run the script directly inside your application container.
+
+**For Node.js applications**, set `NODE_OPTIONS` in your pod's container `env` spec before the pod starts. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for the full setup.
 </details>
 
 <details>
@@ -227,6 +288,8 @@ You can run the yc-360 script in a Kubernetes environment using one of the follo
 To monitor applications running in OpenShift, deploy the yc-360 script using:
 
 [Run yc-360 Script in Sidecar Container](https://docs.ycrash.io/yc-360/openshift/deployment-options/run-as-sidecar-container.html)– Add yc-360 alongside your application within the pod template.
+
+**For Node.js applications**, set `NODE_OPTIONS` in your pod's container `env` spec before the pod starts. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for the full setup.
 </details>
 
 <details>
@@ -237,6 +300,7 @@ You can run the yc-360 script in an AWS Fargate environment using one of the fol
 <strong>Fargate on ECS:</strong>
 
 [Run yc-360 Script in Sidecar Container for ECS Fargate](https://docs.ycrash.io/yc-360/aws-fargate/deployment-options/run-as-sidecar-container-ecs.html) – Add yc-360 as a sidecar container in your ECS task definition to automatically capture metrics and logs from your application container.
+**For Node.js applications**, set `NODE_OPTIONS` on your application's container definition before it starts. See [Node.js Diagnostic Capture](https://docs.ycrash.io/yc-360/features/nodejs-diagnostic-capture.html#hook-mode) for the full setup.
 </details>
 
 ## How to Analyze the Artifacts Generated by the yc-360-script?
