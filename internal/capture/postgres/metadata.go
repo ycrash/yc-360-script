@@ -45,6 +45,11 @@ type Metadata struct {
 	TargetUsername string
 	TargetSSLMode  string
 
+	// ExplainMode and ExplainLiterals are policy, not readings; they live in the target
+	// block so they survive a refused connection.
+	ExplainMode     string
+	ExplainLiterals string
+
 	// ConnectError is set by the caller. Non-empty means the file stops here.
 	CaptureMode  string
 	ConnectError string
@@ -87,6 +92,15 @@ type Metadata struct {
 	PgStatStatementsTrackPlanning string
 	PgStatStatementsTrackUtility  string
 
+	// auto_explain's GUCs, empty when the module is not loaded in this session. They say
+	// what pg_explain.txt's LOGGED mode could have found; a per-session LOAD is invisible
+	// here.
+	AutoExplainLogMinDuration string
+	AutoExplainLogVerbose     string
+	AutoExplainLogAnalyze     string
+	AutoExplainLogFormat      string
+	AutoExplainSampleRate     string
+
 	SharedPreloadLibraries string
 	SettingsUnavailable    string
 
@@ -115,6 +129,10 @@ type Metadata struct {
 	HasSessionFatalStats    string
 	ComputeQueryID          string
 
+	// HasGenericPlan is EXPLAIN (GENERIC_PLAN)'s PostgreSQL 16 floor as a flag, so a
+	// bundle full of reason=generic_plan_unsupported has a row corroborating it.
+	HasGenericPlan string
+
 	ReplicationConfigured string
 	ReplicationProbeError string
 
@@ -138,8 +156,9 @@ type MetadataCollector struct {
 }
 
 // NewMetadata seeds the collector's pre-connection state, which Collected() returns if the
-// connection never happens.
-func NewMetadata(t Target, yc360Version string, agentNow time.Time) *MetadataCollector {
+// connection never happens. explainMode is config's own value; "" means the key was
+// omitted, which the bundle records as off.
+func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode string) *MetadataCollector {
 	m := &MetadataCollector{
 		target:       t,
 		yc360Version: yc360Version,
@@ -155,6 +174,11 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time) *MetadataCol
 		TargetDatabase:     t.Database,
 		TargetUsername:     t.Username,
 		TargetSSLMode:      t.SSLMode,
+
+		ExplainMode: explainModeText(explainMode),
+
+		// Stated rather than assumed: plans and query text carry the customer's literals.
+		ExplainLiterals: explainLiteralsVerbatim,
 
 		// Unknown until collectLogLocation says otherwise; true for a run whose connection was refused.
 		CaptureMode: ModeUnknown,
@@ -181,9 +205,9 @@ func (m *MetadataCollector) Artifact() Artifact {
 	}
 }
 
-// WritePrologue writes what the run was aimed at, knowable before the network and so survives any
+// WriteOpening writes what the run was aimed at, knowable before the network and so survives any
 // later failure.
-func (m *MetadataCollector) WritePrologue(w io.Writer, s SampleContext) error {
+func (m *MetadataCollector) WriteOpening(w io.Writer, s SampleContext) error {
 	return writeMetadataBlock(w, "pg_metadata_target", []headerField{
 		{"db", s.Database},
 		{"dbid", s.DBID},
@@ -195,8 +219,11 @@ func (m *MetadataCollector) WritePrologue(w io.Writer, s SampleContext) error {
 func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	collected := m.collectWith(ctx, q)
 
-	// Collect returns a fresh value; pre-connection version carried across by hand.
+	// Collect returns a fresh value; these three are intent rather than readings, so they
+	// are carried across by hand.
 	collected.YC360Version = m.yc360Version
+	collected.ExplainMode = m.collected.ExplainMode
+	collected.ExplainLiterals = m.collected.ExplainLiterals
 
 	m.collected = collected
 
@@ -294,6 +321,7 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	m.PgStatStatementsVersion = text(row.pgStatStatements)
 	m.HasPgStatStatements = strconv.FormatBool(m.PgStatStatementsVersion != "")
 	m.HasPgStatCheckpointer = boolText(row.hasCheckpointer)
+	m.HasGenericPlan = boolText(row.hasGenericPlan)
 	m.HasSessionFatalStats = boolText(row.hasSessionFatal)
 
 	m.ServerNow = timeText(row.serverNow)

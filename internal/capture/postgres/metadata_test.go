@@ -62,14 +62,16 @@ func runMetadataWindow(t *testing.T, clock *scriptedClock, collector *MetadataCo
 }
 
 func collecting(m Metadata) *MetadataCollector {
-	collector := NewMetadata(testTarget(), "3.6.1", m.AgentTS)
+	// The mode is supplied at construction, not read; passing the fixture's keeps the
+	// two from disagreeing.
+	collector := NewMetadata(testTarget(), "3.6.1", m.AgentTS, m.ExplainMode)
 	collector.collect = func(context.Context, Querier, Target, time.Time) Metadata { return m }
 
 	return collector
 }
 
 func TestMetadataArtifact(t *testing.T) {
-	artifact := NewMetadata(testTarget(), "3.6.1", testAgentNow).Artifact()
+	artifact := NewMetadata(testTarget(), "3.6.1", testAgentNow, "").Artifact()
 
 	assert.Equal(t, "pg_metadata", artifact.Name)
 	assert.Equal(t, "pg_metadata.txt", artifact.FileName)
@@ -107,7 +109,7 @@ func TestMetadataGoldenConnectFailure(t *testing.T) {
 		metadataAt(12, 54, 215),
 	)
 
-	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, ExplainModeAll)
 
 	results := runMetadataWindow(t, clock, collector,
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
@@ -123,7 +125,7 @@ func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
 		metadataAt(12, 54, 215),
 	)
 
-	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, "")
 
 	results := runMetadataWindow(t, clock, collector,
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })
@@ -157,7 +159,7 @@ func TestMetadataArtifactParsesByTheDocumentedRule(t *testing.T) {
 	refused := errors.New("failed to connect to `user=ycrash_monitor database=orders_db`: " +
 		"hostname resolving error: lookup db-prod-01.internal: no such host")
 
-	results := runMetadataWindow(t, clock, NewMetadata(testTarget(), "3.6.1", testConnectFailureNow),
+	results := runMetadataWindow(t, clock, NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, ""),
 		func(context.Context, Target) (windowConn, error) { return nil, refused })
 
 	artifact := artifactText(t, results[0])
@@ -207,21 +209,21 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 54,
-		"capture_mode plus serverFields' fifty-three, and no connect_error row")
-	assert.Len(t, targetFields(full), 7)
+	assert.Len(t, serverBlockFields(full), 60,
+		"capture_mode plus serverFields' fifty-nine, and no connect_error row")
+	assert.Len(t, targetFields(full), 9)
 
 	assert.Equal(t, ModeDBHost, values["capture_mode"])
 	assert.Equal(t, "3.6.1", values["yc360_version"])
 }
 
 func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
-	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
 
-	prologue := &countingWriter{}
-	require.NoError(t, collector.WritePrologue(prologue, SampleContext{At: testAgentNow}))
-	assert.Equal(t, 1, prologue.writes)
-	assert.NotEmpty(t, prologue.buf.String())
+	opening := &countingWriter{}
+	require.NoError(t, collector.WriteOpening(opening, SampleContext{At: testAgentNow}))
+	assert.Equal(t, 1, opening.writes)
+	assert.NotEmpty(t, opening.buf.String())
 
 	sample := &countingWriter{}
 	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), sample,
@@ -234,7 +236,7 @@ func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
 }
 
 func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {
-	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
 
 	assert.Equal(t, ModeUnknown, collector.Collected().CaptureMode,
 		"before the sample the mode is unknown, which is also the truth about a "+
@@ -258,7 +260,7 @@ func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {
 }
 
 func TestMetadataCollectorCarriesNoPasswordThroughFmt(t *testing.T) {
-	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
 
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
 		assert.NotContains(t, fmt.Sprintf(verb, collector), testPassword,
@@ -278,7 +280,7 @@ func TestMetadataSampleCarriesNoPassword(t *testing.T) {
 	conn.querier.logLocation = fakeRow{err: leak}
 	conn.querier.replication = fakeRow{err: leak}
 
-	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf,

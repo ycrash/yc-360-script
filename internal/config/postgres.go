@@ -21,6 +21,10 @@ type Postgres struct {
 
 	// Pointer: nil (key omitted) takes the default; 0s is a configuration error.
 	CaptureDuration *Duration `yaml:"captureDuration"`
+
+	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
+	// plans: EXPLAIN carries a privilege and a load cost the other nine artifacts do not.
+	Explain string `yaml:"explain"`
 }
 
 const (
@@ -37,11 +41,28 @@ const (
 
 	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a shared database.
 	MaxPostgresCaptureDuration = 600 * time.Second
+
+	// ExplainLogged captures only the plans the server itself logged - nothing is
+	// submitted back to the database.
+	ExplainLogged = "logged"
+
+	// ExplainAll adds the two estimated tiers, which submit EXPLAIN statements.
+	ExplainAll = "all"
+
+	// ExplainOff is what an omitted key reports as. It is not an accepted input:
+	// presence is the switch, so turning the feature off means deleting the line.
+	ExplainOff = "off"
 )
 
 var postgresSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 var postgresPlaintextCapableSSLModes = []string{"disable", "allow", "prefer"}
+
+var postgresExplainModes = []string{ExplainLogged, ExplainAll}
+
+// postgresExplainBooleans are what a human types instead of omitting the key; yaml.v3
+// passes them through, where the generic error would not say to delete the line.
+var postgresExplainBooleans = []string{"true", "false", "on", "off", "yes", "no"}
 
 var postgresEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
@@ -65,9 +86,19 @@ func (p *Postgres) String() string {
 	}
 
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s",
-		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window,
+		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s explain=%s",
+		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, p.ExplainMode(),
 	)
+}
+
+// ExplainMode is the run's plan-capture intent as a token: an accepted value, or
+// ExplainOff for an omitted key. pg_metadata.txt records it.
+func (p *Postgres) ExplainMode() string {
+	if p == nil || p.Explain == "" {
+		return ExplainOff
+	}
+
+	return p.Explain
 }
 
 // GoString redacts under %#v (String is skipped); capture.WrapRun logs failing
@@ -87,6 +118,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	p.Database = strings.TrimSpace(p.Database)
 	p.Username = strings.TrimSpace(p.Username)
 	p.SSLMode = strings.ToLower(strings.TrimSpace(p.SSLMode))
+	p.Explain = strings.ToLower(strings.TrimSpace(p.Explain))
 
 	var errs []error
 
@@ -96,7 +128,8 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
-			"(valid keys: host, port, database, username, password, sslmode, captureDuration)")
+			"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
+			"explain)")
 	}
 
 	if p.Port == 0 {
@@ -159,6 +192,25 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		warnings = append(warnings, fmt.Sprintf("postgres.sslmode=%s - the connection may not be "+
 			"encrypted; credentials and captured query text could cross the network in plaintext.",
 			p.SSLMode))
+	}
+
+	switch {
+	case p.Explain == "":
+		// Omission is the off switch, so there is nothing to check and nothing to say.
+
+	case slices.Contains(postgresExplainBooleans, p.Explain):
+		errs = append(errs, fmt.Errorf(
+			"postgres.explain is %q - it takes %q or %q; omit the key to capture no plans",
+			p.Explain, ExplainLogged, ExplainAll))
+
+	case !slices.Contains(postgresExplainModes, p.Explain):
+		errs = append(errs, fmt.Errorf("postgres.explain %q is invalid (valid values: %s)",
+			p.Explain, strings.Join(postgresExplainModes, ", ")))
+
+	case p.Explain == ExplainAll:
+		warnings = append(warnings, "postgres.explain=all - captured query text will be submitted "+
+			"back to the database as EXPLAIN statements, and captured plans contain literal "+
+			"parameter values from your data.")
 	}
 
 	return warnings, errors.Join(errs...)

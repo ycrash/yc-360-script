@@ -50,6 +50,14 @@ var capturedSettings = []struct {
 	{"pg_stat_statements.track", func(m *Metadata) *string { return &m.PgStatStatementsTrack }},
 	{"pg_stat_statements.track_planning", func(m *Metadata) *string { return &m.PgStatStatementsTrackPlanning }},
 	{"pg_stat_statements.track_utility", func(m *Metadata) *string { return &m.PgStatStatementsTrackUtility }},
+	// The auto_explain.* GUCs exist only while the module is loaded in this session:
+	// absent means not loaded, not denied. Between them they say whether the LOGGED mode
+	// can yield anything, and whether its entries carry the join key.
+	{"auto_explain.log_min_duration", func(m *Metadata) *string { return &m.AutoExplainLogMinDuration }},
+	{"auto_explain.log_verbose", func(m *Metadata) *string { return &m.AutoExplainLogVerbose }},
+	{"auto_explain.log_analyze", func(m *Metadata) *string { return &m.AutoExplainLogAnalyze }},
+	{"auto_explain.log_format", func(m *Metadata) *string { return &m.AutoExplainLogFormat }},
+	{"auto_explain.sample_rate", func(m *Metadata) *string { return &m.AutoExplainSampleRate }},
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
@@ -96,6 +104,7 @@ SELECT
     (SELECT array_agg(name ORDER BY name) FROM s),
     (SELECT array_agg(setting ORDER BY name) FROM s),
     to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL,
+    ` + genericPlanSQL + `,
     EXISTS (
         SELECT 1
           FROM pg_catalog.pg_attribute
@@ -133,6 +142,7 @@ type serverFactsRow struct {
 	settingNames     []string
 	settingValues    []string
 	hasCheckpointer  *bool
+	hasGenericPlan   *bool
 	hasSessionFatal  *bool
 	pgStatStatements *string
 	hasPgMonitorRole *bool
@@ -157,6 +167,7 @@ func (r *serverFactsRow) dest() []any {
 		&r.settingNames,
 		&r.settingValues,
 		&r.hasCheckpointer,
+		&r.hasGenericPlan,
 		&r.hasSessionFatal,
 		&r.pgStatStatements,
 		&r.hasPgMonitorRole,

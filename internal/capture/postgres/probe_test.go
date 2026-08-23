@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 	colSettingNames
 	colSettingValues
 	colHasCheckpointer
+	colHasGenericPlan
 	colHasSessionFatal
 	colPgStatStatements
 	colHasPgMonitorRole
@@ -73,6 +75,12 @@ func fullSettings() map[string]string {
 		"pg_stat_statements.track":          "top",
 		"pg_stat_statements.track_planning": "off",
 		"pg_stat_statements.track_utility":  "on",
+
+		"auto_explain.log_min_duration": "-1",
+		"auto_explain.log_verbose":      "off",
+		"auto_explain.log_analyze":      "off",
+		"auto_explain.log_format":       "text",
+		"auto_explain.sample_rate":      "1",
 	}
 }
 
@@ -81,6 +89,16 @@ var pgStatStatementsSettings = []string{
 	"pg_stat_statements.track",
 	"pg_stat_statements.track_planning",
 	"pg_stat_statements.track_utility",
+}
+
+// autoExplainSettings share pg_stat_statements' shape: present only while the module is
+// loaded in this session, so absence is "not loaded" rather than "denied".
+var autoExplainSettings = []string{
+	"auto_explain.log_min_duration",
+	"auto_explain.log_verbose",
+	"auto_explain.log_analyze",
+	"auto_explain.log_format",
+	"auto_explain.sample_rate",
 }
 
 func settingsColumns(settings map[string]string) (names []string, values []string) {
@@ -114,6 +132,7 @@ func serverFactsValues() []any {
 	v[colSettingNames] = names
 	v[colSettingValues] = values
 	v[colHasCheckpointer] = ptr(false)
+	v[colHasGenericPlan] = ptr(false)
 	v[colHasSessionFatal] = ptr(true)
 	v[colPgStatStatements] = ptr("1.10")
 	v[colHasPgMonitorRole] = ptr(true)
@@ -261,6 +280,11 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"pg_stat_statements.track",
 		"pg_stat_statements.track_planning",
 		"pg_stat_statements.track_utility",
+		"auto_explain.log_min_duration",
+		"auto_explain.log_verbose",
+		"auto_explain.log_analyze",
+		"auto_explain.log_format",
+		"auto_explain.sample_rate",
 		"shared_preload_libraries",
 		"compute_query_id",
 		"data_directory",
@@ -430,6 +454,52 @@ func TestSettingsLibraryNotLoaded(t *testing.T) {
 	assert.Empty(t, m.QueryError, "an unloaded library returns no row rather than erroring")
 }
 
+func TestSettingsAutoExplainNotLoaded(t *testing.T) {
+	visible := fullSettings()
+	for _, name := range autoExplainSettings {
+		delete(visible, name)
+	}
+
+	visible["shared_preload_libraries"] = "pg_stat_statements"
+
+	q := healthyQuerier()
+	q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(visible)
+
+	m := collect(t, q)
+
+	assert.Equal(t, "auto_explain.log_min_duration,auto_explain.log_verbose,"+
+		"auto_explain.log_analyze,auto_explain.log_format,auto_explain.sample_rate",
+		m.SettingsUnavailable)
+
+	assert.Empty(t, m.AutoExplainLogMinDuration)
+	assert.Empty(t, m.AutoExplainLogVerbose)
+	assert.Empty(t, m.QueryError, "an unloaded module returns no row rather than erroring")
+
+	assert.Equal(t, "5000", m.PgStatStatementsMax,
+		"the other module's GUCs are unaffected: one absence does not imply the other")
+}
+
+func TestSettingsAutoExplainLoaded(t *testing.T) {
+	m := collect(t, healthyQuerier())
+
+	assert.Equal(t, "-1", m.AutoExplainLogMinDuration,
+		"the default: loaded and logging nothing, which is why plans_harvested=0 is not a failure")
+	assert.Equal(t, "off", m.AutoExplainLogVerbose, "so logged plans carry no join key")
+	assert.Equal(t, "off", m.AutoExplainLogAnalyze, "so they carry estimates, not timings")
+	assert.Equal(t, "text", m.AutoExplainLogFormat, "so the identifier line is parseable")
+	assert.Equal(t, "1", m.AutoExplainSampleRate, "so an absent plan does not mean sampling")
+}
+
+func TestServerFactsCarryTheGenericPlanCapability(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		q := healthyQuerier()
+		q.serverFacts.values[colHasGenericPlan] = ptr(present)
+
+		assert.Equal(t, strconv.FormatBool(present), collect(t, q).HasGenericPlan,
+			"recorded as a semantic flag, so nobody re-derives it from server_version_num")
+	}
+}
+
 func TestSettingsRestrictedRole(t *testing.T) {
 	visible := fullSettings()
 	delete(visible, "log_directory")
@@ -483,7 +553,9 @@ func TestSettingsNoneVisible(t *testing.T) {
 		"log_min_duration_statement,log_parameter_max_length,"+
 		"track_activity_query_size,track_io_timing,pg_stat_statements.max,"+
 		"pg_stat_statements.track,pg_stat_statements.track_planning,"+
-		"pg_stat_statements.track_utility,shared_preload_libraries,"+
+		"pg_stat_statements.track_utility,auto_explain.log_min_duration,"+
+		"auto_explain.log_verbose,auto_explain.log_analyze,auto_explain.log_format,"+
+		"auto_explain.sample_rate,shared_preload_libraries,"+
 		"compute_query_id,data_directory", m.SettingsUnavailable)
 	assert.Empty(t, m.QueryError)
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
