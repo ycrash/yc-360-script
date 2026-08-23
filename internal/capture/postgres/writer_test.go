@@ -28,6 +28,9 @@ func fullArtifactMetadata() Metadata {
 		TargetUsername: "ycrash_monitor",
 		TargetSSLMode:  "require",
 
+		ExplainMode:     ExplainModeAll,
+		ExplainLiterals: explainLiteralsVerbatim,
+
 		CaptureMode: ModeDBHost,
 
 		CurrentDatabase:     "orders_db",
@@ -64,6 +67,12 @@ func fullArtifactMetadata() Metadata {
 		PgStatStatementsTrackPlanning: "off",
 		PgStatStatementsTrackUtility:  "on",
 
+		AutoExplainLogMinDuration: "0",
+		AutoExplainLogVerbose:     "on",
+		AutoExplainLogAnalyze:     "off",
+		AutoExplainLogFormat:      "text",
+		AutoExplainSampleRate:     "1",
+
 		SharedPreloadLibraries: "pg_stat_statements,auto_explain",
 
 		DataDirectory:          "/var/lib/postgresql/17/main",
@@ -78,6 +87,7 @@ func fullArtifactMetadata() Metadata {
 		HasPgStatStatements:     "true",
 		PgStatStatementsVersion: "1.11",
 		HasPgStatCheckpointer:   "true",
+		HasGenericPlan:          "true",
 		HasSessionFatalStats:    "true",
 		ComputeQueryID:          "auto",
 
@@ -99,6 +109,9 @@ func connectFailureMetadata() Metadata {
 		TargetDatabase:     "orders_db",
 		TargetUsername:     "ycrash_monitor",
 		TargetSSLMode:      "require",
+
+		ExplainMode:     ExplainModeAll,
+		ExplainLiterals: explainLiteralsVerbatim,
 
 		CaptureMode:  ModeUnknown,
 		ConnectError: ErrTooManyConnections.Error(),
@@ -193,8 +206,10 @@ func TestEveryShippedGoldenDeclaresOneFormat(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 			want := "format=csv"
-			if strings.HasPrefix(name, "pg_deadlocks_") || strings.HasPrefix(name, "pg_timeouts_") {
-				want = "format=text"
+			for _, prefix := range []string{"pg_deadlocks_", "pg_timeouts_", "pg_explain_"} {
+				if strings.HasPrefix(name, prefix) {
+					want = "format=text"
+				}
 			}
 
 			headers := 0
@@ -356,10 +371,16 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 		"target_database",
 		"target_username",
 		"target_sslmode",
+		"explain_mode",
+		"explain_literals",
 	}, keys)
 
 	_, values, _ := parseArtifact(t, writeArtifact(t, m))
 	assert.Equal(t, "db-prod-01.internal", values["target_host"])
+
+	assert.Equal(t, ExplainModeAll, values["explain_mode"],
+		"the run's intent, in the block written before dialling")
+	assert.Equal(t, "verbatim", values["explain_literals"])
 }
 
 type failingWriter struct{ err error }
@@ -372,8 +393,8 @@ func TestWriteErrorsPropagate(t *testing.T) {
 
 	m := fullArtifactMetadata()
 
-	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow)
-	assert.ErrorIs(t, collector.WritePrologue(sink, SampleContext{At: testAgentNow}), sinkErr)
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
+	assert.ErrorIs(t, collector.WriteOpening(sink, SampleContext{At: testAgentNow}), sinkErr)
 
 	assert.ErrorIs(t,
 		writeMetadataBlock(sink, "pg_metadata_server", nil, serverBlockFields(m), testAgentNow),

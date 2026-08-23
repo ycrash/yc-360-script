@@ -27,7 +27,7 @@ func extensionRow(facts extensionFacts) []any {
 		facts.visible,
 		facts.schemaUsage,
 		facts.hasInfo,
-		facts.atFloor,
+		facts.meetsMinVersion,
 		facts.optionalColumns,
 	}
 }
@@ -40,7 +40,7 @@ func healthyExtension() extensionFacts {
 		visible:         true,
 		schemaUsage:     true,
 		hasInfo:         true,
-		atFloor:         true,
+		meetsMinVersion: true,
 		optionalColumns: ptr(pg18StatementColumns),
 	}
 }
@@ -69,7 +69,7 @@ func shadowedExtension() extensionFacts {
 	facts := healthyExtension()
 	facts.visible = false
 	facts.optionalColumns = nil
-	facts.atFloor = false
+	facts.meetsMinVersion = false
 
 	return facts
 }
@@ -314,7 +314,7 @@ func takeSlowQueriesSample(t *testing.T, conn *fakeSlowQueriesConn, s SampleCont
 	t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(t, SlowQueries{}.Sample(context.Background(), conn, &buf, s),
+	require.NoError(t, NewSlowQueries().Sample(context.Background(), conn, &buf, s),
 		"a read that could not be classified is still a written sample; only a failed write is an error")
 
 	return buf.String()
@@ -364,7 +364,7 @@ func TestSlowQueriesColumnSpecsDriveTheDerivedLists(t *testing.T) {
 		}
 	}
 
-	assert.Len(t, statementColumnSpecs, 37, "the widest block in the feature, where requirements names eight")
+	assert.Len(t, statementColumnSpecs, 37, "the widest block in the feature, where only eight were asked for")
 	assert.Equal(t, 11, optional, "the columns pg_stat_statements gained or lost after extension 1.8")
 
 	names := make([]string, len(statementColumnSpecs))
@@ -483,7 +483,8 @@ func TestSlowQueriesCaps(t *testing.T) {
 		conn.statements = repeat(rowsResult(statementValues(rows[:2], 9412)))
 
 		var buf bytes.Buffer
-		require.NoError(t, SlowQueries{MaxStatements: 2}.Sample(context.Background(), conn, &buf,
+		capped := &SlowQueries{MaxStatements: 2}
+		require.NoError(t, capped.Sample(context.Background(), conn, &buf,
 			slowQueriesSampleContext()))
 
 		headers, _ := splitBlocks(buf.String())
@@ -522,7 +523,7 @@ func TestSlowQueriesFailedReadCostsItsOwnBlock(t *testing.T) {
 	conn.statements = repeat(errResult(errors.New("canceling statement due to statement timeout (SQLSTATE 57014)")))
 
 	writer := &countingWriter{}
-	require.NoError(t, SlowQueries{}.Sample(context.Background(), conn, writer, slowQueriesSampleContext()))
+	require.NoError(t, NewSlowQueries().Sample(context.Background(), conn, writer, slowQueriesSampleContext()))
 
 	headers, body := splitBlocks(writer.buf.String())
 
@@ -691,12 +692,12 @@ func TestSlowQueriesBracketsTheWindowWithTheInfoBlock(t *testing.T) {
 }
 
 func TestSlowQueriesInfoViewAbsentIsScopedToOneVersion(t *testing.T) {
-	atFloor := healthyExtension()
-	atFloor.version = "1.8"
-	atFloor.hasInfo = false
-	atFloor.optionalColumns = ptr("blk_read_time,blk_write_time")
+	meetsMinVersion := healthyExtension()
+	meetsMinVersion.version = "1.8"
+	meetsMinVersion.hasInfo = false
+	meetsMinVersion.optionalColumns = ptr("blk_read_time,blk_write_time")
 
-	conn := newFakeSlowQueriesConn(atFloor)
+	conn := newFakeSlowQueriesConn(meetsMinVersion)
 	headers, body := splitBlocks(takeSlowQueriesSample(t, conn, slowQueriesSampleContext()))
 
 	assert.Contains(t, headers[0], "extension_version=1.8 reason="+reasonViewAbsent)
@@ -726,7 +727,7 @@ func TestSlowQueriesFailedInfoReadCostsItsOwnBlock(t *testing.T) {
 	}, 1)))
 
 	writer := &countingWriter{}
-	require.NoError(t, SlowQueries{}.Sample(context.Background(), conn, writer, slowQueriesSampleContext()))
+	require.NoError(t, NewSlowQueries().Sample(context.Background(), conn, writer, slowQueriesSampleContext()))
 
 	headers, body := splitBlocks(writer.buf.String())
 
@@ -759,7 +760,7 @@ func TestSlowQueriesInfoRowScans(t *testing.T) {
 func TestSlowQueriesWritesTheSampleInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
-	require.NoError(t, SlowQueries{}.Sample(context.Background(),
+	require.NoError(t, NewSlowQueries().Sample(context.Background(),
 		newFakeSlowQueriesConn(healthyExtension()), writer, slowQueriesSampleContext()))
 
 	assert.Equal(t, 1, writer.writes,
@@ -800,7 +801,7 @@ func TestSlowQueriesReadsNothingBehindAReason(t *testing.T) {
 }
 
 func TestSlowQueriesArtifact(t *testing.T) {
-	artifact := SlowQueries{}.Artifact()
+	artifact := NewSlowQueries().Artifact()
 
 	assert.Equal(t, "pg_slow_queries", artifact.Name)
 	assert.Equal(t, "pg_slow_queries.txt", artifact.FileName)
@@ -830,7 +831,7 @@ func runSlowQueriesWindow(t *testing.T, clock *scriptedClock, conn windowConn) [
 	window := &Window{
 		Target:     testTarget(),
 		Duration:   6 * time.Second,
-		Collectors: []Collector{SlowQueries{}},
+		Collectors: []Collector{NewSlowQueries()},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connectTo(conn),
@@ -972,4 +973,139 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 			"no line but a block header begins with '#': the lead cell is an integer or empty, "+
 				"and the query text is the last column")
 	}
+}
+
+// --- endpoint retention, which pg_explain.txt ranks (never written here) -----
+
+func TestSlowQueriesRetainsBothEndpoints(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = []fakeResult{
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsStart)}, 1)),
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsEnd)}, 1)),
+	}
+
+	sq := NewSlowQueries()
+
+	var buf bytes.Buffer
+	for index := 1; index <= 2; index++ {
+		s := slowQueriesSampleContext()
+		s.Index, s.Total = index, 2
+
+		require.NoError(t, sq.Sample(context.Background(), conn, &buf, s))
+	}
+
+	endpoints := sq.rankingEndpoints()
+
+	require.True(t, endpoints.startRead)
+	require.True(t, endpoints.endRead)
+
+	key := statementKey{queryid: ordersItemsStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}
+
+	start, ok := endpoints.start[key]
+	require.True(t, ok, "the opening sample is keyed on queryid, userid, dbid and toplevel together")
+	assert.Equal(t, ordersItemsStart.execTime, *start.totalExecTime)
+	assert.Equal(t, &testStatsSince, start.statsSince)
+
+	require.Len(t, endpoints.end, 1)
+	assert.Equal(t, ordersItemsEnd.execTime, *endpoints.end[0].totalExecTime)
+	assert.Equal(t, ordersItemsEnd.query, *endpoints.end[0].query,
+		"the closing sample keeps its text: it is the only place the generic mode's "+
+			"normalized statement exists")
+
+	assert.False(t, endpoints.startTruncated)
+	assert.False(t, endpoints.endTruncated)
+
+	require.NotNil(t, endpoints.startInfo)
+	require.NotNil(t, endpoints.endInfo)
+	assert.Equal(t, testInfoStatsReset, *endpoints.endInfo.statsReset,
+		"the two info reads bracket the window, which is how a reset between them is seen")
+}
+
+func TestSlowQueriesRetentionHoldsNoTextAtTheOpeningEndpoint(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = repeat(rowsResult(statementValues([]statementRow{
+		pg18Statement(ordersItemsStart),
+	}, 1)))
+
+	sq := NewSlowQueries()
+
+	s := slowQueriesSampleContext()
+	s.Index, s.Total = 1, 2
+
+	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+
+	endpoints := sq.rankingEndpoints()
+	require.Len(t, endpoints.start, 1)
+	assert.Empty(t, endpoints.end, "the closing endpoint has not happened yet")
+
+	for _, projection := range endpoints.start {
+		assert.NotNil(t, projection.totalExecTime)
+	}
+}
+
+func TestSlowQueriesRetentionSkipsAMaskedQueryid(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = repeat(rowsResult(statementValues([]statementRow{
+		maskedStatement(ordersItemsStart),
+		pg18Statement(ordersInventoryStart),
+	}, 2)))
+
+	sq := NewSlowQueries()
+
+	s := slowQueriesSampleContext()
+	s.Index, s.Total = 1, 2
+
+	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+
+	assert.Len(t, sq.rankingEndpoints().start, 1,
+		"a NULL queryid cannot key a join; the prefilter counts those from the end read")
+}
+
+func TestSlowQueriesRetainsNothingWhenTheReadFailed(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = repeat(fakeResult{err: errors.New("ERROR: permission denied")})
+
+	sq := NewSlowQueries()
+
+	s := slowQueriesSampleContext()
+	s.Index, s.Total = 1, 2
+
+	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+
+	assert.False(t, sq.rankingEndpoints().startRead,
+		"an unread endpoint must not read as an empty one: every row would look new")
+}
+
+func TestSlowQueriesOneTickWindowRetainsOnlyTheClose(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = repeat(rowsResult(statementValues([]statementRow{
+		pg18Statement(ordersItemsEnd),
+	}, 1)))
+
+	sq := NewSlowQueries()
+
+	s := slowQueriesSampleContext()
+	s.Index, s.Total = 1, 1
+
+	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+
+	endpoints := sq.rankingEndpoints()
+	assert.False(t, endpoints.startRead)
+	assert.True(t, endpoints.endRead)
+}
+
+func TestStatementKeyTreatsNullToplevelAsAValue(t *testing.T) {
+	withNull := pg18Statement(ordersItemsStart)
+	withNull.toplevel = nil
+
+	nullKey, ok := statementRowKey(withNull)
+	require.True(t, ok)
+
+	trueKey, ok := statementRowKey(pg18Statement(ordersItemsStart))
+	require.True(t, ok)
+
+	assert.NotEqual(t, trueKey, nullKey,
+		"below extension 1.9 every row is NULL here; treating it as a wildcard would "+
+			"merge rows the server's own key keeps apart")
+	assert.Empty(t, nullKey.toplevel)
 }

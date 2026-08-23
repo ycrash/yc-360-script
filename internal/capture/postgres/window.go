@@ -139,15 +139,15 @@ type Collector interface {
 	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
 }
 
-// Prologue: written after the preamble, before dial, so it lands on every failure path.
-type Prologue interface {
-	WritePrologue(w io.Writer, s SampleContext) error
+// Opening: written after the preamble, before dial, so it lands on every failure path.
+type Opening interface {
+	WriteOpening(w io.Writer, s SampleContext) error
 }
 
-// Epilogue: called with no context; must bound its own work.
+// Closing: called with no context; must bound its own work.
 // Exists because Every's offsets stop short of the window close.
-type Epilogue interface {
-	WriteEpilogue(w io.Writer, s SampleContext) error
+type Closing interface {
+	WriteClosing(w io.Writer, s SampleContext) error
 }
 
 type SampleContext struct {
@@ -165,6 +165,11 @@ type SampleContext struct {
 
 	// HasPgStatCheckpointer: capability check (not version) for PostgreSQL 17's moved columns; false when identify fails.
 	HasPgStatCheckpointer bool
+
+	// HasGenericPlan: EXPLAIN (GENERIC_PLAN) exists from PostgreSQL 16. A version test, not a
+	// capability one - the option has no catalogue entry. False when identify fails, which
+	// skips the generic-plan mode rather than attempting it.
+	HasGenericPlan bool
 
 	// redact centralizes the window's password redaction.
 	redact func(error) string
@@ -312,12 +317,12 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 
 		syncArtifact(file)
 
-		w.writePrologue(&results[i], w.Collectors[i], sampleCtx)
+		w.writeOpening(&results[i], w.Collectors[i], sampleCtx)
 	}
 }
 
-func (w *Window) writePrologue(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
-	prologue, ok := collector.(Prologue)
+func (w *Window) writeOpening(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
+	opening, ok := collector.(Opening)
 	if !ok {
 		return
 	}
@@ -326,7 +331,7 @@ func (w *Window) writePrologue(result *ArtifactResult, collector Collector, samp
 	at := sampleCtx
 	at.At = w.clock()
 
-	if err := prologue.WritePrologue(result.File, at); err != nil {
+	if err := opening.WriteOpening(result.File, at); err != nil {
 		result.IOErr = fmt.Errorf("failed to write %s: %w", result.Artifact.FileName, err)
 		return
 	}
@@ -334,9 +339,9 @@ func (w *Window) writePrologue(result *ArtifactResult, collector Collector, samp
 	syncArtifact(result.File)
 }
 
-// writeEpilogue: a collector's last write, guarded by writable(); no context, since closeArtifacts has none.
-func (w *Window) writeEpilogue(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
-	epilogue, ok := collector.(Epilogue)
+// writeClosing: a collector's last write, guarded by writable(); no context, since closeArtifacts has none.
+func (w *Window) writeClosing(result *ArtifactResult, collector Collector, sampleCtx SampleContext) {
+	closing, ok := collector.(Closing)
 	if !ok || !result.writable() {
 		return
 	}
@@ -344,7 +349,7 @@ func (w *Window) writeEpilogue(result *ArtifactResult, collector Collector, samp
 	at := sampleCtx
 	at.At = w.clock()
 
-	if err := epilogue.WriteEpilogue(result.File, at); err != nil {
+	if err := closing.WriteClosing(result.File, at); err != nil {
 		result.IOErr = fmt.Errorf("failed to write %s: %w", result.Artifact.FileName, err)
 		return
 	}
@@ -363,8 +368,8 @@ func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContex
 			results[i].Err = connectErr
 		}
 
-		// Must run after Status is set: an epilogue IOErr makes writable() false, skipping the closing block.
-		w.writeEpilogue(&results[i], w.Collectors[i], sampleCtx)
+		// Must run after Status is set: a closing-pass IOErr makes writable() false, skipping the closing block.
+		w.writeClosing(&results[i], w.Collectors[i], sampleCtx)
 	}
 
 	at := w.clock()
@@ -502,13 +507,18 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 	}
 }
 
+// genericPlanSQL is shared with serverFactsSQL's has_generic_plan row, pinned equal by a
+// test, so the flag collectors branch on and the fact the bundle reports cannot disagree.
+const genericPlanSQL = `current_setting('server_version_num')::int >= 160000`
+
 // OID comes from pg_database, not a name cast: survives mid-run renames.
-// Capability expression must match serverFactsSQL's exactly.
+// Capability expressions must match serverFactsSQL's exactly.
 const currentDatabaseSQL = `SELECT current_database()::text,
        (SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database()),
-       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL`
+       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL,
+       ` + genericPlanSQL
 
-// identify reads the database, OID and capability flag once for every collector.
+// identify reads the database, OID and capability flags once for every collector.
 // On failure, HasPgStatCheckpointer stays false, so a PG17 server gets the pre-17 statement and errors.
 func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	sampleCtx := w.baseSampleContext()
@@ -519,8 +529,10 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	var database string
 	var dbid *string
 	var hasPgStatCheckpointer bool
+	var hasGenericPlan bool
 
-	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).Scan(&database, &dbid, &hasPgStatCheckpointer); err != nil {
+	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).
+		Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan); err != nil {
 		return sampleCtx
 	}
 
@@ -529,6 +541,7 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 		sampleCtx.DBID = *dbid
 	}
 	sampleCtx.HasPgStatCheckpointer = hasPgStatCheckpointer
+	sampleCtx.HasGenericPlan = hasGenericPlan
 
 	return sampleCtx
 }

@@ -91,23 +91,23 @@ func (f *fakeCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s
 	return writeRows(w, []string{"relid"}, [][]string{{"16390"}})
 }
 
-type fakePrologueCollector struct {
+type fakeOpeningCollector struct {
 	*fakeCollector
 
-	prologue func(w io.Writer, s SampleContext) error
+	opening func(w io.Writer, s SampleContext) error
 
-	seenPrologue []SampleContext
+	seenOpening []SampleContext
 }
 
-func newFakePrologueCollector(name string) *fakePrologueCollector {
-	return &fakePrologueCollector{fakeCollector: newFakeCollector(name)}
+func newFakeOpeningCollector(name string) *fakeOpeningCollector {
+	return &fakeOpeningCollector{fakeCollector: newFakeCollector(name)}
 }
 
-func (f *fakePrologueCollector) WritePrologue(w io.Writer, s SampleContext) error {
-	f.seenPrologue = append(f.seenPrologue, s)
+func (f *fakeOpeningCollector) WriteOpening(w io.Writer, s SampleContext) error {
+	f.seenOpening = append(f.seenOpening, s)
 
-	if f.prologue != nil {
-		return f.prologue(w, s)
+	if f.opening != nil {
+		return f.opening(w, s)
 	}
 
 	return writeBlockHeader(w, f.artifact.Name+"_target", f.artifact.Scope, []headerField{
@@ -116,23 +116,23 @@ func (f *fakePrologueCollector) WritePrologue(w io.Writer, s SampleContext) erro
 	}, s.At)
 }
 
-type fakeEpilogueCollector struct {
+type fakeClosingCollector struct {
 	*fakeCollector
 
-	epilogue func(w io.Writer, s SampleContext) error
+	closing func(w io.Writer, s SampleContext) error
 
-	seenEpilogue []SampleContext
+	seenClosing []SampleContext
 }
 
-func newFakeEpilogueCollector(name string) *fakeEpilogueCollector {
-	return &fakeEpilogueCollector{fakeCollector: newFakeCollector(name)}
+func newFakeClosingCollector(name string) *fakeClosingCollector {
+	return &fakeClosingCollector{fakeCollector: newFakeCollector(name)}
 }
 
-func (f *fakeEpilogueCollector) WriteEpilogue(w io.Writer, s SampleContext) error {
-	f.seenEpilogue = append(f.seenEpilogue, s)
+func (f *fakeClosingCollector) WriteClosing(w io.Writer, s SampleContext) error {
+	f.seenClosing = append(f.seenClosing, s)
 
-	if f.epilogue != nil {
-		return f.epilogue(w, s)
+	if f.closing != nil {
+		return f.closing(w, s)
 	}
 
 	return writeBlockHeader(w, f.artifact.Name, f.artifact.Scope, []headerField{
@@ -144,6 +144,7 @@ type fakeWindowConn struct {
 	database              string
 	dbid                  *string
 	hasPgStatCheckpointer bool
+	hasGenericPlan        bool
 	identifyErr           error
 
 	closed bool
@@ -162,7 +163,7 @@ func (c *fakeWindowConn) QueryRow(ctx context.Context, sql string, args ...any) 
 		return fakeRow{err: c.identifyErr}
 	}
 
-	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer}}
+	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer, c.hasGenericPlan}}
 }
 
 func (c *fakeWindowConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -572,14 +573,40 @@ func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
 		Duration: 120 * time.Second,
 		Collectors: []Collector{
 			Sessions{}, Health{}, Replication{},
-			NewMetadata(Target{}, "3.6.1", time.Time{}),
-			Capacity{}, Bloat{}, SlowQueries{},
+			NewMetadata(Target{}, "3.6.1", time.Time{}, ""),
+			Capacity{}, Bloat{}, NewSlowQueries(),
 		},
 	}
 
 	assert.Equal(t, 205*time.Second, window.moduleDeadline(),
 		"120s window, plus Capacity's 30s, Bloat's 20s default and SlowQueries' 30s on the "+
 			"closing tick, plus the 5s close margin")
+}
+
+func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
+	real := []Collector{
+		Sessions{}, Health{}, Replication{},
+		NewMetadata(Target{}, "3.6.1", time.Time{}, ""),
+		Capacity{}, Bloat{}, NewSlowQueries(),
+	}
+
+	for _, tc := range []struct {
+		name string
+		mode string
+		want time.Duration
+	}{
+		{name: "enabled", mode: ExplainModeAll, want: 238 * time.Second},
+		{name: "logged", mode: ExplainModeLogged, want: 238 * time.Second},
+		{name: "disabled", mode: "", want: 215 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tenth := NewExplain(tc.mode, NewSlowQueries())
+
+			window := &Window{Duration: 120 * time.Second, Collectors: append(real, tenth)}
+
+			assert.Equal(t, tc.want, window.moduleDeadline())
+		})
+	}
 }
 
 func TestWindowModuleDeadlineGraceOverrideWins(t *testing.T) {
@@ -838,6 +865,9 @@ func TestWindowFallsBackToTheConfiguredDatabaseWhenIdentifyFails(t *testing.T) {
 	assert.False(t, collector.seen[0].HasPgStatCheckpointer,
 		"and the capability is false, which on a PostgreSQL 17 server is the pre-17 statement "+
 			"and an error the collector records rather than a silent wrong answer")
+	assert.False(t, collector.seen[0].HasGenericPlan,
+		"false skips the generic mode; true on an unidentified server would attempt it and get "+
+			`"there is no parameter $1", which names neither the version nor the option`)
 }
 
 func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
@@ -868,6 +898,43 @@ func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWindowIdentifyCarriesTheGenericPlanCapability(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		t.Run(fmt.Sprintf("has_generic_plan=%v", present), func(t *testing.T) {
+			clock := newFakeClock()
+
+			collector := newFakeCollector("pg_first")
+
+			window := newTestWindow(t, clock, collector)
+			window.connect = func(ctx context.Context, target Target) (windowConn, error) {
+				conn := newFakeWindowConn()
+				conn.hasGenericPlan = present
+
+				return conn, nil
+			}
+
+			window.Run(context.Background())
+
+			require.Len(t, collector.seen, 2)
+
+			for _, s := range collector.seen {
+				assert.Equal(t, present, s.HasGenericPlan)
+			}
+		})
+	}
+}
+
+func TestGenericPlanExpressionIsSharedBetweenStatements(t *testing.T) {
+	assert.Contains(t, currentDatabaseSQL, genericPlanSQL,
+		"the flag the collectors branch on comes from the shared constant")
+
+	if strings.Contains(serverFactsSQL, "160000") {
+		assert.Contains(t, serverFactsSQL, genericPlanSQL,
+			"pg_metadata.txt must report the same expression the collectors branch on, or the "+
+				"bundle explains a skipped mode with a fact that disagrees with it")
 	}
 }
 
@@ -1137,9 +1204,9 @@ func TestWindowRunsASharedTickInRegistrationOrder(t *testing.T) {
 	}, events[:3], "three collectors share t0 and run in the order they were registered")
 }
 
-func TestWindowWritesThePrologueBeforeConnecting(t *testing.T) {
+func TestWindowWritesTheOpeningBeforeConnecting(t *testing.T) {
 	clock := newFakeClock()
-	collector := newFakePrologueCollector("pg_fake")
+	collector := newFakeOpeningCollector("pg_fake")
 
 	window := newTestWindow(t, clock, collector)
 
@@ -1157,38 +1224,38 @@ func TestWindowWritesThePrologueBeforeConnecting(t *testing.T) {
 	assert.Contains(t, atConnect, "status=started",
 		"the preamble must be on disk, and synced, before Connect")
 	assert.Contains(t, atConnect, "source=pg_fake_target",
-		"and so must the prologue: it is what the artifact says on every failure path")
+		"and so must the opening pass: it is what the artifact says on every failure path")
 
 	headers := headersOf(t, results[0])
-	require.Len(t, headers, 3, "preamble, prologue, closing block - and no sample")
+	require.Len(t, headers, 3, "preamble, opening, closing block - and no sample")
 	assert.Contains(t, headers[2], "status=connect_failed")
 }
 
-func TestWindowPrologueCarriesTheWindowsClockNotTheZeroTime(t *testing.T) {
+func TestWindowOpeningCarriesTheWindowsClockNotTheZeroTime(t *testing.T) {
 	clock := newFakeClock()
-	collector := newFakePrologueCollector("pg_fake")
+	collector := newFakeOpeningCollector("pg_fake")
 
 	results := newTestWindow(t, clock, collector).Run(context.Background())
 
-	require.Len(t, collector.seenPrologue, 1)
-	assert.Equal(t, testWindowStart, collector.seenPrologue[0].At,
-		"a zero At would date every prologue block to year one")
-	assert.Zero(t, collector.seenPrologue[0].Index, "there is no sample yet")
-	assert.Zero(t, collector.seenPrologue[0].Total, "and so no total either")
-	assert.Equal(t, "orders_configured", collector.seenPrologue[0].Database,
+	require.Len(t, collector.seenOpening, 1)
+	assert.Equal(t, testWindowStart, collector.seenOpening[0].At,
+		"a zero At would date every opening block to year one")
+	assert.Zero(t, collector.seenOpening[0].Index, "there is no sample yet")
+	assert.Zero(t, collector.seenOpening[0].Total, "and so no total either")
+	assert.Equal(t, "orders_configured", collector.seenOpening[0].Database,
 		"and no connection, so the database is the configured name and there is no OID")
-	assert.Empty(t, collector.seenPrologue[0].DBID)
+	assert.Empty(t, collector.seenOpening[0].DBID)
 
 	assert.Contains(t, headersOf(t, results[0])[1], "ts="+timestamp(testWindowStart))
 }
 
-func TestWindowDoesNotAskACollectorWithoutAPrologue(t *testing.T) {
+func TestWindowDoesNotAskACollectorWithoutAOpening(t *testing.T) {
 	clock := newFakeClock()
 
 	plain := newFakeCollector("pg_plain")
-	withPrologue := newFakePrologueCollector("pg_prologue")
+	withOpening := newFakeOpeningCollector("pg_opening")
 
-	results := newTestWindow(t, clock, plain, withPrologue).Run(context.Background())
+	results := newTestWindow(t, clock, plain, withOpening).Run(context.Background())
 
 	assert.Len(t, headersOf(t, results[0]), 4,
 		"preamble, two samples, closing block - a collector that implements nothing is not asked")
@@ -1197,11 +1264,11 @@ func TestWindowDoesNotAskACollectorWithoutAPrologue(t *testing.T) {
 	assert.Len(t, headersOf(t, results[1]), 5, "and the one that does gets its block")
 }
 
-func TestWindowPrologueFailureIsIsolated(t *testing.T) {
+func TestWindowOpeningFailureIsIsolated(t *testing.T) {
 	clock := newFakeClock()
 
-	failing := newFakePrologueCollector("pg_failing")
-	failing.prologue = func(io.Writer, SampleContext) error {
+	failing := newFakeOpeningCollector("pg_failing")
+	failing.opening = func(io.Writer, SampleContext) error {
 		return errors.New("no space left on device")
 	}
 
@@ -1209,7 +1276,7 @@ func TestWindowPrologueFailureIsIsolated(t *testing.T) {
 
 	results := newTestWindow(t, clock, failing, healthy).Run(context.Background())
 
-	require.Error(t, results[0].IOErr, "a prologue failure is an I/O failure on that artifact")
+	require.Error(t, results[0].IOErr, "an opening-pass failure is an I/O failure on that artifact")
 	assert.Empty(t, failing.seen, "a collector with nowhere to write is not asked to sample")
 
 	assert.NoError(t, results[1].IOErr, "and it costs the other artifacts nothing")
@@ -1217,9 +1284,9 @@ func TestWindowPrologueFailureIsIsolated(t *testing.T) {
 	assert.Equal(t, 2, results[1].SamplesWritten)
 }
 
-func TestWindowWritesTheEpilogueAfterTheLastSampleAndBeforeTheClosingBlock(t *testing.T) {
+func TestWindowWritesTheClosingAfterTheLastSampleAndBeforeTheClosingBlock(t *testing.T) {
 	clock := newFakeClock()
-	collector := newFakeEpilogueCollector("pg_fake")
+	collector := newFakeClosingCollector("pg_fake")
 
 	results := newTestWindow(t, clock, collector).Run(context.Background())
 
@@ -1229,14 +1296,14 @@ func TestWindowWritesTheEpilogueAfterTheLastSampleAndBeforeTheClosingBlock(t *te
 	assert.Contains(t, headers[3], "drain=true")
 	assert.Contains(t, headers[4], "status=complete")
 
-	require.Len(t, collector.seenEpilogue, 1, "the epilogue is one call, not one per sample")
-	assert.Equal(t, testWindowStart.Add(120*time.Second), collector.seenEpilogue[0].At,
+	require.Len(t, collector.seenClosing, 1, "the closing is one call, not one per sample")
+	assert.Equal(t, testWindowStart.Add(120*time.Second), collector.seenClosing[0].At,
 		"and it carries the window's clock rather than the last sample's")
 }
 
-func TestWindowEpilogueIsNotASample(t *testing.T) {
+func TestWindowClosingIsNotASample(t *testing.T) {
 	clock := newFakeClock()
-	collector := newFakeEpilogueCollector("pg_fake")
+	collector := newFakeClosingCollector("pg_fake")
 
 	results := newTestWindow(t, clock, collector).Run(context.Background())
 
@@ -1247,13 +1314,13 @@ func TestWindowEpilogueIsNotASample(t *testing.T) {
 			"arithmetic about the schedule")
 }
 
-func TestWindowDoesNotAskACollectorWithoutAnEpilogue(t *testing.T) {
+func TestWindowDoesNotAskACollectorWithoutAnClosing(t *testing.T) {
 	clock := newFakeClock()
 
 	plain := newFakeCollector("pg_plain")
-	withEpilogue := newFakeEpilogueCollector("pg_epilogue")
+	withClosing := newFakeClosingCollector("pg_closing")
 
-	results := newTestWindow(t, clock, plain, withEpilogue).Run(context.Background())
+	results := newTestWindow(t, clock, plain, withClosing).Run(context.Background())
 
 	assert.Len(t, headersOf(t, results[0]), 4, "preamble, two samples, closing block")
 	assert.NotContains(t, artifactText(t, results[0]), "drain=true")
@@ -1261,11 +1328,11 @@ func TestWindowDoesNotAskACollectorWithoutAnEpilogue(t *testing.T) {
 	assert.Len(t, headersOf(t, results[1]), 5)
 }
 
-func TestWindowEpilogueFailureLandsInIOErrAndSkipsTheClosingBlock(t *testing.T) {
+func TestWindowClosingFailureLandsInIOErrAndSkipsTheClosingBlock(t *testing.T) {
 	clock := newFakeClock()
 
-	failing := newFakeEpilogueCollector("pg_failing")
-	failing.epilogue = func(io.Writer, SampleContext) error {
+	failing := newFakeClosingCollector("pg_failing")
+	failing.closing = func(io.Writer, SampleContext) error {
 		return errors.New("no space left on device")
 	}
 
@@ -1284,12 +1351,12 @@ func TestWindowEpilogueFailureLandsInIOErrAndSkipsTheClosingBlock(t *testing.T) 
 	assert.NoError(t, results[1].IOErr, "and it costs the other artifacts nothing")
 }
 
-func TestWindowEpilogueRunsOnACancelledWindow(t *testing.T) {
+func TestWindowClosingRunsOnACancelledWindow(t *testing.T) {
 	clock := newFakeClock()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	collector := newFakeEpilogueCollector("pg_fake")
+	collector := newFakeClosingCollector("pg_fake")
 	collector.artifact.Schedule = Every(10 * time.Second)
 	collector.sample = func(context.Context, SampleContext, io.Writer) error {
 		cancel()
@@ -1299,7 +1366,7 @@ func TestWindowEpilogueRunsOnACancelledWindow(t *testing.T) {
 	results := newTestWindow(t, clock, collector).Run(ctx)
 
 	assert.Equal(t, StatusCancelled, results[0].Status)
-	assert.Len(t, collector.seenEpilogue, 1,
+	assert.Len(t, collector.seenClosing, 1,
 		"the drain takes no context, so a window that died at t+10s still writes what it held")
 
 	headers := headersOf(t, results[0])
@@ -1307,9 +1374,9 @@ func TestWindowEpilogueRunsOnACancelledWindow(t *testing.T) {
 	assert.Contains(t, headers[len(headers)-1], "status=cancelled")
 }
 
-func TestWindowEpilogueRunsOnAnExpiredDeadline(t *testing.T) {
+func TestWindowClosingRunsOnAnExpiredDeadline(t *testing.T) {
 	clock := newFakeClock()
-	collector := newFakeEpilogueCollector("pg_fake")
+	collector := newFakeClosingCollector("pg_fake")
 
 	window := newTestWindow(t, clock, collector)
 	window.Duration = 10 * time.Millisecond
@@ -1319,15 +1386,15 @@ func TestWindowEpilogueRunsOnAnExpiredDeadline(t *testing.T) {
 	results := window.Run(context.Background())
 
 	assert.Equal(t, StatusDeadlineExceeded, results[0].Status)
-	assert.Len(t, collector.seenEpilogue, 1)
+	assert.Len(t, collector.seenClosing, 1)
 	assert.Contains(t, artifactText(t, results[0]), "drain=true")
 }
 
-func TestWindowEpilogueRunsOnTheConnectFailurePath(t *testing.T) {
+func TestWindowClosingRunsOnTheConnectFailurePath(t *testing.T) {
 	clock := newFakeClock()
 
-	collector := newFakeEpilogueCollector("pg_fake")
-	collector.epilogue = func(io.Writer, SampleContext) error {
+	collector := newFakeClosingCollector("pg_fake")
+	collector.closing = func(io.Writer, SampleContext) error {
 		return nil
 	}
 
@@ -1337,18 +1404,18 @@ func TestWindowEpilogueRunsOnTheConnectFailurePath(t *testing.T) {
 	results := window.Run(context.Background())
 
 	require.Equal(t, StatusConnectFailed, results[0].Status)
-	assert.Len(t, collector.seenEpilogue, 1,
-		"closeArtifacts runs on the connect-failure path, so the epilogue does too")
+	assert.Len(t, collector.seenClosing, 1,
+		"closeArtifacts runs on the connect-failure path, so the closing pass does too")
 
 	headers := headersOf(t, results[0])
 	require.Len(t, headers, 2, "preamble and closing block: a collector with nothing to drain writes nothing")
 	assert.Contains(t, headers[1], "status=connect_failed")
 }
 
-func TestWindowEpilogueIsNotCalledForAnArtifactWithNoFile(t *testing.T) {
+func TestWindowClosingIsNotCalledForAnArtifactWithNoFile(t *testing.T) {
 	clock := newFakeClock()
 
-	collector := newFakeEpilogueCollector("pg_fake")
+	collector := newFakeClosingCollector("pg_fake")
 
 	window := newTestWindow(t, clock, collector)
 
@@ -1357,7 +1424,7 @@ func TestWindowEpilogueIsNotCalledForAnArtifactWithNoFile(t *testing.T) {
 	results := window.Run(context.Background())
 
 	require.Error(t, results[0].IOErr)
-	assert.Empty(t, collector.seenEpilogue)
+	assert.Empty(t, collector.seenClosing)
 }
 
 func TestWindowIntervalSampleNumberingIsPerArtifact(t *testing.T) {

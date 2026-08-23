@@ -46,8 +46,10 @@ const PostgresSlowQueriesFileName = "pg_slow_queries.txt"
 
 const pgDTSlowQueries = "pgSlowQueries"
 
-// pg_explain.txt has no constant or collector yet; pgSampledDataType's gate
-// below covers that case when it arrives.
+const PostgresExplainFileName = "pg_explain.txt"
+
+const pgDTExplain = "pgExplain"
+
 const PostgresDeadlocksFileName = "pg_deadlocks.txt"
 
 const pgDTDeadlocks = "pgDeadlocks"
@@ -87,6 +89,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_timeouts":
 		return pgDTTimeouts
+
+	case "pg_explain":
+		return pgDTExplain
 	}
 
 	return ""
@@ -120,7 +125,13 @@ func (p *PostgresCapture) Run() (Result, error) {
 	defer p.setCancel(nil)
 
 	target := postgresTarget(p.Target)
-	metadata := postgres.NewMetadata(target, executils.SCRIPT_VERSION, time.Now())
+	// The explain mode rides construction so it reaches the pre-connect target block,
+	// which is written before dialling and survives a refused connection.
+	metadata := postgres.NewMetadata(target, executils.SCRIPT_VERSION, time.Now(), p.explainMode())
+
+	// Shared, not two collectors: Explain ranks the endpoints this one retains, and
+	// never re-runs the statement behind them.
+	slowQueries := postgres.NewSlowQueries()
 
 	window := &postgres.Window{
 		Target:   target,
@@ -131,6 +142,9 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// collectors' statements reach the log; otherwise cheapest reads go first
 		// at t0, and at the closing tick (capacity, bloat, slow queries) the
 		// reading with no second chance goes first.
+		//
+		// pg_explain goes last on both counts: at the close it reads slowQueries' second
+		// sample, and at t0 its log tail then opens past the agent's own first plans.
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
@@ -140,7 +154,8 @@ func (p *PostgresCapture) Run() (Result, error) {
 			metadata,
 			postgres.Capacity{},
 			postgres.Bloat{},
-			postgres.SlowQueries{},
+			slowQueries,
+			postgres.NewExplain(p.explainMode(), slowQueries),
 		},
 	}
 
@@ -178,6 +193,16 @@ func (p *PostgresCapture) captureDuration() time.Duration {
 	}
 
 	return p.Target.CaptureDuration.Duration()
+}
+
+// explainMode passes config's own value through: the postgres package does not import
+// internal/config, and Validate has already rejected everything but the two spellings.
+func (p *PostgresCapture) explainMode() string {
+	if p.Target == nil {
+		return ""
+	}
+
+	return p.Target.Explain
 }
 
 func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, collected postgres.Metadata) (Result, error) {

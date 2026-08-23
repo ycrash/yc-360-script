@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -107,7 +108,7 @@ type tailHarness struct {
 
 	collector interface {
 		Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
-		WriteEpilogue(w io.Writer, s SampleContext) error
+		WriteClosing(w io.Writer, s SampleContext) error
 	}
 
 	q *fakeLogQuerier
@@ -144,7 +145,7 @@ func (h *tailHarness) drain() []textBlock {
 	h.t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(h.t, h.collector.WriteEpilogue(&buf, h.sampleContext()))
+	require.NoError(h.t, h.collector.WriteClosing(&buf, h.sampleContext()))
 
 	return parseTextArtifact(h.t, buf.String())
 }
@@ -1103,8 +1104,8 @@ func TestTailEveryReasonWritesAHeaderOnlyBlockWithNoMatchedKey(t *testing.T) {
 			assert.Equal(t, tt.mode, block.fields["capture_mode"])
 
 			assert.False(t, block.has("matched"),
-				"this is the only assertion in the package that a key is NOT there, and "+
-					"direction §3's never-0 sentence is why")
+				"this is the only assertion in the package that a key is NOT there: an "+
+					"invented zero would read as a measurement")
 
 			assert.Equal(t, "0", block.fields["bytes"], "and the block is header-only")
 			assert.Empty(t, block.body)
@@ -1204,4 +1205,225 @@ func TestLogLocalityIsRecordedRatherThanGated(t *testing.T) {
 			"host would resolve its own log - recorded as a contradiction, never gated")
 
 	assert.Equal(t, localityUnknown, logLocality(logSettings{}))
+}
+
+// --- the plan predicate and entry point (pg_explain.txt's plumbing) --------
+
+// Measured on 18.4 with auto_explain.log_min_duration=0, log_verbose=on.
+// Continuation lines are TAB-indented, which is what the engine's boundary rule reads.
+const measuredPlan = "2026-08-17 02:01:31.226 UTC [13031] LOG:  duration: 0.023 ms  plan:\n" +
+	"\tQuery Text: SELECT count(*) FROM yc_bloat_orders\n" +
+	"\tAggregate  (cost=25.00..25.01 rows=1 width=8)\n" +
+	"\t  ->  Seq Scan on public.yc_bloat_orders  (cost=0.00..22.00 rows=1200 width=0)\n" +
+	"\tQuery Identifier: -5783124330642699735\n"
+
+const measuredPlanSecond = "2026-08-17 02:01:33.410 UTC [13031] LOG:  duration: 4.118 ms  plan:\n" +
+	"\tQuery Text: SELECT * FROM yc_bloat_orders WHERE id = 42\n" +
+	"\tIndex Scan using yc_bloat_orders_pkey on public.yc_bloat_orders  (cost=0.29..8.30 rows=1 width=44)\n" +
+	"\tQuery Identifier: 8814243992348810109\n"
+
+// The same duration: prefix from log_min_duration_statement - the entry this predicate
+// exists to exclude.
+const measuredStatement = "2026-08-17 02:01:31.300 UTC [13031] LOG:  duration: 0.551 ms  " +
+	"statement: SET log_min_duration_statement=0; SELECT 1\n"
+
+const measuredExecute = "2026-08-17 02:01:31.480 UTC [13031] LOG:  duration: 0.104 ms  " +
+	"execute <unnamed>: SELECT * FROM yc_bloat_orders WHERE id = $1\n"
+
+func csvEntry(message string) string {
+	quoted := `"` + strings.ReplaceAll(message, `"`, `""`) + `"`
+
+	return `2026-08-17 02:01:31.226 UTC,"postgres","orders_db",13031,"[local]",6a803945.71,1,"SELECT",` +
+		`2026-08-17 02:01:31.200 UTC,3/13,0,LOG,00000,` + quoted +
+		`,,,,,,,,,"psql","client backend",,0` + "\n"
+}
+
+func jsonEntryLine(t *testing.T, message string) string {
+	t.Helper()
+
+	encoded, err := json.Marshal(map[string]any{
+		"timestamp":      "2026-08-17 02:01:31.226 UTC",
+		"pid":            13031,
+		"error_severity": "LOG",
+		"state_code":     "00000",
+		"message":        message,
+		"backend_type":   "client backend",
+	})
+	require.NoError(t, err)
+
+	return string(encoded) + "\n"
+}
+
+// stderrMessage is what the matcher sees on stderr: the text after the severity keyword.
+func stderrMessage(entry string) string {
+	first, _, _ := strings.Cut(entry, "\n")
+	_, message, _ := strings.Cut(first, "LOG:  ")
+
+	return message + strings.TrimSuffix(strings.TrimPrefix(entry, first), "\n")
+}
+
+func TestEventMatchFirstLineSuffixSeparatesPlansFromStatements(t *testing.T) {
+	require.True(t, strings.HasPrefix(stderrMessage(measuredPlan), "duration: "))
+	require.True(t, strings.HasPrefix(stderrMessage(measuredStatement), "duration: "))
+
+	t.Run("stderr", func(t *testing.T) {
+		body, matched := matchBody(logFormatStderr, explainMatch,
+			measuredPlan+measuredStatement+measuredExecute+unrelatedTraffic)
+
+		assert.Equal(t, 1, matched)
+		assert.Equal(t, measuredPlan, body)
+	})
+
+	for _, tc := range []struct {
+		name   string
+		build  func(t *testing.T, message string) string
+		format logFormat
+	}{
+		{name: "csvlog", format: logFormatCSV, build: func(_ *testing.T, m string) string { return csvEntry(m) }},
+		{name: "jsonlog", format: logFormatJSON, build: jsonEntryLine},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := tc.build(t, stderrMessage(measuredPlan))
+
+			body, matched := matchBody(tc.format, explainMatch,
+				plan+
+					tc.build(t, stderrMessage(measuredStatement))+
+					tc.build(t, stderrMessage(measuredExecute))+
+					tc.build(t, "checkpoint starting: time"))
+
+			assert.Equal(t, 1, matched,
+				"SQLSTATE 00000 is every LOG line in the file; paired is what makes the "+
+					"message predicate run here at all")
+			assert.Equal(t, plan, body)
+		})
+	}
+
+	t.Run("a matcher with no suffix is unchanged", func(t *testing.T) {
+		_, matched := matchBody(logFormatStderr, deadlockMatch, measuredDeadlock+unrelatedTraffic)
+
+		assert.Equal(t, 1, matched, "the two shipped artifacts do not set the field")
+	})
+}
+
+// A collector that reads events back opens the tail on its opening sample.
+func planSampleContext() SampleContext {
+	return SampleContext{
+		At:       testWindowStart,
+		Index:    1,
+		Total:    2,
+		Database: "orders_db",
+		DBID:     "16401",
+		redact:   func(err error) string { return errorText(err, "") },
+	}
+}
+
+func TestTailOpenAtEndSeeksPastWhatPrecededTheWindow(t *testing.T) {
+	dir := newLogDir(t)
+	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_100224.log")
+	dir.append(priorTraffic + measuredPlan)
+
+	q := deniedQuerier(dir.settings())
+
+	tail := newLogTail("pg_explain", explainMatch)
+	require.True(t, tail.openAtEnd(context.Background(), q, planSampleContext()))
+
+	defer tail.closeFile()
+
+	dir.append(measuredPlanSecond + unrelatedTraffic)
+
+	events, read := tail.readEvents(context.Background(), q, time.Time{})
+
+	require.Len(t, events, 1)
+	assert.Equal(t, measuredPlanSecond, string(events[0]),
+		"a plan logged before the tail was opened belongs to a window that did not happen")
+	assert.Equal(t, int64(len(priorTraffic)+len(measuredPlan)), read.from,
+		"and coverage begins where arming left the file, not at 0")
+}
+
+func TestTailReadEventsReturnsThemSeparately(t *testing.T) {
+	dir := newLogDir(t)
+	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_100224.log")
+
+	q := deniedQuerier(dir.settings())
+
+	tail := newLogTail("pg_explain", explainMatch)
+	require.True(t, tail.openAtEnd(context.Background(), q, planSampleContext()))
+
+	defer tail.closeFile()
+
+	dir.append(measuredPlan + measuredStatement + measuredPlanSecond + unrelatedTraffic)
+
+	events, read := tail.readEvents(context.Background(), q, time.Time{})
+
+	require.Len(t, events, 2,
+		"two plans come back as two slices: concatenated, neither could be attached to a candidate")
+	assert.Equal(t, measuredPlan, string(events[0]))
+	assert.Equal(t, measuredPlanSecond, string(events[1]))
+
+	assert.Equal(t, 2, read.matched)
+	assert.False(t, read.partial, "both events ended at a following entry, so neither is held open")
+	assert.NotContains(t, string(bytes.Join(events, nil)), "statement:")
+
+	assert.Equal(t, string(bytes.Join(events, nil)), string(read.body()),
+		"the joined form is still exactly what a transcribing artifact would have written")
+}
+
+func TestTailReadEventsFlushesAHeldEventBecauseNoFurtherCallIsComing(t *testing.T) {
+	dir := newLogDir(t)
+	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_100224.log")
+
+	q := deniedQuerier(dir.settings())
+
+	tail := newLogTail("pg_explain", explainMatch)
+	require.True(t, tail.openAtEnd(context.Background(), q, planSampleContext()))
+
+	defer tail.closeFile()
+
+	dir.append(measuredPlan)
+
+	events, read := tail.readEvents(context.Background(), q, time.Time{})
+
+	require.Len(t, events, 1)
+	assert.Equal(t, measuredPlan, string(events[0]))
+	assert.True(t, read.partial, "end unproven, not bytes missing")
+}
+
+func TestTailOpenAtEndReportsWhyItCouldNot(t *testing.T) {
+	dir := newLogDir(t)
+
+	q := deniedQuerier(dir.settings())
+	q.settings.loggingCollector = "off"
+
+	tail := newLogTail("pg_explain", explainMatch)
+
+	assert.False(t, tail.openAtEnd(context.Background(), q, planSampleContext()))
+	assert.Equal(t, reasonCollectorOff, tail.source.reason,
+		"the caller states the engine's own token rather than inventing one for a remote server")
+
+	events, read := tail.readEvents(context.Background(), q, time.Time{})
+	assert.Empty(t, events)
+	assert.Equal(t, 0, read.matched)
+}
+
+func TestTailReadEventsStopsAtItsDeadline(t *testing.T) {
+	dir := newLogDir(t)
+	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_100224.log")
+
+	q := deniedQuerier(dir.settings())
+
+	tail := newLogTail("pg_explain", explainMatch)
+	require.True(t, tail.openAtEnd(context.Background(), q, planSampleContext()))
+
+	defer tail.closeFile()
+
+	dir.append(measuredPlan + measuredPlanSecond + unrelatedTraffic)
+
+	events, read := tail.readEvents(context.Background(), q, time.Now().Add(-time.Second))
+
+	assert.Empty(t, events)
+	assert.Equal(t, 0, read.matched)
+	assert.Equal(t, read.from, read.to, "nothing was consumed, so nothing is claimed as covered")
+
+	events, _ = tail.readEvents(context.Background(), q, time.Time{})
+	assert.Len(t, events, 2)
 }

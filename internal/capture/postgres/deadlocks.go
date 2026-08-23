@@ -32,8 +32,8 @@ func (d *Deadlocks) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sam
 	return d.tail.sample(ctx, q, w, s)
 }
 
-func (d *Deadlocks) WriteEpilogue(w io.Writer, s SampleContext) error {
-	return d.tail.writeEpilogue(w, s)
+func (d *Deadlocks) WriteClosing(w io.Writer, s SampleContext) error {
+	return d.tail.writeClosing(w, s)
 }
 
 // 40P01 (deadlock_detected) is unique, so csvlog/jsonlog match locale-independently on SQLSTATE.

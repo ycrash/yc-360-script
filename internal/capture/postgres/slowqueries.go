@@ -123,7 +123,7 @@ var infoColumns = []string{"dealloc", "stats_reset"}
 const infoSQL = `SELECT dealloc, stats_reset FROM pg_stat_statements_info`
 
 // extensionSQL is the preflight: every object here is readable by a role holding nothing but LOGIN.
-// at_floor probes pg_attribute for total_exec_time rather than parsing extversion, avoiding a "1.9" > "1.10" lexical-compare bug.
+// meets_min_version probes pg_attribute for total_exec_time rather than parsing extversion, avoiding a "1.9" > "1.10" lexical-compare bug.
 // visible compares the resolved OID against the extension's own view OID (not just to_regclass IS NOT NULL) so a same-named relation earlier in search_path can't pass as a match.
 // library_loaded is read from pg_settings, not the catalog: CREATE EXTENSION can succeed while the library isn't preloaded, and the read then fails 55000.
 const extensionSQL = `SELECT COALESCE((SELECT n.nspname::text
@@ -151,7 +151,7 @@ const extensionSQL = `SELECT COALESCE((SELECT n.nspname::text
             WHERE attrelid = to_regclass('pg_stat_statements')
               AND attname = 'total_exec_time'
               AND NOT attisdropped
-       )                                                        AS at_floor,
+       )                                                        AS meets_min_version,
        (SELECT string_agg(attname, ',' ORDER BY attname)
           FROM pg_catalog.pg_attribute
          WHERE attrelid = to_regclass('pg_stat_statements')
@@ -227,9 +227,105 @@ func buildStatementsSQL() string {
 type SlowQueries struct {
 	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
 	MaxStatements int
+
+	// retained is what Explain ranks at the window's close. Never written to any file:
+	// the delta it supports is a sort key for a bounded selection, not a measurement.
+	retained statementEndpoints
 }
 
-func (SlowQueries) Artifact() Artifact {
+// NewSlowQueries constructs the collector. A pointer because Sample retains across
+// samples, and a field assigned through a value receiver would be assigned to a copy.
+func NewSlowQueries() *SlowQueries { return &SlowQueries{} }
+
+// statementKey is pg_stat_statements' real key; queryid alone is not unique across users
+// or databases. toplevel is a string tri-state so NULL - every row below extension 1.9 -
+// is a key value rather than a wildcard, as the server's own merge treats it.
+type statementKey struct {
+	queryid  int64
+	userid   string
+	dbid     string
+	toplevel string
+}
+
+// statementProjection is one opening-sample row reduced to the delta's inputs. No text:
+// 5,000 rows of it would hold tens of megabytes for the whole window, and a sort key
+// needs none.
+type statementProjection struct {
+	totalExecTime *float64
+	statsSince    *time.Time
+}
+
+// statementEndpoints is the ranking's whole input: the opening projection, the closing
+// sample's full rows - the only place the generic mode's normalized text exists - and each
+// endpoint's truncation flag and info reading, which the validity rules consume.
+type statementEndpoints struct {
+	start     map[statementKey]statementProjection
+	startRead bool
+
+	// startTruncated: the endpoint is a prefix of the view, so a row missing from it
+	// proves nothing about when the statement first ran.
+	startTruncated bool
+	startInfo      *infoRow
+
+	end     []statementRow
+	endRead bool
+
+	endTruncated bool
+	endInfo      *infoRow
+}
+
+// rankingEndpoints hands Explain the retained reads, the one coupling between the two
+// collectors: Explain never re-runs the statement behind them.
+func (sq *SlowQueries) rankingEndpoints() statementEndpoints { return sq.retained }
+
+// retainStart keeps the projection, dropping rows whose queryid the privilege floor
+// masked: those cannot key a join, and the prefilter counts them from the end read.
+func (sq *SlowQueries) retainStart(rows []statementRow, truncated bool) {
+	start := make(map[statementKey]statementProjection, len(rows))
+
+	for _, row := range rows {
+		key, ok := statementRowKey(row)
+		if !ok {
+			continue
+		}
+
+		start[key] = statementProjection{totalExecTime: row.totalExecTime, statsSince: row.statsSince}
+	}
+
+	sq.retained.start = start
+	sq.retained.startRead = true
+	sq.retained.startTruncated = truncated
+}
+
+func (sq *SlowQueries) retainEnd(rows []statementRow, truncated bool) {
+	sq.retained.end = rows
+	sq.retained.endRead = true
+	sq.retained.endTruncated = truncated
+}
+
+func statementRowKey(row statementRow) (statementKey, bool) {
+	if row.queryid == nil {
+		return statementKey{}, false
+	}
+
+	return statementKey{
+		queryid:  *row.queryid,
+		userid:   text(row.userid),
+		dbid:     text(row.dbid),
+		toplevel: boolKey(row.toplevel),
+	}, true
+}
+
+// boolKey renders a tri-state pointer as a comparable key component; "" is NULL.
+func boolKey(b *bool) string {
+	if b == nil {
+		return ""
+	}
+
+	return strconv.FormatBool(*b)
+}
+
+func (*SlowQueries) Artifact() Artifact {
 	return Artifact{
 		Name:     "pg_slow_queries",
 		FileName: "pg_slow_queries.txt",
@@ -247,7 +343,7 @@ func (SlowQueries) Artifact() Artifact {
 // Sample runs the preflight once and passes its result to both blocks so they can't disagree about what the server has.
 // Info reads bracket the window (first on the opening sample, last on the closing one) so the two stats_reset readings enclose everything between the endpoints.
 // Errors returned here are write failures; read errors are captured as error= header fields instead.
-func (sq SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+func (sq *SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	ext, extErr := readExtension(ctx, q)
 
 	var sample bytes.Buffer
@@ -282,7 +378,7 @@ func (sq SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s S
 // library_loaded rides every capture so a "never created + never preloaded" combination stays visible, schema_usage rides only with reason=not_in_search_path,
 // and optional_columns rides wherever the view was readable even if the read then failed.
 // statements_total/truncated are likewise dropped, not zeroed, on a failed read.
-func (sq SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w io.Writer,
+func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w io.Writer,
 	s SampleContext, ext extensionFacts, extErr error,
 ) error {
 	fields := []headerField{
@@ -313,6 +409,10 @@ func (sq SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w 
 
 	cells, queriesTruncated := statementCells(rows)
 
+	if err == nil {
+		sq.retain(s, rows, int64(len(rows)) < total)
+	}
+
 	if ext.optionalColumns != nil {
 		fields = append(fields, headerField{"optional_columns", *ext.optionalColumns})
 	}
@@ -334,7 +434,7 @@ func (sq SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w 
 	return sq.writeStatements(w, fields, s.At, cells)
 }
 
-func (sq SlowQueries) writeStatements(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
+func (sq *SlowQueries) writeStatements(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
 	if err := writeBlockHeader(w, "pg_stat_statements", sq.Artifact().Scope, fields, at); err != nil {
 		return err
 	}
@@ -344,7 +444,7 @@ func (sq SlowQueries) writeStatements(w io.Writer, fields []headerField, at time
 
 // writeInfoBlock mirrors the statements block's reason= wherever the cause is shared,
 // and adds reasonViewAbsent, which is its alone.
-func (sq SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Writer,
+func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Writer,
 	s SampleContext, ext extensionFacts, extErr error,
 ) error {
 	fields := []headerField{
@@ -372,10 +472,38 @@ func (sq SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wri
 		return sq.writeInfo(w, append(fields, headerField{"error", s.errorText(err)}), s.At, nil)
 	}
 
+	sq.retainInfo(s, row)
+
 	return sq.writeInfo(w, fields, s.At, infoCells(row))
 }
 
-func (sq SlowQueries) writeInfo(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
+// retain files a read under the endpoint it belongs to. A one-tick window is the closing
+// endpoint only: with nothing to subtract from, rule 3 decides every row.
+func (sq *SlowQueries) retain(s SampleContext, rows []statementRow, truncated bool) {
+	if s.Index == 1 && s.Total > 1 {
+		sq.retainStart(rows, truncated)
+
+		return
+	}
+
+	if s.Index == s.Total {
+		sq.retainEnd(rows, truncated)
+	}
+}
+
+func (sq *SlowQueries) retainInfo(s SampleContext, row *infoRow) {
+	if s.Index == 1 && s.Total > 1 {
+		sq.retained.startInfo = row
+
+		return
+	}
+
+	if s.Index == s.Total {
+		sq.retained.endInfo = row
+	}
+}
+
+func (sq *SlowQueries) writeInfo(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
 	if err := writeBlockHeader(w, "pg_stat_statements_info", sq.Artifact().Scope, fields, at); err != nil {
 		return err
 	}
@@ -509,7 +637,7 @@ func (r *statementRow) dest() []any {
 }
 
 // readStatements returns the capped rows and the uncapped total.
-func (sq SlowQueries) readStatements(ctx context.Context, q RowQuerier) ([]statementRow, int64, error) {
+func (sq *SlowQueries) readStatements(ctx context.Context, q RowQuerier) ([]statementRow, int64, error) {
 	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
@@ -611,7 +739,7 @@ type extensionFacts struct {
 	visible         bool
 	schemaUsage     bool
 	hasInfo         bool
-	atFloor         bool
+	meetsMinVersion bool
 	optionalColumns *string
 }
 
@@ -626,7 +754,7 @@ func (e extensionFacts) reason() string {
 	case !e.visible:
 		return reasonNotInSearchPath
 
-	case !e.atFloor:
+	case !e.meetsMinVersion:
 		return reasonExtensionTooOld
 
 	case !e.libraryLoaded:
@@ -649,7 +777,7 @@ func readExtension(ctx context.Context, q RowQuerier) (extensionFacts, error) {
 		&facts.visible,
 		&facts.schemaUsage,
 		&facts.hasInfo,
-		&facts.atFloor,
+		&facts.meetsMinVersion,
 		&facts.optionalColumns,
 	); err != nil {
 		return extensionFacts{}, err
@@ -658,7 +786,7 @@ func readExtension(ctx context.Context, q RowQuerier) (extensionFacts, error) {
 	return facts, nil
 }
 
-func (sq SlowQueries) maxStatements() int {
+func (sq *SlowQueries) maxStatements() int {
 	if sq.MaxStatements <= 0 {
 		return DefaultMaxStatements
 	}

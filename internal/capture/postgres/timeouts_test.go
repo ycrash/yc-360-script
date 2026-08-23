@@ -31,7 +31,7 @@ func TestTimeoutsArtifact(t *testing.T) {
 	assert.Equal(t, Every(DefaultLogTailInterval), artifact.Schedule)
 
 	var _ Collector = NewTimeouts()
-	var _ Epilogue = NewTimeouts()
+	var _ Closing = NewTimeouts()
 }
 
 func TestTimeoutsCapturesAllThreeTypesAtTheirMeasuredLineCounts(t *testing.T) {
@@ -159,8 +159,8 @@ func TestTimeoutsGoldenUnreadable(t *testing.T) {
 	artifact := artifactText(t, results[0])
 
 	assert.NotContains(t, artifact, "matched=",
-		"this is the artifact direction §3 wrote its sentence about: nothing anywhere counts "+
-			"timeouts, so a zero here would be the report's only number and it would be invented")
+		"nothing anywhere counts timeouts, so a zero here would be the report's only number "+
+			"and it would be invented")
 
 	assert.Equal(t, bloatGolden(t, "pg_timeouts_unreadable.txt"), artifact)
 }

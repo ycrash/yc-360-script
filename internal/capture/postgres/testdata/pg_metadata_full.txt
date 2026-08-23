@@ -8,6 +8,8 @@ target_port,5432
 target_database,orders_db
 target_username,ycrash_monitor
 target_sslmode,require
+explain_mode,all
+explain_literals,verbatim
 # engine=postgres source=pg_metadata_server v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-04T09:12:44.201Z
 key,value
 capture_mode,pg-dbhost
@@ -42,6 +44,11 @@ pg_stat_statements.max,5000
 pg_stat_statements.track,top
 pg_stat_statements.track_planning,off
 pg_stat_statements.track_utility,on
+auto_explain.log_min_duration,0
+auto_explain.log_verbose,on
+auto_explain.log_analyze,off
+auto_explain.log_format,text
+auto_explain.sample_rate,1
 shared_preload_libraries,"pg_stat_statements,auto_explain"
 settings_unavailable,
 data_directory,/var/lib/postgresql/17/main
@@ -56,6 +63,7 @@ has_pg_read_all_stats,true
 has_pg_stat_statements,true
 pg_stat_statements_version,1.11
 has_pg_stat_checkpointer,true
+has_generic_plan,true
 has_session_fatal_stats,true
 compute_query_id,auto
 replication_configured,true
