@@ -31,8 +31,8 @@ func (t *Timeouts) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Samp
 	return t.tail.sample(ctx, q, w, s)
 }
 
-func (t *Timeouts) WriteEpilogue(w io.Writer, s SampleContext) error {
-	return t.tail.writeEpilogue(w, s)
+func (t *Timeouts) WriteClosing(w io.Writer, s SampleContext) error {
+	return t.tail.writeClosing(w, s)
 }
 
 // 57014 and 55P03 are shared with other events (cancellation, NOWAIT), so both are paired with

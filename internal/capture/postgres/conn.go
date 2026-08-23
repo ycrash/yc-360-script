@@ -115,6 +115,56 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 	return &Conn{conn: conn}, nil
 }
 
+// ExecSimple runs sql over PostgreSQL's simple query protocol and returns the first
+// column of every row, in order.
+//
+// pgx's QueryExecModeSimpleProtocol is not this: it substitutes $n client-side, so an
+// unbound placeholder fails with "insufficient arguments" before reaching the server.
+// EXPLAIN (GENERIC_PLAN) needs the placeholders delivered intact, as psql delivers them.
+//
+// The simple protocol executes every statement in a batch, so the caller must refuse a
+// multi-statement text first. maxBytes bounds what is retained, not what is read: rows
+// past the cap are drained and dropped so the statement still completes on the shared
+// connection, and the second return says the cut happened.
+func (c *Conn) ExecSimple(ctx context.Context, sql string, maxBytes int) ([]string, bool, error) {
+	mrr := c.conn.PgConn().Exec(ctx, sql)
+
+	var (
+		lines     []string
+		held      int
+		truncated bool
+	)
+
+	for mrr.NextResult() {
+		reader := mrr.ResultReader()
+
+		for reader.NextRow() {
+			values := reader.Values()
+			if len(values) == 0 {
+				continue
+			}
+
+			if maxBytes > 0 && held >= maxBytes {
+				truncated = true
+
+				continue
+			}
+
+			line := string(values[0])
+			held += len(line) + 1
+
+			lines = append(lines, line)
+		}
+	}
+
+	// Close drains to the end and returns the first error of the exchange.
+	if err := mrr.Close(); err != nil {
+		return nil, false, err
+	}
+
+	return lines, truncated, nil
+}
+
 // QueryRow's per-statement deadline is the caller's: Scan reads the row after
 // this returns. Same for Query.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {

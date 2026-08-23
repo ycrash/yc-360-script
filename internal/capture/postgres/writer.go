@@ -42,6 +42,11 @@ func targetFields(m Metadata) []field {
 		{"target_database", m.TargetDatabase},
 		{"target_username", m.TargetUsername},
 		{"target_sslmode", m.TargetSSLMode},
+
+		// Policy, not readings: written here so a refused connection still records what
+		// the run intended.
+		{"explain_mode", m.ExplainMode},
+		{"explain_literals", m.ExplainLiterals},
 	}
 }
 
@@ -88,6 +93,11 @@ func serverFields(m Metadata) []field {
 		{"pg_stat_statements.track", m.PgStatStatementsTrack},
 		{"pg_stat_statements.track_planning", m.PgStatStatementsTrackPlanning},
 		{"pg_stat_statements.track_utility", m.PgStatStatementsTrackUtility},
+		{"auto_explain.log_min_duration", m.AutoExplainLogMinDuration},
+		{"auto_explain.log_verbose", m.AutoExplainLogVerbose},
+		{"auto_explain.log_analyze", m.AutoExplainLogAnalyze},
+		{"auto_explain.log_format", m.AutoExplainLogFormat},
+		{"auto_explain.sample_rate", m.AutoExplainSampleRate},
 		{"shared_preload_libraries", m.SharedPreloadLibraries},
 		{"settings_unavailable", m.SettingsUnavailable},
 
@@ -104,6 +114,7 @@ func serverFields(m Metadata) []field {
 		{"has_pg_stat_statements", m.HasPgStatStatements},
 		{"pg_stat_statements_version", m.PgStatStatementsVersion},
 		{"has_pg_stat_checkpointer", m.HasPgStatCheckpointer},
+		{"has_generic_plan", m.HasGenericPlan},
 		{"has_session_fatal_stats", m.HasSessionFatalStats},
 		{"compute_query_id", m.ComputeQueryID},
 

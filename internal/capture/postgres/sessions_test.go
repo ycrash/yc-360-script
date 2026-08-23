@@ -463,8 +463,8 @@ func TestSessionsColumnOrder(t *testing.T) {
 		"client_hostname",
 		"client_port",
 		"query",
-	}, sessionColumns, "all twenty-two, identical on 14 through 18, where the requirements "+
-		"document names nine of them")
+	}, sessionColumns, "all twenty-two, identical on 14 through 18, where only nine were "+
+		"asked for")
 
 	assert.Equal(t, "pid", sessionColumns[0],
 		"the stitching key leads - and it is what makes it impossible for a data line to begin "+
@@ -492,13 +492,12 @@ func TestSessionsLockColumnOrder(t *testing.T) {
 		"granted",
 		"fastpath",
 		"waitstart",
-	}, lockColumns, "all sixteen, identical on 14 through 18, where the requirements document "+
-		"names ten")
+	}, lockColumns, "all sixteen, identical on 14 through 18, where only ten were asked for")
 
 	assert.Equal(t, "pid", lockColumns[0],
 		"the join key leads here too, which keeps a backend's locks contiguous for a human")
 	assert.Equal(t, "waitstart", lockColumns[len(lockColumns)-1],
-		"and the column the requirements document omits closes: it is what lets a single "+
+		"and the one column nobody asked for closes: it is what lets a single "+
 			"sample carry a wait's duration, where diffing consecutive samples is bounded "+
 			"below by the 2s cadence")
 }
@@ -674,8 +673,8 @@ func TestSessionsStatementIsUnfilteredOrderedAndCapped(t *testing.T) {
 	takeSessionsSample(t, conn)
 
 	assert.NotContains(t, sessionsSQL, "WHERE",
-		"the requirements document asks for WHERE pid <> pg_backend_pid(); this statement has "+
-			"no WHERE clause at all, and the generality is the point. Twelve of these mask to "+
+		"a WHERE pid <> pg_backend_pid() is the obvious ask; this statement has no WHERE "+
+			"clause at all, and the generality is the point. Twelve of these mask to "+
 			"NULL without pg_read_all_stats, so a filter on backend_type - the obvious one to "+
 			"write - returns one row of ten on a least-privilege capture, silently. No WHERE "+
 			"clause is the rule with no exception to remember")

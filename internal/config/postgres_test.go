@@ -98,7 +98,7 @@ func TestPostgresValidateNormalization(t *testing.T) {
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, sslmode, captureDuration)"
+		"(valid keys: host, port, database, username, password, sslmode, captureDuration, explain)"
 
 	t.Run("zero block", func(t *testing.T) {
 		warnings, err := (&Postgres{}).Validate()
@@ -129,6 +129,15 @@ func TestPostgresValidateEmptyBlock(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, wantMsg, err.Error(),
 			"a duration alone names nothing to capture")
+	})
+
+	t.Run("a block whose only key is explain is an empty block", func(t *testing.T) {
+		p := decodePostgresBlock(t, "explain: all")
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t, wantMsg, err.Error(),
+			"a mode alone names no database to explain against; the alternative is an obscure connect failure")
 	})
 }
 
@@ -387,6 +396,124 @@ func TestPostgresValidateSSLMode(t *testing.T) {
 	})
 }
 
+func TestPostgresValidateExplain(t *testing.T) {
+	withTarget := func(t *testing.T, body string) *Postgres {
+		t.Helper()
+
+		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+	}
+
+	t.Run("the two accepted values", func(t *testing.T) {
+		for _, mode := range []string{ExplainLogged, ExplainAll} {
+			p := validPostgres()
+			p.Explain = mode
+
+			_, err := p.Validate()
+			assert.NoError(t, err, "mode %q should be accepted", mode)
+			assert.Equal(t, mode, p.Explain)
+		}
+	})
+
+	t.Run("omitted is off, and says nothing", func(t *testing.T) {
+		p := validPostgres()
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+		assert.Empty(t, p.Explain)
+		assert.Equal(t, ExplainOff, p.ExplainMode())
+	})
+
+	t.Run("an empty value is the same as omitting the key", func(t *testing.T) {
+		for _, body := range []string{"explain:", "explain: \"\"", "explain: ~"} {
+			p := withTarget(t, body)
+
+			warnings, err := p.Validate()
+			require.NoError(t, err, "%q should decode to an unset mode", body)
+			assert.Empty(t, warnings)
+			assert.Equal(t, ExplainOff, p.ExplainMode())
+		}
+	})
+
+	t.Run("the boolean a human types is named, not rejected generically", func(t *testing.T) {
+		for _, typed := range []string{"true", "false", "on", "off", "yes", "no"} {
+			p := withTarget(t, "explain: "+typed)
+
+			_, err := p.Validate()
+			require.Error(t, err, "%q should be rejected", typed)
+			assert.Equal(t,
+				`postgres.explain is "`+typed+`" - it takes "logged" or "all"; `+
+					`omit the key to capture no plans`,
+				err.Error())
+		}
+	})
+
+	t.Run("True is lowercased before the boolean check, not after it", func(t *testing.T) {
+		p := withTarget(t, "explain: True")
+		require.Equal(t, "True", p.Explain, "yaml.v3 delivers it capitalised")
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t,
+			`postgres.explain is "true" - it takes "logged" or "all"; `+
+				`omit the key to capture no plans`,
+			err.Error(),
+			"lowercasing first is what keeps this out of the generic invalid-value path")
+	})
+
+	t.Run("an unknown value is rejected with the valid set", func(t *testing.T) {
+		p := validPostgres()
+		p.Explain = "estimated"
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t,
+			`postgres.explain "estimated" is invalid (valid values: logged, all)`,
+			err.Error())
+	})
+
+	t.Run("case and whitespace are normalized before the membership check", func(t *testing.T) {
+		p := validPostgres()
+		p.Explain = "  LOGGED  "
+
+		_, err := p.Validate()
+		require.NoError(t, err)
+		assert.Equal(t, ExplainLogged, p.Explain)
+	})
+
+	t.Run("all warns once, and says what leaves and what lands", func(t *testing.T) {
+		p := validPostgres()
+		p.Explain = ExplainAll
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+		require.Len(t, warnings, 1, "a fully specified block has nothing else to warn about")
+		assert.Contains(t, warnings[0], "postgres.explain=all")
+		assert.Contains(t, warnings[0], "submitted back to the database as EXPLAIN")
+		assert.Contains(t, warnings[0], "literal parameter values from your data")
+	})
+
+	t.Run("logged does not warn: nothing is submitted", func(t *testing.T) {
+		p := validPostgres()
+		p.Explain = ExplainLogged
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+	})
+}
+
+func TestPostgresExplainMode(t *testing.T) {
+	var absent *Postgres
+	assert.Equal(t, ExplainOff, absent.ExplainMode(), "nil block is a run with no plans")
+	assert.Equal(t, ExplainOff, (&Postgres{}).ExplainMode())
+	assert.Equal(t, ExplainAll, (&Postgres{Explain: ExplainAll}).ExplainMode())
+
+	assert.NotContains(t, postgresExplainModes, ExplainOff,
+		`"off" reports the omitted key; accepting it as input would be a second way to say one thing`)
+}
+
 func requireUnsetEnv(t *testing.T, name string) {
 	t.Helper()
 	t.Setenv(name, "placeholder-to-register-cleanup")
@@ -577,9 +704,20 @@ func TestPostgresString(t *testing.T) {
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
 				`username="ycrash_monitor" password=<redacted> sslmode=require `+
-				`captureDuration=1m30s`,
+				`captureDuration=1m30s explain=off`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
+	})
+
+	t.Run("an omitted mode reads as off rather than blank", func(t *testing.T) {
+		assert.Contains(t, validPostgres().String(), "explain=off")
+	})
+
+	t.Run("a configured mode is echoed", func(t *testing.T) {
+		p := validPostgres()
+		p.Explain = ExplainAll
+
+		assert.Contains(t, p.String(), "explain=all")
 	})
 
 	t.Run("an unset window says so rather than reading as a value", func(t *testing.T) {
@@ -729,7 +867,7 @@ func TestPostgresYAMLShapes(t *testing.T) {
 				assert.Equal(t, "db-prod-01.internal", p.Host)
 				assert.Equal(t, "${PG_YCRASH_PASSWORD}", p.Password)
 			},
-			wantDescribe: "the §2.4 sample, nested correctly",
+			wantDescribe: "every recognised key, nested correctly",
 		},
 	}
 
@@ -820,5 +958,7 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 
 		assert.Contains(t, flags, "port=5432")
 		assert.Contains(t, flags, "sslmode=require")
+		assert.Contains(t, flags, "explain=off",
+			"the run's plan-capture intent belongs in the echo; it is not a credential")
 	})
 }

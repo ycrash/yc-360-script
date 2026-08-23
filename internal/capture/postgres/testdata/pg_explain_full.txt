@@ -1,0 +1,11 @@
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=1 candidate_source=statements queryid=-4821096637582910234 mode=ESTIMATED_LITERAL plan_queryid=-4821096637582910234 queryid_match=true search_path="\"$user\", public" bytes=139 ts=2026-08-07T14:34:05.140Z
+ Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)
+   Filter: (order_id = 4021)
+ Query Identifier: -4821096637582910234
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=2 candidate_source=statements queryid=-7710234988821003345 mode=none search_path="\"$user\", public" error="ERROR: permission denied for table orders" bytes=0 ts=2026-08-07T14:34:05.140Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=3 candidate_source=statements queryid=5548219003471002234 mode=ESTIMATED_GENERIC search_path="\"$user\", public" bytes=142 ts=2026-08-07T14:34:05.140Z
+ Index Scan using inventory_sku_idx on public.inventory  (cost=0.42..8.44 rows=1 width=48)
+   Index Cond: (inventory.sku = 'SKU-88291'::text)
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=4 excluded_other_database=1 candidates_written=3 capture_mode=pg-dbhost plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:34:05.140Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

@@ -8,4 +8,6 @@ target_port,5432
 target_database,orders_db
 target_username,ycrash_monitor
 target_sslmode,require
+explain_mode,all
+explain_literals,verbatim
 # engine=postgres source=pg_metadata v=1 format=csv scope=cluster db=orders_db dbid= status=connect_failed samples_expected=1 samples_written=0 connect_error=too_many_connections ts=2026-08-04T09:12:54.215Z

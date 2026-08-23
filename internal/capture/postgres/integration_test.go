@@ -134,7 +134,7 @@ func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int
 		Duration: matrixMetadataWindow,
 		Target:   target,
 		Collectors: []Collector{
-			NewMetadata(target, "matrix", time.Now()),
+			NewMetadata(target, "matrix", time.Now(), ""),
 			Health{Interval: time.Second},
 		},
 	}
@@ -336,22 +336,30 @@ func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]s
 	assert.NotEmpty(t, values["log_destination"])
 	assert.NotEmpty(t, values["log_line_prefix"])
 
+	// auto_explain's GUCs exist only while the module is loaded, and the fixture does not
+	// preload it, so they are absent for every role - what a customer running without the
+	// module sees too.
 	if role.privileged() {
-		assert.Empty(t, values["settings_unavailable"],
-			"a role with pg_read_all_settings sees every setting in the catalogue")
+		assert.ElementsMatch(t, autoExplainSettings,
+			splitSettingList(values["settings_unavailable"]),
+			"a role with pg_read_all_settings sees every setting that exists; what is "+
+				"missing is the unloaded module's")
 
 		for _, name := range superuserOnlySettings {
 			assert.NotEmpty(t, values[name], "%s is visible to this role", name)
 		}
 
 		assert.Contains(t, values["shared_preload_libraries"], "pg_stat_statements")
+		assert.NotContains(t, values["shared_preload_libraries"], "auto_explain",
+			"and the fixture says why those five are missing")
 
 		return
 	}
 
 	unavailable := splitSettingList(values["settings_unavailable"])
-	assert.ElementsMatch(t, superuserOnlySettings, unavailable,
-		"exactly the superuser-only settings are omitted, and they are named")
+	assert.ElementsMatch(t, append(slices.Clone(superuserOnlySettings), autoExplainSettings...),
+		unavailable,
+		"the superuser-only settings and the unloaded module's, and they are all named")
 
 	for _, name := range superuserOnlySettings {
 		assert.Empty(t, values[name], "%s must be written empty rather than erroring the statement", name)
@@ -516,6 +524,10 @@ func (b sampleBlock) cell(t *testing.T, relid, column string) string {
 	return ""
 }
 
+// schema is matched, not assumed: two schemas can hold same-named tables, and a lookup
+// that ignored it would return whichever the map iterated first.
+//
+//nolint:unparam // every fixture table happens to live in public; the match is the point
 func (b sampleBlock) relidOf(t *testing.T, schema, name string) string {
 	t.Helper()
 
@@ -815,8 +827,10 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 		database              string
 		dbid                  *string
 		hasPgStatCheckpointer bool
+		hasGenericPlan        bool
 	)
-	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).Scan(&database, &dbid, &hasPgStatCheckpointer))
+	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).
+		Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan))
 	require.Equal(t, "yc_second", database)
 	require.NotNil(t, dbid)
 
@@ -2259,7 +2273,7 @@ func matrixQuery(t *testing.T, target Target, sql string, args ...any) []*string
 	return values
 }
 
-func runMatrixSlowQueriesWindow(t *testing.T, target Target, collector SlowQueries) []ArtifactResult {
+func runMatrixSlowQueriesWindow(t *testing.T, target Target, collector *SlowQueries) []ArtifactResult {
 	t.Helper()
 	t.Chdir(t.TempDir())
 
@@ -2273,7 +2287,7 @@ func runMatrixSlowQueriesWindow(t *testing.T, target Target, collector SlowQueri
 }
 
 func matrixSlowQueriesBlocks(t *testing.T, target Target,
-	collector SlowQueries,
+	collector *SlowQueries,
 ) (statements, info []capacityMatrixBlock) {
 	t.Helper()
 
@@ -2322,7 +2336,7 @@ func TestMatrixSlowQueries(t *testing.T) {
 				t.Run(role.user, func(t *testing.T) {
 					target := matrixTarget(server, role)
 
-					statementBlocks, infoBlocks := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+					statementBlocks, infoBlocks := matrixSlowQueriesBlocks(t, target, NewSlowQueries())
 
 					require.Len(t, statementBlocks, 2, "one statements block on every sample")
 					require.Len(t, infoBlocks, 2, "and one info block beside it")
@@ -2382,7 +2396,7 @@ func TestMatrixSlowQueries(t *testing.T) {
 			})
 
 			t.Run("the floor, both sides", func(t *testing.T) {
-				assertMatrixExtensionFloor(t, server)
+				assertMatrixExtensionMinVersion(t, server)
 			})
 
 			t.Run("an extension outside search_path", func(t *testing.T) {
@@ -2657,7 +2671,7 @@ func assertMatrixStatementCap(t *testing.T, server matrixServer) {
 
 	target := matrixTarget(server, matrixSuperuser(t))
 
-	blocks, _ := matrixSlowQueriesBlocks(t, target, SlowQueries{MaxStatements: 5})
+	blocks, _ := matrixSlowQueriesBlocks(t, target, &SlowQueries{MaxStatements: 5})
 	block := blocks[0]
 
 	assert.Equal(t, "5", block.header["statements_written"])
@@ -2732,7 +2746,7 @@ func assertMatrixExtensionIsPerDatabase(t *testing.T, server matrixServer) {
 
 	target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
 
-	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+	statements, info := matrixSlowQueriesBlocks(t, target, NewSlowQueries())
 
 	require.Len(t, statements, 2)
 	require.Len(t, info, 2)
@@ -2754,7 +2768,7 @@ func assertMatrixExtensionIsPerDatabase(t *testing.T, server matrixServer) {
 			"non-empty and out of the upload path's zero-byte drop")
 }
 
-func assertMatrixExtensionFloor(t *testing.T, server matrixServer) {
+func assertMatrixExtensionMinVersion(t *testing.T, server matrixServer) {
 	t.Helper()
 
 	target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
@@ -2763,7 +2777,7 @@ func assertMatrixExtensionFloor(t *testing.T, server matrixServer) {
 
 	matrixDDL(t, server, matrixSecondDB, "CREATE EXTENSION pg_stat_statements VERSION '1.7'")
 
-	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+	statements, info := matrixSlowQueriesBlocks(t, target, NewSlowQueries())
 
 	for _, block := range append(statements, info...) {
 		assert.Equal(t, reasonExtensionTooOld, block.header["reason"], block.header["source"])
@@ -2778,7 +2792,7 @@ func assertMatrixExtensionFloor(t *testing.T, server matrixServer) {
 		"DROP EXTENSION pg_stat_statements",
 		"CREATE EXTENSION pg_stat_statements VERSION '1.8'")
 
-	statements, info = matrixSlowQueriesBlocks(t, target, SlowQueries{})
+	statements, info = matrixSlowQueriesBlocks(t, target, NewSlowQueries())
 
 	assert.NotContains(t, statements[0].rawHead, "reason=",
 		"1.8 is a supported extension, not a refused one")
@@ -2814,7 +2828,7 @@ func assertMatrixExtensionNotInSearchPath(t *testing.T, server matrixServer) {
 		"CREATE SCHEMA "+matrixExtSchema,
 		"CREATE EXTENSION pg_stat_statements SCHEMA "+matrixExtSchema)
 
-	statements, info := matrixSlowQueriesBlocks(t, target, SlowQueries{})
+	statements, info := matrixSlowQueriesBlocks(t, target, NewSlowQueries())
 
 	for _, block := range append(statements, info...) {
 		assert.Equal(t, reasonNotInSearchPath, block.header["reason"], block.header["source"])
@@ -2879,7 +2893,7 @@ type matrixTail struct {
 
 	collector interface {
 		Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
-		WriteEpilogue(w io.Writer, s SampleContext) error
+		WriteClosing(w io.Writer, s SampleContext) error
 	}
 
 	index int
@@ -2887,7 +2901,7 @@ type matrixTail struct {
 
 func newMatrixTail(t *testing.T, target Target, collector interface {
 	Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error
-	WriteEpilogue(w io.Writer, s SampleContext) error
+	WriteClosing(w io.Writer, s SampleContext) error
 },
 ) *matrixTail {
 	t.Helper()
@@ -2935,11 +2949,12 @@ func (m *matrixTail) drain() []textBlock {
 	m.t.Helper()
 
 	var buf bytes.Buffer
-	require.NoError(m.t, m.collector.WriteEpilogue(&buf, SampleContext{At: time.Now(), Database: "postgres"}))
+	require.NoError(m.t, m.collector.WriteClosing(&buf, SampleContext{At: time.Now(), Database: "postgres"}))
 
 	return parseTextArtifact(m.t, buf.String())
 }
 
+//nolint:unparam // yc_second is where the fixtures live today, not a property of the helper
 func matrixLogConn(t *testing.T, server matrixServer, database string) *pgconn.PgConn {
 	t.Helper()
 
@@ -3111,7 +3126,7 @@ func TestMatrixLogTailDeadlock(t *testing.T) {
 				"the DETAIL is four lines - two waits and two statements - and three of them "+
 					"are TAB continuations a line-oriented reader would mis-attribute")
 			assert.Contains(t, block.body, "CONTEXT:",
-				"and the line requirements §2.3 stops before, which names the relation and the tuple")
+				"and the line a DETAIL-only rule stops before, which names the relation and the tuple")
 			assert.Contains(t, block.body, "STATEMENT:")
 
 			size, err := strconv.Atoi(block.fields["bytes"])
@@ -3491,6 +3506,582 @@ func TestMatrixLogSettingsAtThePrivilegeFloor(t *testing.T) {
 
 			assert.NotContains(t, splitSettingList(values["settings_unavailable"]), "log_rotation_age",
 				"none of the seven is superuser-only")
+		})
+	}
+}
+
+// --- pg_explain.txt ----------------------------------------------------------
+//
+// Everything below is a fact about PostgreSQL a unit test cannot reach: the version split,
+// the executor permission check, what the wire protocol leaves in pg_stat_activity, and
+// what auto_explain writes.
+
+const matrixExplainTable = "yc_explain"
+
+// matrixExplainFixture builds the table the estimated modes plan against, in yc_second -
+// the database with no pg_stat_statements view, which is also the fallback case.
+func matrixExplainFixture(t *testing.T, server matrixServer) {
+	t.Helper()
+
+	matrixDDL(t, server, matrixSecondDB,
+		"DROP TABLE IF EXISTS "+matrixExplainTable,
+		"CREATE TABLE "+matrixExplainTable+" (id int primary key, sku text, note text)",
+		"INSERT INTO "+matrixExplainTable+
+			" SELECT g, 'SKU-' || g, repeat('x', 16) FROM generate_series(1, 400) g",
+		"ANALYZE "+matrixExplainTable)
+
+	t.Cleanup(func() {
+		matrixDDL(t, server, matrixSecondDB, "DROP TABLE IF EXISTS "+matrixExplainTable)
+	})
+}
+
+func matrixConn(t *testing.T, target Target) *Conn {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err, "connect to %s", target)
+
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	})
+
+	return conn
+}
+
+// matrixPlan submits one EXPLAIN through the collector's own submission path, so the
+// protocol under test is the one production uses.
+func matrixPlan(t *testing.T, conn *Conn, statement string, generic bool) (string, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	plan, truncated, err := submitExplain(ctx, conn, statement, generic)
+
+	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
+
+	return string(plan), err
+}
+
+func TestMatrixExplainGenericPlanIsAVersionGate(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+			conn := matrixConn(t, target)
+
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
+
+			var (
+				database              string
+				dbid                  *string
+				hasPgStatCheckpointer bool
+				hasGenericPlan        bool
+			)
+			require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).
+				Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan))
+
+			assert.Equal(t, server.major >= 16, hasGenericPlan,
+				"EXPLAIN (GENERIC_PLAN) landed in PostgreSQL 16")
+
+			parameterized := "SELECT * FROM " + matrixExplainTable + " WHERE id = $1"
+
+			plan, err := matrixPlan(t, conn,
+				explainStatement(explainOptions(true), parameterized),
+				true)
+
+			if hasGenericPlan {
+				require.NoError(t, err)
+				assert.Contains(t, plan, matrixExplainTable)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "there is no parameter $1")
+			assert.NotContains(t, err.Error(), "generic_plan")
+
+			_, optionErr := matrixPlan(t, conn,
+				explainStatement(explainOptions(true), "SELECT 1"),
+				true)
+
+			require.Error(t, optionErr)
+			assert.Contains(t, optionErr.Error(), `unrecognized EXPLAIN option "generic_plan"`,
+				"the option error exists on 14/15 - it is simply unreachable for the "+
+					"parameterized text this mode submits")
+		})
+	}
+}
+
+func TestMatrixExplainPrivilege(t *testing.T) {
+	const reader = "yc_explain_reader"
+
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			selectPlan := explainStatement(explainOptions(false),
+				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1")
+
+			for _, role := range matrixRoles {
+				if role.superuser {
+					continue
+				}
+
+				conn := matrixConn(t, matrixTargetDB(server, role, matrixSecondDB))
+
+				_, err := matrixPlan(t, conn, selectPlan, false)
+
+				require.Error(t, err, "%s must not be able to plan an application query", role.user)
+				assert.Contains(t, err.Error(), "permission denied",
+					"%s: pg_monitor is a statistics grant, not a data one", role.user)
+			}
+
+			matrixDDL(t, server, matrixSecondDB,
+				"DROP ROLE IF EXISTS "+reader,
+				"CREATE ROLE "+reader+" LOGIN PASSWORD 'yc-reader-pw'",
+				"GRANT pg_read_all_data TO "+reader)
+
+			t.Cleanup(func() {
+				matrixDDL(t, server, matrixSecondDB, "DROP ROLE IF EXISTS "+reader)
+			})
+
+			target := matrixTargetDB(server, matrixRole{user: reader, password: "yc-reader-pw"},
+				matrixSecondDB)
+			conn := matrixConn(t, target)
+
+			plan, err := matrixPlan(t, conn, selectPlan, false)
+			require.NoError(t, err, "pg_read_all_data plans a SELECT")
+			assert.Contains(t, plan, matrixExplainTable)
+
+			_, writeErr := matrixPlan(t, conn, explainStatement(explainOptions(false),
+				"UPDATE "+matrixExplainTable+" SET note = 'x' WHERE id = 1"),
+				false)
+
+			require.Error(t, writeErr,
+				"EXPLAIN runs the executor's permission checks, so a read-only grant "+
+					"cannot plan a write - and the answer is not to grant writes to a "+
+					"monitoring role")
+			assert.Contains(t, writeErr.Error(), "permission denied")
+		})
+	}
+}
+
+func TestMatrixExplainQueryIDIsPopulated(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			require.Nil(t, matrixQuery(t,
+				matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB),
+				"SELECT to_regclass('pg_stat_statements')::text")[0],
+				"yc_second has no extension view, which is the fallback's own case")
+
+			workload := matrixLogConn(t, server, matrixSecondDB)
+			require.NoError(t, matrixLogExec(t, workload,
+				"SELECT count(*) FROM "+matrixExplainTable))
+
+			rows := matrixQuery(t, matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB),
+				`SELECT a.state, a.query, a.query_id::text
+				   FROM pg_catalog.pg_stat_activity a
+				  WHERE a.datname = $1 AND a.backend_type = 'client backend'
+				    AND a.query LIKE '%`+matrixExplainTable+`%'
+				    AND a.pid <> pg_backend_pid()
+				  ORDER BY a.state_change DESC LIMIT 3`, matrixSecondDB)
+
+			require.NotNil(t, rows[0], "the workload session is still connected")
+			assert.Equal(t, "idle", *rows[0])
+			require.NotNil(t, rows[2],
+				"query_id is populated under the default compute_query_id=auto, which "+
+					"preloading pg_stat_statements turns on - extension view or not")
+			assert.NotEqual(t, "0", *rows[2])
+		})
+	}
+}
+
+func TestMatrixExplainAutoExplainEntries(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			for _, tc := range []struct {
+				name    string
+				verbose string
+				analyze string
+			}{
+				{name: "verbose=off analyze=off", verbose: "off", analyze: "off"},
+				{name: "verbose=on analyze=off", verbose: "on", analyze: "off"},
+				{name: "verbose=on analyze=on", verbose: "on", analyze: "on"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					tail := matrixExplainTailAtEnd(t, server)
+
+					workload := matrixLogConn(t, server, matrixSecondDB)
+					for _, sql := range []string{
+						"LOAD 'auto_explain'",
+						"SET auto_explain.log_min_duration = 0",
+						"SET auto_explain.log_verbose = " + tc.verbose,
+						"SET auto_explain.log_analyze = " + tc.analyze,
+						"SELECT count(*) FROM " + matrixExplainTable,
+					} {
+						require.NoError(t, matrixLogExec(t, workload, sql),
+							"a session-scoped LOAD needs no compose change and no restart")
+					}
+
+					event := matrixExplainUntilStored(t, server, tail)
+
+					assert.Contains(t, event, "Query Text:",
+						"present on every version and both verbose states")
+					assert.Contains(t, event, matrixExplainTable)
+
+					identifier := planQueryIdentifier([]byte(event))
+
+					switch {
+					case tc.verbose == "on" && server.major >= 16:
+						assert.NotEmpty(t, identifier,
+							"the join key the LOGGED mode attaches by")
+
+					default:
+						assert.Empty(t, identifier,
+							"log_verbose=off anywhere, and PostgreSQL 14/15 even with it "+
+								"on, emit no identifier - the mode degrades to unattached "+
+								"plans rather than guessing by query text")
+					}
+
+					if tc.analyze == "on" {
+						assert.Contains(t, event, "actual",
+							"log_analyze is what buys timings; it is off by default, which "+
+								"is why the mode's default value is authenticity")
+					} else {
+						assert.NotContains(t, event, "actual time",
+							"the default is cost-only")
+					}
+				})
+			}
+		})
+	}
+}
+
+// matrixExplainTailAtEnd opens a tail with the artifact's own matcher, positioned past
+// everything already in the log.
+func matrixExplainTailAtEnd(t *testing.T, server matrixServer) *logTail {
+	t.Helper()
+
+	conn := matrixConn(t, matrixTarget(server, matrixMonitor(t)))
+
+	built := newLogTail("pg_explain", explainMatch)
+	tail := &built
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	require.True(t, tail.openAtEnd(ctx, conn, SampleContext{
+		At: time.Now(), Index: 1, Total: 2, Database: "postgres",
+		redact: func(err error) string { return errorText(err, "") },
+	}), "reason=%s capture_mode=%s", tail.source.reason, tail.source.captureMode())
+
+	t.Cleanup(tail.closeFile)
+
+	return tail
+}
+
+func matrixExplainUntilStored(t *testing.T, server matrixServer, tail *logTail) string {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+
+	for {
+		matrixLogMarker(t, server)
+
+		events, _ := tail.readEvents(context.Background(), nil, time.Time{})
+		if len(events) > 0 {
+			require.Len(t, events, 1, "one statement ran, so one plan was logged")
+
+			return string(events[0])
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("no auto_explain entry reached the log within the deadline")
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func TestMatrixExplainWireProtocol(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+			workload := matrixConn(t, target)
+
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
+
+			const statement = "SELECT sku FROM " + matrixExplainTable + " WHERE id = $1"
+
+			rows, err := workload.Query(ctx, statement, 42)
+			require.NoError(t, err)
+			rows.Close()
+			require.NoError(t, rows.Err())
+
+			activity := matrixQuery(t, target,
+				`SELECT a.query, a.query_id::text
+				   FROM pg_catalog.pg_stat_activity a
+				  WHERE a.datname = $1 AND a.query LIKE '%`+matrixExplainTable+`%'
+				    AND a.query LIKE '%$1%' AND a.pid <> pg_backend_pid()
+				  ORDER BY a.state_change DESC LIMIT 2`, matrixSecondDB)
+
+			require.NotNil(t, activity[0])
+			assert.Contains(t, *activity[0], "$1",
+				"the parameterized text, which plain EXPLAIN refuses - the gate that "+
+					"routes this candidate to the generic mode instead")
+			require.NotNil(t, activity[1])
+
+			_, bindErr := matrixPlan(t, workload,
+				explainStatement(explainOptions(true), statement), false)
+
+			require.Error(t, bindErr, "an unbound $1 cannot reach the server over Bind")
+
+			if server.major >= 16 {
+				plan, simpleErr := matrixPlan(t, workload,
+					explainStatement(explainOptions(true), statement),
+					true)
+
+				require.NoError(t, simpleErr, "the same statement, over the protocol psql uses")
+				assert.Contains(t, plan, matrixExplainTable)
+			}
+		})
+	}
+}
+
+func TestMatrixExplainActivityTextTruncation(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+			size := matrixQuery(t, target,
+				"SELECT setting FROM pg_catalog.pg_settings WHERE name = 'track_activity_query_size'")
+			require.NotNil(t, size[0])
+
+			limit, err := strconv.Atoi(*size[0])
+			require.NoError(t, err)
+
+			workload := matrixLogConn(t, server, matrixSecondDB)
+			require.NoError(t, matrixLogExec(t, workload,
+				"SELECT count(*) FROM "+matrixExplainTable+
+					" /* "+strings.Repeat("x", limit+500)+" */"))
+
+			read := matrixQuery(t, target,
+				`SELECT octet_length(a.query)::text, a.query
+				   FROM pg_catalog.pg_stat_activity a
+				  WHERE a.datname = $1 AND a.query LIKE '%`+matrixExplainTable+`%'
+				    AND a.pid <> pg_backend_pid()
+				  ORDER BY octet_length(a.query) DESC LIMIT 1`, matrixSecondDB)
+
+			require.NotNil(t, read[0])
+			assert.Equal(t, strconv.Itoa(limit-1), *read[0],
+				"cut at the cap less one, and nothing in the text says so")
+
+			require.NotNil(t, read[1])
+			assert.NotContains(t, *read[1], "...", "unmarked, which is the whole problem")
+
+			assert.True(t,
+				truncatedActivityText(
+					activityRow{queryBytes: ptr(int64(limit - 1))},
+					activityFacts{activityQuerySize: int64(limit)}),
+				"and the gate the artifact applies agrees with the server about it")
+		})
+	}
+}
+
+func TestMatrixExplainSurvivesAStatementTimeout(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			conn := matrixConn(t, matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB))
+
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
+
+			runUtilityStatement(ctx, conn, "SET statement_timeout TO '150ms'")
+
+			rows, err := conn.Query(ctx, "SELECT pg_sleep(2)")
+			if err == nil {
+				for rows.Next() { //nolint:revive // draining is the point
+				}
+
+				rows.Close()
+				err = rows.Err()
+			}
+
+			require.Error(t, err, "the statement was expected to be cancelled")
+
+			assert.Contains(t, err.Error(), "57014",
+				"query_canceled, raised by the server rather than by a client deadline - "+
+					"a client-context expiry would have closed this connection instead")
+
+			runUtilityStatement(ctx, conn, resetExplainTimeoutSQL)
+
+			plan, planErr := matrixPlan(t, conn, explainStatement(explainOptions(false),
+				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1"), false)
+
+			require.NoError(t, planErr, "the next candidate runs on the same connection")
+			assert.Contains(t, plan, matrixExplainTable)
+		})
+	}
+}
+
+func TestMatrixExplainActivityTruncationIsMultibyteAware(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+			size := matrixQuery(t, target,
+				"SELECT setting FROM pg_catalog.pg_settings WHERE name = 'track_activity_query_size'")
+			require.NotNil(t, size[0])
+
+			limit, err := strconv.Atoi(*size[0])
+			require.NoError(t, err)
+
+			maxChar := matrixQuery(t, target,
+				`SELECT pg_catalog.pg_encoding_max_length(
+				            pg_catalog.pg_char_to_encoding(current_setting('server_encoding')))::text`)
+			require.NotNil(t, maxChar[0])
+
+			width, err := strconv.Atoi(*maxChar[0])
+			require.NoError(t, err)
+			require.Equal(t, 4, width, "the matrix databases are UTF-8")
+
+			for offset := range 4 {
+				t.Run(fmt.Sprintf("offset=%d", offset), func(t *testing.T) {
+					marker := "yc_mb" + strconv.Itoa(offset)
+
+					workload := matrixLogConn(t, server, matrixSecondDB)
+					require.NoError(t, matrixLogExec(t, workload,
+						"SELECT count(*) FROM "+matrixExplainTable+
+							" /* "+marker+strings.Repeat("x", offset)+
+							strings.Repeat("\U0001F600", limit)+" */"))
+
+					read := matrixQuery(t, target,
+						`SELECT octet_length(a.query)::text
+						   FROM pg_catalog.pg_stat_activity a
+						  WHERE a.datname = $1 AND a.query LIKE '%' || $2 || '%'
+						    AND a.pid <> pg_backend_pid() LIMIT 1`, matrixSecondDB, marker)
+
+					require.NotNil(t, read[0])
+
+					octets, err := strconv.Atoi(*read[0])
+					require.NoError(t, err)
+
+					require.Less(t, octets, limit,
+						"the statement was far longer than the cap, so this is a cut prefix")
+
+					assert.True(t,
+						truncatedActivityText(
+							activityRow{queryBytes: ptr(int64(octets))},
+							activityFacts{
+								activityQuerySize: int64(limit),
+								maxCharBytes:      int64(width),
+							}),
+						"a cut prefix at %d octets under a %d-byte cap must not read as "+
+							"complete text - it would be submitted mid-statement", octets, limit)
+				})
+			}
+		})
+	}
+}
+
+func TestMatrixExplainReadsItsOwnOIDForAQuotedRoleName(t *testing.T) {
+	const quotedRole = "yc_explain@review.test"
+
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixDDL(t, server, matrixSecondDB,
+				fmt.Sprintf("DROP ROLE IF EXISTS %q", quotedRole),
+				fmt.Sprintf("CREATE ROLE %q LOGIN PASSWORD 'yc-review-pw'", quotedRole),
+				fmt.Sprintf("GRANT pg_monitor TO %q", quotedRole))
+
+			t.Cleanup(func() {
+				matrixDDL(t, server, matrixSecondDB,
+					fmt.Sprintf("DROP ROLE IF EXISTS %q", quotedRole))
+			})
+
+			target := matrixTargetDB(server,
+				matrixRole{user: quotedRole, password: "yc-review-pw"}, matrixSecondDB)
+
+			conn := matrixConn(t, target)
+
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
+
+			_, facts, err := readActivity(ctx, conn)
+
+			require.NoError(t, err,
+				"the whole read, facts included, fails on a role name that needs quoting")
+			assert.True(t, facts.read)
+			assert.NotEmpty(t, facts.selfOID, "self-exclusion needs the capture role's OID")
+			assert.Positive(t, facts.activityQuerySize)
+			assert.Positive(t, facts.maxCharBytes)
+
+			rows, err := conn.Query(ctx, "SELECT (current_user::text)::regrole::oid::text")
+			if err == nil {
+				rows.Close()
+				err = rows.Err()
+			}
+
+			require.Error(t, err,
+				"current_user::text::regrole is what this role name breaks; if it stopped "+
+					"breaking, PostgreSQL changed and activitySQL can be simplified")
+		})
+	}
+}
+
+func TestMatrixExplainRefusesAMultiStatementBatch(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+
+			workload := matrixLogConn(t, server, matrixSecondDB)
+			require.NoError(t, matrixLogExec(t, workload,
+				"SET application_name = 'yc_batch'; SELECT count(*) FROM "+matrixExplainTable))
+
+			batch := matrixQuery(t, target,
+				`SELECT a.query FROM pg_catalog.pg_stat_activity a
+				  WHERE a.datname = $1 AND a.application_name = 'yc_batch'
+				    AND a.pid <> pg_backend_pid() LIMIT 1`, matrixSecondDB)
+
+			require.NotNil(t, batch[0])
+			assert.Contains(t, *batch[0], ";",
+				"the whole batch reads back as one activity text")
+			assert.Contains(t, *batch[0], "SET application_name")
+
+			conn := matrixConn(t, target)
+
+			_, err := matrixPlan(t, conn,
+				explainStatement(explainOptions(false), *batch[0]), false)
+
+			require.Error(t, err,
+				"cleanly refused: over the simple protocol this would have run the "+
+					"customer's statements, which is the one thing this artifact must never do")
 		})
 	}
 }

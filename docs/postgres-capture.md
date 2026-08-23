@@ -15,11 +15,30 @@ options:
     password: ${YC_PG_PASSWORD}
     sslmode: require
     captureDuration: 120s
+    explain: logged
 ```
 
 `port`, `database`, `sslmode` and `captureDuration` may be omitted; they default
 to `5432`, `postgres`, `require` and `120s`. `captureDuration` is capped at
 `600s`.
+
+### `explain` — the one key that is off by default
+
+`explain` decides whether the bundle carries query plans, and **omitting it is
+how you say no**. There is no `explain: off`; delete or comment the line.
+
+| value | what runs | what it costs |
+| --- | --- | --- |
+| *(omitted)* | nothing — `pg_explain.txt` is one `reason=explain_disabled` block | — |
+| `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
+| `all` | the above, plus plans the agent asks the server for | `EXPLAIN` statements built from captured query text are submitted back to your database |
+
+`all` is the only setting in this block that makes the agent *write* to your
+database connection rather than read from it, which is why it is opt-in and why
+configuring it prints a warning. `EXPLAIN` never executes the statement — the
+plan-capture code has no `ANALYZE` path at all — but it does plan it, which
+takes `AccessShareLock` on every relation involved. See the privileges and
+sensitivity sections below before turning it on.
 
 ## A database capture is its own run
 
@@ -104,6 +123,33 @@ The capture is read-only — it sets `default_transaction_read_only`,
 `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` on
 its own session — so `pg_monitor` is the whole grant it needs.
 
+### One exception: `explain: all`
+
+`pg_monitor` does not let the agent plan a query. Under `explain: all` every
+candidate comes back `error=permission denied for table …`, and that file is a
+finding rather than an absence — the grant is the fix:
+
+```sql
+GRANT pg_read_all_data TO yc_monitor;
+```
+
+`pg_read_all_data` is a predefined role since PostgreSQL 14. It is broader than
+this needs; the narrower alternative is per-table `GRANT SELECT` on the tables
+you expect to appear.
+
+**With the qualifier that matters:** `EXPLAIN` runs the executor's permission
+checks, so this grant yields plans for SELECT-shaped candidates only. INSERT,
+UPDATE, DELETE and MERGE candidates still return `permission denied` under
+`pg_read_all_data` or any other read-only role. Those blocks are the expected
+result, and the answer is **not** to grant write privileges to a monitoring
+role — an unplanned write candidate is a smaller loss than a monitoring role
+that can write.
+
+`explain: all` also wants `database:` pointed at the application database. Under
+the `postgres` default most candidates are counted `excluded_other_database` and
+`pg_stat_statements` is usually absent there, so the ranking falls back to
+`pg_stat_activity` and finds an idle maintenance database.
+
 **Without `pg_monitor`, four artifacts lose data, and they lose it four
 different ways.**
 
@@ -185,9 +231,13 @@ the whole answer.
 
 Read this before the first capture goes anywhere outside your perimeter.
 
-`pg_slow_queries.txt` and `pg_sessions.txt` carry **SQL statement text**. For
-ordinary queries that text is normalised — constants are replaced with `$1`,
-`$2` and so on, so values from your data do not travel with it.
+`pg_slow_queries.txt`, `pg_sessions.txt` and `pg_explain.txt` carry **SQL
+statement text**. In `pg_slow_queries.txt` that text is normalised for ordinary
+queries — constants are replaced with `$1`, `$2` and so on, so values from your
+data do not travel with it.
+
+**`pg_sessions.txt` is not normalised.** It carries `pg_stat_activity.query` as
+submitted, in every mode, literals included.
 
 **Utility statements are the exception, and they are stored verbatim.** Under the
 default `pg_stat_statements.track_utility = on`, DDL and other utility commands
@@ -217,15 +267,38 @@ the sensitivity, and `-onlyCapture` is the control that exists.
 
 Three things follow:
 
-- **The bundle inherits the exposure; the agent does not create it.** The value
-  is in your database, put there by whoever ran the statement, and the agent
-  captures the column as the server returns it.
+- **The bundle inherits the exposure; the agent does not create it — with one
+  exception, `explain: all`.** For every other artifact the value is in your
+  database, put there by whoever ran the statement, and the agent captures the
+  column as the server returns it. Under `explain: all` the agent *submits*
+  statements it built from captured text, and a submission that errors can be
+  written into your own server log by `log_min_error_statement` (default
+  `error`), literals included. The exposure is small and your logging policy
+  governs it, but the agent is a party to it there and nowhere else.
+  `pg_metadata.txt` records `explain_mode=` and `explain_literals=verbatim` so
+  the bundle says which.
 - **`pg_metadata.txt` records whether the exposure is possible.** The
   `pg_stat_statements.track_utility` row says whether utility statements are
   tracked at all. Setting it to `off` closes it for future statements; the
   entries already recorded stay until they age out or the statistics are reset.
 - **`-onlyCapture` keeps everything local.** It writes the bundle and uploads
   nothing, which is the mode to use while a security review is pending.
+
+**A limitation of the estimated plans, worth knowing before you read one.**
+`pg_explain.txt`'s `ESTIMATED_LITERAL` and `ESTIMATED_GENERIC` blocks are plans
+produced in the *agent's* session, not recreations of the application's. The
+agent has its own `search_path`, its own role — so RLS policies apply to the
+capture role, and per-role or per-database GUC overrides
+(`ALTER ROLE app SET enable_seqscan = off`) never reach it — and no access to
+another session's temporary objects. An unqualified name can resolve to a
+different schema and yield a confidently wrong plan for the wrong table.
+
+Three things in each block are the reader's tells: `VERBOSE` schema-qualifies
+every relation the plan actually resolved to, `search_path=` records the agent's
+own resolution context, and `plan_queryid=` with `queryid_match=false` is the
+one machine-checkable symptom of a wrong resolution. `mode=LOGGED` blocks do not
+have this problem at all — they are the server's own plan for the execution that
+really happened, which is why they rank first.
 
 ## Where to run it
 

@@ -24,8 +24,8 @@ const (
 	// 10s, not 60s: bounds how much evidence a cancelled window loses.
 	DefaultLogTailInterval = 10 * time.Second
 
-	// LogDrainBudget bounds WriteEpilogue's drain, checked between reads since os.File.Read takes no context (a hung read can still exceed it).
-	// Two Epilogue-implementing artifacts add up to 2x this beyond moduleDeadline.
+	// LogDrainBudget bounds WriteClosing's drain, checked between reads since os.File.Read takes no context (a hung read can still exceed it).
+	// Three Closing implementations add up to 3x this beyond moduleDeadline, though pg_explain.txt's fires only where the closing sample never ran.
 	LogDrainBudget = 5 * time.Second
 
 	// MaxScanBytes is the per-sample read cap. Beyond it the tail seeks to EOF and records scan_truncated=true skipped_bytes=<n> instead of matched=0.
@@ -565,7 +565,7 @@ func logLocality(s logSettings) string {
 }
 
 // eventMatch distinguishes the two artifacts: SQLSTATE match is exact and locale/version-independent.
-// stderr matches on message text, which lc_messages translates — a documented blind spot, not a workaround.
+// stderr matches on message text, which lc_messages translates — a known blind spot, not a workaround.
 type eventMatch struct {
 	sqlstate []string
 	message  []string
@@ -574,6 +574,10 @@ type eventMatch struct {
 	// 57014 (query_canceled) fires for both client cancel and pg_cancel_backend(); 55P03 (lock_not_available) fires for FOR UPDATE NOWAIT with no timeout.
 	// On a non-English cluster these under-match rather than mis-attribute.
 	paired []string
+
+	// messageSuffix additionally requires the message's *first line* to end with one of these.
+	// auto_explain and log_min_duration_statement both open "duration: <n> ms ", so only what follows tells a plan from a slow-query transcript.
+	messageSuffix []string
 }
 
 func (m eventMatch) matches(sqlstate, message string) bool {
@@ -589,13 +593,26 @@ func (m eventMatch) matches(sqlstate, message string) bool {
 }
 
 func (m eventMatch) matchesMessage(s string) bool {
-	for _, want := range m.message {
-		if strings.HasPrefix(s, want) {
-			return true
-		}
+	if !slices.ContainsFunc(m.message, func(want string) bool { return strings.HasPrefix(s, want) }) {
+		return false
 	}
 
-	return false
+	if len(m.messageSuffix) == 0 {
+		return true
+	}
+
+	// First line only: csvlog and jsonlog deliver the whole multi-line message here,
+	// and every line after the first belongs to the plan body, not the predicate.
+	first := s
+	if at := strings.IndexAny(first, "\r\n"); at >= 0 {
+		first = first[:at]
+	}
+
+	first = strings.TrimRight(first, " \t")
+
+	return slices.ContainsFunc(m.messageSuffix, func(want string) bool {
+		return strings.HasSuffix(first, want)
+	})
 }
 
 // severityKeywords open an entry, secondaryKeywords continue one. Both are English-only by design.
@@ -634,7 +651,7 @@ func keywordIndex(line string, keywords []string) int {
 }
 
 // logTail is stateful across samples: file handle, offset, and a partial event
-// carry over from one Sample call to the next.
+// held over from one Sample call to the next.
 type logTail struct {
 	// name is the artifact's source=, and scope is its scope=.
 	name  string
@@ -661,10 +678,10 @@ type logTail struct {
 	lostPath   string
 	lostOffset int64
 
-	// carry holds a trailing incomplete unit (a read can end mid-line, or mid-record in csvlog where a quoted DETAIL field spans lines).
-	// carryIsEvent marks a matched stderr event whose end isn't provable yet — completed and copied on a later sample.
-	carry        []byte
-	carryIsEvent bool
+	// pending holds a trailing incomplete unit (a read can end mid-line, or mid-record in csvlog where a quoted DETAIL field spans lines).
+	// pendingIsEvent marks a matched stderr event whose end isn't provable yet — completed and copied on a later sample.
+	pending        []byte
+	pendingIsEvent bool
 
 	// written counts everything this collector puts in the file, headers
 	// included, against MaxArtifactBytes.
@@ -682,7 +699,7 @@ func newLogTail(name string, match eventMatch) logTail {
 
 // consumed excludes carried bytes, which belong to whichever block finally writes
 // them — keeping from_offset/to_offset free of gaps and double-counting.
-func (t *logTail) consumed() int64 { return t.offset - int64(len(t.carry)) }
+func (t *logTail) consumed() int64 { return t.offset - int64(len(t.pending)) }
 
 // tailRead is one sample's worth of reading, and every header key that is a
 // statement about it rather than about the source.
@@ -690,7 +707,9 @@ type tailRead struct {
 	from int64
 	to   int64
 
-	body    []byte
+	// events are the matched events, each newline-terminated. Kept apart rather than
+	// concatenated so a caller can attribute one at a time.
+	events  [][]byte
 	matched int
 
 	rotated      bool
@@ -710,38 +729,15 @@ type tailRead struct {
 	partial         bool
 }
 
+func (r *tailRead) body() []byte { return bytes.Join(r.events, nil) }
+
 // sample always writes exactly one block, even when there's nothing to read — a
 // missing sample= would be an unexplained gap in the sequence.
 func (t *logTail) sample(ctx context.Context, q Querier, w io.Writer, sc SampleContext) error {
-	settingsErr := t.readSettings(ctx, q, sc)
-
-	resolvedLate := false
+	resolvedLate := t.resolveOnce(ctx, q, sc)
 
 	if t.file == nil {
-		source := resolveLogSource(ctx, q, t.settings, sc.errorText)
-
-		// Settings-read failure wins over a route's error: it's the root cause, and
-		// reporting a route's denial would misdirect the operator toward a grant issue.
-		if settingsErr != "" {
-			source.err = settingsErr
-		}
-
-		from := t.openFrom(source)
-
-		if source.reason == "" {
-			if err := t.open(source, from); err != nil {
-				source.reason = reasonUnreadable
-			} else {
-				resolvedLate = from == openAtEOF && sc.Index > 1
-			}
-		}
-
-		t.source = source
-		t.announced = false
-
-		if t.file == nil {
-			return t.writeReasonBlock(w, sc)
-		}
+		return t.writeReasonBlock(w, sc)
 	}
 
 	read := &tailRead{from: t.consumed(), resolvedLate: resolvedLate}
@@ -754,10 +750,80 @@ func (t *logTail) sample(ctx context.Context, q Querier, w io.Writer, sc SampleC
 	return t.writeReadBlock(w, sc, read, false)
 }
 
-// writeEpilogue drains whatever grew after the last sample; otherwise the window's final interval goes unread under status=complete.
+// resolveOnce resolves and opens the source the first time it can and is a no-op after;
+// a failure retries next call, so a log that becomes readable mid-window is still picked
+// up. It reports whether that first open landed after sample 1, which makes from_offset a
+// coverage start rather than a continuation.
+func (t *logTail) resolveOnce(ctx context.Context, q Querier, sc SampleContext) (resolvedLate bool) {
+	settingsErr := t.readSettings(ctx, q, sc)
+
+	if t.file != nil {
+		return false
+	}
+
+	source := resolveLogSource(ctx, q, t.settings, sc.errorText)
+
+	// Settings-read failure wins over a route's error: it's the root cause, and
+	// reporting a route's denial would misdirect the operator toward a grant issue.
+	if settingsErr != "" {
+		source.err = settingsErr
+	}
+
+	from := t.openFrom(source)
+
+	if source.reason == "" {
+		if err := t.open(source, from); err != nil {
+			source.reason = reasonUnreadable
+		} else {
+			resolvedLate = from == openAtEOF && sc.Index > 1
+		}
+	}
+
+	t.source = source
+	t.announced = false
+
+	return resolvedLate
+}
+
+// openAtEnd resolves and opens the log at its current end, writing nothing: the setup
+// half for a collector that reads events back rather than transcribing them. Reports
+// whether a handle was obtained; when false, t.source carries the reason= and
+// capture_mode= the caller states instead of a count.
+func (t *logTail) openAtEnd(ctx context.Context, q Querier, sc SampleContext) bool {
+	t.resolveOnce(ctx, q, sc)
+
+	return t.file != nil
+}
+
+// readEvents is sample()'s counterpart for a collector that attributes events rather than
+// transcribing them: the matched events come back one slice each, leaving rendering, caps
+// and counters to the caller. Final by construction - the pending bytes are flushed, so a held
+// event comes back with read.partial set. A nil q skips rotation-following, which is how
+// the closing pass reads: after cancellation there is no connection left to ask.
+func (t *logTail) readEvents(ctx context.Context, q Querier, deadline time.Time) ([][]byte, *tailRead) {
+	read := &tailRead{from: t.consumed()}
+
+	if t.file == nil {
+		return nil, read
+	}
+
+	t.readOpenFile(read, deadline)
+
+	if q != nil {
+		t.followRotation(ctx, q, read)
+	}
+
+	t.flushPending(read)
+
+	read.to = t.consumed()
+
+	return read.events, read
+}
+
+// writeClosing drains whatever grew after the last sample; otherwise the window's final interval goes unread under status=complete.
 // Needs no connection or context — must still run after cancellation — so it never re-resolves; a rotation between the last sample and close leaves the new file unread (named residual).
 // Closes the handle: the collector's last call.
-func (t *logTail) writeEpilogue(w io.Writer, sc SampleContext) error {
+func (t *logTail) writeClosing(w io.Writer, sc SampleContext) error {
 	if t.file == nil {
 		// Never resolved. The connect-failure path lands here, and the artifact
 		// keeps its preamble-plus-closing-block shape.
@@ -769,7 +835,7 @@ func (t *logTail) writeEpilogue(w io.Writer, sc SampleContext) error {
 	read := &tailRead{from: t.consumed()}
 
 	t.readOpenFile(read, time.Now().Add(LogDrainBudget))
-	t.flushCarry(read)
+	t.flushPending(read)
 
 	read.to = t.consumed()
 
@@ -883,6 +949,30 @@ func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, 
 		headerField{"to_offset", strconv.FormatInt(read.to, 10)},
 	)
 
+	fields = append(fields, readStateFields(read)...)
+
+	if t.full {
+		fields = append(fields, headerField{"artifact_full", "true"})
+	}
+
+	body := read.body()
+
+	fields = append(fields,
+		headerField{"matched", strconv.Itoa(read.matched)},
+		headerField{"bytes", strconv.Itoa(len(body))},
+	)
+
+	t.announced = true
+
+	return t.writeBlock(w, fields, body, sc.At)
+}
+
+// readStateFields is everything a read says about itself rather than about the source.
+// Shared with readEvents' callers: dropping them reports a read that overran MaxScanBytes
+// - and therefore returned nothing - as an ordinary empty one.
+func readStateFields(read *tailRead) []headerField {
+	var fields []headerField
+
 	if read.resolvedLate {
 		fields = append(fields, headerField{"resolved_late", "true"})
 	}
@@ -925,18 +1015,7 @@ func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, 
 		fields = append(fields, headerField{"partial_event", "true"})
 	}
 
-	if t.full {
-		fields = append(fields, headerField{"artifact_full", "true"})
-	}
-
-	fields = append(fields,
-		headerField{"matched", strconv.Itoa(read.matched)},
-		headerField{"bytes", strconv.Itoa(len(read.body))},
-	)
-
-	t.announced = true
-
-	return t.writeBlock(w, fields, read.body, sc.At)
+	return fields
 }
 
 // readSettings caches success only; a failure leaves settings.read false, which
@@ -995,8 +1074,8 @@ func (t *logTail) open(source logSource, from openFrom) error {
 	t.file = file
 	t.offset = 0
 	t.head = nil
-	t.carry = nil
-	t.carryIsEvent = false
+	t.pending = nil
+	t.pendingIsEvent = false
 
 	switch from {
 	case openAtStart:
@@ -1052,7 +1131,7 @@ func (t *logTail) followRotation(ctx context.Context, q Querier, read *tailRead)
 
 	// Flush before closing: previous_to_offset must reflect where the superseded
 	// file was actually left, including any held event.
-	t.flushCarry(read)
+	t.flushPending(read)
 	supersededTo := t.consumed()
 
 	t.closeFile()
@@ -1143,7 +1222,7 @@ func (t *logTail) readOpenFile(read *tailRead, deadline time.Time) {
 	if size-t.offset > MaxScanBytes {
 		// Seeks to present: skipped_bytes= signals a possible missed event, distinct
 		// from matched=0.
-		t.flushCarry(read)
+		t.flushPending(read)
 
 		read.scanTruncated = true
 		read.skipped += size - t.offset
@@ -1185,7 +1264,7 @@ func (t *logTail) checkTruncation(read *tailRead, size int64) {
 		return
 	}
 
-	t.flushCarry(read)
+	t.flushPending(read)
 
 	// Same rebase as rotation: from_offset would otherwise point at bytes that no
 	// longer exist, making to_offset - from_offset negative.
@@ -1197,63 +1276,63 @@ func (t *logTail) checkTruncation(read *tailRead, size int64) {
 	read.truncated = true
 }
 
-// flushCarry ends carry at a gap/close. A held event is written with partial_event=true ("end unproven", not "bytes missing").
+// flushPending ends the pending run at a gap/close. A held event is written with partial_event=true ("end unproven", not "bytes missing").
 // A held incomplete unit is dropped: appending post-gap bytes would weld two unrelated pieces into one fake event.
-func (t *logTail) flushCarry(read *tailRead) {
-	if len(t.carry) == 0 {
-		t.carryIsEvent = false
+func (t *logTail) flushPending(read *tailRead) {
+	if len(t.pending) == 0 {
+		t.pendingIsEvent = false
 		return
 	}
 
-	if t.carryIsEvent {
-		read.body = appendEvent(read.body, t.carry, read)
+	if t.pendingIsEvent {
+		read.events = appendEvent(read.events, t.pending, read)
 		read.matched++
 		read.partial = true
 	} else {
 		read.carryDropped = true
 	}
 
-	t.carry = nil
-	t.carryIsEvent = false
+	t.pending = nil
+	t.pendingIsEvent = false
 }
 
-// consume runs the matcher over the carry plus the new bytes.
+// consume runs the matcher over the pending bytes plus the new ones.
 func (t *logTail) consume(read *tailRead, chunk []byte) {
 	if t.full {
 		// At cap: offsets still advance so the file stays honest about what was
-		// skipped; carry ends here like any other gap.
-		if len(t.carry) > 0 {
+		// skipped; the pending run ends here like any other gap.
+		if len(t.pending) > 0 {
 			read.carryDropped = true
 		}
 
-		t.carry = nil
-		t.carryIsEvent = false
+		t.pending = nil
+		t.pendingIsEvent = false
 
 		return
 	}
 
 	data := chunk
-	if len(t.carry) > 0 {
-		data = append(bytes.Clone(t.carry), chunk...)
+	if len(t.pending) > 0 {
+		data = append(bytes.Clone(t.pending), chunk...)
 	}
 
-	body, carry, carryIsEvent, matched := matchEvents(data, t.source.format, t.match, read)
+	events, pending, pendingIsEvent, matched := matchEvents(data, t.source.format, t.match, read)
 
-	read.body = append(read.body, body...)
+	read.events = append(read.events, events...)
 	read.matched += matched
 
-	t.carry = carry
-	t.carryIsEvent = carryIsEvent
+	t.pending = pending
+	t.pendingIsEvent = pendingIsEvent
 
 	// Caps how long an incomplete event can hold the window open.
-	if len(t.carry) > MaxEventBytes {
-		t.flushCarry(read)
+	if len(t.pending) > MaxEventBytes {
+		t.flushPending(read)
 	}
 }
 
 // matchEvents dispatches to the format-specific matcher.
 func matchEvents(data []byte, format logFormat, m eventMatch, read *tailRead) (
-	body []byte, carry []byte, carryIsEvent bool, matched int,
+	events [][]byte, pending []byte, pendingIsEvent bool, matched int,
 ) {
 	switch format {
 	case logFormatCSV:
@@ -1270,7 +1349,7 @@ func matchEvents(data []byte, format logFormat, m eventMatch, read *tailRead) (
 // Continuation lines are TAB-prefixed regardless of log_line_prefix (measured); the report continues past DETAIL into HINT/CONTEXT/STATEMENT, the two lines a DBA reads first.
 // Ambiguous lines are treated as part of the current event: over-copying loses nothing, under-copying loses evidence permanently.
 func matchStderr(data []byte, m eventMatch, read *tailRead) (
-	body []byte, carry []byte, carryIsEvent bool, matched int,
+	events [][]byte, pending []byte, pendingIsEvent bool, matched int,
 ) {
 	var (
 		inEvent    bool
@@ -1296,7 +1375,7 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 				eventLines++
 
 				if eventLines >= MaxEventLines || lineEnd-eventStart >= MaxEventBytes {
-					body = appendEvent(body, data[eventStart:lineEnd], read)
+					events = appendEvent(events, data[eventStart:lineEnd], read)
 					matched++
 					inEvent = false
 				}
@@ -1304,7 +1383,7 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 				continue
 			}
 
-			body = appendEvent(body, data[eventStart:lineStart], read)
+			events = appendEvent(events, data[eventStart:lineStart], read)
 			matched++
 			inEvent = false
 		}
@@ -1315,10 +1394,10 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 	}
 
 	if inEvent {
-		return body, bytes.Clone(data[eventStart:]), true, matched
+		return events, bytes.Clone(data[eventStart:]), true, matched
 	}
 
-	return body, bytes.Clone(data[pos:]), false, matched
+	return events, bytes.Clone(data[pos:]), false, matched
 }
 
 // matchStderrLine derives the report's prefix by finding the severity keyword.
@@ -1388,7 +1467,7 @@ const (
 // matchCSVLog reads records, not lines (a deadlock's quoted DETAIL field spans several physical lines with real newlines).
 // Matches are copied as original bytes via InputOffset, never re-encoded — encoding/csv's quoting rules aren't the server's.
 func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
-	body []byte, carry []byte, carryIsEvent bool, matched int,
+	events [][]byte, pending []byte, pendingIsEvent bool, matched int,
 ) {
 	complete, tail := splitAtLastLine(data)
 
@@ -1401,19 +1480,19 @@ func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 
 		record, err := reader.Read()
 		if errors.Is(err, io.EOF) {
-			return body, bytes.Clone(tail), false, matched
+			return events, bytes.Clone(tail), false, matched
 		}
 
 		if err != nil {
 			// ErrQuote here means a quoted field (e.g. DETAIL) was cut mid-newline at
 			// a flush boundary — held from the record's start regardless of match.
-			return body, bytes.Clone(data[start:]), false, matched
+			return events, bytes.Clone(data[start:]), false, matched
 		}
 
 		end := reader.InputOffset()
 
 		if len(record) > csvMessageIndex && m.matches(record[csvStateIndex], record[csvMessageIndex]) {
-			body = appendEvent(body, complete[start:end], read)
+			events = appendEvent(events, complete[start:end], read)
 			matched++
 		}
 	}
@@ -1426,7 +1505,7 @@ type jsonEntry struct {
 }
 
 func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
-	body []byte, carry []byte, carryIsEvent bool, matched int,
+	events [][]byte, pending []byte, pendingIsEvent bool, matched int,
 ) {
 	pos := 0
 
@@ -1445,12 +1524,12 @@ func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
 		}
 
 		if m.matches(entry.StateCode, entry.Message) {
-			body = appendEvent(body, data[lineStart:lineEnd], read)
+			events = appendEvent(events, data[lineStart:lineEnd], read)
 			matched++
 		}
 	}
 
-	return body, bytes.Clone(data[pos:]), false, matched
+	return events, bytes.Clone(data[pos:]), false, matched
 }
 
 // splitAtLastLine keeps a record-oriented matcher from parsing bytes the server
@@ -1466,7 +1545,8 @@ func splitAtLastLine(data []byte) (complete, tail []byte) {
 
 // appendEvent truncates in bytes, never runes: SQL_ASCII log bytes must pass through unencoded.
 // Trailing newline is for readability/grep only — bytes= is the actual parsing contract.
-func appendEvent(body, event []byte, read *tailRead) []byte {
+// The event is copied, never aliased: readEvents' caller keeps it past the read.
+func appendEvent(events [][]byte, event []byte, read *tailRead) [][]byte {
 	if len(event) > MaxEventBytes {
 		read.eventsTruncated++
 
@@ -1477,11 +1557,12 @@ func appendEvent(body, event []byte, read *tailRead) []byte {
 		event = truncated
 	}
 
-	body = append(body, event...)
+	owned := make([]byte, 0, len(event)+1)
+	owned = append(owned, event...)
 
-	if len(body) > 0 && body[len(body)-1] != '\n' {
-		body = append(body, '\n')
+	if len(owned) > 0 && owned[len(owned)-1] != '\n' {
+		owned = append(owned, '\n')
 	}
 
-	return body
+	return append(events, owned)
 }

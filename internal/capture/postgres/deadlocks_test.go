@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,19 +34,19 @@ const unrelatedJSON = `{"timestamp":"2026-08-15 10:02:50.000 UTC","pid":113,"err
 	`"state_code":"00000","message":"checkpoint starting: time","backend_type":"client backend"}
 `
 
-func matchOnce(format logFormat, m eventMatch, data string) (body, carry string, carryIsEvent bool, matched int, read *tailRead) {
+func matchOnce(format logFormat, m eventMatch, data string) (body, pending string, pendingIsEvent bool, matched int, read *tailRead) {
 	read = &tailRead{}
 
-	rawBody, rawCarry, carryIsEvent, matched := matchEvents([]byte(data), format, m, read)
+	events, rawCarry, pendingIsEvent, matched := matchEvents([]byte(data), format, m, read)
 
-	return string(rawBody), string(rawCarry), carryIsEvent, matched, read
+	return string(bytes.Join(events, nil)), string(rawCarry), pendingIsEvent, matched, read
 }
 
-// matchBody is matchOnce for the cases that assert on the block alone, with no carry to hand back.
+// matchBody is matchOnce for the cases that assert on the block alone, with nothing held back.
 func matchBody(format logFormat, m eventMatch, data string) (string, int) {
-	rawBody, _, _, matched := matchEvents([]byte(data), format, m, &tailRead{})
+	events, _, _, matched := matchEvents([]byte(data), format, m, &tailRead{})
 
-	return string(rawBody), matched
+	return string(bytes.Join(events, nil)), matched
 }
 
 func TestDeadlocksArtifact(t *testing.T) {
@@ -62,19 +63,19 @@ func TestDeadlocksArtifact(t *testing.T) {
 	assert.Equal(t, LogDrainBudget, artifact.SampleBudget)
 
 	var _ Collector = NewDeadlocks()
-	var _ Epilogue = NewDeadlocks()
+	var _ Closing = NewDeadlocks()
 }
 
 func TestDeadlocksTakesTheWholeReportAndStopsAtTheRightLine(t *testing.T) {
-	body, carry, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, measuredDeadlock+unrelatedTraffic)
+	body, pending, _, matched, _ := matchOnce(logFormatStderr, deadlockMatch, measuredDeadlock+unrelatedTraffic)
 
 	require.Equal(t, 1, matched)
 	assert.Equal(t, measuredDeadlock, body,
 		"the report continues past DETAIL into HINT, CONTEXT and STATEMENT - CONTEXT names the "+
-			"relation and the tuple, STATEMENT carries the victim's own statement, and "+
-			"requirements §2.3's rule discards both")
+			"relation and the tuple, STATEMENT carries the victim's own statement, and a "+
+			"DETAIL-only rule discards both")
 	assert.Equal(t, len(measuredDeadlock), len(body))
-	assert.Empty(t, carry)
+	assert.Empty(t, pending)
 
 	assert.Contains(t, body, `while updating tuple (0,1) in relation "yc_dl"`)
 	assert.True(t, strings.HasSuffix(body, "COMMIT;\n"), "and it ends at the STATEMENT: line")
@@ -101,12 +102,12 @@ func TestDeadlocksTranslatedReportMatchesNothingAndBreaksNothing(t *testing.T) {
 		"\tProzess 25651 wartet auf ShareLock.\n" +
 		"2026-08-15 10:00:34.543 UTC [25666] ANWEISUNG:  UPDATE yc_dl SET v=2 WHERE id=2;\n"
 
-	body, carry, carryIsEvent, matched, _ := matchOnce(logFormatStderr, deadlockMatch, translated)
+	body, pending, pendingIsEvent, matched, _ := matchOnce(logFormatStderr, deadlockMatch, translated)
 
-	assert.Zero(t, matched, "the documented blind spot, pinned as exactly a blind spot")
+	assert.Zero(t, matched, "a known blind spot, pinned as exactly a blind spot")
 	assert.Empty(t, body)
-	assert.Empty(t, carry)
-	assert.False(t, carryIsEvent, "and nothing half-bounded is held back")
+	assert.Empty(t, pending)
+	assert.False(t, pendingIsEvent, "and nothing half-bounded is held back")
 }
 
 func TestDeadlocksTabRuleDoesNotDependOnTheLogLinePrefix(t *testing.T) {
@@ -193,14 +194,14 @@ func TestDeadlocksCSVRecordSplitMidQuoteParsesWhereItCompleted(t *testing.T) {
 
 	first, second := measuredDeadlockCSV[:cut], measuredDeadlockCSV[cut:]
 
-	body, carry, carryIsEvent, matched, _ := matchOnce(logFormatCSV, deadlockMatch, first)
+	body, pending, pendingIsEvent, matched, _ := matchOnce(logFormatCSV, deadlockMatch, first)
 
 	require.Zero(t, matched, "an incomplete record is held, matched or not")
 	assert.Empty(t, body)
-	assert.Equal(t, first, carry)
-	assert.False(t, carryIsEvent)
+	assert.Equal(t, first, pending)
+	assert.False(t, pendingIsEvent)
 
-	body, matched = matchBody(logFormatCSV, deadlockMatch, carry+second+unrelatedCSV)
+	body, matched = matchBody(logFormatCSV, deadlockMatch, pending+second+unrelatedCSV)
 
 	assert.Equal(t, 1, matched, "and parses whole in the read where it completed")
 	assert.Equal(t, measuredDeadlockCSV, body)
