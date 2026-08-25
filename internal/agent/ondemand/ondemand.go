@@ -297,6 +297,12 @@ Ignored errors: %v
 	}
 	var nodeExtraCaptures []nodeNamedCapture
 
+	// JFR recording state (see the java runtime case below and the
+	// stop/transmit step at the end of capture).
+	var jfrEnabled bool
+	var jfrFilePath string
+	var jfrStartedAt time.Time
+
 	appRuntime := config.GetAppRuntime(pid)
 
 	switch appRuntime {
@@ -376,6 +382,27 @@ Ignored errors: %v
 		// ------------------------------------------------------------------------------
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
+
+		// Start a JFR recording covering the whole capture window, for any
+		// -p <pid> run. It's stopped and transmitted with dt=jfr once every
+		// other artifact has been captured, further down.
+		if pidPassed {
+			jfrFilePath = capture.JFRFileName
+			if len(dockerID) == 0 {
+				if abs, absErr := filepath.Abs(jfrFilePath); absErr == nil {
+					jfrFilePath = abs
+				}
+			}
+
+			if err := capture.StartJFR(pid, config.GlobalConfig.JavaHomePath, jfrFilePath); err != nil {
+				logger.Log("WARNING: failed to start JFR recording: %s", err.Error())
+			} else {
+				jfrEnabled = true
+				jfrStartedAt = time.Now()
+				logger.Log("JFR recording started (name=%s, file=%s)", capture.JFRRecordingName, jfrFilePath)
+			}
+		}
+
 		// Capture gc
 		gc = goCapture(endpoint, capture.WrapRun(&capture.GC{
 			Pid:      pid,
@@ -895,6 +922,31 @@ Resp: %s
 	}
 	logger.Log("Executed custom commands")
 
+	// -------------------------------
+	//     Transmit JFR recording (already auto-stopped, see StartJFR)
+	// -------------------------------
+	if jfrEnabled {
+		// The recording auto-stops JFRCaptureDuration after it started (see
+		// StartJFR), independent of how long the rest of this capture takes.
+		// If everything else finished quickly, wait out the remainder here
+		// so the file is guaranteed to be finalized before we read it. This
+		// is scoped to JFR only - it does not affect the thread dump
+		// capture above, which keeps its normal, unrelated behavior.
+		if remaining := capture.JFRCaptureDuration - time.Since(jfrStartedAt); remaining > 0 {
+			logger.Log("Waiting %s for JFR recording to finish before transmitting...", remaining)
+			time.Sleep(remaining)
+		}
+
+		msg, ok := capture.TransmitJFR(endpoint, jfrFilePath, dockerID)
+		logger.Log(
+			`JFR RECORDING DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, ok, msg)
+	}
+
 	if config.GlobalConfig.OnlyCapture {
 		return
 	}
@@ -1121,11 +1173,16 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	}
 
 	var ov string
-	osVersion, e := executils.CommandCombinedOutput(executils.OSVersion)
+	var osVersion bytes.Buffer
+	// Uses the timeout-bounded writer variant (CmdTimeout, default 60s):
+	// on Windows this shells out to `systeminfo`, which is known to hang
+	// or run very slowly on some machines, and would otherwise block the
+	// whole capture indefinitely.
+	e = executils.CommandCombinedOutputToWriter(&osVersion, executils.OSVersion)
 	if e != nil {
 		err = fmt.Errorf("osVersion err: %v, previous err: %v", e, err)
 	} else {
-		ov = strings.ReplaceAll(string(osVersion), "\r\n", ", ")
+		ov = strings.ReplaceAll(osVersion.String(), "\r\n", ", ")
 		ov = strings.ReplaceAll(ov, "\n", ", ")
 	}
 	var un string
