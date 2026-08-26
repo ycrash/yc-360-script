@@ -60,9 +60,9 @@ func (d *DMesg) Run() (Result, error) {
 	return result, nil
 }
 
-// captureSecondReading appends a timestamped second reading, replaying whichever
-// command worked the first time. It never resets the file: the first reading is
-// the one that must survive.
+// captureSecondReading appends a second reading after a blank line and its own
+// header - netstat.out's shape - replaying whichever command worked the first
+// time. It never resets the file: the first reading is the one that must survive.
 func (d *DMesg) captureSecondReading(file *os.File) error {
 	if d.sleepBetweenCaptures <= 0 {
 		return nil
@@ -72,8 +72,12 @@ func (d *DMesg) captureSecondReading(file *os.File) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(file, "\n%s\n", executils.NowString()); err != nil {
+	if _, err := file.WriteString("\n"); err != nil {
 		return fmt.Errorf("failed to write reading separator: %w", err)
+	}
+
+	if err := d.writeReadingHeader(file); err != nil {
+		return err
 	}
 
 	if d.usedFallback {
@@ -99,6 +103,11 @@ func (d *DMesg) CaptureToFile() (*os.File, error) {
 		return nil, fmt.Errorf("failed to create output file: %w", err)
 	}
 
+	if err := d.writeReadingHeader(file); err != nil {
+		file.Close()
+		return nil, err
+	}
+
 	if err := d.captureOutput(file); err != nil {
 		file.Close()
 		return nil, err
@@ -109,6 +118,22 @@ func (d *DMesg) CaptureToFile() (*os.File, error) {
 	}
 
 	return file, nil
+}
+
+// writeReadingHeader labels a reading with the time it was taken, the way
+// netstat.out and ps.out label every one of theirs. Written only where a second
+// reading follows: a lone reading stays byte-for-byte what an application capture
+// has always produced, header included - which is to say none.
+func (d *DMesg) writeReadingHeader(file *os.File) error {
+	if d.sleepBetweenCaptures <= 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(file, "%s\n", executils.NowString()); err != nil {
+		return fmt.Errorf("failed to write reading header: %w", err)
+	}
+
+	return nil
 }
 
 // captureOutput handles the actual capture process, attempting the primary command
@@ -200,7 +225,9 @@ func (d *DMesg) captureWithFallbackCommand(file *os.File) error {
 	return nil
 }
 
-// resetFile prepares the file for reuse by the fallback command.
+// resetFile prepares the file for reuse by the fallback command. The reading's
+// header goes back too - the truncate above removed it, and the fallback's output
+// needs labelling just as the primary's did.
 func (d *DMesg) resetFile(file *os.File) error {
 	if err := file.Truncate(0); err != nil {
 		return fmt.Errorf("failed to truncate file: %w", err)
@@ -210,7 +237,7 @@ func (d *DMesg) resetFile(file *os.File) error {
 		return fmt.Errorf("failed to seek to start: %w", err)
 	}
 
-	return nil
+	return d.writeReadingHeader(file)
 }
 
 // syncFile ensures all file data is written to disk.
