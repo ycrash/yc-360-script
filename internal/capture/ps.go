@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
@@ -14,6 +15,14 @@ const psOutputPath = "ps.out"
 // PS handles the capture of process status data.
 type PS struct {
 	Capture
+
+	// sleepBetweenCaptures spaces the snapshots out. Zero takes them back to back,
+	// which is what every application capture does today: three readings of the
+	// same instant, useful for nothing but a process list.
+	sleepBetweenCaptures time.Duration
+
+	// stop cuts the gap short when the run is torn down; nil waits it out.
+	stop <-chan struct{}
 }
 
 // NewPS creates a new PS capture instance.
@@ -88,6 +97,10 @@ func (p *PS) captureOutput(f *os.File) error {
 
 	// Use the determined PS command for all subsequent iterations
 	for i := 2; i < iterations; i++ {
+		if !snapshotGapElapsed(p.sleepBetweenCaptures, p.stop) {
+			return nil
+		}
+
 		if _, err := fmt.Fprintf(f, "\n%s\n", executils.NowString()); err != nil {
 			return fmt.Errorf("failed to write timestamp: %w", err)
 		}

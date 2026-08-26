@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -364,4 +365,116 @@ func TestSameHostAlwaysPairsANonYesWithAReason(t *testing.T) {
 		assert.NotEmpty(t, got.reason, "verdict %q carried no reason", got.verdict)
 		assert.Empty(t, got.by, "only a yes names the test that produced it")
 	}
+}
+
+func TestApplyOnDBHostDeclaration(t *testing.T) {
+	tests := []struct {
+		name             string
+		verdict          string
+		by               string
+		reason           string
+		declared         bool
+		wantVerdict      string
+		wantBy           string
+		wantReason       string
+		wantContradicted bool
+	}{
+		{
+			name:        "no declaration leaves an unknown alone",
+			verdict:     OnDBHostUnknown,
+			reason:      hostReasonNoConnection,
+			wantVerdict: OnDBHostUnknown,
+			wantReason:  hostReasonNoConnection,
+		},
+		{
+			name:        "the declaration decides what the probe left unknown",
+			verdict:     OnDBHostUnknown,
+			reason:      hostReasonNoConnection,
+			declared:    true,
+			wantVerdict: OnDBHostYes,
+			wantBy:      confirmedByConfigured,
+		},
+		{
+			name:        "a measured yes keeps the test that produced it",
+			verdict:     OnDBHostYes,
+			by:          confirmedByBackendPID,
+			declared:    true,
+			wantVerdict: OnDBHostYes,
+			wantBy:      confirmedByBackendPID,
+		},
+		{
+			name:             "a measured no beats the declaration and reports the disagreement",
+			verdict:          OnDBHostNo,
+			reason:           hostReasonManagedService,
+			declared:         true,
+			wantVerdict:      OnDBHostNo,
+			wantReason:       hostReasonManagedService,
+			wantContradicted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Metadata{AgentOnDBHost: tt.verdict, AgentOnDBHostBy: tt.by, AgentOnDBHostReason: tt.reason}
+
+			contradicted := applyOnDBHostDeclaration(&m, tt.declared)
+
+			assert.Equal(t, tt.wantVerdict, m.AgentOnDBHost)
+			assert.Equal(t, tt.wantBy, m.AgentOnDBHostBy)
+			assert.Equal(t, tt.wantReason, m.AgentOnDBHostReason)
+			assert.Equal(t, tt.wantContradicted, contradicted)
+
+			if m.AgentOnDBHost != OnDBHostYes {
+				assert.NotEmpty(t, m.AgentOnDBHostReason, "a reason is mandatory whenever the verdict is not yes")
+			}
+		})
+	}
+}
+
+func TestApplyOnDBHostDeclarationIsIdempotent(t *testing.T) {
+	m := Metadata{AgentOnDBHost: OnDBHostUnknown, AgentOnDBHostReason: hostReasonNoConnection}
+
+	require.False(t, applyOnDBHostDeclaration(&m, true))
+	once := m
+
+	require.False(t, applyOnDBHostDeclaration(&m, true))
+	assert.Equal(t, once, m)
+}
+
+func TestHostArtifactsDecision(t *testing.T) {
+	for verdict, want := range map[string]string{
+		OnDBHostYes:     HostArtifactsCaptured,
+		OnDBHostNo:      HostArtifactsSkipped,
+		OnDBHostUnknown: HostArtifactsSkipped,
+	} {
+		assert.Equal(t, want, hostArtifactsDecision(Metadata{AgentOnDBHost: verdict}), verdict)
+	}
+}
+
+func TestHostCaptureHintCoversEveryReason(t *testing.T) {
+	for _, reason := range []string{
+		hostReasonNoConnection,
+		hostReasonBackendPIDUnread,
+		hostReasonContainer,
+		hostReasonProcRestricted,
+		hostReasonPlatformNoTitles,
+		hostReasonPIDAbsent,
+		hostReasonTitleMismatch,
+		hostReasonManagedService,
+	} {
+		assert.NotEmpty(t, HostCaptureHint(reason), "reason %q has no line for the agent log", reason)
+	}
+
+	assert.Empty(t, HostCaptureHint(""), "a yes carries no reason and needs no hint")
+}
+
+func TestCollectSameHostAlwaysSettlesHostArtifacts(t *testing.T) {
+	m := Metadata{}
+	collectSameHost(context.Background(), &fakeQuerier{}, &m, Target{})
+
+	assert.Equal(t, OnDBHostUnknown, m.AgentOnDBHost,
+		"no backend pid was read, so the probe has nothing to look for")
+	assert.NotEmpty(t, m.HostArtifacts,
+		"a blank row would leave a bundle unable to say whether host files were meant to be there")
+	assert.Equal(t, HostArtifactsSkipped, m.HostArtifacts)
 }

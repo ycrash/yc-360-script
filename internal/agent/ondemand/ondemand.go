@@ -492,12 +492,19 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
-	kernel := goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
+	// sysctl -a describes whichever machine ran the agent, so it belongs with the
+	// other host collectors rather than beside ping. A database-only run reaches
+	// here with no pid, and there the database capture owns it: it runs kernel
+	// itself, but only once it has established that this machine is the database's.
+	var kernel chan capture.Result
+	if pidPassed {
+		kernel = goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
+	}
 
 	// ------------------------------------------------------------------------------
 	//   				Capture PostgreSQL
 	// ------------------------------------------------------------------------------
-	// No pid relationship, like ping/kernel; the postgres: block's presence is the switch.
+	// No pid relationship, like ping; the postgres: block's presence is the switch.
 	// Holds its window open for captureDuration, which is why a database-only run takes minutes.
 	var pgCapture chan capture.Result
 	skipPostgres := len(opts) > 0 && opts[0].SkipPostgres

@@ -331,7 +331,14 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 }
 
 func pgCollectedMetadata() postgres.Metadata {
-	return postgres.Metadata{LogAccess: postgres.LogAccessDirect}
+	return postgres.Metadata{
+		LogAccess: postgres.LogAccessDirect,
+
+		// direct beside no is the measured pairing from the fixture matrix: a
+		// bind-mounted log directory is readable from a machine that is not the
+		// database's.
+		AgentOnDBHost: postgres.OnDBHostNo,
+	}
 }
 
 func TestPostgresResultMessage(t *testing.T) {
@@ -343,7 +350,7 @@ func TestPostgresResultMessage(t *testing.T) {
 		{
 			name:     "collected",
 			metadata: pgCollectedMetadata(),
-			want:     "pg_metadata.txt written (log_access=direct)",
+			want:     "pg_metadata.txt written (log_access=direct, agent_on_db_host=no)",
 		},
 		{
 			name: "connection refused",
@@ -368,9 +375,11 @@ func TestPostgresResultMessage(t *testing.T) {
 			name: "a probe was denied",
 			metadata: postgres.Metadata{
 				LogAccess:           postgres.LogAccessUnknown,
+				AgentOnDBHost:       postgres.OnDBHostUnknown,
 				CurrentLogfileError: "ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 			},
-			want: "pg_metadata.txt written (log_access=unknown); pg_current_logfile failed: " +
+			want: "pg_metadata.txt written (log_access=unknown, agent_on_db_host=unknown); " +
+				"pg_current_logfile failed: " +
 				"ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 		},
 	}
@@ -620,6 +629,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 	collected := postgres.Metadata{
 		LogAccess:           postgres.LogAccessNone,
+		AgentOnDBHost:       postgres.OnDBHostNo,
 		CurrentLogfileError: "ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 	}
 
@@ -632,8 +642,8 @@ func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 
 	summary := postgresArtifactSummary(artifact, collected)
 
-	assert.Contains(t, summary, PostgresMetadataFileName+" written (log_access=none)",
-		"the mode, not the count")
+	assert.Contains(t, summary, PostgresMetadataFileName+" written (log_access=none, agent_on_db_host=no)",
+		"the two readings, not the count")
 	assert.Contains(t, summary, "pg_current_logfile failed",
 		"and the probe clause, which a sample count would have swallowed whole")
 	assert.NotContains(t, summary, "samples")
