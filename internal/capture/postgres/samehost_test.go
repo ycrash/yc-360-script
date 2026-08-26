@@ -50,7 +50,7 @@ func baseInspector() fakeInspector {
 }
 
 // tcpFacts is a TCP connection whose backend the server reports at PID 163 from
-// 172.19.0.3:35484, the shape measured on the fixture (§9).
+// 172.19.0.3:35484.
 func tcpFacts() sameHostFacts {
 	return sameHostFacts{
 		backendPID: "163",
@@ -83,8 +83,8 @@ func TestParseBackendTitle(t *testing.T) {
 		},
 		{
 			name: "update_process_title=off keeps the fixed part",
-			// Measured 2026-08-26 (§9): only the trailing activity stops updating,
-			// which is why the match never reads it.
+			// Only the trailing activity stops updating, which is why the match
+			// never reads it.
 			title: "postgres: postgres postgres [local] ",
 			want:  parsedTitle{role: "postgres", database: "postgres", local: true},
 			ok:    true,

@@ -20,8 +20,7 @@ var procRoot = "/proc"
 // distinguishable from a backend title.
 type linuxInspector struct {
 	// updateProcessTitle is the server's setting. On Linux the fixed part of the
-	// title survives with it off (measured §9), so this is recorded rather than
-	// acted on - title_off is retired as a reason here.
+	// title survives with it off, so this is recorded rather than acted on.
 	updateProcessTitle string
 }
 
@@ -46,7 +45,7 @@ func readCmdline(dir string) (string, bool) {
 	trimmed := bytes.TrimRight(raw, "\x00")
 	if len(trimmed) == 0 {
 		// A kernel thread: visible, but with nothing to match against. This is
-		// the shape the bare-PID collision took on the fixture (§9).
+		// what a PID collision in the host namespace usually looks like.
 		return "", true
 	}
 
@@ -148,8 +147,7 @@ func innermostNSpid(name string) int {
 
 // parentStartTime resolves the backend's parent - the postmaster - and reads its
 // start time as btime + starttime/CLK_TCK. Measured against
-// pg_postmaster_start_time() on the fixture at 1s apart, from integer truncation
-// on both sides (§9).
+// pg_postmaster_start_time() 1s apart, from integer truncation on both sides.
 func (linuxInspector) parentStartTime(pid int) (time.Time, bool) {
 	ppid, ok := parentPID(pid)
 	if !ok {

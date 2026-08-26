@@ -391,7 +391,7 @@ func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values m
 		return
 	}
 
-	assert.NotEmpty(t, reason, "%s must always be paired with a reason (P3)", verdict)
+	assert.NotEmpty(t, reason, "%s must always be paired with a reason", verdict)
 	assert.Empty(t, values["agent_on_db_host_by"], "only a yes names the test that produced it")
 
 	// The suite connects to a container over TCP, so a yes from a title match on a
