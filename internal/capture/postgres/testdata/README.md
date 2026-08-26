@@ -15,7 +15,7 @@ The goldens:
   server said is not — so the block a reader can rely on is the one that is
   always there. PostgreSQL 17 deliberately: `pg_monitor` was not granted
   EXECUTE on `pg_current_logfile()` until 17, so a 14–16 fixture showing
-  `has_pg_monitor_role,true` next to `capture_mode,pg-dbhost` would depict a
+  `has_pg_monitor_role,true` next to `log_access,direct` would depict a
   deployment that needs an extra manual grant.
   **Five of the settings rows exist to say what a zero in `pg_slow_queries.txt`
   means**, and they are populated here rather than empty for the same
@@ -38,7 +38,7 @@ The goldens:
   side. A reader treating the field as an alarm on its own will now raise one.
 - `pg_metadata_connect_failure.txt` — a run that never reached the server. The
   absence of the server block is the discriminator, and `connect_error=` in the
-  closing block's header says why. There is no `capture_mode` row: with no
+  closing block's header says why. There is no `log_access` row: with no
   connection it would be `unknown` by construction, and the closing block says
   the same thing about the capture rather than about the server.
 - `pg_bloat_full.txt` — a complete sampled capture: the preamble, two sample
@@ -374,14 +374,14 @@ The goldens:
   format with no boundary problem at all: one line, one event.
 - `pg_deadlocks_remote.txt` — Mode R, and **the file the "not observable"
   rendering is built against.** Twelve header-only blocks, each
-  `reason=unreadable capture_mode=pg-remote`, and **no `matched=` key anywhere in
+  `reason=unreadable log_access=none`, and **no `matched=` key anywhere in
   it**. The missing key is the design: `matched=0` is a measurement — the log was
   read and held no event — where a `reason=` is an absence of measurement.
   Writing `matched=0` beside a reason would put a number in the file that a
   receiver can sum, average or render as a green tick. `status=complete` is
   honest: every scheduled sample was written, and the artifact's content is the
   reason it is empty. Four causes produce this shape and each is written rather
-  than summarised — `collector_off`, `unresolved`, `unreadable`, `mode_unknown`.
+  than summarised — `collector_off`, `unresolved`, `unreadable`, `settings_unread`.
 - `pg_timeouts_full.txt` — all three timeout types in one window, at their
   measured line counts: the statement timeout is two lines, the lock timeout is
   three (its `CONTEXT:` names the relation and the tuple), and **the

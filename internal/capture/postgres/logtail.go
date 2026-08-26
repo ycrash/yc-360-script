@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,9 +77,9 @@ const (
 	// default outcome on a default install, where log files are 0600 owned by postgres.
 	reasonUnreadable = "unreadable"
 
-	// reasonModeUnknown: resolution could not run at all - the settings read
+	// reasonSettingsUnread: resolution could not run at all - the settings read
 	// failed and no route answered.
-	reasonModeUnknown = "mode_unknown"
+	reasonSettingsUnread = "settings_unread"
 )
 
 // How the source was found, written into every block as log_resolved_by= so a
@@ -89,14 +88,6 @@ const (
 	resolvedByCurrentLogfiles = "current_logfiles"
 	resolvedByFunction        = "pg_current_logfile"
 	resolvedByGlob            = "glob"
-)
-
-// Whether the connection terminates at the host whose file was opened.
-// Recorded rather than gated: a gate would kill every port-forwarded local deployment, the matrix fixture included.
-const (
-	localityLocal   = "local"
-	localityRemote  = "remote"
-	localityUnknown = "unknown"
 )
 
 // matchedBy is how events were recognised; on stderr always message.
@@ -120,7 +111,7 @@ type logSettings struct {
 	serverAddr string
 
 	// read is false when the statement behind these failed, which is the
-	// difference between reason=unresolved and reason=mode_unknown.
+	// difference between reason=unresolved and reason=settings_unread.
 	read bool
 }
 
@@ -176,8 +167,6 @@ type logSource struct {
 	// it could have read as well as what it did.
 	available []logFormat
 
-	locality string
-
 	// reason is why there is no readable source. Never written beside matched=.
 	reason string
 
@@ -195,19 +184,24 @@ func (s logSource) formatNames() string {
 	return strings.Join(names, ",")
 }
 
-// captureMode is the summary the receiver's matrix keys on. Unknown means
-// detection ran and found nothing — not a denial, which maps elsewhere.
-func (s logSource) captureMode() string {
+// logAccess reports the result of the open test; logAccessReason says why it is
+// not direct. Unknown means the test could not run at all — not a denial, which
+// maps to none with its own reason.
+func (s logSource) logAccess() string {
 	switch s.reason {
 	case "":
-		return ModeDBHost
+		return LogAccessDirect
 
-	case reasonModeUnknown:
-		return ModeUnknown
+	case reasonSettingsUnread:
+		return LogAccessUnknown
 	}
 
-	return ModeRemote
+	return LogAccessNone
 }
+
+// logAccessReason is empty exactly when logAccess is direct: a reason is mandatory
+// whenever the fact is not the decided one.
+func (s logSource) logAccessReason() string { return s.reason }
 
 func (s logSource) matchedBy() string {
 	if s.format == logFormatStderr {
@@ -220,7 +214,7 @@ func (s logSource) matchedBy() string {
 // Three routes in order. pg_current_logfile() is denied to pg_monitor on PG14-16 (EXECUTE grant landed in 17); current_logfiles needs only data_directory.
 // Not redundant: a hardened deployment can expose log_directory but not data_directory, where only the function route finds the current file.
 func resolveLogSource(ctx context.Context, q Querier, s logSettings, redact func(error) string) logSource {
-	src := logSource{locality: logLocality(s)}
+	var src logSource
 
 	// No route needed: collector off means there is no file.
 	if s.read && strings.EqualFold(s.loggingCollector, "off") {
@@ -259,7 +253,7 @@ func resolveLogSource(ctx context.Context, q Querier, s logSettings, redact func
 	// GUCs are superuser-only, the function needs EXECUTE) — this is where that lands.
 	src.reason = reasonUnresolved
 	if !s.read {
-		src.reason = reasonModeUnknown
+		src.reason = reasonSettingsUnread
 	}
 
 	return src
@@ -529,41 +523,6 @@ func destinationFormats(logDestination string) []logFormat {
 	return formats
 }
 
-// logLocality compares the server's TCP address against this host's interfaces; a unix socket implies local.
-// Never gated: would break port-forwarded deployments and the matrix fixture.
-func logLocality(s logSettings) string {
-	if !s.read {
-		return localityUnknown
-	}
-
-	if s.serverAddr == "" {
-		return localityLocal
-	}
-
-	server := net.ParseIP(s.serverAddr)
-	if server == nil {
-		return localityUnknown
-	}
-
-	if server.IsLoopback() {
-		return localityLocal
-	}
-
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return localityUnknown
-	}
-
-	for _, addr := range addrs {
-		ip, ok := addr.(*net.IPNet)
-		if ok && ip.IP.Equal(server) {
-			return localityLocal
-		}
-	}
-
-	return localityRemote
-}
-
 // eventMatch distinguishes the two artifacts: SQLSTATE match is exact and locale/version-independent.
 // stderr matches on message text, which lc_messages translates — a known blind spot, not a workaround.
 type eventMatch struct {
@@ -788,7 +747,7 @@ func (t *logTail) resolveOnce(ctx context.Context, q Querier, sc SampleContext) 
 // openAtEnd resolves and opens the log at its current end, writing nothing: the setup
 // half for a collector that reads events back rather than transcribing them. Reports
 // whether a handle was obtained; when false, t.source carries the reason= and
-// capture_mode= the caller states instead of a count.
+// log_access= the caller states instead of a count.
 func (t *logTail) openAtEnd(ctx context.Context, q Querier, sc SampleContext) bool {
 	t.resolveOnce(ctx, q, sc)
 
@@ -873,14 +832,12 @@ func (t *logTail) writeReasonBlock(w io.Writer, sc SampleContext) error {
 		{"dbid", sc.DBID},
 		{"sample", strconv.Itoa(sc.Index)},
 		{"reason", source.reason},
-		{"capture_mode", source.captureMode()},
+		{"log_access", source.logAccess()},
 	}
 
 	if source.resolvedBy != "" {
 		fields = append(fields, headerField{"log_resolved_by", source.resolvedBy})
 	}
-
-	fields = append(fields, headerField{"log_locality", source.locality})
 
 	if source.path != "" {
 		fields = append(fields, headerField{"log_path", source.path})
@@ -934,10 +891,7 @@ func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, 
 	fields = append(fields, headerField{"log_resolved_by", t.source.resolvedBy})
 
 	if !t.announced {
-		fields = append(fields,
-			headerField{"log_locality", t.source.locality},
-			headerField{"capture_mode", t.source.captureMode()},
-		)
+		fields = append(fields, headerField{"log_access", t.source.logAccess()})
 	}
 
 	if !drain {
@@ -1019,7 +973,7 @@ func readStateFields(read *tailRead) []headerField {
 }
 
 // readSettings caches success only; a failure leaves settings.read false, which
-// separates reason=unresolved from reason=mode_unknown.
+// separates reason=unresolved from reason=settings_unread.
 func (t *logTail) readSettings(ctx context.Context, q Querier, sc SampleContext) string {
 	if t.haveSettings {
 		return ""

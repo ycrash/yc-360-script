@@ -54,7 +54,10 @@ func targetFields(m Metadata) []field {
 // written where there was a connection. connect_error appears in the closing
 // block's header instead.
 func serverBlockFields(m Metadata) []field {
-	return append([]field{{"capture_mode", m.CaptureMode}}, serverFields(m)...)
+	return append([]field{
+		{"log_access", m.LogAccess},
+		{"log_access_reason", m.LogAccessReason},
+	}, serverFields(m)...)
 }
 
 // serverFields is every row requiring a connection, written whether or not the
@@ -104,8 +107,6 @@ func serverFields(m Metadata) []field {
 		{"data_directory", m.DataDirectory},
 		{"current_logfile", m.CurrentLogfile},
 		{"current_logfile_resolved", m.CurrentLogfileResolved},
-		{"current_logfile_readable", m.CurrentLogfileReadable},
-		{"current_logfile_error", m.CurrentLogfileError},
 		{"log_resolved_by", m.LogResolvedBy},
 		{"log_formats", m.LogFormats},
 
