@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
@@ -18,6 +19,20 @@ var ErrNonZeroExit = errors.New("command exited with non-zero status")
 // DMesgCapture handles the capture of kernel message buffer data.
 type DMesg struct {
 	Capture
+
+	// sleepBetweenCaptures, when set, appends a second reading that far after the
+	// first, into the same file. Zero takes one reading, which is what every
+	// application capture does. The ring buffer is retrospective, so the second
+	// reading is what catches an OOM kill that happens during the window rather
+	// than before it.
+	sleepBetweenCaptures time.Duration
+
+	// stop cuts the gap short when the run is torn down; nil waits it out.
+	stop <-chan struct{}
+
+	// usedFallback records which command produced the first reading, so the second
+	// replays it instead of retrying the one already known to fail.
+	usedFallback bool
 }
 
 // Run executes the dmesg capture process and uploads the captured file
@@ -36,8 +51,44 @@ func (d *DMesg) Run() (Result, error) {
 	}
 	defer capturedFile.Close()
 
+	// A failed second reading keeps the first rather than failing the capture.
+	if err := d.captureSecondReading(capturedFile); err != nil {
+		logger.Log("warning: failed to take the second dmesg reading: %v", err)
+	}
+
 	result := d.UploadCapturedFile(capturedFile)
 	return result, nil
+}
+
+// captureSecondReading appends a timestamped second reading, replaying whichever
+// command worked the first time. It never resets the file: the first reading is
+// the one that must survive.
+func (d *DMesg) captureSecondReading(file *os.File) error {
+	if d.sleepBetweenCaptures <= 0 {
+		return nil
+	}
+
+	if !snapshotGapElapsed(d.sleepBetweenCaptures, d.stop) {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(file, "\n%s\n", executils.NowString()); err != nil {
+		return fmt.Errorf("failed to write reading separator: %w", err)
+	}
+
+	if d.usedFallback {
+		return d.captureWithFallbackCommand(file)
+	}
+
+	if err := d.captureWithPrimaryCommand(file); err != nil {
+		return err
+	}
+
+	if err := d.syncFile(file); err != nil {
+		logger.Log("warning: failed to sync file: %v", err)
+	}
+
+	return nil
 }
 
 // CaptureToFile captures dmesg output to a file, handling both primary and fallback commands.
@@ -78,6 +129,8 @@ func (d *DMesg) captureOutput(file *os.File) error {
 			if err := d.resetFile(file); err != nil {
 				return fmt.Errorf("failed to reset file for fallback: %w", err)
 			}
+
+			d.usedFallback = true
 
 			return d.captureWithFallbackCommand(file)
 		}

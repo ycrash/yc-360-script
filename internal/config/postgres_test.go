@@ -98,7 +98,8 @@ func TestPostgresValidateNormalization(t *testing.T) {
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, sslmode, captureDuration, explain)"
+		"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
+		"explain, agentOnDbHost)"
 
 	t.Run("zero block", func(t *testing.T) {
 		warnings, err := (&Postgres{}).Validate()
@@ -129,6 +130,15 @@ func TestPostgresValidateEmptyBlock(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, wantMsg, err.Error(),
 			"a duration alone names nothing to capture")
+	})
+
+	t.Run("a block whose only key is agentOnDbHost is an empty block", func(t *testing.T) {
+		p := decodePostgresBlock(t, "agentOnDbHost: true")
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t, wantMsg, err.Error(),
+			"a declaration about this machine names no database to declare it about")
 	})
 
 	t.Run("a block whose only key is explain is an empty block", func(t *testing.T) {
@@ -704,7 +714,7 @@ func TestPostgresString(t *testing.T) {
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
 				`username="ycrash_monitor" password=<redacted> sslmode=require `+
-				`captureDuration=1m30s explain=off`,
+				`captureDuration=1m30s explain=off agentOnDbHost=false`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
 	})
@@ -960,5 +970,31 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 		assert.Contains(t, flags, "sslmode=require")
 		assert.Contains(t, flags, "explain=off",
 			"the run's plan-capture intent belongs in the echo; it is not a credential")
+	})
+}
+
+func TestPostgresAgentOnDBHost(t *testing.T) {
+	t.Run("omitted is the default and says nothing", func(t *testing.T) {
+		p := validPostgres()
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		assert.False(t, p.AgentOnDBHost)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("a declaration is decoded and warned about", func(t *testing.T) {
+		p := decodePostgresBlock(t, `
+host: db-prod-01.internal
+username: ycrash_monitor
+agentOnDbHost: true`)
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		assert.True(t, p.AgentOnDBHost)
+		require.Len(t, warnings, 2, "the database default warns too")
+		assert.Contains(t, strings.Join(warnings, " "), "postgres.agentOnDbHost=true")
 	})
 }

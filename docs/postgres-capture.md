@@ -22,6 +22,25 @@ options:
 to `5432`, `postgres`, `require` and `120s`. `captureDuration` is capped at
 `600s`.
 
+### `agentOnDbHost` — only for a database that cannot answer
+
+```yaml
+    agentOnDbHost: true
+```
+
+The agent works out for itself whether it is running on the database's machine,
+and captures host artifacts only when it establishes that it is (see *Where to
+run it*). This key declares the deployment for the one case it cannot check: the
+database is down, so there is no connection and no backend process to look for —
+which is exactly when `dmesg` holds the kill and `df` holds the full disk.
+
+It never overrides a measurement. A run that establishes the database is
+elsewhere skips host capture anyway and logs the disagreement;
+`pg_metadata.txt` records `agent_on_db_host_by=configured` whenever the
+declaration, rather than a reading, is what authorised the capture. Omitting it
+is the default, and setting it on a machine that is not the database host files
+that machine's readings under the database's name.
+
 ### `explain` — the one key that is off by default
 
 `explain` decides whether the bundle carries query plans, and **omitting it is
@@ -284,6 +303,14 @@ Three things follow:
 - **`-onlyCapture` keeps everything local.** It writes the bundle and uploads
   nothing, which is the mode to use while a security review is pending.
 
+**Host artifacts are a separate exposure, and they are gated.** A confirmed
+database host contributes its process list, connection table, kernel messages
+and kernel settings — a command line can carry a credential, and a connection
+table names every machine talking to this one. A run that cannot establish that
+this machine is the database's captures none of them; see *Where to run it*.
+`agentOnDbHost: true` is the one way to authorise that collection without a
+measurement, which is why it warns at startup.
+
 **A limitation of the estimated plans, worth knowing before you read one.**
 `pg_explain.txt`'s `ESTIMATED_LITERAL` and `ESTIMATED_GENERIC` blocks are plans
 produced in the *agent's* session, not recreations of the application's. The
@@ -314,9 +341,22 @@ statement a timeout killed — and neither needs any logging configuration:
 `log_min_messages = warning` and `deadlock_timeout = 1000` are the defaults, so
 every default installation logs all four events.
 
-Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`) always describe
-the machine that ran the script, which is the database host only in the second
-mode.
+Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`, `kernel`)
+describe the machine that ran the script, so a database capture takes them only
+when the run establishes that this is the database's machine. It does that by
+looking up the backend process the server reported for its own connection —
+`pg_metadata.txt` records the answer in `agent_on_db_host`, the test behind it,
+and, whenever the answer is not `yes`, the reason. `host_artifacts` says what
+the run did with it, so a bundle with no host files explains itself, and the
+agent log carries the deployment change that would turn most reasons into a
+`yes`.
+
+Two things follow. A run against a managed service or a remote host never
+uploads a foreign machine's process list and connection table under the
+database's name. And on a database host the snapshot artifacts (`df`, `dmesg`,
+`netstat`, `ps`) are read at both edges of `captureDuration` rather than once at
+the start, so a filling filesystem or a mid-window kill leaves a trace; `top`
+and `vmstat` keep their own fixed span at the opening edge.
 
 ## `log_access` is a permission, not a location
 

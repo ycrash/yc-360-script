@@ -62,7 +62,7 @@ agent_on_db_host,yes
 agent_on_db_host_by,backend_pid
 agent_on_db_host_evidence,"log_file,server_addr_match"
 agent_on_db_host_reason,
-host_artifacts,
+host_artifacts,captured
 has_pg_monitor_role,true
 has_pg_read_all_stats,true
 has_pg_stat_statements,true

@@ -26,9 +26,16 @@ const (
 	confirmedByBackendPIDNSpid = "backend_pid_nspid"
 	confirmedByPostmasterStart = "postmaster_start_time"
 
-	// A fourth value, "configured", will arrive with the operator declaration that
-	// covers a database too far down to answer. It is not named here because
-	// nothing would use it yet.
+	// confirmedByConfigured is the operator's declaration rather than a reading, so
+	// a reader can always tell the two apart.
+	confirmedByConfigured = "configured"
+)
+
+// What the gate did with the host collectors, so a bundle with no host files
+// explains itself.
+const (
+	HostArtifactsCaptured = "captured"
+	HostArtifactsSkipped  = "skipped"
 )
 
 // Why the verdict is not yes. Mandatory whenever it is not.
@@ -396,6 +403,11 @@ func collectSameHost(ctx context.Context, q Querier, m *Metadata, target Target)
 	m.AgentOnDBHostBy = result.by
 	m.AgentOnDBHostReason = result.reason
 	m.AgentOnDBHostEvidence = strings.Join(result.evidence, ",")
+
+	// Settled here rather than by the caller, so every reader of a collected
+	// Metadata sees the decision that follows from the verdict it is holding. The
+	// operator declaration can still raise it later, through ResolveHostDecision.
+	m.HostArtifacts = hostArtifactsDecision(*m)
 }
 
 // managedService returns false on any error. The check exists only to produce a
@@ -410,4 +422,71 @@ func managedService(ctx context.Context, q Querier) bool {
 	}
 
 	return found != nil && *found
+}
+
+// applyOnDBHostDeclaration folds the operator's postgres.agentOnDbHost
+// declaration into the measured verdict and reports whether the two disagreed.
+// Precedence is fixed: a measurement always wins, so the declaration decides only
+// what the probe left unknown. That is the case it exists for - a database that
+// never answered cannot be asked which machine it runs on, and that is exactly
+// when dmesg holds the kill and df holds the full disk.
+func applyOnDBHostDeclaration(m *Metadata, declared bool) (contradicted bool) {
+	if !declared || m.AgentOnDBHost == OnDBHostYes {
+		return false
+	}
+
+	if m.AgentOnDBHost == OnDBHostNo {
+		return true
+	}
+
+	m.AgentOnDBHost = OnDBHostYes
+	m.AgentOnDBHostBy = confirmedByConfigured
+	m.AgentOnDBHostReason = ""
+
+	return false
+}
+
+// hostArtifactsDecision is the gate. Host files describe the machine that ran the
+// agent, so they are captured only where the run established that this is the
+// database's machine.
+func hostArtifactsDecision(m Metadata) string {
+	if m.AgentOnDBHost == OnDBHostYes {
+		return HostArtifactsCaptured
+	}
+
+	return HostArtifactsSkipped
+}
+
+// HostCaptureHint maps a skip reason to the deployment change that would turn it
+// into a yes, or to a plain statement where nothing can. Support reads the agent
+// log first, and most unknown results are one deployment change from confirmed.
+func HostCaptureHint(reason string) string {
+	switch reason {
+	case hostReasonContainer:
+		return "the agent runs in a container and cannot see the database's processes; " +
+			"if they share a kernel, run the agent with --pid=host"
+
+	case hostReasonProcRestricted:
+		return "/proc is mounted with hidepid, so the backend process is invisible to this user; " +
+			"run the agent as the postgres OS user"
+
+	case hostReasonPlatformNoTitles:
+		return "this platform publishes no process titles, so confirmation needs the postmaster " +
+			"start time, which this run could not read"
+
+	case hostReasonBackendPIDUnread:
+		return "pg_backend_pid() was not read, so there was no process to look for"
+
+	case hostReasonNoConnection:
+		return "the database never answered; set agentOnDbHost: true in the postgres: block to " +
+			"declare that this machine runs it"
+
+	case hostReasonManagedService:
+		return "the database is a managed service, so no agent can run on its machine"
+
+	case hostReasonPIDAbsent, hostReasonTitleMismatch:
+		return "the database runs on another machine"
+	}
+
+	return ""
 }

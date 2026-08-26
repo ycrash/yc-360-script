@@ -377,21 +377,27 @@ func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values m
 	verdict := values["agent_on_db_host"]
 	reason := values["agent_on_db_host_reason"]
 
-	t.Logf("pg%d/%s: agent_on_db_host=%s by=%s reason=%s evidence=%q",
+	t.Logf("pg%d/%s: agent_on_db_host=%s by=%s reason=%s evidence=%q host_artifacts=%s",
 		server.major, role.user, verdict, values["agent_on_db_host_by"],
-		reason, values["agent_on_db_host_evidence"])
+		reason, values["agent_on_db_host_evidence"], values["host_artifacts"])
 
 	require.Contains(t, []string{OnDBHostYes, OnDBHostNo, OnDBHostUnknown}, verdict,
 		"the verdict is always one of the three")
 
+	require.Contains(t, []string{HostArtifactsCaptured, HostArtifactsSkipped}, values["host_artifacts"],
+		"the gate always records what it did")
+
 	if verdict == OnDBHostYes {
 		assert.Empty(t, reason, "a yes carries no reason")
 		assert.NotEmpty(t, values["agent_on_db_host_by"], "a yes always names the test behind it")
+		assert.Equal(t, HostArtifactsCaptured, values["host_artifacts"])
 
 		return
 	}
 
 	assert.NotEmpty(t, reason, "%s must always be paired with a reason", verdict)
+	assert.Equal(t, HostArtifactsSkipped, values["host_artifacts"],
+		"host files describe the runner, so anything short of a yes leaves them out")
 	assert.Empty(t, values["agent_on_db_host_by"], "only a yes names the test that produced it")
 
 	// The suite connects to a container over TCP, so a yes from a title match on a
