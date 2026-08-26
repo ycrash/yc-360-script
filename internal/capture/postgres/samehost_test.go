@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -264,20 +263,6 @@ func TestSameHostContainerisedAgentWithAForeignTitleIsUnknownNotNo(t *testing.T)
 	assert.Equal(t, hostReasonContainer, got.reason)
 }
 
-func TestSameHostManagedServiceIsDecisiveAndOutranksEverything(t *testing.T) {
-	facts := tcpFacts()
-	facts.managedService = true
-
-	sys := baseInspector()
-	sys.byPID[163] = "postgres: postgres postgres 172.19.0.3(35484) SELECT"
-
-	got := checkSameHost(facts, sys)
-
-	assert.Equal(t, OnDBHostNo, got.verdict,
-		"a managed database is on no machine the agent could occupy, whatever the local table says")
-	assert.Equal(t, hostReasonManagedService, got.reason)
-}
-
 func TestSameHostUnreadBackendPID(t *testing.T) {
 	facts := tcpFacts()
 	facts.backendPID = ""
@@ -405,10 +390,10 @@ func TestApplyOnDBHostDeclaration(t *testing.T) {
 		{
 			name:             "a measured no beats the declaration and reports the disagreement",
 			verdict:          OnDBHostNo,
-			reason:           hostReasonManagedService,
+			reason:           hostReasonPIDAbsent,
 			declared:         true,
 			wantVerdict:      OnDBHostNo,
-			wantReason:       hostReasonManagedService,
+			wantReason:       hostReasonPIDAbsent,
 			wantContradicted: true,
 		},
 	}
@@ -460,7 +445,6 @@ func TestHostCaptureHintCoversEveryReason(t *testing.T) {
 		hostReasonPlatformNoTitles,
 		hostReasonPIDAbsent,
 		hostReasonTitleMismatch,
-		hostReasonManagedService,
 	} {
 		assert.NotEmpty(t, HostCaptureHint(reason), "reason %q has no line for the agent log", reason)
 	}
@@ -470,7 +454,7 @@ func TestHostCaptureHintCoversEveryReason(t *testing.T) {
 
 func TestCollectSameHostAlwaysSettlesHostArtifacts(t *testing.T) {
 	m := Metadata{}
-	collectSameHost(context.Background(), &fakeQuerier{}, &m, Target{})
+	collectSameHost(&m, Target{})
 
 	assert.Equal(t, OnDBHostUnknown, m.AgentOnDBHost,
 		"no backend pid was read, so the probe has nothing to look for")
