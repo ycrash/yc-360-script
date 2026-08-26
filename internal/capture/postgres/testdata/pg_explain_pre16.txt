@@ -1,4 +1,4 @@
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=1 candidate_source=statements queryid=-7710234988821003345 mode=none search_path="\"$user\", public" reason=generic_plan_unsupported bytes=0 ts=2026-08-07T14:34:05.140Z
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=1 candidates_written=1 capture_mode=pg-dbhost plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:34:05.140Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=1 candidates_written=1 log_access=direct plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:34:05.140Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

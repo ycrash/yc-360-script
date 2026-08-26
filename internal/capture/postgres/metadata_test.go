@@ -137,7 +137,7 @@ func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
 
 	_, values, _ := parseArtifact(t, artifact)
 	assert.NotContains(t, values, "current_database")
-	assert.NotContains(t, values, "capture_mode",
+	assert.NotContains(t, values, "log_access",
 		"with no connection the mode is unknown by construction, and the closing block "+
 			"says connect_failed about the capture rather than about the server")
 	assert.Equal(t, "orders_db", values["target_database"],
@@ -209,11 +209,11 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 60,
-		"capture_mode plus serverFields' fifty-nine, and no connect_error row")
+	assert.Len(t, serverBlockFields(full), 59,
+		"log_access and log_access_reason plus serverFields' fifty-seven, and no connect_error row")
 	assert.Len(t, targetFields(full), 9)
 
-	assert.Equal(t, ModeDBHost, values["capture_mode"])
+	assert.Equal(t, LogAccessDirect, values["log_access"])
 	assert.Equal(t, "3.6.1", values["yc360_version"])
 }
 
@@ -238,7 +238,7 @@ func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
 func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {
 	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
 
-	assert.Equal(t, ModeUnknown, collector.Collected().CaptureMode,
+	assert.Equal(t, LogAccessUnknown, collector.Collected().LogAccess,
 		"before the sample the mode is unknown, which is also the truth about a "+
 			"run whose connection was refused")
 	assert.Equal(t, "orders_db", collector.Collected().TargetDatabase)
@@ -338,7 +338,7 @@ func TestCollectServerFactsFailure(t *testing.T) {
 	assert.Equal(t, "log/postgresql-2026-08-04_000000.csv", m.CurrentLogfile)
 	assert.Empty(t, m.DataDirectory)
 	assert.Empty(t, m.CurrentLogfileResolved)
-	assert.Equal(t, ModeUnknown, m.CaptureMode,
+	assert.Equal(t, LogAccessUnknown, m.LogAccess,
 		"every route reads the settings this statement collects, so a failure here is "+
 			"detection that could not run rather than detection that found nothing")
 	assert.Equal(t, "true", m.ReplicationConfigured)
@@ -361,12 +361,12 @@ func TestCollectLogLocationDeniedFallsThroughToTheDisk(t *testing.T) {
 
 	m := collect(t, q)
 
-	assert.Equal(t, ModeDBHost, m.CaptureMode, "the 14 to 16 case, and the reason for the slice")
+	assert.Equal(t, LogAccessDirect, m.LogAccess, "the 14 to 16 case, and the reason for the slice")
 	assert.Equal(t, resolvedByCurrentLogfiles, m.LogResolvedBy)
 	assert.Equal(t, "stderr", m.LogFormats)
 
 	assert.Equal(t, logfile, m.CurrentLogfileResolved)
-	assert.Equal(t, "true", m.CurrentLogfileReadable)
+	assert.Empty(t, m.LogAccessReason, "direct access leaves the reason empty")
 	assert.Empty(t, m.CurrentLogfileError, "no route had to report one")
 
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
@@ -380,7 +380,7 @@ func TestCollectRecordsTheLastRoutesError(t *testing.T) {
 	m := collect(t, q)
 
 	assert.Contains(t, m.CurrentLogfileError, "permission denied for function pg_current_logfile")
-	assert.Equal(t, ModeRemote, m.CaptureMode, "no route produced a path")
+	assert.Equal(t, LogAccessNone, m.LogAccess, "no route produced a path")
 	assert.Empty(t, m.LogResolvedBy)
 
 	assert.Equal(t, "/var/lib/postgresql/15/main", m.DataDirectory)
@@ -397,7 +397,7 @@ func TestCollectReplicationDenied(t *testing.T) {
 	assert.Empty(t, m.ReplicationConfigured)
 
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
-	assert.NotEqual(t, ModeUnknown, m.CaptureMode)
+	assert.NotEqual(t, LogAccessUnknown, m.LogAccess)
 	assert.Empty(t, m.QueryError)
 }
 
@@ -420,22 +420,32 @@ func TestReplicationConfigured(t *testing.T) {
 	}
 }
 
-func TestCaptureMode(t *testing.T) {
+func TestLogAccess(t *testing.T) {
 	tests := []struct {
 		name string
 
-		setup          func(t *testing.T, dir string) (logfile any, dataDirectory, resolved string)
-		logLocationErr error
-		wantMode       string
-		wantReadable   string
+		setup            func(t *testing.T, dir string) (logfile any, dataDirectory, resolved string)
+		loggingCollector string
+		logLocationErr   error
+		wantAccess       string
+		wantReason       string
 	}{
+		{
+			name: "collector on, but no route names a file",
+			setup: func(t *testing.T, dir string) (any, string, string) {
+				return nil, dir, ""
+			},
+			wantAccess: LogAccessNone,
+			wantReason: reasonUnresolved,
+		},
 		{
 			name: "logging_collector off",
 			setup: func(t *testing.T, dir string) (any, string, string) {
 				return nil, dir, ""
 			},
-			wantMode:     ModeRemote,
-			wantReadable: "",
+			loggingCollector: "off",
+			wantAccess:       LogAccessNone,
+			wantReason:       reasonCollectorOff,
 		},
 		{
 			name: "absolute path, readable",
@@ -445,8 +455,8 @@ func TestCaptureMode(t *testing.T) {
 
 				return ptr(path), dir, path
 			},
-			wantMode:     ModeDBHost,
-			wantReadable: "true",
+			wantAccess: LogAccessDirect,
+			wantReason: "",
 		},
 		{
 			name: "relative path, resolved against data_directory",
@@ -459,8 +469,8 @@ func TestCaptureMode(t *testing.T) {
 
 				return ptr(relative), dir, path
 			},
-			wantMode:     ModeDBHost,
-			wantReadable: "true",
+			wantAccess: LogAccessDirect,
+			wantReason: "",
 		},
 		{
 			name: "path does not exist here",
@@ -469,8 +479,8 @@ func TestCaptureMode(t *testing.T) {
 
 				return ptr(path), dir, path
 			},
-			wantMode:     ModeRemote,
-			wantReadable: "false",
+			wantAccess: LogAccessNone,
+			wantReason: reasonUnreadable,
 		},
 		{
 
@@ -483,8 +493,8 @@ func TestCaptureMode(t *testing.T) {
 
 				return ptr(path), dir, path
 			},
-			wantMode:     ModeRemote,
-			wantReadable: "false",
+			wantAccess: LogAccessNone,
+			wantReason: reasonUnreadable,
 		},
 		{
 
@@ -492,8 +502,8 @@ func TestCaptureMode(t *testing.T) {
 			setup: func(t *testing.T, dir string) (any, string, string) {
 				return ptr("log/postgresql-2026-08-04_000000.csv"), "", ""
 			},
-			wantMode:     ModeRemote,
-			wantReadable: "",
+			wantAccess: LogAccessNone,
+			wantReason: reasonUnresolved,
 		},
 		{
 			name: "log location denied and no route resolves",
@@ -501,8 +511,8 @@ func TestCaptureMode(t *testing.T) {
 				return nil, dir, ""
 			},
 			logLocationErr: errDenied,
-			wantMode:       ModeRemote,
-			wantReadable:   "",
+			wantAccess:     LogAccessNone,
+			wantReason:     reasonUnresolved,
 		},
 	}
 
@@ -519,6 +529,10 @@ func TestCaptureMode(t *testing.T) {
 			} else {
 				settings["data_directory"] = dataDirectory
 			}
+
+			if tt.loggingCollector != "" {
+				settings["logging_collector"] = tt.loggingCollector
+			}
 			q.serverFacts.values[colSettingNames], q.serverFacts.values[colSettingValues] = settingsColumns(settings)
 
 			if tt.logLocationErr != nil {
@@ -529,15 +543,16 @@ func TestCaptureMode(t *testing.T) {
 
 			m := collect(t, q)
 
-			assert.Equal(t, tt.wantMode, m.CaptureMode)
-			assert.Equal(t, tt.wantReadable, m.CurrentLogfileReadable)
+			assert.Equal(t, tt.wantAccess, m.LogAccess)
+			assert.Equal(t, tt.wantReason, m.LogAccessReason,
+				"a reason is mandatory whenever access is not direct")
 
 			assert.Equal(t, resolved, m.CurrentLogfileResolved)
 		})
 	}
 }
 
-func TestCaptureModeResolvesByGlobWhereNeitherTheFileNorTheFunctionIsReachable(t *testing.T) {
+func TestLogAccessResolvesByGlobWhereNeitherTheFileNorTheFunctionIsReachable(t *testing.T) {
 	logDirectory := t.TempDir()
 
 	older := filepath.Join(logDirectory, "postgresql-2026-08-04_000000.csv")
@@ -558,15 +573,15 @@ func TestCaptureModeResolvesByGlobWhereNeitherTheFileNorTheFunctionIsReachable(t
 
 	m := collect(t, q)
 
-	assert.Equal(t, ModeDBHost, m.CaptureMode)
+	assert.Equal(t, LogAccessDirect, m.LogAccess)
 	assert.Equal(t, resolvedByGlob, m.LogResolvedBy)
 	assert.Equal(t, newest, m.CurrentLogfileResolved,
 		"the newest match, and the .log suffix replaced with .csv because log_filename names "+
 			"only the stderr file")
-	assert.Equal(t, "true", m.CurrentLogfileReadable)
+	assert.Empty(t, m.LogAccessReason, "direct access leaves the reason empty")
 }
 
-func TestCaptureModeAtThePrivilegeFloorHasNoRouteAtAll(t *testing.T) {
+func TestLogAccessAtThePrivilegeFloorHasNoRouteAtAll(t *testing.T) {
 	q := healthyQuerier()
 	q.logLocation = fakeRow{err: errDenied}
 
@@ -578,7 +593,7 @@ func TestCaptureModeAtThePrivilegeFloorHasNoRouteAtAll(t *testing.T) {
 
 	m := collect(t, q)
 
-	assert.Equal(t, ModeRemote, m.CaptureMode)
+	assert.Equal(t, LogAccessNone, m.LogAccess)
 	assert.Empty(t, m.LogResolvedBy)
 	assert.Empty(t, m.CurrentLogfileResolved)
 	assert.Contains(t, m.CurrentLogfileError, "permission denied for function pg_current_logfile")

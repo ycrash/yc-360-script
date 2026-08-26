@@ -1630,7 +1630,7 @@ func (e *Explain) writeSummary(
 }
 
 // logFields reports the plan store in the log-tail engine's own vocabulary. A tail that
-// never resolved gets its reason and capture mode and no count, as writeReasonBlock does:
+// never resolved gets its reason and log access and no count, as writeReasonBlock does:
 // a zero beside a reason renders an absence as a measurement. The reason rides
 // log_reason= because the ranking already owns reason=.
 func (e *Explain) logFields(store *planStore, read *tailRead) []headerField {
@@ -1639,12 +1639,12 @@ func (e *Explain) logFields(store *planStore, read *tailRead) []headerField {
 	if source.reason != "" {
 		return []headerField{
 			{"log_reason", source.reason},
-			{"capture_mode", source.captureMode()},
+			{"log_access", source.logAccess()},
 		}
 	}
 
 	fields := []headerField{
-		{"capture_mode", source.captureMode()},
+		{"log_access", source.logAccess()},
 	}
 
 	// The engine's own keys, in its own spelling, because the server already parses them

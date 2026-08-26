@@ -31,7 +31,7 @@ func fullArtifactMetadata() Metadata {
 		ExplainMode:     ExplainModeAll,
 		ExplainLiterals: explainLiteralsVerbatim,
 
-		CaptureMode: ModeDBHost,
+		LogAccess: LogAccessDirect,
 
 		CurrentDatabase:     "orders_db",
 		CurrentUser:         "ycrash_monitor",
@@ -78,7 +78,6 @@ func fullArtifactMetadata() Metadata {
 		DataDirectory:          "/var/lib/postgresql/17/main",
 		CurrentLogfile:         "log/postgresql-2026-08-04_000000.csv",
 		CurrentLogfileResolved: "/var/lib/postgresql/17/main/log/postgresql-2026-08-04_000000.csv",
-		CurrentLogfileReadable: "true",
 		LogResolvedBy:          resolvedByCurrentLogfiles,
 		LogFormats:             "csvlog",
 
@@ -113,7 +112,7 @@ func connectFailureMetadata() Metadata {
 		ExplainMode:     ExplainModeAll,
 		ExplainLiterals: explainLiteralsVerbatim,
 
-		CaptureMode:  ModeUnknown,
+		LogAccess:    LogAccessUnknown,
 		ConnectError: ErrTooManyConnections.Error(),
 	}
 }
@@ -297,15 +296,15 @@ func TestServerBlockCarriesNoConnectError(t *testing.T) {
 	assert.NotContains(t, values, "connect_error",
 		"the key exists only where it can be non-empty, which is the closing block's header")
 
-	assert.Equal(t, "capture_mode", keys[len(targetFields(fullArtifactMetadata()))],
-		"the server block opens with the capture mode")
+	assert.Equal(t, "log_access", keys[len(targetFields(fullArtifactMetadata()))],
+		"the server block opens with the log-access fact")
 }
 
 func TestQueryErrorStillWritesEveryKey(t *testing.T) {
 	m := connectFailureMetadata()
 	m.AgentTS = testAgentNow
 	m.AgentTSAtClockRead = testAgentNow
-	m.CaptureMode = ModeRemote
+	m.LogAccess = LogAccessNone
 	m.ConnectError = ""
 	m.QueryError = "ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"
 

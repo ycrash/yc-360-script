@@ -501,7 +501,7 @@ func TestResolveLogSourceRoutes(t *testing.T) {
 
 		source := resolveLogSource(context.Background(), deniedQuerier(dir.settings()), dir.settings(), nil)
 
-		require.Equal(t, ModeDBHost, source.captureMode(),
+		require.Equal(t, LogAccessDirect, source.logAccess(),
 			"pg_monitor cannot execute pg_current_logfile() before PostgreSQL 17, and before this "+
 				"the mode went down with that statement on three of the five supported versions")
 		assert.Equal(t, resolvedByCurrentLogfiles, source.resolvedBy)
@@ -545,7 +545,7 @@ func TestResolveLogSourceRoutes(t *testing.T) {
 		source := resolveLogSource(context.Background(), deniedQuerier(settings), settings, nil)
 
 		assert.Equal(t, reasonUnresolved, source.reason)
-		assert.Equal(t, ModeRemote, source.captureMode())
+		assert.Equal(t, LogAccessNone, source.logAccess())
 		assert.Empty(t, source.path)
 	})
 
@@ -576,14 +576,14 @@ func TestResolveLogSourceRoutes(t *testing.T) {
 		assert.Equal(t, reasonUnreadable, source.reason,
 			"the default outcome of a correct-looking Mode H deployment: log files are 0600")
 		assert.Equal(t, dir.path, source.path, "and the path is named, so an operator knows what to chmod")
-		assert.Equal(t, ModeRemote, source.captureMode())
+		assert.Equal(t, LogAccessNone, source.logAccess())
 	})
 
 	t.Run("a failed settings read is a different cause from an empty answer", func(t *testing.T) {
 		source := resolveLogSource(context.Background(), deniedQuerier(logSettings{}), logSettings{}, nil)
 
-		assert.Equal(t, reasonModeUnknown, source.reason)
-		assert.Equal(t, ModeUnknown, source.captureMode(),
+		assert.Equal(t, reasonSettingsUnread, source.reason)
+		assert.Equal(t, LogAccessUnknown, source.logAccess(),
 			"detection could not run, which is a different sentence from detection finding nothing")
 	})
 }
@@ -717,13 +717,13 @@ func TestTailAnnouncesTheSourceOnceAndPrefersTheStructuredFormat(t *testing.T) {
 	assert.Equal(t, "jsonlog,csvlog,stderr", first.fields["log_formats"],
 		"a bundle says what it could have read as well as what it did")
 	assert.Equal(t, matchedBySQLState, first.fields["matched_by"])
-	assert.Equal(t, ModeDBHost, first.fields["capture_mode"])
+	assert.Equal(t, LogAccessDirect, first.fields["log_access"])
 	assert.NotEmpty(t, first.fields["log_path"])
 
 	second := h.next()
 	assert.False(t, second.has("log_formats"), "the source's identity is announced once")
 	assert.False(t, second.has("log_path"))
-	assert.False(t, second.has("capture_mode"))
+	assert.False(t, second.has("log_access"))
 	assert.Equal(t, "jsonlog", second.fields["log_format"], "and the format rides every block")
 }
 
@@ -756,7 +756,7 @@ func TestTailLateResolutionDeclaresTheIntervalItNeverRead(t *testing.T) {
 
 	h := newDeadlockHarness(t, q)
 
-	require.Equal(t, reasonModeUnknown, h.next().fields["reason"])
+	require.Equal(t, reasonSettingsUnread, h.next().fields["reason"])
 
 	dir.append(measuredDeadlock + unrelatedTraffic)
 	q.settingsErr = nil
@@ -1046,7 +1046,7 @@ func TestTailFailedResolutionRetriesOnTheNextSample(t *testing.T) {
 	h := newDeadlockHarness(t, q)
 
 	first := h.next()
-	assert.Equal(t, reasonModeUnknown, first.fields["reason"],
+	assert.Equal(t, reasonSettingsUnread, first.fields["reason"],
 		"a settings read that timed out during exactly the spike the capture exists for "+
 			"costs one block, not twelve")
 	assert.Contains(t, first.fields["error"], "statement timeout")
@@ -1073,9 +1073,9 @@ func TestTailEveryReasonWritesAHeaderOnlyBlockWithNoMatchedKey(t *testing.T) {
 		reason   string
 		mode     string
 	}{
-		{name: "collector off", settings: collectorOff, reason: reasonCollectorOff, mode: ModeRemote},
-		{name: "unresolved", settings: floor, reason: reasonUnresolved, mode: ModeRemote},
-		{name: "mode unknown", settings: logSettings{}, reason: reasonModeUnknown, mode: ModeUnknown},
+		{name: "collector off", settings: collectorOff, reason: reasonCollectorOff, mode: LogAccessNone},
+		{name: "unresolved", settings: floor, reason: reasonUnresolved, mode: LogAccessNone},
+		{name: "mode unknown", settings: logSettings{}, reason: reasonSettingsUnread, mode: LogAccessUnknown},
 		{
 			name:     "unreadable",
 			settings: dir.settings(),
@@ -1085,7 +1085,7 @@ func TestTailEveryReasonWritesAHeaderOnlyBlockWithNoMatchedKey(t *testing.T) {
 				require.NoError(t, os.Chmod(dir.path, 0o000))
 			},
 			reason: reasonUnreadable,
-			mode:   ModeRemote,
+			mode:   LogAccessNone,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1094,14 +1094,14 @@ func TestTailEveryReasonWritesAHeaderOnlyBlockWithNoMatchedKey(t *testing.T) {
 			}
 
 			q := deniedQuerier(tt.settings)
-			if tt.reason == reasonModeUnknown {
+			if tt.reason == reasonSettingsUnread {
 				q.settingsErr = errors.New("ERROR: canceling statement due to statement timeout")
 			}
 
 			block := newDeadlockHarness(t, q).next()
 
 			assert.Equal(t, tt.reason, block.fields["reason"])
-			assert.Equal(t, tt.mode, block.fields["capture_mode"])
+			assert.Equal(t, tt.mode, block.fields["log_access"])
 
 			assert.False(t, block.has("matched"),
 				"this is the only assertion in the package that a key is NOT there: an "+
@@ -1192,19 +1192,6 @@ func TestTailDrainClosesTheHandle(t *testing.T) {
 
 	h.drain()
 	assert.Nil(t, collector.tail.file, "the drain is the collector's last call, so it is its cleanup")
-}
-
-func TestLogLocalityIsRecordedRatherThanGated(t *testing.T) {
-	assert.Equal(t, localityLocal, logLocality(logSettings{read: true}),
-		"a unix-socket connection is proof the server is this host")
-
-	assert.Equal(t, localityLocal, logLocality(logSettings{serverAddr: "127.0.0.1", read: true}))
-
-	assert.Equal(t, localityRemote, logLocality(logSettings{serverAddr: "203.0.113.7", read: true}),
-		"same-packaging fleets share a data_directory string, so an agent pointed at another "+
-			"host would resolve its own log - recorded as a contradiction, never gated")
-
-	assert.Equal(t, localityUnknown, logLocality(logSettings{}))
 }
 
 // --- the plan predicate and entry point (pg_explain.txt's plumbing) --------

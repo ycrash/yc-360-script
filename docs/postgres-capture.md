@@ -318,14 +318,16 @@ Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`) always describe
 the machine that ran the script, which is the database host only in the second
 mode.
 
-## Mode H is a permission, not a location
+## `log_access` is a permission, not a location
 
 **"On the database host" is not enough, and a default installation denies it.**
 Measured on PostgreSQL 14 through 18: the data directory is `0700`, the log
 directory inside it is `0700`, every log file is `0600`, and
 `log_file_mode = 0600`. A dedicated service account reads none of it, so an agent
-sitting on the database host reports `capture_mode=pg-remote` and both log
-artifacts say `reason=unreadable` with the path they could not open.
+sitting on the database host reports `log_access=none` and both log artifacts
+say `reason=unreadable` with the path they could not open. That is why the field
+is named for the experiment it runs — opening the file the server named — and not
+for a location it never tested.
 
 That is the outcome you hit first. Three deployments make Mode H actually work:
 
@@ -353,9 +355,10 @@ cannot name, so the agent refuses to guess at it. Both artifacts report
 PGDG RPM packaging and the official containers run the collector, and are
 deployments 1–3 territory.
 
-Whichever you get, the artifact says which: every block carries `capture_mode=`
-and `log_resolved_by=`, and where there is no log to read it carries a `reason=`
-— `collector_off`, `unresolved`, `unreadable` or `mode_unknown` — and **no
+Whichever you get, the artifact says which: every block carries `log_access=`
+(`direct`, `none` or `unknown`) and `log_resolved_by=`, and where there is no log
+to read it carries a `reason=` — `collector_off`, `unresolved`, `unreadable` or
+`settings_unread` — and **no
 `matched=` key at all**. That absence is deliberate. `matched=0` means the log
 was read and held no event; a `reason=` means there was nothing to read, and
 there is no zero for a report to render as "no deadlocks occurred".
