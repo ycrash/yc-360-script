@@ -101,6 +101,7 @@ func serverFields(m Metadata) []field {
 		{"auto_explain.log_analyze", m.AutoExplainLogAnalyze},
 		{"auto_explain.log_format", m.AutoExplainLogFormat},
 		{"auto_explain.sample_rate", m.AutoExplainSampleRate},
+		{"update_process_title", m.UpdateProcessTitle},
 		{"shared_preload_libraries", m.SharedPreloadLibraries},
 		{"settings_unavailable", m.SettingsUnavailable},
 
@@ -109,6 +110,12 @@ func serverFields(m Metadata) []field {
 		{"current_logfile_resolved", m.CurrentLogfileResolved},
 		{"log_resolved_by", m.LogResolvedBy},
 		{"log_formats", m.LogFormats},
+
+		{"agent_on_db_host", m.AgentOnDBHost},
+		{"agent_on_db_host_by", m.AgentOnDBHostBy},
+		{"agent_on_db_host_evidence", m.AgentOnDBHostEvidence},
+		{"agent_on_db_host_reason", m.AgentOnDBHostReason},
+		{"host_artifacts", m.HostArtifacts},
 
 		{"has_pg_monitor_role", m.HasPgMonitorRole},
 		{"has_pg_read_all_stats", m.HasPgReadAllStats},
