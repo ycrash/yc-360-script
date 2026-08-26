@@ -43,8 +43,9 @@ func (d *Disk) Run() (Result, error) {
 	return d.UploadCapturedFile(file)
 }
 
-// captureSecondReading appends a timestamped second reading. The timestamp is
-// written only here, so single-reading output stays byte-identical to before.
+// captureSecondReading appends a second reading after a blank line and its own
+// header, which is how netstat.out separates the two readings it has always
+// taken.
 func (d *Disk) captureSecondReading(file *os.File) error {
 	if d.sleepBetweenCaptures <= 0 {
 		return nil
@@ -54,8 +55,12 @@ func (d *Disk) captureSecondReading(file *os.File) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(file, "\n%s\n", executils.NowString()); err != nil {
+	if _, err := file.WriteString("\n"); err != nil {
 		return fmt.Errorf("failed to write reading separator: %w", err)
+	}
+
+	if err := d.writeReadingHeader(file); err != nil {
+		return err
 	}
 
 	if err := executils.CommandCombinedOutputToWriter(file, executils.Disk); err != nil {
@@ -69,10 +74,38 @@ func (d *Disk) captureSecondReading(file *os.File) error {
 	return nil
 }
 
+// writeReadingHeader labels a reading with the time it was taken, the way
+// netstat.out and ps.out label every one of theirs. Written only where a second
+// reading follows: a lone reading stays byte-for-byte what an application capture
+// has always produced, header included - which is to say none.
+func (d *Disk) writeReadingHeader(file *os.File) error {
+	if d.sleepBetweenCaptures <= 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(file, "%s\n", executils.NowString()); err != nil {
+		return fmt.Errorf("failed to write reading header: %w", err)
+	}
+
+	return nil
+}
+
 // CaptureToFile executes the disk metrics collection command and saves output to a file.
 func (d *Disk) CaptureToFile() (*os.File, error) {
-	file, err := executils.CommandCombinedOutputToFile(outputFile, executils.Disk)
+	file, err := os.Create(outputFile)
 	if err != nil {
+		return nil, fmt.Errorf("failed to execute disk command: %w", err)
+	}
+
+	if err := d.writeReadingHeader(file); err != nil {
+		file.Close()
+
+		return nil, err
+	}
+
+	if err := executils.CommandCombinedOutputToWriter(file, executils.Disk); err != nil {
+		file.Close()
+
 		return nil, fmt.Errorf("failed to execute disk command: %w", err)
 	}
 
