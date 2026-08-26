@@ -353,10 +353,14 @@ agent log carries the deployment change that would turn most reasons into a
 
 Two things follow. A run against a managed service or a remote host never
 uploads a foreign machine's process list and connection table under the
-database's name. And on a database host the snapshot artifacts (`df`, `dmesg`,
-`netstat`, `ps`) are read at both edges of `captureDuration` rather than once at
-the start, so a filling filesystem or a mid-window kill leaves a trace; `top`
-and `vmstat` keep their own fixed span at the opening edge.
+database's name. And on a database host, `netstat` and `ps` stretch their
+readings across `captureDuration` — `netstat` at both edges, `ps` spread evenly
+over three — so a connection table or process list that changes during the
+window leaves a trace. The other four are unchanged: `top` and `vmstat` take
+their own fixed ~20 s burst at the opening edge, and `df`, `dmesg` and `kernel`
+take one reading, exactly as an application capture takes them. Every one of
+these files uploads under the same identifier whichever kind of capture wrote
+it, so their formats are shared and none of them changes here.
 
 ## `log_access` is a permission, not a location
 
