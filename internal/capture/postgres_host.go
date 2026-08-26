@@ -11,8 +11,8 @@ import (
 
 // hostCloseMargin keeps the closing host reading inside the capture window. The
 // collectors start a moment after the window opens, so a full-window gap would
-// put their second reading past the point where the database artifacts have
-// already been closed and uploaded.
+// put the last reading past the point where the database artifacts have already
+// been closed and uploaded.
 const hostCloseMargin = 5 * time.Second
 
 // hostCollector pairs a collector with the channel its result arrives on.
@@ -21,7 +21,7 @@ type hostCollector struct {
 	done chan Result
 }
 
-// hostSpan is how long the paired collectors leave between their two readings.
+// hostSpan is how long netstat and ps leave between their readings.
 func hostSpan(window time.Duration) time.Duration {
 	span := window - hostCloseMargin
 	if span < time.Second {
@@ -58,24 +58,29 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 	stop := ctx.Done()
 	endpoint := p.Endpoint()
 
-	// The four paired collectors read at both edges of the window: a df delta is
-	// what makes "the filesystem is filling" a finding, and a second dmesg is what
-	// catches a kill that happens during the window rather than before it. ps
-	// spreads its three readings evenly, so span/2 puts the last one on the closing
-	// edge. top and vmstat keep their own fixed span at the opening edge, unchanged
-	// from every application capture. kernel is a single reading of settings that
-	// do not move.
+	// Only netstat and ps stretch to the window. Both already take several readings
+	// and already label each one, so widening the gap between them changes the
+	// timing and nothing else - and these files carry the same dt whichever kind of
+	// capture wrote them, so their shape is not this feature's to change. netstat
+	// reads at both edges; ps spreads its three evenly, so span/2 puts the last on
+	// the closing edge.
 	//
-	// dmesg does not wait for vmstat the way an application capture has it: here it
-	// has a schedule of its own, and starting it twenty seconds late would push its
-	// closing reading outside the window.
+	// df and dmesg take one reading, exactly as an application capture takes it. A
+	// second would have to go somewhere in a file whose format has only ever held
+	// one, and a df delta is not worth giving one dt two shapes. top, vmstat and
+	// kernel are unchanged for the same reason.
+	vmstat := &VMStat{}
+
 	return []hostCollector{
 		{"netstat", GoCapture(endpoint, WrapRun(&NetStat{sleepBetweenCaptures: span, stop: stop}))},
 		{"ps", GoCapture(endpoint, WrapRun(&PS{sleepBetweenCaptures: span / 2, stop: stop}))},
-		{"df", GoCapture(endpoint, WrapRun(&Disk{sleepBetweenCaptures: span, stop: stop}))},
-		{"dmesg", GoCapture(endpoint, WrapRun(&DMesg{sleepBetweenCaptures: span, stop: stop}))},
 		{"top", GoCapture(endpoint, WrapRun(&Top{}))},
-		{"vmstat", GoCapture(endpoint, WrapRun(&VMStat{}))},
+		{"vmstat", GoCapture(endpoint, WrapRun(vmstat))},
+		{"df", GoCapture(endpoint, WrapRun(&Disk{}))},
+
+		// dmesg waits for vmstat, as an application capture has it: it has no
+		// schedule of its own to keep any more.
+		{"dmesg", GoCapture(endpoint, WrapRun(&DMesg{}), vmstat)},
 		{"kernel", GoCapture(endpoint, WrapRun(&Kernel{}))},
 	}
 }
