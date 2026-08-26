@@ -5,5 +5,5 @@
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=2 candidate_source=activity pid=4102 query_start=2026-08-07T14:32:04.980Z mode=ESTIMATED_LITERAL search_path="\"$user\", public" bytes=123 ts=2026-08-07T14:34:05.140Z
  Aggregate  (cost=25.00..25.01 rows=1 width=8)
    ->  Seq Scan on public.order_items  (cost=0.00..22.00 rows=1200 width=0)
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=activity_fallback candidates_considered=2 candidates_written=2 capture_mode=pg-dbhost plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:34:05.140Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=activity_fallback candidates_considered=2 candidates_written=2 log_access=direct plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:34:05.140Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

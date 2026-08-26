@@ -14,11 +14,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Capture modes, detected rather than configured. ModeUnknown is treated as ModeRemote.
+// Log access, detected rather than configured: whether this process can open the file
+// the server named. It is a permission, never a location — direction §1.12. A hardened
+// database host reports none; a shared log mount reports direct from another machine.
+// LogAccessUnknown means the test could not run, and is treated as LogAccessNone.
 const (
-	ModeDBHost  = "pg-dbhost"
-	ModeRemote  = "pg-remote"
-	ModeUnknown = "unknown"
+	LogAccessDirect  = "direct"
+	LogAccessNone    = "none"
+	LogAccessUnknown = "unknown"
 )
 
 // Querier is the seam that makes every statement testable without a server.
@@ -51,8 +54,9 @@ type Metadata struct {
 	ExplainLiterals string
 
 	// ConnectError is set by the caller. Non-empty means the file stops here.
-	CaptureMode  string
-	ConnectError string
+	LogAccess       string
+	LogAccessReason string
+	ConnectError    string
 
 	CurrentDatabase     string
 	CurrentUser         string
@@ -104,12 +108,13 @@ type Metadata struct {
 	SharedPreloadLibraries string
 	SettingsUnavailable    string
 
-	// Evidence behind CaptureMode. DataDirectory comes from the settings catalogue, so a denied
-	// pg_current_logfile() still leaves a relative logfile resolvable.
+	// Evidence behind LogAccess. DataDirectory comes from the settings catalogue, so a denied
+	// pg_current_logfile() still leaves a relative logfile resolvable. The readable/error pair
+	// folded into LogAccess/LogAccessReason (§1.12); CurrentLogfileError survives as a struct
+	// field only, for the agent log line — it is no longer an artifact row.
 	DataDirectory          string
 	CurrentLogfile         string
 	CurrentLogfileResolved string
-	CurrentLogfileReadable string
 	CurrentLogfileError    string
 
 	// Shared with pg_deadlocks.txt/pg_timeouts.txt: all three run the same log resolution, so they
@@ -181,7 +186,8 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		ExplainLiterals: explainLiteralsVerbatim,
 
 		// Unknown until collectLogLocation says otherwise; true for a run whose connection was refused.
-		CaptureMode: ModeUnknown,
+		LogAccess:       LogAccessUnknown,
+		LogAccessReason: reasonSettingsUnread,
 	}
 
 	return m
@@ -190,8 +196,8 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 // String and GoString redact the password; Target's own String/GoString can't, since fmt only
 // reaches a nested String method through an exported field, and target isn't one.
 func (m *MetadataCollector) String() string {
-	return fmt.Sprintf("postgres.MetadataCollector{target=%s yc360_version=%s capture_mode=%s}",
-		m.target, m.yc360Version, m.collected.CaptureMode)
+	return fmt.Sprintf("postgres.MetadataCollector{target=%s yc360_version=%s log_access=%s}",
+		m.target, m.yc360Version, m.collected.LogAccess)
 }
 
 func (m *MetadataCollector) GoString() string { return m.String() }
@@ -276,9 +282,10 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 		TargetUsername:     t.Username,
 		TargetSSLMode:      t.SSLMode,
 
-		// collectLogLocation overwrites this on any completed path; an early return can't look like
-		// a determined mode.
-		CaptureMode: ModeUnknown,
+		// collectLogLocation overwrites these on any completed path; an early return can't look
+		// like a determined fact.
+		LogAccess:       LogAccessUnknown,
+		LogAccessReason: reasonSettingsUnread,
 	}
 
 	collectServerFacts(ctx, q, &m, t.Password)
@@ -348,12 +355,14 @@ func applySettings(m *Metadata, settings map[string]string) {
 }
 
 // collectLogLocation shares resolveLogSource with pg_deadlocks.txt/pg_timeouts.txt so all three
-// agree on method. Mode is tested (log file actually readable), not inferred from the configured host.
+// agree on method. Access is tested (the log file is actually opened), not inferred from the
+// configured host.
 func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password string) {
 	source := resolveLogSource(ctx, q, logSettingsFromMetadata(m),
 		func(err error) string { return errorText(err, password) })
 
-	m.CaptureMode = source.captureMode()
+	m.LogAccess = source.logAccess()
+	m.LogAccessReason = source.logAccessReason()
 	m.LogResolvedBy = source.resolvedBy
 	m.LogFormats = source.formatNames()
 
@@ -370,7 +379,6 @@ func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password st
 	}
 
 	m.CurrentLogfileResolved = source.path
-	m.CurrentLogfileReadable = strconv.FormatBool(source.reason != reasonUnreadable)
 }
 
 // logSettingsFromMetadata reuses collectServerFacts's read rather than querying settings again.

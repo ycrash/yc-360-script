@@ -308,7 +308,7 @@ func postgresResultMessage(metadata postgres.Metadata) string {
 			PostgresMetadataFileName, metadata.ConnectError)
 	}
 
-	parts := []string{fmt.Sprintf("%s written (mode=%s)", PostgresMetadataFileName, metadata.CaptureMode)}
+	parts := []string{fmt.Sprintf("%s written (log_access=%s)", PostgresMetadataFileName, metadata.LogAccess)}
 
 	// Named neutrally, not as denials: a statement timeout reaches here identically.
 	for _, probe := range []struct{ name, err string }{

@@ -230,7 +230,7 @@ func TestMatrixMetadataWindow(t *testing.T) {
 				assert.Equal(t, directKeys, keys,
 					"the window writes exactly the keys the direct call does")
 
-				assert.Equal(t, directValues["capture_mode"], values["capture_mode"],
+				assert.Equal(t, directValues["log_access"], values["log_access"],
 					"and reaches the same conclusion about the mode by either route")
 
 				assert.Equal(t, "matrix", values["yc360_version"],
@@ -373,16 +373,17 @@ func matrixFunctionAllowed(server matrixServer, role matrixRole) bool {
 func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
 	t.Helper()
 
-	t.Logf("pg%d/%s: capture_mode=%s resolved_by=%s current_logfile=%q error=%q",
-		server.major, role.user, values["capture_mode"], values["log_resolved_by"],
-		values["current_logfile"], values["current_logfile_error"])
+	t.Logf("pg%d/%s: log_access=%s reason=%s resolved_by=%s current_logfile=%q",
+		server.major, role.user, values["log_access"], values["log_access_reason"],
+		values["log_resolved_by"], values["current_logfile"])
 
 	if !role.privileged() {
-		assert.Equal(t, ModeRemote, values["capture_mode"],
+		assert.Equal(t, LogAccessNone, values["log_access"],
 			"no route produced a path, which is remote rather than unknown")
 		assert.Empty(t, values["log_resolved_by"])
-		assert.NotEmpty(t, values["current_logfile_error"],
-			"pg_current_logfile() is denied to a bare LOGIN role on every supported version")
+		assert.Equal(t, reasonUnresolved, values["log_access_reason"],
+			"pg_current_logfile() is denied to a bare LOGIN role on every supported version, "+
+				"so no route produced a path; the denial text itself is now agent-log only")
 
 		return
 	}
@@ -390,20 +391,16 @@ func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, value
 	want := resolvedByGlob
 	if matrixFunctionAllowed(server, role) {
 		want = resolvedByFunction
-		assert.Empty(t, values["current_logfile_error"])
-	} else {
-		assert.NotEmpty(t, values["current_logfile_error"],
-			"the last route's error, which on %d is the denial the glob then rode past", server.major)
 	}
 
 	assert.Equal(t, want, values["log_resolved_by"])
 
-	assert.Equal(t, ModeDBHost, values["capture_mode"],
+	assert.Equal(t, LogAccessDirect, values["log_access"],
 		"before this slice, pg%d with this role reported pg-remote from the database host itself",
 		server.major)
 
 	assert.NotEmpty(t, values["current_logfile_resolved"])
-	assert.Equal(t, "true", values["current_logfile_readable"])
+	assert.Empty(t, values["log_access_reason"], "direct access leaves the reason empty")
 	assert.Equal(t, "stderr", values["log_formats"])
 
 	assert.NotEmpty(t, values["data_directory"],
@@ -3059,7 +3056,7 @@ func TestMatrixLogTailResolution(t *testing.T) {
 					return
 				}
 
-				assert.Equal(t, ModeDBHost, block.fields["capture_mode"],
+				assert.Equal(t, LogAccessDirect, block.fields["log_access"],
 					"Mode H resolves on 14 through 18 alike - which it did not before this slice")
 
 				want := resolvedByGlob
@@ -3112,7 +3109,7 @@ func TestMatrixLogTailDeadlock(t *testing.T) {
 			matrixDeadlockTable(t, server)
 
 			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewDeadlocks())
-			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+			require.Equal(t, LogAccessDirect, tail.sample().fields["log_access"])
 
 			matrixGenerateDeadlock(t, server)
 
@@ -3172,7 +3169,7 @@ func TestMatrixLogTailTimeouts(t *testing.T) {
 			matrixDeadlockTable(t, server)
 
 			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewTimeouts())
-			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+			require.Equal(t, LogAccessDirect, tail.sample().fields["log_access"])
 
 			worker := matrixLogConn(t, server, "yc_second")
 			require.Error(t, matrixLogExec(t, worker,
@@ -3252,7 +3249,7 @@ func TestMatrixLogTailBoundaryUnderLoad(t *testing.T) {
 			matrixDeadlockTable(t, server)
 
 			tail := newMatrixTail(t, matrixTarget(server, matrixMonitor(t)), NewDeadlocks())
-			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+			require.Equal(t, LogAccessDirect, tail.sample().fields["log_access"])
 
 			noise := matrixLogConn(t, server, "yc_second")
 
@@ -3305,7 +3302,7 @@ func TestMatrixLogTailRotation(t *testing.T) {
 			matrixDeadlockTable(t, server)
 
 			tail := newMatrixTail(t, matrixTarget(server, matrixSuperuser(t)), NewDeadlocks())
-			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+			require.Equal(t, LogAccessDirect, tail.sample().fields["log_access"])
 
 			matrixGenerateDeadlock(t, server)
 			first := matrixTailUntilMatched(t, server, tail)
@@ -3401,7 +3398,7 @@ func TestMatrixLogTailUnreadable(t *testing.T) {
 			requireUnprivileged(t)
 
 			tail := newMatrixTail(t, matrixTarget(server, matrixSuperuser(t)), NewDeadlocks())
-			require.Equal(t, ModeDBHost, tail.sample().fields["capture_mode"])
+			require.Equal(t, LogAccessDirect, tail.sample().fields["log_access"])
 
 			matrixDDL(t, server, "postgres", "SELECT pg_rotate_logfile()")
 			time.Sleep(2 * time.Second)
@@ -3788,7 +3785,7 @@ func matrixExplainTailAtEnd(t *testing.T, server matrixServer) *logTail {
 	require.True(t, tail.openAtEnd(ctx, conn, SampleContext{
 		At: time.Now(), Index: 1, Total: 2, Database: "postgres",
 		redact: func(err error) string { return errorText(err, "") },
-	}), "reason=%s capture_mode=%s", tail.source.reason, tail.source.captureMode())
+	}), "reason=%s log_access=%s", tail.source.reason, tail.source.logAccess())
 
 	t.Cleanup(tail.closeFile)
 

@@ -384,7 +384,7 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 			},
 			assert: func(t *testing.T, block textBlock) {
 				assert.Equal(t, reasonCollectorOff, block.fields["log_reason"])
-				assert.Equal(t, ModeRemote, block.fields["capture_mode"])
+				assert.Equal(t, LogAccessNone, block.fields["log_access"])
 
 				assert.False(t, block.has("plans_harvested"),
 					"a zero beside a reason would let a receiver render an absence as a "+
@@ -406,7 +406,7 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 			assert: func(t *testing.T, block textBlock) {
 				assert.Equal(t, "0", block.fields["plans_harvested"],
 					"the file was read and held no plan - that is a measured zero")
-				assert.Equal(t, ModeDBHost, block.fields["capture_mode"])
+				assert.Equal(t, LogAccessDirect, block.fields["log_access"])
 				assert.False(t, block.has("log_reason"))
 			},
 		},
@@ -468,7 +468,7 @@ func TestExplainOnAOneTickWindowStillReports(t *testing.T) {
 
 	assert.Equal(t, "0", summary.fields["plans_harvested"],
 		"opened at EOF and read in the same breath, so the window covers no interval at all")
-	assert.Equal(t, ModeDBHost, summary.fields["capture_mode"])
+	assert.Equal(t, LogAccessDirect, summary.fields["log_access"])
 }
 
 // --- the ranking -------------------------------------------------------------

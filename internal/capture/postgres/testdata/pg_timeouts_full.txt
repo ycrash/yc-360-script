@@ -1,5 +1,5 @@
 # engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=stderr log_formats=stderr log_path=log/postgresql-2026-08-15_100224.log log_resolved_by=current_logfiles log_locality=local capture_mode=pg-dbhost matched_by=message from_offset=153 to_offset=153 matched=0 bytes=0 ts=2026-08-07T14:32:05.020Z
+# engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=stderr log_formats=stderr log_path=log/postgresql-2026-08-15_100224.log log_resolved_by=current_logfiles log_access=direct matched_by=message from_offset=153 to_offset=153 matched=0 bytes=0 ts=2026-08-07T14:32:05.020Z
 # engine=postgres source=pg_timeouts v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=153 to_offset=496 matched=1 bytes=188 ts=2026-08-07T14:32:15.020Z
 2026-08-15 10:01:40.031 UTC [25993] ERROR:  canceling statement due to statement timeout
 2026-08-15 10:01:40.031 UTC [25993] STATEMENT:  SET statement_timeout='300ms'; SELECT pg_sleep(2);

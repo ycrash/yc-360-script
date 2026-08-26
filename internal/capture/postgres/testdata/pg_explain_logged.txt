@@ -4,5 +4,5 @@
 	Query Text: SELECT * FROM order_items WHERE order_id = $1
 	Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)
 	Query Identifier: -4821096637582910234
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=1 candidates_written=1 capture_mode=pg-dbhost plans_harvested=2 plans_written=1 plans_dropped=1 auto_explain_visible=true bytes=0 ts=2026-08-07T14:33:05.022Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=1 candidates_written=1 log_access=direct plans_harvested=2 plans_written=1 plans_dropped=1 auto_explain_visible=true bytes=0 ts=2026-08-07T14:33:05.022Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:33:15.020Z

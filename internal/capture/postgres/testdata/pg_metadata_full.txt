@@ -12,7 +12,8 @@ explain_mode,all
 explain_literals,verbatim
 # engine=postgres source=pg_metadata_server v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-04T09:12:44.201Z
 key,value
-capture_mode,pg-dbhost
+log_access,direct
+log_access_reason,
 current_database,orders_db
 current_user,ycrash_monitor
 backend_pid,48211
@@ -54,8 +55,6 @@ settings_unavailable,
 data_directory,/var/lib/postgresql/17/main
 current_logfile,log/postgresql-2026-08-04_000000.csv
 current_logfile_resolved,/var/lib/postgresql/17/main/log/postgresql-2026-08-04_000000.csv
-current_logfile_readable,true
-current_logfile_error,
 log_resolved_by,current_logfiles
 log_formats,csvlog
 has_pg_monitor_role,true

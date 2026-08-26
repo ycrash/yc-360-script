@@ -331,7 +331,7 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 }
 
 func pgCollectedMetadata() postgres.Metadata {
-	return postgres.Metadata{CaptureMode: "pg-dbhost"}
+	return postgres.Metadata{LogAccess: postgres.LogAccessDirect}
 }
 
 func TestPostgresResultMessage(t *testing.T) {
@@ -343,12 +343,12 @@ func TestPostgresResultMessage(t *testing.T) {
 		{
 			name:     "collected",
 			metadata: pgCollectedMetadata(),
-			want:     "pg_metadata.txt written (mode=pg-dbhost)",
+			want:     "pg_metadata.txt written (log_access=direct)",
 		},
 		{
 			name: "connection refused",
 			metadata: postgres.Metadata{
-				CaptureMode:  "unknown",
+				LogAccess:    postgres.LogAccessUnknown,
 				ConnectError: "failed to connect to `host=127.0.0.1`: connection refused",
 			},
 			want: "pg_metadata.txt written; postgres connect failed: " +
@@ -358,7 +358,7 @@ func TestPostgresResultMessage(t *testing.T) {
 
 			name: "database at max_connections",
 			metadata: postgres.Metadata{
-				CaptureMode:  "unknown",
+				LogAccess:    postgres.LogAccessUnknown,
 				ConnectError: "too_many_connections",
 			},
 			want: "pg_metadata.txt written; postgres connect failed: too_many_connections",
@@ -367,10 +367,10 @@ func TestPostgresResultMessage(t *testing.T) {
 
 			name: "a probe was denied",
 			metadata: postgres.Metadata{
-				CaptureMode:         "unknown",
+				LogAccess:           postgres.LogAccessUnknown,
 				CurrentLogfileError: "ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 			},
-			want: "pg_metadata.txt written (mode=unknown); pg_current_logfile failed: " +
+			want: "pg_metadata.txt written (log_access=unknown); pg_current_logfile failed: " +
 				"ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 		},
 	}
@@ -619,7 +619,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 	collected := postgres.Metadata{
-		CaptureMode:         "pg-remote",
+		LogAccess:           postgres.LogAccessNone,
 		CurrentLogfileError: "ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
 	}
 
@@ -632,7 +632,7 @@ func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 
 	summary := postgresArtifactSummary(artifact, collected)
 
-	assert.Contains(t, summary, PostgresMetadataFileName+" written (mode=pg-remote)",
+	assert.Contains(t, summary, PostgresMetadataFileName+" written (log_access=none)",
 		"the mode, not the count")
 	assert.Contains(t, summary, "pg_current_logfile failed",
 		"and the probe clause, which a sample count would have swallowed whole")
@@ -644,7 +644,7 @@ func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
 
 	assert.Equal(t,
 		PostgresMetadataFileName+" written; postgres connect failed: too_many_connections",
-		postgresArtifactSummary(artifact, postgres.Metadata{CaptureMode: "unknown"}),
+		postgresArtifactSummary(artifact, postgres.Metadata{LogAccess: postgres.LogAccessUnknown}),
 		"a refusal reaches this line through the window, since the collector never ran")
 
 	assert.Equal(t, "pg_bloat.txt written (2/2 samples)", postgresArtifactSummary(
