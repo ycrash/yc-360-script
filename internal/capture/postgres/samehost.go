@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"net"
 	"regexp"
 	"sort"
@@ -47,7 +46,6 @@ const (
 	hostReasonPlatformNoTitles = "platform_no_titles"
 	hostReasonPIDAbsent        = "pid_absent"
 	hostReasonTitleMismatch    = "title_mismatch"
-	hostReasonManagedService   = "managed_service"
 )
 
 // Supporting signals. Any of these can be produced by a tunnel or a pooler from a
@@ -63,14 +61,6 @@ const (
 // postmasterStartTolerance covers integer truncation on both sides. Two readings
 // of one postmaster start were measured 1s apart.
 const postmasterStartTolerance = 2 * time.Second
-
-// managedServiceSQL gives a certain no: these roles exist only on the managed
-// platforms, pg_roles is readable by every role, and the agent cannot run on the
-// machine hosting such a database. Works with only LOGIN.
-const managedServiceSQL = `SELECT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_roles
-     WHERE rolname IN ('rds_superuser', 'cloudsqladmin', 'azure_pg_admin', 'alloydbsuperuser')
-)`
 
 // backendTitle is what a PostgreSQL backend writes over its own argv:
 //
@@ -128,9 +118,6 @@ type sameHostFacts struct {
 
 	// dialedSocket is true when the agent itself dialed a unix socket path.
 	dialedSocket bool
-
-	// managedService is the result of managedServiceSQL, which gives a certain no.
-	managedService bool
 }
 
 // sameHostResult is the probe's answer. reason is empty exactly when verdict is yes.
@@ -171,18 +158,10 @@ type processInspector interface {
 }
 
 // checkSameHost makes the decision. It does no I/O of its own, so every branch is
-// testable with a fake processInspector. Order matters: a certain no takes
-// priority over any local reading, and a missing process is only a no once the
-// probe has confirmed it can see other users' processes.
+// testable with a fake processInspector. Order matters: a missing process is only
+// a no once the probe has confirmed it can see other users' processes.
 func checkSameHost(f sameHostFacts, sys processInspector) sameHostResult {
 	out := sameHostResult{evidence: collectEvidence(f)}
-
-	// The agent cannot run on the machine hosting a managed database. Checked
-	// first, so a runner with its own local PostgreSQL cannot produce a false yes.
-	if f.managedService {
-		out.verdict, out.reason = OnDBHostNo, hostReasonManagedService
-		return out
-	}
 
 	if f.backendPID == "" {
 		out.verdict, out.reason = OnDBHostUnknown, hostReasonBackendPIDUnread
@@ -381,9 +360,10 @@ func addrIsLocalInterface(addr string) bool {
 	return false
 }
 
-// collectSameHost runs the probe and stores its answer. Call it after
+// collectSameHost runs the probe and stores its answer. It sends no statement of
+// its own: every server-side input is already in m. Call it after
 // collectLogLocation, because log_access is one of the evidence inputs.
-func collectSameHost(ctx context.Context, q Querier, m *Metadata, target Target) {
+func collectSameHost(m *Metadata, target Target) {
 	facts := sameHostFacts{
 		backendPID:      m.BackendPID,
 		role:            m.CurrentUser,
@@ -394,7 +374,6 @@ func collectSameHost(ctx context.Context, q Querier, m *Metadata, target Target)
 		postmasterStart: m.PostmasterStartTime,
 		logDirect:       m.LogAccess == LogAccessDirect,
 		dialedSocket:    strings.HasPrefix(target.Host, "/"),
-		managedService:  managedService(ctx, q),
 	}
 
 	result := checkSameHost(facts, newProcessInspector(m.UpdateProcessTitle))
@@ -408,20 +387,6 @@ func collectSameHost(ctx context.Context, q Querier, m *Metadata, target Target)
 	// Metadata sees the decision that follows from the verdict it is holding. The
 	// operator declaration can still raise it later, through ResolveHostDecision.
 	m.HostArtifacts = hostArtifactsDecision(*m)
-}
-
-// managedService returns false on any error. The check exists only to produce a
-// certain no, so an error must never turn into one.
-func managedService(ctx context.Context, q Querier) bool {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
-	defer cancel()
-
-	var found *bool
-	if err := q.QueryRow(ctx, managedServiceSQL).Scan(&found); err != nil {
-		return false
-	}
-
-	return found != nil && *found
 }
 
 // applyOnDBHostDeclaration folds the operator's postgres.agentOnDbHost
@@ -480,9 +445,6 @@ func HostCaptureHint(reason string) string {
 	case hostReasonNoConnection:
 		return "the database never answered; set agentOnDbHost: true in the postgres: block to " +
 			"declare that this machine runs it"
-
-	case hostReasonManagedService:
-		return "the database is a managed service, so no agent can run on its machine"
 
 	case hostReasonPIDAbsent, hostReasonTitleMismatch:
 		return "the database runs on another machine"

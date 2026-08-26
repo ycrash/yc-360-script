@@ -258,10 +258,11 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 	collect(t, q)
 
 	require.Equal(t,
-		[]string{serverFactsSQL, logLocationFormatSQL, managedServiceSQL, replicationSQL}, q.sql,
-		"four statements, in order - the second names the format, because the no-argument "+
+		[]string{serverFactsSQL, logLocationFormatSQL, replicationSQL}, q.sql,
+		"three statements, in order - the second names the format, because the no-argument "+
 			"form's documented preference is stderr first, the inverse of the order that "+
-			"serves the matcher; the third is the same-host probe's decisive no")
+			"serves the matcher. The same-host probe sends none of its own: every server-side "+
+			"input it needs is already in the metadata by then")
 	require.Len(t, q.args[0], 1)
 
 	assert.Equal(t, []string{
@@ -310,7 +311,7 @@ func TestStatementDeadline(t *testing.T) {
 	collect(t, q)
 	after := time.Now()
 
-	require.Len(t, q.deadlines, 4)
+	require.Len(t, q.deadlines, 3, "every statement Collect sends, and it sends three")
 
 	for i, deadline := range q.deadlines {
 		assert.False(t, deadline.IsZero(), "statement %d ran with no deadline", i+1)

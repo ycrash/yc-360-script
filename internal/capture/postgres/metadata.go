@@ -382,7 +382,7 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 
 	// Runs after both: the same-host check reads the backend PID and client endpoint from
 	// the server facts, and log_access is one of its evidence inputs.
-	collectSameHost(ctx, q, &m, t)
+	collectSameHost(&m, t)
 
 	collectReplication(ctx, q, &m, t.Password)
 
