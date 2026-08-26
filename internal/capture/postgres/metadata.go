@@ -36,7 +36,9 @@ type RowQuerier interface {
 }
 
 // Metadata is written to pg_metadata.txt one field per row in declaration order.
-// Empty string means not read; a missing key (vs. empty) means an old agent, not a failed query.
+// Empty string means not read; a missing key (vs. empty) means an old agent, or a run whose
+// connection failed - the two are distinguishable by connect_error, since the server block is
+// written only after a successful dial.
 // No password field.
 type Metadata struct {
 	// AgentTS and YC360Version are supplied, not read, so golden tests are deterministic.
@@ -58,11 +60,17 @@ type Metadata struct {
 	LogAccessReason string
 	ConnectError    string
 
-	CurrentDatabase     string
-	CurrentUser         string
-	BackendPID          string
-	InetServerAddr      string
-	InetServerPort      string
+	CurrentDatabase string
+	CurrentUser     string
+	BackendPID      string
+	InetServerAddr  string
+	InetServerPort  string
+
+	// InetClientAddr/InetClientPort are the server's view of this connection's near
+	// end. The same-host check compares them against the backend's process title.
+	// They are inputs to that check, not artifact rows.
+	InetClientAddr      string
+	InetClientPort      string
 	IsInRecovery        string
 	PostmasterStartTime string
 	StatsReset          string
@@ -105,6 +113,7 @@ type Metadata struct {
 	AutoExplainLogFormat      string
 	AutoExplainSampleRate     string
 
+	UpdateProcessTitle     string
 	SharedPreloadLibraries string
 	SettingsUnavailable    string
 
@@ -121,6 +130,20 @@ type Metadata struct {
 	// can disagree about a moment (rotation, reload) but never about the method.
 	LogResolvedBy string
 	LogFormats    string
+
+	// Is the agent on the same machine as the database? Measured every run, never read
+	// from config and never guessed from the target host (proposal P3). The three related
+	// fields share the prefix of the field they describe (direction §1.12).
+	// AgentOnDBHostReason must be set whenever AgentOnDBHost is not yes.
+	AgentOnDBHost         string
+	AgentOnDBHostBy       string
+	AgentOnDBHostEvidence string
+	AgentOnDBHostReason   string
+
+	// HostArtifacts says whether host files were captured or skipped, so a bundle with
+	// none of them says why. The P1 gate that sets it is a later slice; until then the
+	// probe only measures and this stays empty.
+	HostArtifacts string
 
 	HasPgMonitorRole string
 
@@ -293,6 +316,10 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 	// Runs after collectServerFacts: mode resolution reads the data_directory setting it collected.
 	collectLogLocation(ctx, q, &m, t.Password)
 
+	// Runs after both: the same-host check reads the backend PID and client endpoint from
+	// the server facts, and log_access is one of its evidence inputs.
+	collectSameHost(ctx, q, &m, t)
+
 	collectReplication(ctx, q, &m, t.Password)
 
 	return m
@@ -315,6 +342,8 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	m.BackendPID = int32Text(row.backendPID)
 	m.InetServerAddr = text(row.inetServerAddr)
 	m.InetServerPort = int32Text(row.inetServerPort)
+	m.InetClientAddr = text(row.inetClientAddr)
+	m.InetClientPort = int32Text(row.inetClientPort)
 	m.IsInRecovery = boolText(row.isInRecovery)
 	m.PostmasterStartTime = timeText(row.postmasterStart)
 	m.StatsReset = timeText(row.statsReset)

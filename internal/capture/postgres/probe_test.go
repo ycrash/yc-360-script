@@ -24,6 +24,8 @@ const (
 	colBackendPID
 	colInetServerAddr
 	colInetServerPort
+	colInetClientAddr
+	colInetClientPort
 	colStatsReset
 	colSettingNames
 	colSettingValues
@@ -51,6 +53,7 @@ func fullSettings() map[string]string {
 	return map[string]string{
 		"max_connections":            "200",
 		"logging_collector":          "on",
+		"update_process_title":       "on",
 		"log_destination":            "csvlog",
 		"log_directory":              "log",
 		"log_filename":               "postgresql-%Y-%m-%d_%H%M%S.log",
@@ -128,6 +131,8 @@ func serverFactsValues() []any {
 	v[colBackendPID] = ptr(int32(48211))
 	v[colInetServerAddr] = ptr("10.0.4.7")
 	v[colInetServerPort] = ptr(int32(5432))
+	v[colInetClientAddr] = ptr("10.0.4.9")
+	v[colInetClientPort] = ptr(int32(35484))
 	v[colStatsReset] = ptr(testStatsReset)
 	v[colSettingNames] = names
 	v[colSettingValues] = values
@@ -252,10 +257,11 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 	q := healthyQuerier()
 	collect(t, q)
 
-	require.Equal(t, []string{serverFactsSQL, logLocationFormatSQL, replicationSQL}, q.sql,
-		"three statements, in order - and the middle one names the format, because the "+
-			"no-argument form's documented preference is stderr first, the inverse of the "+
-			"order that serves the matcher")
+	require.Equal(t,
+		[]string{serverFactsSQL, logLocationFormatSQL, managedServiceSQL, replicationSQL}, q.sql,
+		"four statements, in order - the second names the format, because the no-argument "+
+			"form's documented preference is stderr first, the inverse of the order that "+
+			"serves the matcher; the third is the same-host probe's decisive no")
 	require.Len(t, q.args[0], 1)
 
 	assert.Equal(t, []string{
@@ -285,6 +291,7 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"auto_explain.log_analyze",
 		"auto_explain.log_format",
 		"auto_explain.sample_rate",
+		"update_process_title",
 		"shared_preload_libraries",
 		"compute_query_id",
 		"data_directory",
@@ -303,7 +310,7 @@ func TestStatementDeadline(t *testing.T) {
 	collect(t, q)
 	after := time.Now()
 
-	require.Len(t, q.deadlines, 3)
+	require.Len(t, q.deadlines, 4)
 
 	for i, deadline := range q.deadlines {
 		assert.False(t, deadline.IsZero(), "statement %d ran with no deadline", i+1)
@@ -555,7 +562,7 @@ func TestSettingsNoneVisible(t *testing.T) {
 		"pg_stat_statements.track,pg_stat_statements.track_planning,"+
 		"pg_stat_statements.track_utility,auto_explain.log_min_duration,"+
 		"auto_explain.log_verbose,auto_explain.log_analyze,auto_explain.log_format,"+
-		"auto_explain.sample_rate,shared_preload_libraries,"+
+		"auto_explain.sample_rate,update_process_title,shared_preload_libraries,"+
 		"compute_query_id,data_directory", m.SettingsUnavailable)
 	assert.Empty(t, m.QueryError)
 	assert.Equal(t, "orders_db", m.CurrentDatabase)
