@@ -109,7 +109,9 @@ type PostgresCapture struct {
 	cancel context.CancelFunc
 }
 
-// Run opens the window, writes every artifact, and uploads each under its own dt.
+// Run opens the window, writes every artifact, uploads each under its own dt, and
+// runs the host collectors where the run established that this machine is the
+// database's.
 // Only a file-I/O failure returns a non-nil error: a refused connection is a
 // successful capture of a failure, and WrapRun overwrites Result.Msg on error,
 // which would bury the connect_error the artifacts exist to record.
@@ -128,6 +130,22 @@ func (p *PostgresCapture) Run() (Result, error) {
 	// The explain mode rides construction so it reaches the pre-connect target block,
 	// which is written before dialling and survives a refused connection.
 	metadata := postgres.NewMetadata(target, executils.SCRIPT_VERSION, time.Now(), p.explainMode())
+	metadata.DeclareOnDBHost(p.Target.AgentOnDBHost)
+
+	duration := p.captureDuration()
+
+	// Written by the callback below and read once the window closes. Window.Run is
+	// synchronous on this goroutine, so the two never overlap.
+	var hostCollectors []hostCollector
+	hostStarted := false
+
+	// Host capture starts from inside the window, at the moment the probe's answer
+	// is known, so its readings cover the same span as the database artifacts
+	// rather than a burst before them.
+	metadata.AfterCollect(func(m postgres.Metadata) {
+		hostStarted = true
+		hostCollectors = p.startHostCapture(ctx, m, duration)
+	})
 
 	// Shared, not two collectors: Explain ranks the endpoints this one retains, and
 	// never re-runs the statement behind them.
@@ -135,7 +153,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	window := &postgres.Window{
 		Target:   target,
-		Duration: p.captureDuration(),
+		Duration: duration,
 
 		// Registration order is sampling order on the shared tick, not a timing
 		// guarantee. Log tails go first so from_offset is set before other
@@ -161,7 +179,24 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	results := window.Run(ctx)
 
-	return p.uploadArtifacts(results, metadata.Collected())
+	collected := metadata.ResolveHostDecision()
+
+	// The window never reached the server, so the probe never ran and the operator's
+	// declaration is the only thing that can authorise host capture. That is the
+	// case it exists for: a database that is down cannot be asked which machine it
+	// runs on, and it is down exactly when the host readings matter most.
+	if !hostStarted {
+		hostCollectors = p.startHostCapture(ctx, collected, duration)
+	}
+
+	hostMessages, hostOK := waitForHostCapture(hostCollectors)
+
+	result, err := p.uploadArtifacts(results, collected)
+	if err != nil {
+		return result, err
+	}
+
+	return withHostCapture(result, hostMessages, hostOK), nil
 }
 
 // Kill overrides Capture.Kill, which returns nil when Cmd is nil and would
@@ -308,7 +343,10 @@ func postgresResultMessage(metadata postgres.Metadata) string {
 			PostgresMetadataFileName, metadata.ConnectError)
 	}
 
-	parts := []string{fmt.Sprintf("%s written (log_access=%s)", PostgresMetadataFileName, metadata.LogAccess)}
+	// The two together: log_access is a permission, agent_on_db_host a location, and
+	// a run can have either without the other.
+	parts := []string{fmt.Sprintf("%s written (log_access=%s, agent_on_db_host=%s)",
+		PostgresMetadataFileName, metadata.LogAccess, metadata.AgentOnDBHost)}
 
 	// Named neutrally, not as denials: a statement timeout reaches here identically.
 	for _, probe := range []struct{ name, err string }{

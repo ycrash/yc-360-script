@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
@@ -129,6 +130,24 @@ func WrapRun(task Task) func(endpoint string, c chan Result) {
 
 func (cap *Capture) Run() (result Result, err error) {
 	return
+}
+
+// snapshotGapElapsed waits out the gap between a collector's readings and reports
+// whether it elapsed. A zero gap elapses at once, which is the back-to-back shape
+// every application capture has. It returns false only when stop closed first: the
+// run is being torn down, and a reading nobody will collect is not worth the wait.
+func snapshotGapElapsed(gap time.Duration, stop <-chan struct{}) bool {
+	if gap <= 0 {
+		return true
+	}
+
+	select {
+	case <-time.After(gap):
+		return true
+
+	case <-stop:
+		return false
+	}
 }
 
 func GoCapture(endpoint string, fn func(endpoint string, c chan Result), wait ...Task) (c chan Result) {

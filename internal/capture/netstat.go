@@ -18,7 +18,11 @@ const defaultSleepBetweenCaptures = 3 * time.Second
 type NetStat struct {
 	Capture
 	sleepBetweenCaptures time.Duration
-	file                 *os.File
+
+	// stop cuts the gap short when the run is torn down; nil waits it out.
+	stop <-chan struct{}
+
+	file *os.File
 }
 
 // Run captures netstat data twice with a delay between captures, then upload it to the specified endpoint.
@@ -45,20 +49,21 @@ func (ns *NetStat) Run() (Result, error) {
 		logger.Log("First netstat snapshot complete.")
 	}
 
-	// Wait between captures
-	time.Sleep(ns.sleepBetweenCaptures)
+	// Wait between captures. A false here means the run is being torn down, so the
+	// first snapshot is uploaded on its own rather than waited out.
+	if snapshotGapElapsed(ns.sleepBetweenCaptures, ns.stop) {
+		// New line separator between captures
+		if _, err := ns.file.WriteString("\n"); err != nil {
+			return Result{}, fmt.Errorf("failed to write capture separator: %w", err)
+		}
 
-	// New line separator between captures
-	if _, err := ns.file.WriteString("\n"); err != nil {
-		return Result{}, fmt.Errorf("failed to write capture separator: %w", err)
-	}
-
-	// Second capture to detect any changes from the first one.
-	logger.Log("Collecting the final netstat snapshot...")
-	if err := ns.CaptureToFile(); err != nil {
-		logger.Log("warning: failed run second netstat capture: %v", err)
-	} else {
-		logger.Log("Final netstat snapshot complete.")
+		// Second capture to detect any changes from the first one.
+		logger.Log("Collecting the final netstat snapshot...")
+		if err := ns.CaptureToFile(); err != nil {
+			logger.Log("warning: failed run second netstat capture: %v", err)
+		} else {
+			logger.Log("Final netstat snapshot complete.")
+		}
 	}
 
 	// Ensure data is flushed / written to the disk before upload

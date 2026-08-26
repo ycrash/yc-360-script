@@ -25,6 +25,13 @@ type Postgres struct {
 	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
 	// plans: EXPLAIN carries a privilege and a load cost the other nine artifacts do not.
 	Explain string `yaml:"explain"`
+
+	// AgentOnDBHost declares that this machine runs the database, authorising host
+	// capture when the agent cannot establish it for itself. It exists for the one
+	// case the probe cannot reach: the database is down, so there is no backend to
+	// look for - which is exactly when the host readings matter most. A measured
+	// answer always wins, so the declaration never overrides what the run found.
+	AgentOnDBHost bool `yaml:"agentOnDbHost"`
 }
 
 const (
@@ -36,7 +43,9 @@ const (
 	// DefaultPostgresSSLMode is stricter than libpq's own.
 	DefaultPostgresSSLMode = "require"
 
-	// DefaultPostgresCaptureDuration matches the host capture's own span.
+	// DefaultPostgresCaptureDuration matches SCRIPT_SPAN, the application capture's
+	// nominal span. It is not the host collectors' real span: top and vmstat run
+	// about 20 seconds regardless.
 	DefaultPostgresCaptureDuration = 120 * time.Second
 
 	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a shared database.
@@ -86,8 +95,8 @@ func (p *Postgres) String() string {
 	}
 
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s explain=%s",
-		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, p.ExplainMode(),
+		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s explain=%s agentOnDbHost=%t",
+		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, p.ExplainMode(), p.AgentOnDBHost,
 	)
 }
 
@@ -129,7 +138,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
 			"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
-			"explain)")
+			"explain, agentOnDbHost)")
 	}
 
 	if p.Port == 0 {
@@ -211,6 +220,13 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		warnings = append(warnings, "postgres.explain=all - captured query text will be submitted "+
 			"back to the database as EXPLAIN statements, and captured plans contain literal "+
 			"parameter values from your data.")
+	}
+
+	if p.AgentOnDBHost {
+		warnings = append(warnings, "postgres.agentOnDbHost=true - this machine's process list, "+
+			"connection table, kernel messages and kernel settings will be captured and filed "+
+			"under the database whenever the run cannot establish for itself that the two are "+
+			"the same machine. A run that establishes they are not still skips them.")
 	}
 
 	return warnings, errors.Join(errs...)

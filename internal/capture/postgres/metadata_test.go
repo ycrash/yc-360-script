@@ -649,3 +649,53 @@ func requireUnprivileged(t *testing.T) {
 		t.Skip("running as root: mode 0000 is still readable")
 	}
 }
+
+func TestMetadataConnectFailureLeavesHostCaptureOff(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, "")
+
+	collected := collector.ResolveHostDecision()
+
+	assert.Equal(t, OnDBHostUnknown, collected.AgentOnDBHost,
+		"there was no backend to look for, so the probe never ran")
+	assert.Equal(t, hostReasonNoConnection, collected.AgentOnDBHostReason)
+	assert.Equal(t, HostArtifactsSkipped, collected.HostArtifacts)
+	assert.False(t, collected.DeclarationContradicted)
+}
+
+func TestMetadataDeclarationAuthorisesHostCaptureOnAConnectFailure(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, "")
+	collector.DeclareOnDBHost(true)
+
+	collected := collector.ResolveHostDecision()
+
+	assert.Equal(t, OnDBHostYes, collected.AgentOnDBHost)
+	assert.Equal(t, confirmedByConfigured, collected.AgentOnDBHostBy,
+		"recorded as a claim, so a reader can tell it from a measurement")
+	assert.Equal(t, HostArtifactsCaptured, collected.HostArtifacts)
+}
+
+func TestMetadataSampleRunsAfterCollectWithTheResolvedVerdict(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
+	collector.DeclareOnDBHost(true)
+
+	var seen []Metadata
+	collector.AfterCollect(func(m Metadata) { seen = append(seen, m) })
+
+	var buf bytes.Buffer
+	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+
+	require.Len(t, seen, 1, "the sample happens once, so the callback runs once")
+	assert.Equal(t, collector.Collected(), seen[0])
+	assert.NotEmpty(t, seen[0].HostArtifacts, "the gate's decision is settled before the callback runs")
+	assert.Contains(t, buf.String(), "host_artifacts,"+seen[0].HostArtifacts,
+		"the block carries the same decision the callback acted on")
+}
+
+func TestMetadataAfterCollectIsOptional(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
+
+	var buf bytes.Buffer
+	assert.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
+		SampleContext{At: testAgentNow, Index: 1}))
+}

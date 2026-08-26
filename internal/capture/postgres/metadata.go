@@ -140,9 +140,14 @@ type Metadata struct {
 	AgentOnDBHostEvidence string
 	AgentOnDBHostReason   string
 
+	// DeclarationContradicted is set when postgres.agentOnDbHost said yes and the
+	// probe measured no. Reported in the agent log, not written to the artifact:
+	// the rows above already carry both the verdict and the reason.
+	DeclarationContradicted bool
+
 	// HostArtifacts says whether host files were captured or skipped, so a bundle with
-	// none of them says why. Nothing sets it yet: the check only measures, and the
-	// capture gate that will act on the answer is not written.
+	// none of them says why. It follows AgentOnDBHost: host files describe whichever
+	// machine ran the agent, so anything short of a yes leaves them out.
 	HostArtifacts string
 
 	HasPgMonitorRole string
@@ -180,8 +185,21 @@ type MetadataCollector struct {
 	// collect is a test seam; nil in production, since mode detection can't be faked through a Querier.
 	collect func(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata
 
+	declaredOnDBHost bool
+	afterCollect     func(Metadata)
+
 	collected Metadata
 }
+
+// DeclareOnDBHost records the operator's postgres.agentOnDbHost declaration. It
+// only ever raises an unknown to yes; a measured verdict stands either way.
+func (m *MetadataCollector) DeclareOnDBHost(declared bool) { m.declaredOnDBHost = declared }
+
+// AfterCollect registers a function to run once the server block has been read
+// and written, while the window is still open. The caller uses it to act on
+// host_artifacts at the window's opening edge. It runs on the window's own
+// goroutine, so it must return promptly.
+func (m *MetadataCollector) AfterCollect(fn func(Metadata)) { m.afterCollect = fn }
 
 // NewMetadata seeds the collector's pre-connection state, which Collected() returns if the
 // connection never happens. explainMode is config's own value; "" means the key was
@@ -211,6 +229,13 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		// Unknown until collectLogLocation says otherwise; true for a run whose connection was refused.
 		LogAccess:       LogAccessUnknown,
 		LogAccessReason: reasonSettingsUnread,
+
+		// A run whose connection was refused keeps these: the probe needs a backend
+		// to look for, so no connection means no answer and no host capture - unless
+		// the operator declared the deployment, which is applied in Sample.
+		AgentOnDBHost:       OnDBHostUnknown,
+		AgentOnDBHostReason: hostReasonNoConnection,
+		HostArtifacts:       HostArtifactsSkipped,
 	}
 
 	return m
@@ -255,15 +280,36 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 	collected.ExplainLiterals = m.collected.ExplainLiterals
 
 	m.collected = collected
+	collected = m.ResolveHostDecision()
 
-	return writeMetadataBlock(w, "pg_metadata_server", []headerField{
+	err := writeMetadataBlock(w, "pg_metadata_server", []headerField{
 		{"db", s.Database},
 		{"dbid", s.DBID},
 		{"sample", strconv.Itoa(s.Index)},
 	}, serverBlockFields(collected), s.At)
+
+	// After the block, so a failure to write it cannot also lose the host capture
+	// this run is entitled to.
+	if m.afterCollect != nil {
+		m.afterCollect(collected)
+	}
+
+	return err
 }
 
 func (m *MetadataCollector) Collected() Metadata { return m.collected }
+
+// ResolveHostDecision applies the operator's declaration to whatever verdict the
+// run reached and settles host_artifacts. Sample calls it so the rows it writes
+// are the resolved ones; the caller calls it again for a run that never reached
+// the server, where there was no sample and the declaration is the only thing
+// that can authorise host capture. Idempotent.
+func (m *MetadataCollector) ResolveHostDecision() Metadata {
+	m.collected.DeclarationContradicted = applyOnDBHostDeclaration(&m.collected, m.declaredOnDBHost)
+	m.collected.HostArtifacts = hostArtifactsDecision(m.collected)
+
+	return m.collected
+}
 
 func (m *MetadataCollector) collectWith(ctx context.Context, q Querier) Metadata {
 	if m.collect != nil {
