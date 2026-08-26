@@ -67,7 +67,7 @@ type Options struct {
 	JFREnabled         bool     `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
 	JFRCaptureDuration Duration `yaml:"jfrCaptureDuration" usage:"Total duration to capture the JFR recording (e.g., 60s, 2m). Default is 60 seconds."`
 
-	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
+	PingHost string `yaml:"pingHost" usage:"Host to ping six times, recorded in ping.out"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`
 
 	GCCaptureMode   bool   `yaml:"gcCaptureMode" usage:"Run in GC Capture mode"`

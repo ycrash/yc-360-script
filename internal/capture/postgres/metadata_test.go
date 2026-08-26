@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,13 @@ type fakeMetadataConn struct {
 func newFakeMetadataConn() *fakeMetadataConn {
 	return &fakeMetadataConn{fakeWindowConn: newFakeWindowConn(), querier: healthyQuerier()}
 }
+
+// testConnectDuration is what the fake dial claims to have cost. It has to render
+// as fullArtifactMetadata's connect_ms, since the golden is written through the
+// window and compared against a Metadata built by hand.
+const testConnectDuration = 12400 * time.Microsecond
+
+func (c *fakeMetadataConn) ConnectDuration() time.Duration { return testConnectDuration }
 
 func (c *fakeMetadataConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if sql == currentDatabaseSQL {
@@ -209,8 +217,8 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 65,
-		"log_access and log_access_reason plus serverFields' sixty-three, and no connect_error row")
+	assert.Len(t, serverBlockFields(full), 67,
+		"log_access and log_access_reason plus serverFields' sixty-five, and no connect_error row")
 	assert.Len(t, targetFields(full), 9)
 
 	assert.Equal(t, LogAccessDirect, values["log_access"])
@@ -698,4 +706,91 @@ func TestMetadataAfterCollectIsOptional(t *testing.T) {
 	var buf bytes.Buffer
 	assert.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
 		SampleContext{At: testAgentNow, Index: 1}))
+}
+
+// slowQuerier delays the server-facts query so the bracket around it has
+// something to measure.
+type slowQuerier struct {
+	*fakeQuerier
+
+	delay time.Duration
+}
+
+func (q slowQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if sql == serverFactsSQL {
+		time.Sleep(q.delay)
+	}
+
+	return q.fakeQuerier.QueryRow(ctx, sql, args...)
+}
+
+func TestClockReadIsStampedAtTheQuery(t *testing.T) {
+	const delay = 40 * time.Millisecond
+
+	before := time.Now()
+	m := Collect(context.Background(), slowQuerier{fakeQuerier: healthyQuerier(), delay: delay},
+		testTarget(), testAgentNow)
+
+	require.Empty(t, m.QueryError)
+
+	assert.True(t, m.AgentTSAtClockRead.After(before.Add(delay)),
+		"stamped when the server's clock came back, not when the collector was built")
+
+	rtt, err := strconv.ParseFloat(m.ClockReadRTTMS, 64)
+	require.NoError(t, err, "clock_read_rtt_ms must parse as a number")
+
+	assert.GreaterOrEqual(t, rtt, float64(delay.Milliseconds()),
+		"the round trip bounds how much the skew figure beside it is worth")
+}
+
+func TestClockReadIsEmptyWhenTheQueryFailed(t *testing.T) {
+	q := healthyQuerier()
+	q.serverFacts = fakeRow{err: errDenied}
+
+	m := Collect(context.Background(), q, testTarget(), testAgentNow)
+
+	require.NotEmpty(t, m.QueryError)
+
+	assert.True(t, m.AgentTSAtClockRead.IsZero(),
+		"there was no server clock to read the agent's beside")
+	assert.Empty(t, m.ClockReadRTTMS)
+	assert.Empty(t, clockRead(m.AgentTSAtClockRead),
+		"and the row is empty rather than year one, which would read as a two-thousand-year skew")
+}
+
+func TestConnectMSComesFromTheConnection(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
+
+	var buf bytes.Buffer
+	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
+		SampleContext{At: testAgentNow, Index: 1, ConnectDuration: testConnectDuration}))
+
+	assert.Equal(t, "12.4", collector.Collected().ConnectMS)
+	assert.Contains(t, buf.String(), "connect_ms,12.4")
+}
+
+func TestConnectMSIsEmptyWhenThereWasNoDial(t *testing.T) {
+	collector := NewMetadata(testTarget(), "3.6.1", testAgentNow, "")
+
+	var buf bytes.Buffer
+	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
+		SampleContext{At: testAgentNow, Index: 1}))
+
+	assert.Empty(t, collector.Collected().ConnectMS,
+		"an unmeasured duration is empty, never zero - the file's rule for every unread value")
+}
+
+func TestMillisText(t *testing.T) {
+	for _, tt := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, ""},
+		{-time.Second, ""},
+		{12400 * time.Microsecond, "12.4"},
+		{1500 * time.Millisecond, "1500.0"},
+		{40 * time.Microsecond, "0.0"},
+	} {
+		assert.Equal(t, tt.want, millisText(tt.in), tt.in.String())
+	}
 }
