@@ -114,6 +114,7 @@ func TestMatrix(t *testing.T) {
 				assertCapabilities(t, server, values)
 				assertSettingsVisibility(t, role, values)
 				assertLogLocation(t, server, role, values)
+				assertSameHost(t, server, role, values)
 				assertReplicationProbe(t, values)
 			})
 		}
@@ -368,6 +369,34 @@ func assertSettingsVisibility(t *testing.T, role matrixRole, values map[string]s
 
 func matrixFunctionAllowed(server matrixServer, role matrixRole) bool {
 	return role.superuser || (role.monitor && server.major >= 17)
+}
+
+func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
+	t.Helper()
+
+	verdict := values["agent_on_db_host"]
+	reason := values["agent_on_db_host_reason"]
+
+	t.Logf("pg%d/%s: agent_on_db_host=%s by=%s reason=%s evidence=%q",
+		server.major, role.user, verdict, values["agent_on_db_host_by"],
+		reason, values["agent_on_db_host_evidence"])
+
+	require.Contains(t, []string{OnDBHostYes, OnDBHostNo, OnDBHostUnknown}, verdict,
+		"the verdict is always one of the three")
+
+	if verdict == OnDBHostYes {
+		assert.Empty(t, reason, "a yes carries no reason")
+		assert.NotEmpty(t, values["agent_on_db_host_by"], "a yes always names the test behind it")
+
+		return
+	}
+
+	assert.NotEmpty(t, reason, "%s must always be paired with a reason (P3)", verdict)
+	assert.Empty(t, values["agent_on_db_host_by"], "only a yes names the test that produced it")
+
+	// The suite connects to a container over TCP, so a yes from a title match on a
+	// PID belonging to another namespace would be wrong.
+	assert.NotEqual(t, confirmedByBackendPID, values["agent_on_db_host_by"])
 }
 
 func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {

@@ -58,6 +58,9 @@ var capturedSettings = []struct {
 	{"auto_explain.log_analyze", func(m *Metadata) *string { return &m.AutoExplainLogAnalyze }},
 	{"auto_explain.log_format", func(m *Metadata) *string { return &m.AutoExplainLogFormat }},
 	{"auto_explain.sample_rate", func(m *Metadata) *string { return &m.AutoExplainSampleRate }},
+	// Required by the same-host check: without it the check cannot tell a suppressed
+	// process title from another machine's process (proposal §5.1).
+	{"update_process_title", func(m *Metadata) *string { return &m.UpdateProcessTitle }},
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},
 	{"compute_query_id", func(m *Metadata) *string { return &m.ComputeQueryID }},
@@ -100,6 +103,8 @@ SELECT
     pg_backend_pid(),
     host(inet_server_addr()),
     inet_server_port(),
+    host(inet_client_addr()),
+    inet_client_port(),
     (SELECT stats_reset FROM pg_catalog.pg_stat_database WHERE datname = current_database()),
     (SELECT array_agg(name ORDER BY name) FROM s),
     (SELECT array_agg(setting ORDER BY name) FROM s),
@@ -138,6 +143,8 @@ type serverFactsRow struct {
 	backendPID       *int32
 	inetServerAddr   *string
 	inetServerPort   *int32
+	inetClientAddr   *string
+	inetClientPort   *int32
 	statsReset       *time.Time
 	settingNames     []string
 	settingValues    []string
@@ -163,6 +170,8 @@ func (r *serverFactsRow) dest() []any {
 		&r.backendPID,
 		&r.inetServerAddr,
 		&r.inetServerPort,
+		&r.inetClientAddr,
+		&r.inetClientPort,
 		&r.statsReset,
 		&r.settingNames,
 		&r.settingValues,

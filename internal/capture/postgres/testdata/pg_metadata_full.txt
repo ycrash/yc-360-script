@@ -50,6 +50,7 @@ auto_explain.log_verbose,on
 auto_explain.log_analyze,off
 auto_explain.log_format,text
 auto_explain.sample_rate,1
+update_process_title,on
 shared_preload_libraries,"pg_stat_statements,auto_explain"
 settings_unavailable,
 data_directory,/var/lib/postgresql/17/main
@@ -57,6 +58,11 @@ current_logfile,log/postgresql-2026-08-04_000000.csv
 current_logfile_resolved,/var/lib/postgresql/17/main/log/postgresql-2026-08-04_000000.csv
 log_resolved_by,current_logfiles
 log_formats,csvlog
+agent_on_db_host,yes
+agent_on_db_host_by,backend_pid
+agent_on_db_host_evidence,"log_file,server_addr_match"
+agent_on_db_host_reason,
+host_artifacts,
 has_pg_monitor_role,true
 has_pg_read_all_stats,true
 has_pg_stat_statements,true

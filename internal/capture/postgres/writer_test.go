@@ -73,6 +73,7 @@ func fullArtifactMetadata() Metadata {
 		AutoExplainLogFormat:      "text",
 		AutoExplainSampleRate:     "1",
 
+		UpdateProcessTitle:     "on",
 		SharedPreloadLibraries: "pg_stat_statements,auto_explain",
 
 		DataDirectory:          "/var/lib/postgresql/17/main",
@@ -80,6 +81,10 @@ func fullArtifactMetadata() Metadata {
 		CurrentLogfileResolved: "/var/lib/postgresql/17/main/log/postgresql-2026-08-04_000000.csv",
 		LogResolvedBy:          resolvedByCurrentLogfiles,
 		LogFormats:             "csvlog",
+
+		AgentOnDBHost:         OnDBHostYes,
+		AgentOnDBHostBy:       confirmedByBackendPID,
+		AgentOnDBHostEvidence: evidenceLogFile + "," + evidenceServerAddrMatch,
 
 		HasPgMonitorRole:        "true",
 		HasPgReadAllStats:       "true",
