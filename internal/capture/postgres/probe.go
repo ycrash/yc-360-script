@@ -59,7 +59,7 @@ var capturedSettings = []struct {
 	{"auto_explain.log_format", func(m *Metadata) *string { return &m.AutoExplainLogFormat }},
 	{"auto_explain.sample_rate", func(m *Metadata) *string { return &m.AutoExplainSampleRate }},
 	// Required by the same-host check: without it the check cannot tell a suppressed
-	// process title from another machine's process (proposal §5.1).
+	// process title from another machine's process.
 	{"update_process_title", func(m *Metadata) *string { return &m.UpdateProcessTitle }},
 	// superuser-only
 	{"shared_preload_libraries", func(m *Metadata) *string { return &m.SharedPreloadLibraries }},

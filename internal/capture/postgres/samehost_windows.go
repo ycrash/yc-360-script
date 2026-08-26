@@ -44,7 +44,7 @@ func (windowsInspector) titleByNamespacedPID(int) (string, bool) { return "", fa
 // together, so the parent is resolved and read in two steps without WMIC, which
 // is deprecated on current Windows.
 //
-// The arithmetic here is unmeasured - the one leg of the probe that is (§5.2).
+// This path has not been exercised against a real Windows database host.
 func (windowsInspector) parentStartTime(pid int) (time.Time, bool) {
 	ppid, ok := windowsParentPID(pid)
 	if !ok {

@@ -15,7 +15,7 @@ import (
 )
 
 // Log access, detected rather than configured: whether this process can open the file
-// the server named. It is a permission, never a location — direction §1.12. A hardened
+// the server named. It is a permission, never a location. A hardened
 // database host reports none; a shared log mount reports direct from another machine.
 // LogAccessUnknown means the test could not run, and is treated as LogAccessNone.
 const (
@@ -119,7 +119,7 @@ type Metadata struct {
 
 	// Evidence behind LogAccess. DataDirectory comes from the settings catalogue, so a denied
 	// pg_current_logfile() still leaves a relative logfile resolvable. The readable/error pair
-	// folded into LogAccess/LogAccessReason (§1.12); CurrentLogfileError survives as a struct
+	// folded into LogAccess/LogAccessReason; CurrentLogfileError survives as a struct
 	// field only, for the agent log line — it is no longer an artifact row.
 	DataDirectory          string
 	CurrentLogfile         string
@@ -132,8 +132,8 @@ type Metadata struct {
 	LogFormats    string
 
 	// Is the agent on the same machine as the database? Measured every run, never read
-	// from config and never guessed from the target host (proposal P3). The three related
-	// fields share the prefix of the field they describe (direction §1.12).
+	// from config and never guessed from the target host. The three related fields
+	// share the prefix of the field they describe.
 	// AgentOnDBHostReason must be set whenever AgentOnDBHost is not yes.
 	AgentOnDBHost         string
 	AgentOnDBHostBy       string
@@ -141,8 +141,8 @@ type Metadata struct {
 	AgentOnDBHostReason   string
 
 	// HostArtifacts says whether host files were captured or skipped, so a bundle with
-	// none of them says why. The P1 gate that sets it is a later slice; until then the
-	// probe only measures and this stays empty.
+	// none of them says why. Nothing sets it yet: the check only measures, and the
+	// capture gate that will act on the answer is not written.
 	HostArtifacts string
 
 	HasPgMonitorRole string

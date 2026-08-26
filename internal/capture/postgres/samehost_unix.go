@@ -22,9 +22,9 @@ func newProcessInspector(updateProcessTitle string) processInspector {
 	return unixInspector{updateProcessTitle: updateProcessTitle}
 }
 
-// titlesReadable is false when the server says it is not writing titles. On
-// Linux the fixed part survives the setting being off (§9), but that was measured
-// there and nowhere else, so elsewhere the setting is believed.
+// titlesReadable is false when the server says it is not writing titles. On Linux
+// the fixed part of the title survives the setting being off, but that was only
+// confirmed there, so on these platforms the setting is taken at its word.
 func (u unixInspector) titlesReadable() bool {
 	return !strings.EqualFold(u.updateProcessTitle, "off")
 }
