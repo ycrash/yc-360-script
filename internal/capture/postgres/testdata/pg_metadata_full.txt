@@ -77,4 +77,6 @@ query_error,
 server_now,2026-08-04T09:12:44.102Z
 server_clock_timestamp,2026-08-04T09:12:44.104Z
 agent_ts_at_clock_read,2026-08-04T09:12:44.118Z
+clock_read_rtt_ms,1.4
+connect_ms,12.4
 # engine=postgres source=pg_metadata v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=1 samples_written=1 ts=2026-08-04T09:14:44.125Z

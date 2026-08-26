@@ -172,7 +172,23 @@ type Metadata struct {
 	QueryError           string
 	ServerNow            string
 	ServerClockTimestamp string
-	AgentTSAtClockRead   time.Time
+
+	// AgentTSAtClockRead is the agent's clock at the moment the server's was read,
+	// so the difference against ServerClockTimestamp is the skew between the two
+	// machines and not the time the run spent getting there. Zero when the read
+	// never happened, which is the same run in which ServerClockTimestamp is empty.
+	AgentTSAtClockRead time.Time
+
+	// ClockReadRTTMS is the round trip of the query that read the clock. It is the
+	// error bar on the skew above: a reading taken across a 40 ms round trip is
+	// worth no more than 40 ms.
+	ClockReadRTTMS string
+
+	// ConnectMS is how long establishing the connection took - TCP, TLS and
+	// authentication together. This is the number people reach for ping.out
+	// expecting, measured against the endpoint actually connected rather than an
+	// unrelated host, and it is empty when the connection never happened.
+	ConnectMS string
 }
 
 // MetadataCollector writes the target block before connecting and the server block from the one
@@ -279,6 +295,9 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 	collected.ExplainMode = m.collected.ExplainMode
 	collected.ExplainLiterals = m.collected.ExplainLiterals
 
+	// The window owns the dial, so this is the one reading Collect cannot take.
+	collected.ConnectMS = millisText(s.ConnectDuration)
+
 	m.collected = collected
 	collected = m.ResolveHostDecision()
 
@@ -343,13 +362,12 @@ const metadataScope = "cluster"
 // records its own failure. Split along the privilege boundary, so one missing grant costs one section.
 func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata {
 	m := Metadata{
-		AgentTS:            agentNow,
-		AgentTSAtClockRead: agentNow,
-		TargetHost:         t.Host,
-		TargetPort:         t.Port,
-		TargetDatabase:     t.Database,
-		TargetUsername:     t.Username,
-		TargetSSLMode:      t.SSLMode,
+		AgentTS:        agentNow,
+		TargetHost:     t.Host,
+		TargetPort:     t.Port,
+		TargetDatabase: t.Database,
+		TargetUsername: t.Username,
+		TargetSSLMode:  t.SSLMode,
 
 		// collectLogLocation overwrites these on any completed path; an early return can't look
 		// like a determined fact.
@@ -377,11 +395,28 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
+	// Bracketed because this query carries clock_timestamp(): the agent's own clock
+	// has to be read beside the server's for the difference to mean anything, and
+	// the round trip is what says how much the pair is worth.
+	sent := time.Now()
+
 	var row serverFactsRow
-	if err := q.QueryRow(ctx, serverFactsSQL, settingNames()).Scan(row.dest()...); err != nil {
+	err := q.QueryRow(ctx, serverFactsSQL, settingNames()).Scan(row.dest()...)
+
+	returned := time.Now()
+
+	if err != nil {
 		m.QueryError = errorText(err, password)
 		return
 	}
+
+	// Stamped when the reply lands. The server evaluated clock_timestamp() somewhere
+	// inside the round trip, so this reading is late by at most that round trip -
+	// which is why it is recorded beside it. A midpoint would claim a precision this
+	// statement cannot support: it reads settings and role memberships too, so the
+	// clock is not read halfway through by any argument.
+	m.AgentTSAtClockRead = returned
+	m.ClockReadRTTMS = millisText(returned.Sub(sent))
 
 	m.CurrentDatabase = text(row.currentDatabase)
 	m.CurrentUser = text(row.currentUser)

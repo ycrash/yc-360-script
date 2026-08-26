@@ -100,6 +100,8 @@ func fullArtifactMetadata() Metadata {
 		ServerNow:            timestamp(testServerNow),
 		ServerClockTimestamp: timestamp(testServerClock),
 		AgentTSAtClockRead:   testAgentNow,
+		ClockReadRTTMS:       "1.4",
+		ConnectMS:            "12.4",
 	}
 }
 

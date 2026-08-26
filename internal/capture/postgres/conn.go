@@ -96,7 +96,17 @@ func (t Target) GoString() string {
 // Conn is a single pgx connection, not a pool.
 type Conn struct {
 	conn *pgx.Conn
+
+	// connectDuration is how long the dial took: TCP, TLS and authentication
+	// together. Measured here rather than by the caller, since this is the only
+	// place that knows where the attempt started and ended.
+	connectDuration time.Duration
 }
+
+// ConnectDuration is what the connection cost to establish. It is the measurement
+// an operator reaches for ping.out expecting, taken against the endpoint the run
+// actually reached rather than a host named in configuration.
+func (c *Conn) ConnectDuration() time.Duration { return c.connectDuration }
 
 // Connect opens one connection to t, classifying a max_connections refusal as
 // ErrTooManyConnections. No returned error exposes the password - it never
@@ -107,12 +117,14 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 		return nil, err
 	}
 
+	dialedAt := time.Now()
+
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, classifyConnectError(err)
 	}
 
-	return &Conn{conn: conn}, nil
+	return &Conn{conn: conn, connectDuration: time.Since(dialedAt)}, nil
 }
 
 // ExecSimple runs sql over PostgreSQL's simple query protocol and returns the first
