@@ -132,7 +132,9 @@ func serverFields(m Metadata) []field {
 		{"query_error", m.QueryError},
 		{"server_now", m.ServerNow},
 		{"server_clock_timestamp", m.ServerClockTimestamp},
-		{"agent_ts_at_clock_read", timestamp(m.AgentTSAtClockRead)},
+		{"agent_ts_at_clock_read", clockRead(m.AgentTSAtClockRead)},
+		{"clock_read_rtt_ms", m.ClockReadRTTMS},
+		{"connect_ms", m.ConnectMS},
 	}
 }
 
@@ -270,4 +272,26 @@ func singleLine(s string) string {
 // timestamp renders an agent-side clock read in the artifact's timestamp form.
 func timestamp(t time.Time) string {
 	return t.UTC().Format(timestampLayout)
+}
+
+// clockRead renders a reading that may not have happened. A zero time is empty
+// rather than year one, which would otherwise read as a clock skew of two
+// thousand years.
+func clockRead(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return timestamp(t)
+}
+
+// millisText renders a measured duration in milliseconds, finer than any network
+// this measures and coarse enough to stay stable between runs. A duration that
+// was never measured renders empty, the way every unread value in this file does.
+func millisText(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+
+	return strconv.FormatFloat(d.Seconds()*1000, 'f', 1, 64)
 }

@@ -594,7 +594,11 @@ func TestTimestampsAreRecordedRaw(t *testing.T) {
 	assert.Equal(t, "2026-08-04T09:12:44.104Z", m.ServerClockTimestamp)
 	assert.Equal(t, "2026-07-30T02:11:09.482Z", m.PostmasterStartTime)
 	assert.Equal(t, "2026-07-01T04:00:00.000Z", m.StatsReset)
-	assert.Equal(t, testAgentNow, m.AgentTSAtClockRead)
+
+	assert.True(t, m.AgentTSAtClockRead.After(testAgentNow),
+		"the agent's clock is read beside the server's, not when the collector was built - "+
+			"the gap between the two is connect plus every earlier statement, and it would "+
+			"otherwise land in the skew figure this row exists to give")
 }
 
 func TestErrorText(t *testing.T) {

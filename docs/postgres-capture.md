@@ -327,6 +327,23 @@ one machine-checkable symptom of a wrong resolution. `mode=LOGGED` blocks do not
 have this problem at all — they are the server's own plan for the execution that
 really happened, which is why they rank first.
 
+### What the bundle says about the connection itself
+
+`pg_metadata.txt` records what the connection cost and how far apart the two
+clocks are:
+
+| row | what it is |
+| --- | --- |
+| `connect_ms` | how long establishing the connection took — TCP, TLS and authentication together, against the endpoint the run actually reached |
+| `server_clock_timestamp` / `agent_ts_at_clock_read` | the server's clock and the agent's, read together; the difference is the skew between the two machines |
+| `clock_read_rtt_ms` | the round trip of the query that read them, which is the error bar on that skew |
+
+`ping.out` is not this measurement. It pings `pingHost` (`google.com` unless you
+set it), which is a general internet-reachability check and says nothing about
+the database — pointing it at the database instead would be worse, since managed
+endpoints do not answer ICMP at all and would report 100% packet loss next to a
+database report during an incident.
+
 ## Where to run it
 
 Run it anywhere with network reachability to the database and you get every

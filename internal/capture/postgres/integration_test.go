@@ -116,6 +116,7 @@ func TestMatrix(t *testing.T) {
 				assertLogLocation(t, server, role, values)
 				assertSameHost(t, server, role, values)
 				assertReplicationProbe(t, values)
+				assertClockRead(t, server, role, values)
 			})
 		}
 	}
@@ -403,6 +404,46 @@ func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values m
 	// The suite connects to a container over TCP, so a yes from a title match on a
 	// PID belonging to another namespace would be wrong.
 	assert.NotEqual(t, confirmedByBackendPID, values["agent_on_db_host_by"])
+}
+
+// assertClockRead pins the two readings a fake Querier cannot produce: a clock
+// read taken beside the server's own, and a round trip that actually crossed a
+// network stack.
+func assertClockRead(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
+	t.Helper()
+
+	t.Logf("pg%d/%s: server_clock_timestamp=%s agent_ts_at_clock_read=%s clock_read_rtt_ms=%s",
+		server.major, role.user, values["server_clock_timestamp"],
+		values["agent_ts_at_clock_read"], values["clock_read_rtt_ms"])
+
+	require.NotEmpty(t, values["agent_ts_at_clock_read"],
+		"the server answered, so the agent's clock was read beside its own")
+
+	rtt, err := strconv.ParseFloat(values["clock_read_rtt_ms"], 64)
+	require.NoError(t, err, "clock_read_rtt_ms must parse as a number")
+	assert.Positive(t, rtt, "a query that crossed a socket took some measurable time")
+
+	// Both stamps below are the agent's own clock, so this holds whatever the
+	// container's clock is doing - Docker Desktop runs a VM whose clock drifts, and
+	// an assertion on the agent-versus-server difference would be measuring that.
+	builtAt, err := time.Parse(timestampLayout, values["agent_ts"])
+	require.NoError(t, err)
+
+	readAt, err := time.Parse(timestampLayout, values["agent_ts_at_clock_read"])
+	require.NoError(t, err)
+
+	// The fix, stated as an inequality: the stamp is taken after the query came
+	// back, so it trails the collector's construction by at least the round trip.
+	// Before the fix the two were the same instant, and the difference against the
+	// server's clock was reported as skew when most of it was the run's own latency.
+	// The tolerance is the millisecond each rendered stamp is rounded to.
+	gap := readAt.Sub(builtAt)
+
+	assert.GreaterOrEqual(t, gap, time.Duration(rtt*float64(time.Millisecond))-2*time.Millisecond,
+		"agent_ts_at_clock_read must be stamped at the query, not when the collector was built")
+
+	t.Logf("pg%d/%s: clock read %s after the collector was built, round trip %s ms",
+		server.major, role.user, gap, values["clock_read_rtt_ms"])
 }
 
 func assertLogLocation(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {

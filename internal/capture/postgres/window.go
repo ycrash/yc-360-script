@@ -171,6 +171,11 @@ type SampleContext struct {
 	// skips the generic-plan mode rather than attempting it.
 	HasGenericPlan bool
 
+	// ConnectDuration is how long the dial took. The window owns the connection, so
+	// a collector wanting to report the connection's cost can only learn it here.
+	// Zero before the dial and on every path that never reached one.
+	ConnectDuration time.Duration
+
 	// redact centralizes the window's password redaction.
 	redact func(error) string
 }
@@ -203,6 +208,22 @@ func (r ArtifactResult) writable() bool { return r.File != nil && r.IOErr == nil
 type windowConn interface {
 	RowQuerier
 	Close(ctx context.Context) error
+}
+
+// connectTimer is the part of *Conn that reports what the dial cost. Asked for by
+// assertion rather than added to windowConn, so a fake connection is not obliged
+// to implement it and simply reports nothing - the truth about a dial it never
+// made.
+type connectTimer interface {
+	ConnectDuration() time.Duration
+}
+
+func connectDuration(conn windowConn) time.Duration {
+	if timer, ok := conn.(connectTimer); ok {
+		return timer.ConnectDuration()
+	}
+
+	return 0
 }
 
 // Window owns one connection and one clock for every sampled artifact in a run.
@@ -276,6 +297,7 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 	defer w.disconnect(conn)
 
 	sampleCtx = w.identify(ctx, conn)
+	sampleCtx.ConnectDuration = connectDuration(conn)
 
 	// Armed after dial, so connect/identify time doesn't eat the grace the final sample needs.
 	ctx, cancel := context.WithTimeout(ctx, w.moduleDeadline())
