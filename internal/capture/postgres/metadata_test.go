@@ -32,9 +32,8 @@ func newFakeMetadataConn() *fakeMetadataConn {
 	return &fakeMetadataConn{fakeWindowConn: newFakeWindowConn(), querier: healthyQuerier()}
 }
 
-// testConnectDuration is what the fake dial claims to have cost. It has to render
-// as fullArtifactMetadata's connect_ms, since the golden is written through the
-// window and compared against a Metadata built by hand.
+// testConnectDuration must render as fullArtifactMetadata's connect_ms: the golden
+// goes through the window, the comparison through a hand-built Metadata.
 const testConnectDuration = 12400 * time.Microsecond
 
 func (c *fakeMetadataConn) ConnectDuration() time.Duration { return testConnectDuration }
@@ -708,8 +707,7 @@ func TestMetadataAfterCollectIsOptional(t *testing.T) {
 		SampleContext{At: testAgentNow, Index: 1}))
 }
 
-// slowQuerier delays the server-facts query so the bracket around it has
-// something to measure.
+// slowQuerier delays the server-facts query so the bracket has something to measure.
 type slowQuerier struct {
 	*fakeQuerier
 

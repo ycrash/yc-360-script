@@ -9,10 +9,9 @@ import (
 	"yc-agent/internal/logger"
 )
 
-// hostCloseMargin keeps the closing host reading inside the capture window. The
-// collectors start a moment after the window opens, so a full-window gap would
-// put the last reading past the point where the database artifacts have already
-// been closed and uploaded.
+// hostCloseMargin keeps the last reading inside the window: the collectors start
+// a moment after it opens, so a full-window gap would land after the database
+// artifacts have closed.
 const hostCloseMargin = 5 * time.Second
 
 // hostCollector pairs a collector with the channel its result arrives on.
@@ -21,7 +20,7 @@ type hostCollector struct {
 	done chan Result
 }
 
-// hostSpan is how long netstat and ps leave between their readings.
+// hostSpan is the gap netstat and ps leave between readings.
 func hostSpan(window time.Duration) time.Duration {
 	span := window - hostCloseMargin
 	if span < time.Second {
@@ -31,13 +30,9 @@ func hostSpan(window time.Duration) time.Duration {
 	return span
 }
 
-// startHostCapture runs the host collectors when the run established that this
-// machine is the database's, and records the skip otherwise. Host files describe
-// whichever machine ran the agent, so on any other answer they would be a
-// foreign machine's CPU, memory, disk and connection table filed under the
-// database's name.
-//
-// It returns the collectors it started, which the caller must drain.
+// startHostCapture runs the host collectors when the run established this machine
+// is the database's, and records the skip otherwise: host files describe whichever
+// machine ran the agent. The caller must drain what it returns.
 func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metadata, window time.Duration) []hostCollector {
 	if m.DeclarationContradicted {
 		logger.Warn().Msgf("postgres agentOnDbHost is set, but this run measured that the database "+
@@ -58,17 +53,10 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 	stop := ctx.Done()
 	endpoint := p.Endpoint()
 
-	// Only netstat and ps stretch to the window. Both already take several readings
-	// and already label each one, so widening the gap between them changes the
-	// timing and nothing else - and these files carry the same dt whichever kind of
-	// capture wrote them, so their shape is not this feature's to change. netstat
-	// reads at both edges; ps spreads its three evenly, so span/2 puts the last on
-	// the closing edge.
-	//
-	// df and dmesg take one reading, exactly as an application capture takes it. A
-	// second would have to go somewhere in a file whose format has only ever held
-	// one, and a df delta is not worth giving one dt two shapes. top, vmstat and
-	// kernel are unchanged for the same reason.
+	// Only netstat and ps stretch to the window: both already take several labelled
+	// readings, so widening the gap changes timing and nothing else. ps spreads its
+	// three evenly, hence span/2. The rest are untouched - these files carry one dt
+	// whichever capture wrote them, and their shape is not this feature's to change.
 	vmstat := &VMStat{}
 
 	return []hostCollector{
@@ -78,16 +66,15 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 		{"vmstat", GoCapture(endpoint, WrapRun(vmstat))},
 		{"df", GoCapture(endpoint, WrapRun(&Disk{}))},
 
-		// dmesg waits for vmstat, as an application capture has it: it has no
-		// schedule of its own to keep any more.
+		// dmesg waits for vmstat as an application capture has it: no schedule of
+		// its own to keep.
 		{"dmesg", GoCapture(endpoint, WrapRun(&DMesg{}), vmstat)},
 		{"kernel", GoCapture(endpoint, WrapRun(&Kernel{}))},
 	}
 }
 
 // logHostCaptureSkipped states the skip and, where one exists, the deployment
-// change that would turn the answer into a yes. Informational rather than a
-// warning: nothing failed, and on a managed service nothing can.
+// change that would lift it. Informational, not a warning: nothing failed.
 func (p *PostgresCapture) logHostCaptureSkipped(m postgres.Metadata) {
 	logger.Log("Host capture skipped: this run could not establish that this machine runs the "+
 		"database (agent_on_db_host=%s, reason=%s).", m.AgentOnDBHost, m.AgentOnDBHostReason)
@@ -97,9 +84,8 @@ func (p *PostgresCapture) logHostCaptureSkipped(m postgres.Metadata) {
 	}
 }
 
-// waitForHostCapture drains every collector. It must run on every path: the
-// result channels are unbuffered, so a result nobody receives leaves the
-// collector's goroutine blocked on its send.
+// waitForHostCapture drains every collector, on every path: the channels are
+// unbuffered, so an unreceived result blocks its goroutine forever.
 func waitForHostCapture(collectors []hostCollector) (messages []string, ok bool) {
 	ok = true
 
@@ -116,8 +102,7 @@ func waitForHostCapture(collectors []hostCollector) (messages []string, ok bool)
 	return messages, ok
 }
 
-// withHostCapture folds the host collectors' messages into the database
-// capture's own result.
+// withHostCapture folds the collectors' messages into the capture's result.
 func withHostCapture(result Result, messages []string, ok bool) Result {
 	if len(messages) == 0 {
 		return result

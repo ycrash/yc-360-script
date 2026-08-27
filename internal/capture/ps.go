@@ -16,12 +16,11 @@ const psOutputPath = "ps.out"
 type PS struct {
 	Capture
 
-	// sleepBetweenCaptures spaces the snapshots out. Zero takes them back to back,
-	// which is what every application capture does today: three readings of the
-	// same instant, useful for nothing but a process list.
+	// sleepBetweenCaptures spaces the snapshots out. Zero is back to back - what
+	// every application capture does: three readings of the same instant.
 	sleepBetweenCaptures time.Duration
 
-	// stop cuts the gap short when the run is torn down; nil waits it out.
+	// stop cuts the gap short on teardown; nil waits it out.
 	stop <-chan struct{}
 }
 

@@ -406,9 +406,8 @@ func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values m
 	assert.NotEqual(t, confirmedByBackendPID, values["agent_on_db_host_by"])
 }
 
-// assertClockRead pins the two readings a fake Querier cannot produce: a clock
-// read taken beside the server's own, and a round trip that actually crossed a
-// network stack.
+// assertClockRead pins what a fake Querier cannot produce: a clock read taken
+// beside the server's own, across a real network stack.
 func assertClockRead(t *testing.T, server matrixServer, role matrixRole, values map[string]string) {
 	t.Helper()
 
@@ -423,20 +422,18 @@ func assertClockRead(t *testing.T, server matrixServer, role matrixRole, values 
 	require.NoError(t, err, "clock_read_rtt_ms must parse as a number")
 	assert.Positive(t, rtt, "a query that crossed a socket took some measurable time")
 
-	// Both stamps below are the agent's own clock, so this holds whatever the
-	// container's clock is doing - Docker Desktop runs a VM whose clock drifts, and
-	// an assertion on the agent-versus-server difference would be measuring that.
+	// Both stamps are the agent's own clock, so this holds whatever the container's
+	// clock does - Docker Desktop's VM drifts, and comparing agent against server
+	// would measure that instead.
 	builtAt, err := time.Parse(timestampLayout, values["agent_ts"])
 	require.NoError(t, err)
 
 	readAt, err := time.Parse(timestampLayout, values["agent_ts_at_clock_read"])
 	require.NoError(t, err)
 
-	// The fix, stated as an inequality: the stamp is taken after the query came
-	// back, so it trails the collector's construction by at least the round trip.
-	// Before the fix the two were the same instant, and the difference against the
-	// server's clock was reported as skew when most of it was the run's own latency.
-	// The tolerance is the millisecond each rendered stamp is rounded to.
+	// The fix as an inequality: stamped after the query returned, so it trails the
+	// collector's construction by at least the round trip. Before, the two were one
+	// instant. Tolerance is the millisecond each rendered stamp rounds to.
 	gap := readAt.Sub(builtAt)
 
 	assert.GreaterOrEqual(t, gap, time.Duration(rtt*float64(time.Millisecond))-2*time.Millisecond,

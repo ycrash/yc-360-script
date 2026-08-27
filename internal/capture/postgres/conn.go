@@ -97,15 +97,13 @@ func (t Target) GoString() string {
 type Conn struct {
 	conn *pgx.Conn
 
-	// connectDuration is how long the dial took: TCP, TLS and authentication
-	// together. Measured here rather than by the caller, since this is the only
-	// place that knows where the attempt started and ended.
+	// connectDuration is the dial: TCP, TLS and authentication. Measured here
+	// because this is the only place that sees both ends of the attempt.
 	connectDuration time.Duration
 }
 
-// ConnectDuration is what the connection cost to establish. It is the measurement
-// an operator reaches for ping.out expecting, taken against the endpoint the run
-// actually reached rather than a host named in configuration.
+// ConnectDuration is what the connection cost - the measurement an operator
+// reaches for ping.out expecting, against the endpoint actually reached.
 func (c *Conn) ConnectDuration() time.Duration { return c.connectDuration }
 
 // Connect opens one connection to t, classifying a max_connections refusal as

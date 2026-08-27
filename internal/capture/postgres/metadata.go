@@ -66,9 +66,8 @@ type Metadata struct {
 	InetServerAddr  string
 	InetServerPort  string
 
-	// InetClientAddr/InetClientPort are the server's view of this connection's near
-	// end. The same-host check compares them against the backend's process title.
-	// They are inputs to that check, not artifact rows.
+	// The server's view of this connection's near end: inputs to the same-host
+	// check, compared against the backend's process title. Not artifact rows.
 	InetClientAddr      string
 	InetClientPort      string
 	IsInRecovery        string
@@ -131,23 +130,19 @@ type Metadata struct {
 	LogResolvedBy string
 	LogFormats    string
 
-	// Is the agent on the same machine as the database? Measured every run, never read
-	// from config and never guessed from the target host. The three related fields
-	// share the prefix of the field they describe.
-	// AgentOnDBHostReason must be set whenever AgentOnDBHost is not yes.
+	// Is the agent on the database's machine? Measured every run, never guessed from
+	// the target host. Reason is mandatory whenever the verdict is not yes.
 	AgentOnDBHost         string
 	AgentOnDBHostBy       string
 	AgentOnDBHostEvidence string
 	AgentOnDBHostReason   string
 
-	// DeclarationContradicted is set when postgres.agentOnDbHost said yes and the
-	// probe measured no. Reported in the agent log, not written to the artifact:
-	// the rows above already carry both the verdict and the reason.
+	// DeclarationContradicted: agentOnDbHost said yes, the probe measured no. Logged,
+	// not written - the rows above already carry the verdict and the reason.
 	DeclarationContradicted bool
 
-	// HostArtifacts says whether host files were captured or skipped, so a bundle with
-	// none of them says why. It follows AgentOnDBHost: host files describe whichever
-	// machine ran the agent, so anything short of a yes leaves them out.
+	// HostArtifacts says whether host files were captured or skipped, so a bundle
+	// with none of them says why. Follows AgentOnDBHost.
 	HostArtifacts string
 
 	HasPgMonitorRole string
@@ -173,21 +168,15 @@ type Metadata struct {
 	ServerNow            string
 	ServerClockTimestamp string
 
-	// AgentTSAtClockRead is the agent's clock at the moment the server's was read,
-	// so the difference against ServerClockTimestamp is the skew between the two
-	// machines and not the time the run spent getting there. Zero when the read
-	// never happened, which is the same run in which ServerClockTimestamp is empty.
+	// AgentTSAtClockRead is the agent's clock as the server's was read, so the
+	// difference is skew between machines, not time the run spent getting there.
 	AgentTSAtClockRead time.Time
 
-	// ClockReadRTTMS is the round trip of the query that read the clock. It is the
-	// error bar on the skew above: a reading taken across a 40 ms round trip is
-	// worth no more than 40 ms.
+	// ClockReadRTTMS is that query's round trip - the error bar on the skew above.
 	ClockReadRTTMS string
 
-	// ConnectMS is how long establishing the connection took - TCP, TLS and
-	// authentication together. This is the number people reach for ping.out
-	// expecting, measured against the endpoint actually connected rather than an
-	// unrelated host, and it is empty when the connection never happened.
+	// ConnectMS is the dial: TCP, TLS and authentication. What people reach for
+	// ping.out expecting. Empty when the connection never happened.
 	ConnectMS string
 }
 
@@ -207,14 +196,13 @@ type MetadataCollector struct {
 	collected Metadata
 }
 
-// DeclareOnDBHost records the operator's postgres.agentOnDbHost declaration. It
-// only ever raises an unknown to yes; a measured verdict stands either way.
+// DeclareOnDBHost records postgres.agentOnDbHost. It only raises an unknown to
+// yes; a measured verdict stands.
 func (m *MetadataCollector) DeclareOnDBHost(declared bool) { m.declaredOnDBHost = declared }
 
-// AfterCollect registers a function to run once the server block has been read
-// and written, while the window is still open. The caller uses it to act on
-// host_artifacts at the window's opening edge. It runs on the window's own
-// goroutine, so it must return promptly.
+// AfterCollect runs once the server block is written, while the window is still
+// open, so the caller can act on host_artifacts at its opening edge. It runs on
+// the window's goroutine and must return promptly.
 func (m *MetadataCollector) AfterCollect(fn func(Metadata)) { m.afterCollect = fn }
 
 // NewMetadata seeds the collector's pre-connection state, which Collected() returns if the
@@ -246,9 +234,8 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		LogAccess:       LogAccessUnknown,
 		LogAccessReason: reasonSettingsUnread,
 
-		// A run whose connection was refused keeps these: the probe needs a backend
-		// to look for, so no connection means no answer and no host capture - unless
-		// the operator declared the deployment, which is applied in Sample.
+		// Kept by a run whose connection was refused: no backend to look for, so no
+		// answer and no host capture - unless the operator declared it.
 		AgentOnDBHost:       OnDBHostUnknown,
 		AgentOnDBHostReason: hostReasonNoConnection,
 		HostArtifacts:       HostArtifactsSkipped,
@@ -295,7 +282,7 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 	collected.ExplainMode = m.collected.ExplainMode
 	collected.ExplainLiterals = m.collected.ExplainLiterals
 
-	// The window owns the dial, so this is the one reading Collect cannot take.
+	// The window owns the dial - the one reading Collect cannot take.
 	collected.ConnectMS = millisText(s.ConnectDuration)
 
 	m.collected = collected
@@ -307,8 +294,7 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 		{"sample", strconv.Itoa(s.Index)},
 	}, serverBlockFields(collected), s.At)
 
-	// After the block, so a failure to write it cannot also lose the host capture
-	// this run is entitled to.
+	// After the block, so a failed write cannot also lose the host capture.
 	if m.afterCollect != nil {
 		m.afterCollect(collected)
 	}
@@ -318,11 +304,9 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 
 func (m *MetadataCollector) Collected() Metadata { return m.collected }
 
-// ResolveHostDecision applies the operator's declaration to whatever verdict the
-// run reached and settles host_artifacts. Sample calls it so the rows it writes
-// are the resolved ones; the caller calls it again for a run that never reached
-// the server, where there was no sample and the declaration is the only thing
-// that can authorise host capture. Idempotent.
+// ResolveHostDecision applies the declaration and settles host_artifacts. Sample
+// calls it so the rows it writes are resolved; the caller calls it again for a run
+// that never reached the server. Idempotent.
 func (m *MetadataCollector) ResolveHostDecision() Metadata {
 	m.collected.DeclarationContradicted = applyOnDBHostDeclaration(&m.collected, m.declaredOnDBHost)
 	m.collected.HostArtifacts = hostArtifactsDecision(m.collected)
@@ -395,9 +379,8 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
-	// Bracketed because this query carries clock_timestamp(): the agent's own clock
-	// has to be read beside the server's for the difference to mean anything, and
-	// the round trip is what says how much the pair is worth.
+	// This query carries clock_timestamp(), so the agent's clock is read beside the
+	// server's, and the round trip says how much the pair is worth.
 	sent := time.Now()
 
 	var row serverFactsRow
@@ -410,11 +393,9 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 		return
 	}
 
-	// Stamped when the reply lands. The server evaluated clock_timestamp() somewhere
-	// inside the round trip, so this reading is late by at most that round trip -
-	// which is why it is recorded beside it. A midpoint would claim a precision this
-	// statement cannot support: it reads settings and role memberships too, so the
-	// clock is not read halfway through by any argument.
+	// Stamped at the reply, so late by at most the round trip recorded beside it. A
+	// midpoint would claim precision this statement cannot support - it reads
+	// settings and role memberships too, so the clock is not read halfway through.
 	m.AgentTSAtClockRead = returned
 	m.ClockReadRTTMS = millisText(returned.Sub(sent))
 

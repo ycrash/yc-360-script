@@ -19,7 +19,7 @@ type NetStat struct {
 	Capture
 	sleepBetweenCaptures time.Duration
 
-	// stop cuts the gap short when the run is torn down; nil waits it out.
+	// stop cuts the gap short on teardown; nil waits it out.
 	stop <-chan struct{}
 
 	file *os.File
@@ -49,8 +49,7 @@ func (ns *NetStat) Run() (Result, error) {
 		logger.Log("First netstat snapshot complete.")
 	}
 
-	// Wait between captures. A false here means the run is being torn down, so the
-	// first snapshot is uploaded on its own rather than waited out.
+	// False means the run is going away: upload the first snapshot on its own.
 	if snapshotGapElapsed(ns.sleepBetweenCaptures, ns.stop) {
 		// New line separator between captures
 		if _, err := ns.file.WriteString("\n"); err != nil {

@@ -274,9 +274,8 @@ func timestamp(t time.Time) string {
 	return t.UTC().Format(timestampLayout)
 }
 
-// clockRead renders a reading that may not have happened. A zero time is empty
-// rather than year one, which would otherwise read as a clock skew of two
-// thousand years.
+// clockRead renders a reading that may not have happened: zero is empty, not year
+// one, which would read as two thousand years of clock skew.
 func clockRead(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -285,9 +284,8 @@ func clockRead(t time.Time) string {
 	return timestamp(t)
 }
 
-// millisText renders a measured duration in milliseconds, finer than any network
-// this measures and coarse enough to stay stable between runs. A duration that
-// was never measured renders empty, the way every unread value in this file does.
+// millisText renders milliseconds - finer than the networks measured, coarse
+// enough to stay stable. An unmeasured duration is empty, like every unread value.
 func millisText(d time.Duration) string {
 	if d <= 0 {
 		return ""
