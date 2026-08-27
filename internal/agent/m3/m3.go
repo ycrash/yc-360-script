@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -208,6 +209,15 @@ func GetM3FinEndpoint(timestamp string, timezone string, pids map[int]string) st
 	}
 
 	parameters += "&cpuCount=" + strconv.Itoa(runtime.NumCPU())
+
+	// Names the database this run monitors, so the server can tell two runners
+	// polling one target apart - the agent cannot see the other runners. Escaped
+	// because a socket path or an IPv6 address would otherwise break the query.
+	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
+		parameters += "&target_host=" + url.QueryEscape(pg.Host) +
+			"&target_port=" + strconv.Itoa(pg.Port) +
+			"&target_database=" + url.QueryEscape(pg.Database)
+	}
 
 	/// append pod name and namespace in Kubernetes
 	if config.GlobalConfig.Kubernetes {

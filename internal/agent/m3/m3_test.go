@@ -1,11 +1,15 @@
 package m3
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 
+	"yc-agent/internal/config"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestM3FinPids(t *testing.T) {
@@ -114,4 +118,51 @@ func TestParseJsonRespCaptureDB(t *testing.T) {
 			assert.Equal(t, tt.wantDB, captureDB)
 		})
 	}
+}
+
+// The agent cannot see other runners, so two of them polling one database is only
+// visible to the server - from the target each fin call names.
+func TestGetM3FinEndpointNamesTheDatabaseTarget(t *testing.T) {
+	original := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = original })
+
+	t.Run("no postgres block leaves the query untouched", func(t *testing.T) {
+		config.GlobalConfig = config.Config{}
+
+		endpoint := GetM3FinEndpoint("2026-08-27T09-12-00", "UTC", nil)
+
+		assert.NotContains(t, endpoint, "target_host")
+		assert.NotContains(t, endpoint, "target_database")
+	})
+
+	t.Run("a configured target is named", func(t *testing.T) {
+		config.GlobalConfig = config.Config{Options: config.Options{
+			Postgres: &config.Postgres{Host: "db-prod-01", Port: 5432, Database: "orders"},
+		}}
+
+		endpoint := GetM3FinEndpoint("2026-08-27T09-12-00", "UTC", nil)
+
+		assert.Contains(t, endpoint, "&target_host=db-prod-01")
+		assert.Contains(t, endpoint, "&target_port=5432")
+		assert.Contains(t, endpoint, "&target_database=orders")
+	})
+
+	// A socket directory and an IPv6 address both carry characters that would end
+	// the value early, taking the parameters after it with them.
+	t.Run("a socket path is escaped", func(t *testing.T) {
+		config.GlobalConfig = config.Config{Options: config.Options{
+			Postgres: &config.Postgres{Host: "/var/run/postgresql", Port: 5432, Database: "a b&c"},
+		}}
+
+		endpoint := GetM3FinEndpoint("2026-08-27T09-12-00", "UTC", nil)
+
+		assert.Contains(t, endpoint, "&target_host=%2Fvar%2Frun%2Fpostgresql")
+		assert.Contains(t, endpoint, "&target_database=a+b%26c")
+
+		parsed, err := url.Parse(endpoint)
+		require.NoError(t, err)
+
+		assert.Equal(t, "/var/run/postgresql", parsed.Query().Get("target_host"))
+		assert.Equal(t, "a b&c", parsed.Query().Get("target_database"))
+	})
 }

@@ -18,10 +18,11 @@ import (
 // the upload. The directory is deleted when the cycle ends; nothing accumulates.
 const postgresM3OutputPath = postgres.M3FileName
 
-// pgDTM3 is empty because the receiver has no dt for this artifact yet. An
-// invented value would upload and drop silently, so it is written and the upload
-// skipped with a stated reason instead - the same rule pgSampledDataType follows.
-const pgDTM3 = ""
+// pgDTM3 is provisional: the value is the agent's proposal, not yet confirmed by
+// the receiver. It collides with none of the ten assigned above, so the worst case
+// is a receiver that has no handler and drops the payload - visible in the reply
+// this logs, and a one-line change if the receiver picks another name.
+const pgDTM3 = "pgM3"
 
 // PostgresM3 is the M3-mode database capture: one small reading per cycle, in
 // place of the ten-file capture a one-shot run takes. It runs first in the cycle
@@ -108,10 +109,6 @@ func (p *PostgresM3) captureOutput(w io.Writer) error {
 
 // UploadCapturedFile uploads the captured file to the configured endpoint.
 func (p *PostgresM3) UploadCapturedFile(file *os.File) Result {
-	if pgDTM3 == "" {
-		return Result{Msg: postgresM3OutputPath + " written; not uploaded: dt value not yet assigned"}
-	}
-
 	msg, ok := PostData(p.Endpoint(), pgDTM3, file)
 
 	return Result{Msg: msg, Ok: ok}
