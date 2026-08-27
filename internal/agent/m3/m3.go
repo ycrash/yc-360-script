@@ -76,12 +76,17 @@ func (m3 *M3App) RunSingle() error {
 	now, timezone := common.GetAgentCurrentTime()
 	timestamp := now.Format("2006-01-02T15-04-05")
 
+	// Database monitoring is an M3 run whose target is the postgres: block. It has
+	// no application target, so finding no process is the expected outcome, not a
+	// misconfiguration to warn about.
+	dbMonitoring := config.GlobalConfig.Postgres.IsConfigured()
+
 	pids, err := capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	logger.Debug().Msgf("M3App.RunSingle: got process IDs: %v", pids)
 
 	if err != nil {
 		logger.Log("WARNING: failed to get PID cause %v", err)
-	} else if len(pids) == 0 {
+	} else if len(pids) == 0 && !dbMonitoring {
 		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
 			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	}
@@ -138,7 +143,17 @@ func (m3 *M3App) RunSingle() error {
 	{
 		logger.Debug().Msgf("M3App.RunSingle: about to call captureAndTransmit")
 
-		m3.captureAndTransmit(pids, GetM3ReceiverEndpoint(timestamp, timezone))
+		endpoint := GetM3ReceiverEndpoint(timestamp, timezone)
+
+		// The poll runs first and is bounded. Its answer decides whether the
+		// host-scoped capture below runs at all, and where it does not, the poll
+		// already carries the runner-health rows that stand in for it.
+		hostAllowed := true
+		if dbMonitoring {
+			hostAllowed = uploadPostgresM3(endpoint, config.GlobalConfig.Postgres)
+		}
+
+		m3.captureAndTransmit(pids, endpoint, hostAllowed)
 	}
 
 	// Finish
@@ -224,15 +239,44 @@ func GetM3CommonEndpointParameters(timestamp string, timezone string) string {
 	return parameters
 }
 
+// uploadPostgresM3 takes the cycle's database reading and reports whether this
+// machine is confirmed to be the database's. Unlike the uploads around it, the
+// caller waits on this one: the host-scoped capture that follows is gated on the
+// answer.
+func uploadPostgresM3(endpoint string, target *config.Postgres) bool {
+	capPostgresM3 := &capture.PostgresM3{Target: target}
+	chanPostgresM3 := capture.GoCapture(endpoint, capture.WrapRun(capPostgresM3))
+
+	result := <-chanPostgresM3
+	logger.Log(
+		`POSTGRES DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+
+	return capPostgresM3.OnDBHost()
+}
+
 //nolint:unparam // error return kept for future error handling
-func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
+func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string, hostAllowed bool) {
 	logger.Log("yc-360 script version: %s", executils.SCRIPT_VERSION)
 	logger.Log("yc-360 script starting in m3 mode...")
 
-	logger.Log("Starting collection of top data...")
-	capTop := &capture.Top4M3{}
-	top := capture.GoCapture(endpoint, capture.WrapRun(capTop))
-	logger.Log("Collection of top data started.")
+	// top describes the runner, so a database monitoring run ships it only where the
+	// runner is confirmed to be the database host. On a shared jump box top -bc also
+	// carries other users' command lines.
+	var top chan capture.Result
+
+	if hostAllowed {
+		logger.Log("Starting collection of top data...")
+		capTop := &capture.Top4M3{}
+		top = capture.GoCapture(endpoint, capture.WrapRun(capTop))
+		logger.Log("Collection of top data started.")
+	} else {
+		logger.Log("Skipping collection of top data: this machine is not confirmed to run the database.")
+	}
 
 	logger.Log("Starting collection of lp data...")
 	capLPM3 := capture.NewLPM3(pids)
@@ -318,14 +362,16 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 		}
 	}
 
-	topResult := <-top
-	logger.Log(
-		`TOP DATA
+	if top != nil {
+		topResult := <-top
+		logger.Log(
+			`TOP DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
 `, topResult.Ok, topResult.Msg)
+	}
 
 	lpM3Result := <-lpM3Chan
 	logger.Log(
@@ -690,7 +736,7 @@ Resp: %s
 }
 
 func (m3 *M3App) processM3FinResponse(resp []byte, pid2Name map[int]string) (err error) {
-	pids, tags, timestamps, err := ParseM3FinResponse(resp)
+	pids, tags, timestamps, captureDB, err := ParseM3FinResponse(resp)
 	if err != nil {
 		logger.Log("WARNING: Get PID from ParseJsonResp failed, %s", err)
 		return
@@ -720,6 +766,15 @@ func (m3 *M3App) processM3FinResponse(resp []byte, pid2Name map[int]string) (err
 		}
 	}
 
+	// Runs inside the cycle lock, like the pid captures below: a database capture
+	// takes captureDuration, so it delays the next cycle by its own length and two
+	// can never overlap.
+	if captureDB {
+		logger.Log("Running the database capture the server asked for.")
+
+		ondemand.ProcessDatabase(config.GlobalConfig.HeapDump, tmp)
+	}
+
 	_, err = ondemand.ProcessPids(pids, pid2Name, config.GlobalConfig.HeapDump, tmp, timestamps, opts)
 	return
 }
@@ -731,7 +786,12 @@ type M3FinResponse struct {
 	Timestamps []string
 }
 
-func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []string, err error) {
+// captureDBAction asks for a database capture. It takes no argument: one run
+// monitors one database, so the target is the agent's own configuration. The name
+// is a placeholder until the receiver assigns one.
+const captureDBAction = "capture db"
+
+func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []string, captureDB bool, err error) {
 	// Init empty slice instead of []int(nil)
 	pids = []int{}
 	tags = []string{}
@@ -754,6 +814,11 @@ func ParseM3FinResponse(resp []byte) (pids []int, tags []string, timestamps []st
 	}
 
 	for _, s := range r.Actions {
+		if strings.TrimSpace(s) == captureDBAction {
+			captureDB = true
+			continue
+		}
+
 		if strings.HasPrefix(s, "capture ") {
 			ss := strings.Split(s, " ")
 			if len(ss) == 2 {
