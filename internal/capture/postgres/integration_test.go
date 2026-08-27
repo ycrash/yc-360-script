@@ -4155,3 +4155,224 @@ func TestMatrixExplainRefusesAMultiStatementBatch(t *testing.T) {
 		})
 	}
 }
+
+// --- the M3 database poll ----------------------------------------------------
+
+// parsePollPayload splits the rendered payload into its header tokens and its
+// metric,value body, so a test can assert on rows rather than on substrings.
+func parsePollPayload(t *testing.T, payload string) (header map[string]string, rows map[string]string) {
+	t.Helper()
+
+	lines := strings.SplitN(payload, "\n", 2)
+	require.Len(t, lines, 2, "a payload is a header line and a body")
+	require.True(t, strings.HasPrefix(lines[0], "# "), "the header line starts with #")
+
+	header = map[string]string{}
+
+	for _, token := range strings.Fields(strings.TrimPrefix(lines[0], "# ")) {
+		key, value, ok := strings.Cut(token, "=")
+		require.True(t, ok, "every header token is k=v: %q", token)
+
+		header[key] = value
+	}
+
+	reader := csv.NewReader(strings.NewReader(lines[1]))
+
+	records, err := reader.ReadAll()
+	require.NoError(t, err)
+	require.NotEmpty(t, records)
+	require.Equal(t, []string{"metric", "value"}, records[0])
+
+	rows = map[string]string{}
+
+	for _, record := range records[1:] {
+		require.Len(t, record, 2)
+
+		rows[record[0]] = record[1]
+	}
+
+	return header, rows
+}
+
+func TestMatrixPoll(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				result := Poll(context.Background(), PollRequest{
+					Target: target,
+					Runner: "matrix-runner",
+					Now:    time.Now(),
+				})
+
+				var payload bytes.Buffer
+				require.NoError(t, WritePoll(&payload, result))
+
+				t.Logf("pg%d/%s:\n%s", server.major, role.user, payload.String())
+
+				header, rows := parsePollPayload(t, payload.String())
+
+				assertPollHeader(t, server, role, target, header)
+				assertPollHeartbeat(t, rows)
+				assertPollConnections(t, server, role, rows)
+				assertPollHostScoped(t, header, rows)
+			})
+		}
+	}
+}
+
+func assertPollHeader(t *testing.T, server matrixServer, role matrixRole, target Target, header map[string]string) {
+	t.Helper()
+
+	assert.Equal(t, "postgres", header["engine"])
+	assert.Equal(t, "pg_m3", header["source"])
+	assert.Equal(t, "1", header["v"])
+	assert.Equal(t, "csv", header["format"])
+	assert.Equal(t, "cluster", header["scope"])
+	assert.Equal(t, "matrix-runner", header["runner"])
+
+	// Three fields, not one: an IPv6 address or a socket directory would need
+	// parsing out of a single value.
+	assert.Equal(t, target.Host, header["target_host"])
+	assert.Equal(t, strconv.Itoa(target.Port), header["target_port"])
+	assert.Equal(t, target.Database, header["target_database"])
+
+	assert.NotEmpty(t, header["ts"])
+
+	// server_version_num is read from pg_settings, which every role may read.
+	require.NotEmpty(t, header["server_version_num"], "the statement succeeded")
+
+	major, err := strconv.Atoi(header["server_version_num"])
+	require.NoError(t, err)
+	assert.Equal(t, server.major, major/10000)
+
+	verdict := header["agent_on_db_host"]
+	require.Contains(t, []string{OnDBHostYes, OnDBHostNo, OnDBHostUnknown}, verdict)
+
+	if verdict == OnDBHostYes {
+		assert.NotEmpty(t, header["agent_on_db_host_by"], "a yes names the test behind it")
+		assert.NotContains(t, header, "agent_on_db_host_reason", "a yes carries no reason")
+
+		return
+	}
+
+	assert.NotEmpty(t, header["agent_on_db_host_reason"],
+		"a bare %s is a bug: the operator has nothing to act on", verdict)
+}
+
+func assertPollHeartbeat(t *testing.T, rows map[string]string) {
+	t.Helper()
+
+	assert.NotContains(t, rows, "heartbeat_error", "the fixture is up")
+
+	for _, metric := range []string{"connect_ms", "query_ms"} {
+		value, err := strconv.ParseFloat(rows[metric], 64)
+		require.NoError(t, err, "%s is decimal milliseconds", metric)
+		assert.Positive(t, value, "%s measured a real round trip", metric)
+	}
+}
+
+func assertPollConnections(t *testing.T, server matrixServer, role matrixRole, rows map[string]string) {
+	t.Helper()
+
+	total, err := strconv.ParseInt(rows["backends_total"], 10, 64)
+	require.NoError(t, err)
+
+	current, err := strconv.ParseInt(rows["current_connections"], 10, 64)
+	require.NoError(t, err)
+
+	masked, err := strconv.ParseInt(rows["backends_masked"], 10, 64)
+	require.NoError(t, err)
+
+	// The poll's own session is in every one of these counts.
+	assert.GreaterOrEqual(t, current, int64(1))
+	assert.GreaterOrEqual(t, total, current, "the plain count includes the background processes")
+	assert.Equal(t, current >= total, masked > 0 || current == total)
+
+	if role.privileged() {
+		// pg_read_all_stats: backend_type is visible on every row, so the count is exact.
+		assert.Equal(t, int64(0), masked, "a privileged role sees every backend_type")
+		assert.Less(t, current, total, "an idle cluster runs background processes beside us")
+	} else {
+		// A LOGIN-only role sees NULL for every session but its own, so the count
+		// folds the masked rows in and is never lower than the truth.
+		assert.Positive(t, masked)
+		assert.Equal(t, total, current)
+	}
+
+	assert.NotEmpty(t, rows["max_connections"])
+	assert.NotEmpty(t, rows["superuser_reserved_connections"])
+
+	if server.major >= 16 {
+		assert.Contains(t, rows, "reserved_connections", "the setting exists from PostgreSQL 16")
+	} else {
+		assert.NotContains(t, rows, "reserved_connections",
+			"a setting this version does not have is left out, not zeroed")
+	}
+}
+
+// assertPollHostScoped pins the contract the report side depends on: host data
+// exists in this stream only where the runner is confirmed to be the database's.
+func assertPollHostScoped(t *testing.T, header, rows map[string]string) {
+	t.Helper()
+
+	if header["agent_on_db_host"] == OnDBHostYes {
+		assert.NotContains(t, rows, "runner_load1", "the top capture covers the runner instead")
+		assert.NotContains(t, rows, "agent_cpu_pct")
+
+		return
+	}
+
+	assert.NotContains(t, rows, "disk_free_bytes", "the runner's own disk is never sent instead")
+	assert.NotContains(t, rows, "disk_total_bytes")
+	assert.NotContains(t, rows, "disk_mount")
+
+	assert.Contains(t, rows, "disk_reason")
+	assert.Contains(t, rows, "agent_cpu_pct",
+		"runner health stands in for the top capture that will not run")
+}
+
+// The check is one function shared with the deep dive, so the poll and
+// pg_metadata.txt can disagree about a moment but never about the method.
+func TestMatrixPollAgreesWithTheDeepDive(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			target := matrixTarget(server, matrixRoles[1])
+
+			deepDive := collectFromMatrix(t, target)
+
+			poll := Poll(context.Background(), PollRequest{
+				Target: target,
+				Runner: "matrix-runner",
+				Now:    time.Now(),
+			})
+
+			assert.Equal(t, deepDive.AgentOnDBHost, poll.AgentOnDBHost)
+			assert.Equal(t, deepDive.AgentOnDBHostReason, poll.AgentOnDBHostReason)
+			assert.Equal(t, deepDive.AgentOnDBHostBy, poll.AgentOnDBHostBy)
+		})
+	}
+}
+
+// A poll holds one connection for its own length and no longer: a connection held
+// between cycles would occupy a max_connections slot on a database that may be out
+// of them.
+func TestMatrixPollLeavesNoSessionBehind(t *testing.T) {
+	target := matrixTarget(matrixServers[3], matrixRoles[1])
+
+	before, err := matrixCountCaptureSessions(target)
+	require.NoError(t, err)
+
+	result := Poll(context.Background(), PollRequest{
+		Target: target,
+		Runner: "matrix-runner",
+		Now:    time.Now(),
+	})
+	require.Empty(t, result.HeartbeatError)
+
+	after, err := matrixCountCaptureSessions(target)
+	require.NoError(t, err)
+
+	assert.Equal(t, before, after, "the poll's connection is closed when the poll ends")
+}

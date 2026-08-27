@@ -1,0 +1,13 @@
+# engine=postgres source=pg_m3 v=1 format=csv scope=cluster runner=jump-01 target_host=orders.abc123.eu-west-1.rds.amazonaws.com target_port=5432 target_database=orders agent_on_db_host=no agent_on_db_host_reason=pid_absent server_version_num=160010 ts=2026-08-25T09:12:00.000Z
+metric,value
+connect_ms,38.4
+query_ms,1.9
+current_connections,141
+backends_total,152
+backends_masked,0
+max_connections,450
+superuser_reserved_connections,3
+reserved_connections,0
+runner_load1,0.42
+agent_cpu_pct,0.6
+disk_reason,not_co_resident
