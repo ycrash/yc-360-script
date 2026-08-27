@@ -67,11 +67,9 @@ application target alongside it is refused before anything is captured:
 ```
 ERR  A postgres: block and an application target can not run together - the
      database capture is a separate run. Use a configuration file with no
-     postgres: block for the application capture, or drop -p/-m3/-port for the
-     database capture.
+     postgres: block for the application capture, or drop -p/-port and
+     processTokens for the database capture.
 ```
-
-That applies to all three: `-p <pid>`, `-m3`, and `-port <n>`.
 
 **So the block does not go in the configuration file an existing deployment
 already uses.** Give the database capture a file of its own:
@@ -79,17 +77,65 @@ already uses.** Give the database capture a file of its own:
 ```sh
 ./yc-360 -c app.yaml -p 4821        # application capture, no postgres: block
 ./yc-360 -c db.yaml                 # database capture, postgres: block, no PID
+./yc-360 -c db.yaml -m3 -k <key>    # database monitoring, the same block on a loop
 ```
 
-Two consequences worth knowing before you plan a rollout:
+The one combination that is allowed is the third: `-m3` with a `postgres:` block
+and **no** application target. That is database monitoring, and it is described
+below. Every other combination is refused — `-p <pid>`, `-port <n>`, and `-m3`
+with `processTokens` set.
 
-- **There is no recurring database capture.** `-m3` is one of the refused
-  targets, so a database cannot be sampled every incident cycle today.
+One consequence worth knowing before you plan a rollout:
+
 - **A mis-nested block is silent when an application target is present.** The
   block belongs under `options:`; at the top level of the file it decodes to
   nothing. On a database-only run that is loud — the run has no target left and
   stops with `nothing can be done`. Alongside `-p` it is not: the run has a
   target, so it proceeds and simply captures no database. Check the nesting.
+
+## Monitoring a database on a loop
+
+`-m3` with a `postgres:` block and no application target runs database
+monitoring. Every cycle takes one small reading and sends it; the cycle length is
+`m3Frequency`, three minutes by default.
+
+```sh
+./yc-360 -c db-monitor.yaml -m3 -k <key>
+```
+
+The reading is a fresh connection and one statement. It carries how long the
+connection took, how long the statement took, how many sessions are open against
+the limit, and — when this machine runs the database — how much free space is
+left on the database's own volumes. Nothing else. It computes no ratios and
+applies no thresholds; the server does that.
+
+Three things follow from that shape:
+
+- **One connection per cycle, closed when the cycle ends.** A connection held
+  open would occupy a `max_connections` slot permanently, on a database that may
+  be out of them.
+- **A value that could not be read is never a zero.** It is left out, and a
+  reason row says why — `heartbeat_error` when the database did not answer,
+  `disk_reason` when the volumes could not be read. A database that is down is
+  the most important reading of all, so that payload is still sent.
+- **Host data follows `agent_on_db_host`, not the presence of the block.** The
+  CPU and memory capture describes the machine the agent runs on, so it is sent
+  only where that machine is confirmed to be the database's. Where it is not,
+  the reading carries the runner's load average and the agent's own CPU instead,
+  so a slow heartbeat can be told from a struggling runner. See
+  [Where to run it](#where-to-run-it).
+
+The server may answer a cycle by asking for a full capture. When it does, the
+agent runs exactly the deep dive `./yc-360 -c db.yaml` runs, and the next cycle
+waits for it to finish.
+
+Two limits to know:
+
+- **`-onlyCapture` sends nothing.** The reading's only product is the upload, so
+  the loop runs and does nothing. The agent warns once at start.
+- **One runner, not N.** See [One sampler per cluster](#one-sampler-per-cluster);
+  under `-m3` that rule is now the deployment model rather than a side effect of
+  a refusal.
 
 ## Which database to name
 
@@ -368,6 +414,12 @@ the run did with it, so a bundle with no host files explains itself, and the
 agent log carries the deployment change that would turn most reasons into a
 `yes`.
 
+The same answer gates database monitoring's CPU and memory stream: under `-m3`
+the `top` capture runs only on a confirmed database host, and where it does not,
+the cycle's reading carries `runner_load1` and `agent_cpu_pct` in its place. So
+host data in the monitoring stream exists exactly where `agent_on_db_host=yes`,
+with no label to interpret.
+
 Two things follow. A run against a managed service or a remote host never
 uploads a foreign machine's process list and connection table under the
 database's name. And on a database host, `netstat` and `ps` stretch their
@@ -447,6 +499,8 @@ it — and keep the `postgres:` block in that host's configuration file and
 nowhere else.
 
 Sharing one configuration file across N hosts running `-m3` is the way this
-usually happens by accident. Today that particular mistake cannot reach the
-database, because a block alongside `-m3` is refused outright (above) — but the
-refusal is a side effect, not a guard, so the rule stands on its own.
+usually happens by accident, and since database monitoring runs on `-m3` there is
+no longer a refusal standing in its way: N runners with that file give the
+database N pollers, every cycle, for as long as they run. Each reading names its
+runner and its target, so the server can see the duplication — but the agent
+cannot see the other runners and does not try to. Keep the block on one host.
