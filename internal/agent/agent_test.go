@@ -79,7 +79,8 @@ func TestRun(t *testing.T) {
 		}{
 			{"with a PID", config.Options{Pid: "12345", Postgres: &config.Postgres{Host: "db"}}},
 			{"with a process token", config.Options{Pid: "buggyApp", Postgres: &config.Postgres{Host: "db"}}},
-			{"with M3", config.Options{M3: true, Postgres: &config.Postgres{Host: "db"}}},
+			{"with M3 and process tokens", config.Options{M3: true, ProcessTokens: config.ProcessTokens{"app"},
+				Postgres: &config.Postgres{Host: "db"}}},
 			{"with API mode", config.Options{Port: 8080, Postgres: &config.Postgres{Host: "db"}}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -95,9 +96,9 @@ func TestCheckRunTargets(t *testing.T) {
 	logger.Init("", 0, 0, "info")
 
 	tests := []struct {
-		name                                    string
-		onDemandMode, m3Mode, apiMode, dbTarget bool
-		want                                    error
+		name                                                   string
+		onDemandMode, m3Mode, apiMode, dbTarget, appTokensMode bool
+		want                                                   error
 	}{
 		{name: "no target at all", want: ErrNothingCanBeDone},
 		{name: "a configured postgres block is a target on its own", dbTarget: true},
@@ -107,13 +108,22 @@ func TestCheckRunTargets(t *testing.T) {
 		{name: "ondemand and m3", onDemandMode: true, m3Mode: true, want: ErrConflictingMode},
 
 		{name: "postgres and a PID", onDemandMode: true, dbTarget: true, want: ErrConflictingMode},
-		{name: "postgres and M3", m3Mode: true, dbTarget: true, want: ErrConflictingMode},
 		{name: "postgres and API mode", apiMode: true, dbTarget: true, want: ErrConflictingMode},
+
+		// Database monitoring: one target, so the two-target refusal does not apply.
+		{name: "postgres and M3", m3Mode: true, dbTarget: true},
+		{name: "postgres and M3 with process tokens", m3Mode: true, dbTarget: true,
+			appTokensMode: true, want: ErrConflictingMode},
+		{name: "postgres and M3 with a PID", m3Mode: true, dbTarget: true,
+			onDemandMode: true, want: ErrConflictingMode},
+		{name: "postgres and M3 with API mode", m3Mode: true, dbTarget: true,
+			apiMode: true, want: ErrConflictingMode},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, checkRunTargets(tt.onDemandMode, tt.m3Mode, tt.apiMode, tt.dbTarget))
+			assert.Equal(t, tt.want,
+				checkRunTargets(tt.onDemandMode, tt.m3Mode, tt.apiMode, tt.dbTarget, tt.appTokensMode))
 		})
 	}
 }

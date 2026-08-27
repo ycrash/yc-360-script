@@ -30,8 +30,9 @@ func Run() error {
 
 	// A configured postgres: block is itself the target switch.
 	dbTargetMode := config.GlobalConfig.Postgres.IsConfigured()
+	appTokensMode := len(config.GlobalConfig.ProcessTokens) > 0
 
-	if err := checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode); err != nil {
+	if err := checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode); err != nil {
 		return err
 	}
 
@@ -44,8 +45,10 @@ func Run() error {
 		go runAPIMode()
 	}
 
-	// Database-only runs share the on-demand path; checkRunTargets already excludes an app target here.
-	if onDemandMode || dbTargetMode {
+	// A postgres: block with -m3 is database monitoring, which the M3 loop drives.
+	// Without -m3 it is the one-shot deep dive, which shares the on-demand path.
+	// checkRunTargets already excludes an app target from either.
+	if (onDemandMode || dbTargetMode) && !m3Mode {
 		runOnDemandMode()
 	} else {
 		if m3Mode {
@@ -100,7 +103,11 @@ func runAPIMode() {
 }
 
 func runM3Mode() {
-	logger.Log("Running M3 mode")
+	if config.GlobalConfig.Postgres.IsConfigured() {
+		logger.Log("Running M3 mode: database monitoring (postgres: block, no application target)")
+	} else {
+		logger.Log("Running M3 mode")
+	}
 
 	m3App := m3.NewM3App()
 	m3AppMu.Lock()
@@ -119,7 +126,7 @@ func runM3Mode() {
 }
 
 // checkRunTargets validates which capture targets a run may combine.
-func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode bool) error {
+func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode bool) error {
 	// Validation: abort if no mode is specified (M3, OnDemand, API, or a database target).
 	if !onDemandMode && !apiMode && !m3Mode && !dbTargetMode {
 		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. No postgres: block is " +
@@ -136,12 +143,20 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode bool) error {
 		return ErrConflictingMode
 	}
 
+	// Validation: -m3 with a postgres: block and no application target is database
+	// monitoring. The refusal below is about composing two targets; this run has one,
+	// and it reuses the M3 loop rather than growing a second one.
+	if dbTargetMode && m3Mode && !onDemandMode && !apiMode && !appTokensMode {
+		return nil
+	}
+
 	// Validation: database and app targets are separate runs, refused rather than
 	// picking a winner, which would silently produce an incomplete bundle.
 	if dbTargetMode && (onDemandMode || m3Mode || apiMode) {
 		logger.Error().Msg("A postgres: block and an application target can not run together - " +
 			"the database capture is a separate run. Use a configuration file with no postgres: " +
-			"block for the application capture, or drop -p/-m3/-port for the database capture.")
+			"block for the application capture, or drop -p/-port and processTokens for the " +
+			"database capture.")
 
 		return ErrConflictingMode
 	}
