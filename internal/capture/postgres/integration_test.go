@@ -4376,3 +4376,141 @@ func TestMatrixPollLeavesNoSessionBehind(t *testing.T) {
 
 	assert.Equal(t, before, after, "the poll's connection is closed when the poll ends")
 }
+
+// --- the same-host case ------------------------------------------------------
+
+// Every other check in this file runs the suite outside the fixture's containers,
+// so the agent is never the database's machine and the verdict is always no. These
+// run the suite *inside* the container, which is the one deployment that reaches
+// agent_on_db_host=yes - and with it the disk read, which is skipped everywhere
+// else. manual-tests/14-same-host.sh is what puts the binary there.
+func sameHostTarget(t *testing.T) Target {
+	t.Helper()
+
+	hostPort := os.Getenv("YC_PG_SAME_HOST")
+	if hostPort == "" {
+		t.Skip("set YC_PG_SAME_HOST=host:port to run the same-host checks; " +
+			"manual-tests/14-same-host.sh does it inside the fixture container")
+	}
+
+	host, portText, ok := strings.Cut(hostPort, ":")
+	require.True(t, ok, "YC_PG_SAME_HOST is host:port, got %q", hostPort)
+
+	port, err := strconv.Atoi(portText)
+	require.NoError(t, err)
+
+	return Target{
+		Host:     host,
+		Port:     port,
+		Database: envOrDefault("YC_PG_SAME_HOST_DATABASE", "postgres"),
+		Username: envOrDefault("YC_PG_SAME_HOST_USER", "yc_monitor"),
+		Password: envOrDefault("YC_PG_SAME_HOST_PASSWORD", "yc-monitor-pw"),
+		SSLMode:  "disable",
+	}
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+
+	return fallback
+}
+
+func TestSameHostPoll(t *testing.T) {
+	target := sameHostTarget(t)
+
+	result := Poll(context.Background(), PollRequest{
+		Target: target,
+		Runner: "same-host-runner",
+		Now:    time.Now(),
+	})
+
+	var payload bytes.Buffer
+	require.NoError(t, WritePoll(&payload, result))
+
+	t.Logf("same host:\n%s", payload.String())
+
+	header, rows := parsePollPayload(t, payload.String())
+
+	require.Empty(t, result.HeartbeatError, "the database is on this machine and answering")
+
+	// The whole point: the positive title match, on a PID this process can see.
+	require.Equal(t, OnDBHostYes, header["agent_on_db_host"],
+		"the agent shares a machine with the database, so the backend PID is visible here")
+	assert.Contains(t, []string{confirmedByBackendPID, confirmedByBackendPIDNSpid},
+		header["agent_on_db_host_by"])
+	assert.NotContains(t, header, "agent_on_db_host_reason", "a yes carries no reason")
+
+	// Disk is read only here. Everywhere else it is withheld with a reason.
+	assert.NotContains(t, rows, "disk_reason")
+
+	free, err := strconv.ParseUint(rows["disk_free_bytes"], 10, 64)
+	require.NoError(t, err, "disk_free_bytes is bytes, not a percentage")
+
+	total, err := strconv.ParseUint(rows["disk_total_bytes"], 10, 64)
+	require.NoError(t, err)
+
+	assert.Positive(t, total)
+	assert.LessOrEqual(t, free, total, "free space cannot exceed the volume")
+
+	// The path is the database's own, not the runner's cwd or root.
+	mount := rows["disk_mount"]
+	require.NotEmpty(t, mount)
+
+	_, err = os.Stat(mount)
+	assert.NoError(t, err, "disk_mount names a path that exists on this machine")
+
+	// The top capture covers the runner here, so the stand-in rows stay out.
+	assert.NotContains(t, rows, "runner_load1")
+	assert.NotContains(t, rows, "agent_cpu_pct")
+
+	// Every path was read. A denied tablespace query or an unreadable volume would
+	// leave a note here, and the reading would quietly describe fewer volumes.
+	assert.Empty(t, result.Notes)
+}
+
+// The disk read follows the database's own paths, so a tablespace on a different
+// volume is covered and the fullest of them is what gets reported.
+func TestSameHostDiskCoversTheDatabasePaths(t *testing.T) {
+	target := sameHostTarget(t)
+
+	deepDive := collectFromMatrix(t, target)
+	require.NotEmpty(t, deepDive.DataDirectory, "this role reads data_directory")
+
+	result := Poll(context.Background(), PollRequest{
+		Target: target,
+		Runner: "same-host-runner",
+		Now:    time.Now(),
+	})
+
+	require.Empty(t, result.DiskReason)
+
+	// pg_wal is listed beside the data directory because it is often a link to its
+	// own volume, and a full WAL volume is the classic way a database stops.
+	assert.Contains(t,
+		[]string{deepDive.DataDirectory, filepath.Join(deepDive.DataDirectory, "pg_wal")},
+		result.DiskMount,
+		"with no separate tablespace the fullest volume is one of the two default paths")
+}
+
+// The check is one function shared with the deep dive, so a run on the database's own machine must
+// answer yes in pg_metadata.txt too - and record that it captured host files.
+func TestSameHostAgreesWithTheDeepDive(t *testing.T) {
+	target := sameHostTarget(t)
+
+	deepDive := collectFromMatrix(t, target)
+
+	poll := Poll(context.Background(), PollRequest{
+		Target: target,
+		Runner: "same-host-runner",
+		Now:    time.Now(),
+	})
+
+	assert.Equal(t, OnDBHostYes, deepDive.AgentOnDBHost)
+	assert.Equal(t, HostArtifactsCaptured, deepDive.HostArtifacts,
+		"the gate opens exactly where the verdict is yes")
+
+	assert.Equal(t, deepDive.AgentOnDBHost, poll.AgentOnDBHost)
+	assert.Equal(t, deepDive.AgentOnDBHostBy, poll.AgentOnDBHostBy)
+}
