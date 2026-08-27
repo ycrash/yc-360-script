@@ -63,7 +63,7 @@ func agentCPUPercent() string {
 func (p *PollResult) readDisk(ctx context.Context, q RowQuerier, dataDirectory, password string) {
 	switch {
 	case p.AgentOnDBHost == OnDBHostNo:
-		p.DiskReason = diskReasonNotCoResident
+		p.DiskReason = diskReasonNotSameHost
 		return
 
 	case !p.OnDBHost():

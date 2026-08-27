@@ -77,7 +77,7 @@ func jumpBoxPoll() PollResult {
 		RunnerLoad1: "0.42",
 		AgentCPUPct: "0.6",
 
-		DiskReason: diskReasonNotCoResident,
+		DiskReason: diskReasonNotSameHost,
 	}
 }
 
@@ -325,7 +325,7 @@ func TestPollDiskGate(t *testing.T) {
 		want          string
 	}{
 		{"the database is on another machine", OnDBHostNo, "/var/lib/postgresql/17/main",
-			diskReasonNotCoResident},
+			diskReasonNotSameHost},
 		{"the check could not decide", OnDBHostUnknown, "/var/lib/postgresql/17/main",
 			diskReasonDBHostUnknown},
 		{"this role may not read data_directory", OnDBHostYes, "", diskReasonSettingUnavailable},

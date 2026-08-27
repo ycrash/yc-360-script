@@ -10,4 +10,4 @@ superuser_reserved_connections,3
 reserved_connections,0
 runner_load1,0.42
 agent_cpu_pct,0.6
-disk_reason,not_co_resident
+disk_reason,not_same_host
