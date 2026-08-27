@@ -44,7 +44,7 @@ const (
 const (
 	diskReasonNoConnection       = "no_connection"
 	diskReasonDBHostUnknown      = "db_host_unknown"
-	diskReasonNotCoResident      = "not_co_resident"
+	diskReasonNotSameHost        = "not_same_host"
 	diskReasonSettingUnavailable = "setting_unavailable"
 	diskReasonReadFailed         = "read_failed"
 )
@@ -318,7 +318,7 @@ func (p PollResult) LogLine(sent bool) string {
 }
 
 // pollSQL is the one statement: the heartbeat's second half, the connection
-// figures, the settings, and the facts the co-residency check needs. Settings come
+// figures, the settings, and the facts the same-host check needs. Settings come
 // from pg_settings, not SHOW, so a name this role may not read comes back NULL
 // instead of raising and losing the whole statement.
 //
