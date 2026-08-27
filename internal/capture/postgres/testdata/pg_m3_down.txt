@@ -1,0 +1,6 @@
+# engine=postgres source=pg_m3 v=1 format=csv scope=cluster runner=db-prod-01 target_host=localhost target_port=5432 target_database=orders agent_on_db_host=unknown agent_on_db_host_reason=no_connection ts=2026-08-25T09:12:00.000Z
+metric,value
+heartbeat_error,unreachable
+runner_load1,7.9
+agent_cpu_pct,0.4
+disk_reason,no_connection
