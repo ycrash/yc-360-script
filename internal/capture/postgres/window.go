@@ -171,9 +171,8 @@ type SampleContext struct {
 	// skips the generic-plan mode rather than attempting it.
 	HasGenericPlan bool
 
-	// ConnectDuration is how long the dial took. The window owns the connection, so
-	// a collector wanting to report the connection's cost can only learn it here.
-	// Zero before the dial and on every path that never reached one.
+	// ConnectDuration is the dial's cost. The window owns the connection, so this
+	// is where a collector learns it. Zero on every path that never dialled.
 	ConnectDuration time.Duration
 
 	// redact centralizes the window's password redaction.
@@ -210,10 +209,9 @@ type windowConn interface {
 	Close(ctx context.Context) error
 }
 
-// connectTimer is the part of *Conn that reports what the dial cost. Asked for by
-// assertion rather than added to windowConn, so a fake connection is not obliged
-// to implement it and simply reports nothing - the truth about a dial it never
-// made.
+// connectTimer is the part of *Conn reporting the dial's cost. Asserted rather
+// than added to windowConn, so a fake reports nothing - the truth about a dial it
+// never made.
 type connectTimer interface {
 	ConnectDuration() time.Duration
 }

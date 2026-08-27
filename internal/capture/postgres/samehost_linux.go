@@ -14,13 +14,11 @@ import (
 // procRoot is a variable so tests can point the inspector at a fixture tree.
 var procRoot = "/proc"
 
-// linuxInspector reads /proc directly. The title read goes through /proc rather
-// than ps because the namespace scan needs /proc anyway, and cmdline is NUL
-// separated, which is what makes an empty kernel-thread command line
-// distinguishable from a backend title.
+// linuxInspector reads /proc directly: the namespace scan needs it anyway, and
+// cmdline's NUL separation is what distinguishes an empty kernel thread from a
+// backend title.
 type linuxInspector struct {
-	// updateProcessTitle is the server's setting. On Linux the fixed part of the
-	// title survives with it off, so this is recorded rather than acted on.
+	// Recorded, not acted on: on Linux the title's fixed part survives it being off.
 	updateProcessTitle string
 }
 
@@ -34,8 +32,8 @@ func (linuxInspector) title(pid int) (string, bool) {
 	return readCmdline(filepath.Join(procRoot, strconv.Itoa(pid)))
 }
 
-// readCmdline turns /proc/<pid>/cmdline's NUL-separated argv into a single
-// string. A backend that has rewritten its argv appears as one long argument.
+// readCmdline joins cmdline's NUL-separated argv; a backend that rewrote its argv
+// appears as one long argument.
 func readCmdline(dir string) (string, bool) {
 	raw, err := os.ReadFile(filepath.Join(dir, "cmdline"))
 	if err != nil {
@@ -44,17 +42,16 @@ func readCmdline(dir string) (string, bool) {
 
 	trimmed := bytes.TrimRight(raw, "\x00")
 	if len(trimmed) == 0 {
-		// A kernel thread: visible, but with nothing to match against. This is
-		// what a PID collision in the host namespace usually looks like.
+		// A kernel thread: visible, nothing to match. The usual shape of a PID
+		// collision in the host namespace.
 		return "", true
 	}
 
 	return string(bytes.ReplaceAll(trimmed, []byte{0}, []byte{' '})), true
 }
 
-// canSeeForeignProcesses checks visibility of PID 1, which every /proc has and
-// no unprivileged agent owns. Under hidepid=1 or 2 the directory is unreadable,
-// and an absent backend then proves nothing.
+// canSeeForeignProcesses tests PID 1, which every /proc has and no unprivileged
+// agent owns. Unreadable under hidepid, where an absent backend proves nothing.
 func (linuxInspector) canSeeForeignProcesses() bool {
 	_, err := os.ReadFile(filepath.Join(procRoot, "1", "cmdline"))
 
@@ -79,14 +76,11 @@ func (linuxInspector) inContainer() bool {
 		strings.Contains(text, "libpod")
 }
 
-// titleByNamespacedPID scans for the host process whose innermost namespaced PID
-// equals pid - PostgreSQL in a container, agent on the host. NSpid lists the
-// process's PID in every namespace it belongs to, innermost last. Needs no root,
-// only a readable /proc.
-//
-// The scan deliberately returns the title rather than a verdict: the caller still
-// has to match it, because the root namespace routinely holds an unrelated
-// process at the same bare number.
+// titleByNamespacedPID scans for the host process whose innermost NSpid equals
+// pid - PostgreSQL in a container, agent on the host. NSpid lists a PID in every
+// namespace it belongs to, innermost last; no root needed. It returns the title,
+// not a verdict, because the root namespace routinely holds an unrelated process
+// at the same bare number.
 func (linuxInspector) titleByNamespacedPID(pid int) (string, bool) {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
@@ -145,9 +139,8 @@ func innermostNSpid(name string) int {
 	return 0
 }
 
-// parentStartTime resolves the backend's parent - the postmaster - and reads its
-// start time as btime + starttime/CLK_TCK. Measured against
-// pg_postmaster_start_time() 1s apart, from integer truncation on both sides.
+// parentStartTime reads the postmaster's start as btime + starttime/CLK_TCK.
+// Measured 1s off pg_postmaster_start_time(), from truncation on both sides.
 func (linuxInspector) parentStartTime(pid int) (time.Time, bool) {
 	ppid, ok := parentPID(pid)
 	if !ok {
@@ -164,8 +157,7 @@ func (linuxInspector) parentStartTime(pid int) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	// USER_HZ is 100 on every Linux port the agent supports; it is a userspace
-	// constant, not the kernel's CONFIG_HZ.
+	// USER_HZ, not the kernel's CONFIG_HZ. 100 on every port the agent supports.
 	const userHZ = 100
 
 	return boot.Add(time.Duration(ticks) * time.Second / userHZ), true
@@ -193,9 +185,8 @@ func parentPID(pid int) (int, bool) {
 	return 0, false
 }
 
-// startTimeTicks reads field 22 of /proc/<pid>/stat. The parse starts after the
-// final ')' because field 2 is the executable name and may itself contain spaces
-// and parentheses.
+// startTimeTicks reads field 22 of stat, parsing after the final ')' because
+// field 2 is the executable name and may contain spaces and parentheses.
 func startTimeTicks(pid int) (int64, bool) {
 	raw, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
 	if err != nil {

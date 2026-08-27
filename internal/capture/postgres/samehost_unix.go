@@ -10,10 +10,7 @@ import (
 	"yc-agent/internal/capture/executils"
 )
 
-// unixInspector covers the BSDs, macOS and AIX: no /proc to scan, so the title
-// comes from ps. macOS suppresses backend titles unreliably, which is why an
-// unmatched title there degrades to unknown rather than no - the caller reaches
-// that through the ordinary title path.
+// unixInspector covers the BSDs, macOS and AIX: no /proc, so titles come from ps.
 type unixInspector struct {
 	updateProcessTitle string
 }
@@ -22,14 +19,13 @@ func newProcessInspector(updateProcessTitle string) processInspector {
 	return unixInspector{updateProcessTitle: updateProcessTitle}
 }
 
-// titlesReadable is false when the server says it is not writing titles. On Linux
-// the fixed part of the title survives the setting being off, but that was only
-// confirmed there, so on these platforms the setting is taken at its word.
+// titlesReadable takes the server's setting at its word. The fixed part surviving
+// it being off was confirmed on Linux only.
 func (u unixInspector) titlesReadable() bool {
 	return !strings.EqualFold(u.updateProcessTitle, "off")
 }
 
-// title reads the command with ps rather than a /proc path, so this works on BSD.
+// title uses ps rather than /proc, so this works on BSD.
 func (unixInspector) title(pid int) (string, bool) {
 	out, err := executils.CommandCombinedOutput(
 		executils.Command{"ps", "-o", "command=", "-p", strconv.Itoa(pid)})
@@ -45,8 +41,7 @@ func (unixInspector) title(pid int) (string, bool) {
 	return title, true
 }
 
-// canSeeForeignProcesses asks ps for PID 1, which exists everywhere and no
-// unprivileged agent owns.
+// canSeeForeignProcesses asks ps for PID 1: everywhere, and owned by no agent.
 func (unixInspector) canSeeForeignProcesses() bool {
 	out, err := executils.CommandCombinedOutput(
 		executils.Command{"ps", "-o", "command=", "-p", "1"})
@@ -54,17 +49,15 @@ func (unixInspector) canSeeForeignProcesses() bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// inContainer is Linux-shaped detection; on these platforms the answer is no,
-// which keeps an absent PID on the honest pid_absent rather than a vaguer
-// unknown.
+// inContainer is Linux-shaped, so no here - keeping an absent PID on the honest
+// pid_absent rather than a vaguer unknown.
 func (unixInspector) inContainer() bool { return false }
 
-// titleByNamespacedPID has no equivalent outside Linux: PID namespaces are a
-// Linux feature.
+// titleByNamespacedPID has no equivalent: PID namespaces are Linux-only.
 func (unixInspector) titleByNamespacedPID(int) (string, bool) { return "", false }
 
-// parentStartTime resolves the parent with ps and reads its start time the same
-// way. lstart is second-resolution, which the tolerance already allows for.
+// parentStartTime uses ps twice. lstart is second-resolution, which the tolerance
+// already allows for.
 func (unixInspector) parentStartTime(pid int) (time.Time, bool) {
 	out, err := executils.CommandCombinedOutput(
 		executils.Command{"ps", "-o", "ppid=", "-p", strconv.Itoa(pid)})

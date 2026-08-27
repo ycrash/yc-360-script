@@ -26,11 +26,9 @@ type Postgres struct {
 	// plans: EXPLAIN carries a privilege and a load cost the other nine artifacts do not.
 	Explain string `yaml:"explain"`
 
-	// AgentOnDBHost declares that this machine runs the database, authorising host
-	// capture when the agent cannot establish it for itself. It exists for the one
-	// case the probe cannot reach: the database is down, so there is no backend to
-	// look for - which is exactly when the host readings matter most. A measured
-	// answer always wins, so the declaration never overrides what the run found.
+	// AgentOnDBHost declares that this machine runs the database, for the one case
+	// the probe cannot reach: the database is down, so there is no backend to look
+	// for - exactly when host readings matter most. A measurement always wins.
 	AgentOnDBHost bool `yaml:"agentOnDbHost"`
 }
 
@@ -44,8 +42,7 @@ const (
 	DefaultPostgresSSLMode = "require"
 
 	// DefaultPostgresCaptureDuration matches SCRIPT_SPAN, the application capture's
-	// nominal span. It is not the host collectors' real span: top and vmstat run
-	// about 20 seconds regardless.
+	// nominal span - not the host collectors' real one: top and vmstat run ~20s.
 	DefaultPostgresCaptureDuration = 120 * time.Second
 
 	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a shared database.
