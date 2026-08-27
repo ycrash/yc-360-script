@@ -1,0 +1,13 @@
+# engine=postgres source=pg_m3 v=1 format=csv scope=cluster runner=db-prod-01 target_host=localhost target_port=5432 target_database=orders agent_on_db_host=yes agent_on_db_host_by=backend_pid server_version_num=170006 ts=2026-08-25T09:12:00.000Z
+metric,value
+connect_ms,4.8
+query_ms,0.7
+current_connections,141
+backends_total,148
+backends_masked,0
+max_connections,200
+superuser_reserved_connections,3
+reserved_connections,0
+disk_free_bytes,48318382080
+disk_total_bytes,107374182400
+disk_mount,/var/lib/postgresql/17/main/pg_wal
