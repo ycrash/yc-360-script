@@ -9,29 +9,25 @@ import (
 	"time"
 )
 
-// Is the agent on the machine running the database? Every error path returns
-// unknown or no, never a false yes: a wrong yes would label another machine's
-// CPU, memory and kernel readings as the database host's.
+// Is the agent on the machine running the database? Never a false yes: that would
+// label another machine's CPU, memory and kernel readings as the database host's.
 const (
 	OnDBHostYes     = "yes"
 	OnDBHostNo      = "no"
 	OnDBHostUnknown = "unknown"
 )
 
-// Which test produced a yes. Stored separately so a new test can be added
-// without changing the set of rows.
+// Which test produced a yes, kept separate so a new test needs no new row.
 const (
 	confirmedByBackendPID      = "backend_pid"
 	confirmedByBackendPIDNSpid = "backend_pid_nspid"
 	confirmedByPostmasterStart = "postmaster_start_time"
 
-	// confirmedByConfigured is the operator's declaration rather than a reading, so
-	// a reader can always tell the two apart.
+	// confirmedByConfigured is a claim, not a reading.
 	confirmedByConfigured = "configured"
 )
 
-// What the gate did with the host collectors, so a bundle with no host files
-// explains itself.
+// What the gate did, so a bundle with no host files explains itself.
 const (
 	HostArtifactsCaptured = "captured"
 	HostArtifactsSkipped  = "skipped"
@@ -48,9 +44,8 @@ const (
 	hostReasonTitleMismatch    = "title_mismatch"
 )
 
-// Supporting signals. Any of these can be produced by a tunnel or a pooler from a
-// machine that is not the database host, so they are recorded but never used to
-// decide the verdict.
+// Supporting signals. A tunnel or a pooler produces any of them from a machine
+// that is not the host, so they are recorded and never decide the verdict.
 const (
 	evidenceClientSocket    = "client_socket"
 	evidenceLogFile         = "log_file"
@@ -58,23 +53,22 @@ const (
 	evidenceInetServerNull  = "inet_server_null"
 )
 
-// postmasterStartTolerance covers integer truncation on both sides. Two readings
-// of one postmaster start were measured 1s apart.
+// postmasterStartTolerance covers truncation on both sides; two readings of one
+// start were measured 1s apart.
 const postmasterStartTolerance = 2 * time.Second
 
-// backendTitle is what a PostgreSQL backend writes over its own argv:
+// backendTitle is what a backend writes over its own argv:
 //
 //	postgres: <role> <database> <client_host>(<client_port>) <activity>
 //	postgres: <role> <database> [local] <activity>
 //
-// With update_process_title=off the fixed part above still survives on Linux:
-// only the trailing activity stops updating. That is why the match never reads
-// the activity.
+// The match stops before the activity, which is the only part
+// update_process_title=off stops updating on Linux.
 var backendTitle = regexp.MustCompile(
 	`^postgres:\s+(?:\S+:\s+)?(\S+)\s+(\S+)\s+(?:\[local\]|([^\s(]+)\((\d+)\))`)
 
-// parsedTitle is the fixed part of a backend title. local is true for a
-// unix-socket connection, which has no address and port to compare.
+// parsedTitle is the fixed part of a backend title. local means a unix socket,
+// which has no address and port to compare.
 type parsedTitle struct {
 	role     string
 	database string
@@ -83,8 +77,8 @@ type parsedTitle struct {
 	local    bool
 }
 
-// parseBackendTitle reports ok=false for anything that is not a PostgreSQL
-// backend title, which is the common case for a colliding PID.
+// parseBackendTitle reports false for anything that is not a backend title, which
+// is the common case for a colliding PID.
 func parseBackendTitle(title string) (parsedTitle, bool) {
 	m := backendTitle.FindStringSubmatch(strings.TrimSpace(title))
 	if m == nil {
@@ -100,8 +94,8 @@ func parseBackendTitle(title string) (parsedTitle, bool) {
 	}, true
 }
 
-// sameHostFacts is what the server reported about this connection. An empty
-// string means the query that would have set it did not run.
+// sameHostFacts is what the server reported about this connection; empty means
+// the query that would have set it did not run.
 type sameHostFacts struct {
 	backendPID      string
 	role            string
@@ -111,12 +105,11 @@ type sameHostFacts struct {
 	serverAddr      string
 	postmasterStart string
 
-	// logDirect is log_access == direct: the agent opened the server's log file.
-	// Strong evidence but not proof - an NFS-mounted log directory is readable
-	// from another machine.
+	// logDirect is log_access == direct. Not proof: an NFS-mounted log directory
+	// is readable from another machine.
 	logDirect bool
 
-	// dialedSocket is true when the agent itself dialed a unix socket path.
+	// dialedSocket is true when the agent dialed a unix socket path.
 	dialedSocket bool
 }
 
@@ -128,38 +121,31 @@ type sameHostResult struct {
 	evidence []string
 }
 
-// processInspector reads the local process table. Each platform implements it
-// differently: Linux implements every method, platforms with no readable process
-// title implement only parentStartTime.
+// processInspector reads the local process table. Linux implements every method;
+// platforms with no readable title implement only parentStartTime.
 type processInspector interface {
-	// titlesReadable is false where the platform has no title to read at all.
 	titlesReadable() bool
 
-	// title returns the command line of pid. ok=false means the process is not
-	// visible, which has four possible causes the caller must tell apart before
-	// answering no.
+	// title returns pid's command line. False means not visible, which has four
+	// causes the caller must tell apart before answering no.
 	title(pid int) (string, bool)
 
-	// canSeeForeignProcesses reports whether this agent can see processes it does
-	// not own. Under hidepid it cannot, so a missing process means nothing there.
+	// canSeeForeignProcesses is false under hidepid, where a missing process
+	// means nothing.
 	canSeeForeignProcesses() bool
 
-	// inContainer reports container markers on the runner.
 	inContainer() bool
 
-	// titleByNamespacedPID finds a host process whose innermost namespaced PID is
-	// pid. This covers PostgreSQL in a container with the agent on the host.
-	// Linux only.
+	// titleByNamespacedPID finds the host process whose innermost namespaced PID
+	// is pid: PostgreSQL in a container, agent on the host. Linux only.
 	titleByNamespacedPID(pid int) (string, bool)
 
-	// parentStartTime is the start time of pid's parent. Used where there is no
-	// readable process title.
 	parentStartTime(pid int) (time.Time, bool)
 }
 
-// checkSameHost makes the decision. It does no I/O of its own, so every branch is
-// testable with a fake processInspector. Order matters: a missing process is only
-// a no once the probe has confirmed it can see other users' processes.
+// checkSameHost decides. No I/O of its own, so every branch is testable with a
+// fake inspector. Order matters: a missing process is a no only once the probe
+// has confirmed it can see other users' processes.
 func checkSameHost(f sameHostFacts, sys processInspector) sameHostResult {
 	out := sameHostResult{evidence: collectEvidence(f)}
 
@@ -174,7 +160,7 @@ func checkSameHost(f sameHostFacts, sys processInspector) sameHostResult {
 		return out
 	}
 
-	// No title to read, so the only test left is the parent's start time.
+	// No title to read, so the parent's start time is the only test left.
 	if !sys.titlesReadable() {
 		if startTimeAgrees(f, sys, pid) {
 			out.verdict, out.by = OnDBHostYes, confirmedByPostmasterStart
@@ -195,19 +181,16 @@ func checkSameHost(f sameHostFacts, sys processInspector) sameHostResult {
 		return out
 	}
 
-	// The process at that PID exists but its title is something else. Before
-	// treating it as another machine's, try the namespace scan: when PostgreSQL
-	// runs in a container, the host often has an unrelated process at the same
-	// PID number, so a match on the number alone would find the wrong process.
+	// Something else holds that PID. With PostgreSQL in a container the host often
+	// does, so match on the number alone would find the wrong process.
 	if title, ok := sys.titleByNamespacedPID(pid); ok && titleMatches(f, title) {
 		out.verdict, out.by = OnDBHostYes, confirmedByBackendPIDNSpid
 		return out
 	}
 
-	// An agent in a container has its own PID namespace, so a process it finds at
-	// that number is always unrelated. Answering no here would be wrong for a
-	// sidecar, which is one deployment change away from working, and a wrong no
-	// is what switches host capture off.
+	// A containerised agent has its own PID namespace, so whatever it found is
+	// unrelated. A no here would be wrong for a sidecar, and a wrong no is what
+	// switches host capture off.
 	if sys.inContainer() {
 		out.verdict, out.reason = OnDBHostUnknown, hostReasonContainer
 		return out
@@ -217,12 +200,11 @@ func checkSameHost(f sameHostFacts, sys processInspector) sameHostResult {
 	return out
 }
 
-// absentBackend tells apart the four causes of a PID the agent cannot see. Only
-// one of them is a no, and it requires that the agent can see other users'
-// processes.
+// absentBackend tells apart the four causes of an invisible PID. Only one is a
+// no, and it needs the agent to be able to see other users' processes.
 func absentBackend(f sameHostFacts, sys processInspector, pid int, out sameHostResult) sameHostResult {
-	// PostgreSQL in a container with the agent on the host: the most common Docker
-	// setup, where vmstat and dmesg do describe the database's kernel.
+	// PostgreSQL in a container, agent on the host: the common Docker setup, where
+	// vmstat and dmesg do describe the database's kernel.
 	if title, ok := sys.titleByNamespacedPID(pid); ok && titleMatches(f, title) {
 		out.verdict, out.by = OnDBHostYes, confirmedByBackendPIDNSpid
 		return out
@@ -238,15 +220,14 @@ func absentBackend(f sameHostFacts, sys processInspector, pid int, out sameHostR
 		return out
 	}
 
-	// The PID is missing, other users' processes are visible, and neither side is
-	// containerised, so the database is on another machine.
+	// Missing, other users' processes visible, neither side containerised.
 	out.verdict, out.reason = OnDBHostNo, hostReasonPIDAbsent
 	return out
 }
 
-// titleMatches compares the title against values the server reported, never
-// against configured ones. A pooler can map one user to another, and the config
-// file can be wrong where the server's own answers cannot.
+// titleMatches compares against what the server reported, never what was
+// configured: a pooler can map one user to another, and the config file can be
+// wrong where the server's own answers cannot.
 func titleMatches(f sameHostFacts, title string) bool {
 	parsed, ok := parseBackendTitle(title)
 	if !ok {
@@ -257,24 +238,22 @@ func titleMatches(f sameHostFacts, title string) bool {
 		return false
 	}
 
-	// Comparing the address and port is what rules out a PID collision. Matching
-	// only the role and database is not enough: monitoring usernames are the same
-	// across a fleet and the default database name is postgres, so a runner with
-	// its own local cluster matches both.
+	// The address and port rule out a PID collision. Role and database alone do
+	// not: monitoring usernames repeat across a fleet and the default database is
+	// postgres, so a runner with its own cluster matches both.
 	if !parsed.local {
 		return f.clientAddr != "" && f.clientPort != "" &&
 			sameAddr(parsed.addr, f.clientAddr) && parsed.port == f.clientPort
 	}
 
-	// A unix-socket connection has no address and port to compare, so both sides
-	// must at least agree it is a socket. A forwarder that ends on the server's
-	// own socket produces this same shape from a remote client, which was measured
-	// and is why a socket title alone is not enough.
+	// Nothing to compare on a socket, so both sides must at least agree it is one.
+	// A forwarder ending on the server's socket produces this shape from a remote
+	// client - measured, and why a socket title alone is not enough.
 	return f.clientAddr == ""
 }
 
-// sameAddr compares two addresses as IPs where both parse, so two spellings of
-// the same IPv6 address compare equal.
+// sameAddr compares as IPs where both parse, so two spellings of one IPv6 address
+// are equal.
 func sameAddr(a, b string) bool {
 	if a == b {
 		return true
@@ -285,9 +264,8 @@ func sameAddr(a, b string) bool {
 	return ipA != nil && ipB != nil && ipA.Equal(ipB)
 }
 
-// startTimeAgrees compares the backend's parent process start time against
-// pg_postmaster_start_time(). The parent is the postmaster, so on the same
-// machine the two readings come from one clock.
+// startTimeAgrees compares the backend's parent against pg_postmaster_start_time().
+// The parent is the postmaster, so on one machine both readings share a clock.
 func startTimeAgrees(f sameHostFacts, sys processInspector, pid int) bool {
 	if f.postmasterStart == "" {
 		return false
@@ -311,9 +289,8 @@ func startTimeAgrees(f sameHostFacts, sys processInspector, pid int) bool {
 	return delta <= postmasterStartTolerance
 }
 
-// collectEvidence lists the supporting signals seen. Each one can be faked, so
-// none of them changes the verdict; they are recorded so a reader can see what
-// information the run had.
+// collectEvidence lists the supporting signals seen. Each is spoofable, so none
+// changes the verdict; they record what the run had to go on.
 func collectEvidence(f sameHostFacts) []string {
 	var out []string
 
@@ -336,10 +313,9 @@ func collectEvidence(f sameHostFacts) []string {
 	return out
 }
 
-// addrIsLocalInterface reports whether the server's own view of its address is an
-// address on one of this machine's interfaces. Recorded as evidence only: it is
-// wrong where private address ranges overlap, because the agent's 10.0.0.5 need
-// not be the server's 10.0.0.5.
+// addrIsLocalInterface reports whether the server's view of its own address is on
+// one of this machine's interfaces. Evidence only: private ranges overlap, so the
+// agent's 10.0.0.5 need not be the server's.
 func addrIsLocalInterface(addr string) bool {
 	server := net.ParseIP(addr)
 	if server == nil {
@@ -360,9 +336,9 @@ func addrIsLocalInterface(addr string) bool {
 	return false
 }
 
-// collectSameHost runs the probe and stores its answer. It sends no statement of
-// its own: every server-side input is already in m. Call it after
-// collectLogLocation, because log_access is one of the evidence inputs.
+// collectSameHost runs the probe and stores its answer. It sends no statement:
+// every server-side input is already in m. Call it after collectLogLocation,
+// which sets one of the evidence inputs.
 func collectSameHost(m *Metadata, target Target) {
 	facts := sameHostFacts{
 		backendPID:      m.BackendPID,
@@ -383,18 +359,15 @@ func collectSameHost(m *Metadata, target Target) {
 	m.AgentOnDBHostReason = result.reason
 	m.AgentOnDBHostEvidence = strings.Join(result.evidence, ",")
 
-	// Settled here rather than by the caller, so every reader of a collected
-	// Metadata sees the decision that follows from the verdict it is holding. The
-	// operator declaration can still raise it later, through ResolveHostDecision.
+	// Settled here so every reader of a collected Metadata sees the decision that
+	// follows from its verdict. ResolveHostDecision can still raise it.
 	m.HostArtifacts = hostArtifactsDecision(*m)
 }
 
-// applyOnDBHostDeclaration folds the operator's postgres.agentOnDbHost
-// declaration into the measured verdict and reports whether the two disagreed.
-// Precedence is fixed: a measurement always wins, so the declaration decides only
-// what the probe left unknown. That is the case it exists for - a database that
-// never answered cannot be asked which machine it runs on, and that is exactly
-// when dmesg holds the kill and df holds the full disk.
+// applyOnDBHostDeclaration folds postgres.agentOnDbHost into the measured verdict
+// and reports a disagreement. A measurement always wins, so the declaration
+// decides only what the probe left unknown - a database that never answered
+// cannot be asked which machine it runs on.
 func applyOnDBHostDeclaration(m *Metadata, declared bool) (contradicted bool) {
 	if !declared || m.AgentOnDBHost == OnDBHostYes {
 		return false
@@ -411,9 +384,8 @@ func applyOnDBHostDeclaration(m *Metadata, declared bool) (contradicted bool) {
 	return false
 }
 
-// hostArtifactsDecision is the gate. Host files describe the machine that ran the
-// agent, so they are captured only where the run established that this is the
-// database's machine.
+// hostArtifactsDecision is the gate: host files describe the machine that ran the
+// agent, so they are captured only where that is the database's machine.
 func hostArtifactsDecision(m Metadata) string {
 	if m.AgentOnDBHost == OnDBHostYes {
 		return HostArtifactsCaptured
@@ -422,9 +394,8 @@ func hostArtifactsDecision(m Metadata) string {
 	return HostArtifactsSkipped
 }
 
-// HostCaptureHint maps a skip reason to the deployment change that would turn it
-// into a yes, or to a plain statement where nothing can. Support reads the agent
-// log first, and most unknown results are one deployment change from confirmed.
+// HostCaptureHint maps a skip reason to the deployment change that would lift it,
+// or to a plain statement where nothing can. Support reads the agent log first.
 func HostCaptureHint(reason string) string {
 	switch reason {
 	case hostReasonContainer:

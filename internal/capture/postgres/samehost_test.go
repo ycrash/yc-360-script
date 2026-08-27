@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeInspector is a processInspector the test controls, so every branch runs
-// without reading a real process table.
+// fakeInspector lets every branch run without a real process table.
 type fakeInspector struct {
 	titles          bool
 	byPID           map[int]string
@@ -43,14 +42,13 @@ func (f fakeInspector) parentStartTime(pid int) (time.Time, bool) {
 	return at, ok
 }
 
-// baseInspector is an ordinary runner: titles readable, other users' processes
+// baseInspector is an ordinary runner: titles readable, foreign processes
 // visible, not containerised.
 func baseInspector() fakeInspector {
 	return fakeInspector{titles: true, seesForeign: true, byPID: map[int]string{}}
 }
 
-// tcpFacts is a TCP connection whose backend the server reports at PID 163 from
-// 172.19.0.3:35484.
+// tcpFacts: the server reports our backend at PID 163 from 172.19.0.3:35484.
 func tcpFacts() sameHostFacts {
 	return sameHostFacts{
 		backendPID: "163",

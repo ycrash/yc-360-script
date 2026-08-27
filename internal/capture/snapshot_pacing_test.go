@@ -75,10 +75,9 @@ func TestNetStatStopsBeforeItsSecondSnapshot(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(readCapture(t, netStatOutputPath), "connections"))
 }
 
-// df and dmesg are the two host files whose format has only ever held one
-// reading, and they carry the same dt whichever kind of capture wrote them. A
-// database capture takes them exactly as an application capture does - the
-// command's output and nothing else - so one dt never means two shapes.
+// df and dmesg carry one dt whichever capture wrote them, and their format has
+// only ever held one reading. A database capture takes them exactly as an
+// application capture does, so one dt never means two shapes.
 func TestDiskAndDMesgTakeOneUnadornedReading(t *testing.T) {
 	originalDisk, originalDMesg := executils.Disk, executils.DMesg
 	t.Cleanup(func() { executils.Disk, executils.DMesg = originalDisk, originalDMesg })

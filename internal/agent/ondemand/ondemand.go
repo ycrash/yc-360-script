@@ -492,10 +492,9 @@ Ignored errors: %v
 	// ------------------------------------------------------------------------------
 	//   				Capture kernel params
 	// ------------------------------------------------------------------------------
-	// sysctl -a describes whichever machine ran the agent, so it belongs with the
-	// other host collectors rather than beside ping. A database-only run reaches
-	// here with no pid, and there the database capture owns it: it runs kernel
-	// itself, but only once it has established that this machine is the database's.
+	// sysctl -a describes whichever machine ran the agent, so it is gated like the
+	// other host collectors. A database-only run has no pid and the database
+	// capture runs kernel itself, once it has established this is the host.
 	var kernel chan capture.Result
 	if pidPassed {
 		kernel = goCapture(endpoint, capture.WrapRun(&capture.Kernel{}))
