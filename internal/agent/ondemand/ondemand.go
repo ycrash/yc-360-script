@@ -106,6 +106,19 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 	return
 }
 
+// ProcessDatabase runs the database capture for the configured target. There is no
+// pid to pass: one run monitors one database, so the target is the configuration
+// itself, and PID 0 is the same no-process capture a one-shot database run takes.
+func ProcessDatabase(hd bool, tags string) (rUrl string) {
+	if !config.GlobalConfig.Postgres.IsConfigured() {
+		logger.Log("No postgres: block is configured, no action needed.")
+
+		return
+	}
+
+	return FullCapture(0, config.GlobalConfig.AppName, hd, tags, "")
+}
+
 func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, opts ...CaptureOptions) (rUrl string) {
 	var err error
 	defer func() {
