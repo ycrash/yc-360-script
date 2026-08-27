@@ -1,9 +1,15 @@
 package capture
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+
+	"yc-agent/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,8 +47,9 @@ func TestPostgresM3RecordsAnUnreachableDatabase(t *testing.T) {
 	assert.Contains(t, payload, "agent_cpu_pct,")
 
 	assert.False(t, task.OnDBHost(), "no connection can never confirm the database host")
-	assert.Contains(t, result.Msg, "dt value not yet assigned")
-	assert.False(t, result.Ok)
+	// The reading is sent whatever it found: an outage is the reading that matters
+	// most, and withholding it would make one look like a passing blip.
+	assert.NotEmpty(t, result.Msg)
 
 	// The password never reaches the payload, the header or the target rows.
 	assert.NotContains(t, payload, pgTestPassword)
@@ -106,6 +113,51 @@ func TestPostgresM3HeaderIdentifiesRunnerAndTarget(t *testing.T) {
 	assert.Contains(t, header, "runner="+hostname)
 	assert.Contains(t, header, "target_host=127.0.0.1")
 	assert.Contains(t, header, "target_database=orders_db")
+}
+
+// The provisional dt is the one the receiver is being asked to assign; it must
+// reach the wire under its own value and share with none of the other ten.
+func TestPostgresM3UploadsUnderItsOwnDT(t *testing.T) {
+	chdirToCaptureDir(t)
+
+	previous := config.GlobalConfig.OnlyCapture
+	config.GlobalConfig.OnlyCapture = false
+	t.Cleanup(func() { config.GlobalConfig.OnlyCapture = previous })
+
+	var (
+		mu      sync.Mutex
+		uploads []recordedPostgresUpload
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+
+		mu.Lock()
+		uploads = append(uploads, recordedPostgresUpload{
+			dt:   r.URL.Query().Get("dt"),
+			body: string(body),
+		})
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "OK")
+	}))
+	t.Cleanup(server.Close)
+
+	task := &PostgresM3{Target: unreachablePostgres(t)}
+	task.SetEndpoint(server.URL + "?de=test")
+
+	result, err := task.Run()
+	require.NoError(t, err)
+	assert.True(t, result.Ok)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, uploads, 1, "one reading, one upload")
+	assert.Equal(t, "pgM3", uploads[0].dt)
+	assert.Contains(t, uploads[0].body, "source=pg_m3", "the receiver is handed the payload, not an empty body")
+	assert.NotContains(t, uploads[0].body, pgTestPassword)
 }
 
 func TestRunnerName(t *testing.T) {
