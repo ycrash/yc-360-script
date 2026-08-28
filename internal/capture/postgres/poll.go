@@ -138,7 +138,13 @@ func Poll(ctx context.Context, req PollRequest) PollResult {
 	conn, err := Connect(ctx, req.Target)
 	if err != nil {
 		out.HeartbeatError = classifyHeartbeat(err)
-		out.LogError = ConnectErrorText(err, req.Target)
+
+		// errorText, not ConnectErrorText: the latter flattens a classified
+		// failure to its bare token because the artifact row must be matchable,
+		// and that would cost the log the one thing it is for. A refusal at
+		// max_connections, a role's CONNECTION LIMIT and a database's are all
+		// SQLSTATE 53300 with three different fixes, told apart only by the text.
+		out.LogError = errorText(err, req.Target.Password)
 
 		// The declaration still applies: it exists for exactly this case, and the
 		// top capture it authorises is the only host evidence a down database leaves.
@@ -302,6 +308,17 @@ func (p PollResult) rows() [][]string {
 	}
 
 	return out
+}
+
+// ErrorDetail is LogError without the token the caller prints beside it: a
+// classified failure carries its own token as a prefix, and printing both reads
+// as the token twice.
+func (p PollResult) ErrorDetail() string {
+	if p.HeartbeatError == "" {
+		return p.LogError
+	}
+
+	return strings.TrimPrefix(p.LogError, p.HeartbeatError+": ")
 }
 
 // LogLine is the one line every reading writes, whatever it found. It names the
