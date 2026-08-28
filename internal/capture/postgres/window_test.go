@@ -1563,3 +1563,26 @@ func TestWindowOverdueTicksFireImmediatelyRatherThanBeingSkipped(t *testing.T) {
 	assert.Equal(t, testWindowStart.Add(30*time.Second), collector.seen[3].At,
 		"and then the cadence resumes, because offsets are absolute")
 }
+
+// One failure, two renderings: the artifact row carries the token a reader
+// matches on, and the log carries the text that says which limit refused.
+// max_connections, a role's CONNECTION LIMIT and a database's are all SQLSTATE
+// 53300 with three different fixes, and only the text tells them apart.
+func TestWindowConnectFailureKeepsTheDetailForTheLog(t *testing.T) {
+	clock := newScriptedClock(t, at(32, 4, 980), at(32, 9, 994))
+
+	refusal := fmt.Errorf("%w: %w", ErrTooManyConnections,
+		errors.New(`server error: FATAL: too many connections for role "yc_limited" (SQLSTATE 53300)`))
+
+	results := runBloatWindow(t, clock, testTarget(),
+		func(context.Context, Target) (windowConn, error) { return nil, refusal })
+
+	require.Equal(t, StatusConnectFailed, results[0].Status)
+
+	// The row: the bare token, unchanged, because the receiver matches on it.
+	assert.Contains(t, artifactText(t, results[0]), "connect_error=too_many_connections ")
+
+	// The log: the whole thing, which is all a bundle carries when every artifact
+	// took zero samples.
+	assert.Contains(t, results[0].Err, `too many connections for role "yc_limited"`)
+}
