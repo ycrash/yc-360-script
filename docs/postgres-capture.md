@@ -131,8 +131,10 @@ waits for it to finish.
 
 Two limits to know:
 
-- **`-onlyCapture` sends nothing.** The reading's only product is the upload, so
-  the loop runs and does nothing. The agent warns once at start.
+- **`-onlyCapture` is ignored, as it is for every `-m3` run.** It is cleared at
+  startup, with a warning that says so, and each cycle's reading uploads like the
+  rest of the M3 stream. A database capture that has to stay local is the one-shot
+  run: `./yc-360 -c db.yaml -onlyCapture` uploads nothing.
 - **One runner, not N.** See [One sampler per cluster](#one-sampler-per-cluster);
   under `-m3` that rule is now the deployment model rather than a side effect of
   a refusal.
@@ -346,8 +348,10 @@ Three things follow:
   `pg_stat_statements.track_utility` row says whether utility statements are
   tracked at all. Setting it to `off` closes it for future statements; the
   entries already recorded stay until they age out or the statistics are reset.
-- **`-onlyCapture` keeps everything local.** It writes the bundle and uploads
-  nothing, which is the mode to use while a security review is pending.
+- **`-onlyCapture` keeps everything local — on a one-shot run.** It writes the
+  bundle and uploads nothing, which is the mode to use while a security review is
+  pending. Under `-m3` it is ignored and every cycle uploads; see
+  [Monitoring a database on a loop](#monitoring-a-database-on-a-loop).
 
 **Host artifacts are a separate exposure, and they are gated.** A confirmed
 database host contributes its process list, connection table, kernel messages
