@@ -35,7 +35,11 @@ func NewLPM3(pids map[int]string) *LPM3 {
 // to the specified endpoint.
 func (p *LPM3) Run() (Result, error) {
 	if len(p.Pids) == 0 {
-		logger.Warn().Msg("LPM3.Run called with nil or empty Pids map, returning empty result")
+		// Debug rather than a warning: database monitoring has no application target,
+		// so an empty map is the expected state and not a misconfiguration. An
+		// app-target run that matches nothing is already warned about by name, with
+		// the tokens it searched for.
+		logger.Debug().Msg("LPM3.Run called with nil or empty Pids map, returning empty result")
 		return Result{Msg: "no processes to capture", Ok: true}, nil
 	}
 
