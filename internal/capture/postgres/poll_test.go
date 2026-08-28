@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,40 @@ func TestPollLogLine(t *testing.T) {
 
 	assert.Equal(t, "pg_m3: target=localhost:5432/orders agent_on_db_host=unknown "+
 		"reason=no_connection sent=false", downPoll().LogLine(false))
+}
+
+// The log is the only place the reason behind a failure survives: the payload
+// carries the token and never the text.
+func TestPollErrorDetail(t *testing.T) {
+	// max_connections, a role's CONNECTION LIMIT and a database's are all SQLSTATE
+	// 53300 with three different fixes. Measured against the fixture: only the
+	// message says which one refused.
+	t.Run("a classified failure keeps the detail its token drops", func(t *testing.T) {
+		result := PollResult{
+			HeartbeatError: heartbeatTooManyConnections,
+			LogError: "too_many_connections: failed to connect to `user=yc_limited database=orders`: " +
+				`server error: FATAL: too many connections for role "yc_limited" (SQLSTATE 53300)`,
+		}
+
+		detail := result.ErrorDetail()
+
+		assert.Contains(t, detail, `too many connections for role "yc_limited"`)
+		assert.False(t, strings.HasPrefix(detail, heartbeatTooManyConnections+":"),
+			"the caller prints the token already; repeating it reads as the token twice")
+	})
+
+	t.Run("an unclassified failure is passed through", func(t *testing.T) {
+		result := PollResult{
+			HeartbeatError: heartbeatUnreachable,
+			LogError:       "failed to connect to `user=x database=y`: connection refused",
+		}
+
+		assert.Equal(t, result.LogError, result.ErrorDetail())
+	})
+
+	t.Run("no failure, nothing to say", func(t *testing.T) {
+		assert.Empty(t, PollResult{}.ErrorDetail())
+	})
 }
 
 func TestPollDeclarationOnlyRaisesAnUnknown(t *testing.T) {
