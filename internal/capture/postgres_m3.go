@@ -150,7 +150,7 @@ func (p *PostgresM3) logReading(sent bool) {
 	}
 
 	if p.result.LogError != "" {
-		logger.Log("pg_m3: %s: %s", p.result.HeartbeatError, p.result.LogError)
+		logger.Log("pg_m3: %s: %s", p.result.HeartbeatError, p.result.ErrorDetail())
 	}
 
 	// The fix for the reason, where one exists. Informational: nothing failed.
