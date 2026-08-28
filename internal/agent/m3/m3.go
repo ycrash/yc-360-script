@@ -288,10 +288,17 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string, hostAl
 		logger.Log("Skipping collection of top data: this machine is not confirmed to run the database.")
 	}
 
-	logger.Log("Starting collection of lp data...")
-	capLPM3 := capture.NewLPM3(pids)
-	lpM3Chan := capture.GoCapture(endpoint, capture.WrapRun(capLPM3))
-	logger.Log("Collection of lp data started.")
+	// lp is a process listing keyed by PID, so a run with no application target has
+	// nothing to list. LPM3 already declines an empty map before it uploads, which is
+	// why skipping it changes nothing on the wire - only the goroutine and the log.
+	var lpM3Chan chan capture.Result
+
+	if len(pids) > 0 {
+		logger.Log("Starting collection of lp data...")
+		capLPM3 := capture.NewLPM3(pids)
+		lpM3Chan = capture.GoCapture(endpoint, capture.WrapRun(capLPM3))
+		logger.Log("Collection of lp data started.")
+	}
 
 	if len(pids) > 0 {
 		dotnetPIDs := make(map[int]string)
@@ -383,14 +390,16 @@ Resp: %s
 `, topResult.Ok, topResult.Msg)
 	}
 
-	lpM3Result := <-lpM3Chan
-	logger.Log(
-		`LP DATA
+	if lpM3Chan != nil {
+		lpM3Result := <-lpM3Chan
+		logger.Log(
+			`LP DATA
 Ok: %t
 Resp: %s
 
 --------------------------------
 `, lpM3Result.Ok, lpM3Result.Msg)
+	}
 }
 
 func uploadGCLogM3(endpoint string, pid int) string {
