@@ -195,7 +195,8 @@ type ArtifactResult struct {
 	SamplesExpected int
 	SamplesWritten  int
 
-	// Err is the last capture-level error, already redacted and flattened.
+	// Err is the last capture-level error, already redacted. It reaches the agent
+	// log, never an artifact row, so it keeps the failure in full.
 	Err string
 
 	IOErr error
@@ -289,7 +290,12 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 
 	conn, err := w.dial(ctx)
 	if err != nil {
-		w.closeArtifacts(results, sampleCtx, "", ConnectErrorText(err, w.Target))
+		// Two renderings of one failure: the token for the artifact row, which a
+		// reader matches on, and the full text for the log. A refusal at
+		// max_connections, a role's CONNECTION LIMIT and a database's are all
+		// SQLSTATE 53300 with three different fixes, told apart only by the text.
+		w.closeArtifacts(results, sampleCtx, "",
+			ConnectErrorText(err, w.Target), errorText(err, w.Target.Password))
 		return results
 	}
 	defer w.disconnect(conn)
@@ -303,7 +309,7 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 
 	stopped := w.sample(ctx, conn, sampleCtx, results)
 
-	w.closeArtifacts(results, sampleCtx, stopped, "")
+	w.closeArtifacts(results, sampleCtx, stopped, "", "")
 
 	return results
 }
@@ -379,13 +385,15 @@ func (w *Window) writeClosing(result *ArtifactResult, collector Collector, sampl
 
 // closeArtifacts is the last pass, run with no context so it can record an expired deadline.
 // stopped: status that ended the window early (empty if it completed). connectErr: set only when there was never a connection.
-func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContext, stopped, connectErr string) {
+// connectErr is the artifact row's value; connectDetail is the same failure in
+// full, for the caller's log. Only the row is a contract.
+func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContext, stopped, connectErr, connectDetail string) {
 	// Drains run before the clock read below, so the closing timestamp doesn't predate their bytes.
 	for i := range results {
 		results[i].Status = artifactStatus(results[i], stopped, connectErr)
 
 		if connectErr != "" {
-			results[i].Err = connectErr
+			results[i].Err = connectDetail
 		}
 
 		// Must run after Status is set: a closing-pass IOErr makes writable() false, skipping the closing block.
