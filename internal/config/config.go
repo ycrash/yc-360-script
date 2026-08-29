@@ -64,6 +64,8 @@ type Options struct {
 	OnlyCapture  bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
 	MinimalTouch bool `yaml:"minimalTouch" usage:"Enable minimal-touch mode: skip CPU-intensive operations"`
 
+	JFREnabled bool `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
+
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`
 
@@ -293,6 +295,7 @@ func defaultConfig() Config {
 			DeferDelete:       true,
 			AppLogLineCount:   10000,
 			TDCaptureDuration: Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
+			JFREnabled:        true,
 			CmdTimeout:        Duration(60 * time.Second),
 			HttpClientTimeout: Duration(60 * time.Second),
 			AppRuntime:        "",

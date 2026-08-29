@@ -136,7 +136,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 					Wg.Add(1)
 					defer func() {
 						defer Wg.Done()
-						err := os.RemoveAll(captureDir)
+						err := removeDirWithRetry(captureDir)
 						if err != nil {
 							logger.Log("WARNING: Can not remove the current directory: %s", err)
 							return
@@ -288,6 +288,8 @@ Ignored errors: %v
 	var gc chan capture.Result
 	var threadDump chan capture.Result
 	var hdsubLog chan capture.Result
+	var jfr chan capture.Result
+	var jfrDone chan struct{}
 	var nodeCPUProfile chan capture.Result
 	// nodeExtraCaptures collects the Node.js artifacts that don't map onto the
 	// shared gc/threadDump/hdsub/cpuprofile channels.
@@ -296,12 +298,6 @@ Ignored errors: %v
 		ch    chan capture.Result
 	}
 	var nodeExtraCaptures []nodeNamedCapture
-
-	// JFR recording state (see the java runtime case below and the
-	// stop/transmit step at the end of capture).
-	var jfrEnabled bool
-	var jfrFilePath string
-	var jfrStartedAt time.Time
 
 	appRuntime := config.GetAppRuntime(pid)
 
@@ -383,24 +379,16 @@ Ignored errors: %v
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
 
-		// Start a JFR recording covering the whole capture window, for any
-		// -p <pid> run. It's stopped and transmitted with dt=jfr once every
-		// other artifact has been captured, further down.
-		if pidPassed {
-			jfrFilePath = capture.JFRFileName
-			if len(dockerID) == 0 {
-				if abs, absErr := filepath.Abs(jfrFilePath); absErr == nil {
-					jfrFilePath = abs
-				}
-			}
-
-			if err := capture.StartJFR(pid, config.GlobalConfig.JavaHomePath, jfrFilePath); err != nil {
-				logger.Log("WARNING: failed to start JFR recording: %s", err.Error())
-			} else {
-				jfrEnabled = true
-				jfrStartedAt = time.Now()
-				logger.Log("JFR recording started (name=%s, file=%s)", capture.JFRRecordingName, jfrFilePath)
-			}
+		// Capture a JFR (Java Flight Recorder) recording. It's started now and
+		// kept running until jfrDone is closed, once every other artifact has
+		// been captured/transmitted (see the JFR transmit step further down).
+		if config.GlobalConfig.JFREnabled {
+			jfrDone = make(chan struct{})
+			jfr = goCapture(endpoint, capture.WrapRun(&capture.JFR{
+				Pid:      pid,
+				JavaHome: config.GlobalConfig.JavaHomePath,
+				Done:     jfrDone,
+			}))
 		}
 
 		// Capture gc
@@ -923,28 +911,21 @@ Resp: %s
 	logger.Log("Executed custom commands")
 
 	// -------------------------------
-	//     Transmit JFR recording (already auto-stopped, see StartJFR)
+	//     Stop & Transmit JFR recording
 	// -------------------------------
-	if jfrEnabled {
-		// The recording auto-stops JFRCaptureDuration after it started (see
-		// StartJFR), independent of how long the rest of this capture takes.
-		// If everything else finished quickly, wait out the remainder here
-		// so the file is guaranteed to be finalized before we read it. This
-		// is scoped to JFR only - it does not affect the thread dump
-		// capture above, which keeps its normal, unrelated behavior.
-		if remaining := capture.JFRCaptureDuration - time.Since(jfrStartedAt); remaining > 0 {
-			logger.Log("Waiting %s for JFR recording to finish before transmitting...", remaining)
-			time.Sleep(remaining)
-		}
-
-		msg, ok := capture.TransmitJFR(endpoint, jfrFilePath, dockerID)
+	if jfr != nil {
+		// Every other artifact has now been captured/transmitted; tell the
+		// JFR capture to stop the recording and read the file.
+		close(jfrDone)
+		logger.Log("Reading result from JFR channel")
+		result := <-jfr
 		logger.Log(
 			`JFR RECORDING DATA
 Is transmission completed: %t
 Resp: %s
 
 --------------------------------
-`, ok, msg)
+`, result.Ok, result.Msg)
 	}
 
 	if config.GlobalConfig.OnlyCapture {
@@ -1313,6 +1294,29 @@ Resp: %s
 		}
 	}
 	return
+}
+
+// removeDirWithRetry removes dir, retrying a few times on failure. On
+// Windows, a file that another process (e.g. an antivirus/EDR agent doing a
+// real-time scan right after the file is closed, or the JVM briefly holding
+// a JFR recording's handle a moment past what JFR.check reports) still has
+// open can't be deleted; that lock is normally released within a second or
+// two, so a short retry clears most of these transient failures instead of
+// leaving the capture directory behind.
+func removeDirWithRetry(dir string) (err error) {
+	const attempts = 5
+	const delay = 2 * time.Second
+
+	for i := 0; i < attempts; i++ {
+		err = os.RemoveAll(dir)
+		if err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			time.Sleep(delay)
+		}
+	}
+	return err
 }
 
 func removeDuplicate[T comparable](sliceList []T) []T {

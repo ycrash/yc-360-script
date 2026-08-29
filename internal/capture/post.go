@@ -29,14 +29,6 @@ func PostData(endpoint, dt string, file *os.File) (msg string, ok bool) {
 	return PostCustomData(endpoint, "dt="+dt, file)
 }
 
-// PostDataForce behaves like PostData but always transmits over HTTP, ignoring
-// the -onlyCapture short-circuit. It exists for artifacts (e.g. JFR
-// recordings) that must reach the yc-receiver even when the rest of the
-// capture is only zipped locally.
-func PostDataForce(endpoint, dt string, file *os.File) (msg string, ok bool) {
-	return postCustomDataWithPositionFuncWithTimeout(endpoint, "dt="+dt, file, PositionZero, config.GlobalConfig.HttpClientTimeout.Duration(), true)
-}
-
 func PostDataWithTimeout(endpoint, dt string, file *os.File, timeout time.Duration) (msg string, ok bool) {
 	return PostCustomDataWithTimeout(endpoint, "dt="+dt, file, timeout)
 }
@@ -232,11 +224,7 @@ func PostCustomDataWithPositionFunc(endpoint, params string, file *os.File, posi
 }
 
 func PostCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os.File, position func(file *os.File) error, timeout time.Duration) (msg string, ok bool) {
-	return postCustomDataWithPositionFuncWithTimeout(endpoint, params, file, position, timeout, false)
-}
-
-func postCustomDataWithPositionFuncWithTimeout(endpoint, params string, file *os.File, position func(file *os.File) error, timeout time.Duration, force bool) (msg string, ok bool) {
-	if config.GlobalConfig.OnlyCapture && !force {
+	if config.GlobalConfig.OnlyCapture {
 		msg = "in only capture mode"
 		return
 	}
