@@ -14,8 +14,7 @@ import (
 	"yc-agent/internal/logger"
 )
 
-// jfrFileName is the fixed filename yc-agent uses for the JFR recording.
-const jfrFileName = "my.jfr"
+const jfrOut = "jfr.out"
 
 const (
 	jfrDefaultDuration = 60 * time.Second
@@ -118,9 +117,9 @@ func (t *JFR) effectiveDuration() time.Duration {
 // JVM (no duration= - it keeps running until stopRecording stops it) and
 // returns the absolute path the recording is being written to.
 func (t *JFR) startRecording(name string) (string, error) {
-	requestedPath, err := filepath.Abs(jfrFileName)
+	requestedPath, err := filepath.Abs(jfrOut)
 	if err != nil {
-		requestedPath = jfrFileName
+		requestedPath = jfrOut
 	}
 
 	cmd := fmt.Sprintf("JFR.start name=%s filename=%s", name, requestedPath)
