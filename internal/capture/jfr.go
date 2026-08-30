@@ -17,7 +17,11 @@ import (
 // jfrFileName is the fixed filename yc-agent uses for the JFR recording.
 const jfrFileName = "my.jfr"
 
-const jfrDefaultDuration = 60 * time.Second
+const (
+	jfrDefaultDuration = 60 * time.Second
+	jfrMinDuration     = 10 * time.Second
+	jfrMaxDuration     = 5 * time.Minute
+)
 
 // jfrFailurePhrases are substrings JFR/jcmd print in a diagnostic command's
 // response text on failure, even though the jcmd/jattach process itself
@@ -90,13 +94,24 @@ func (t *JFR) UploadCapturedFile(file *os.File) Result {
 	return Result{Msg: msg, Ok: ok}
 }
 
-// effectiveDuration is the recording window to use: t.Duration, or
-// jfrDefaultDuration when it isn't set.
+// effectiveDuration is the recording window to use: t.Duration clamped to
+// [jfrMinDuration, jfrMaxDuration], or jfrDefaultDuration when it isn't set.
 func (t *JFR) effectiveDuration() time.Duration {
-	if t.Duration == 0 {
+	switch {
+	case t.Duration == 0:
 		return jfrDefaultDuration
+	case t.Duration < 0:
+		logger.Warn().Msgf("jfrCaptureDuration %s is negative; using the default %s", t.Duration, jfrDefaultDuration)
+		return jfrDefaultDuration
+	case t.Duration < jfrMinDuration:
+		logger.Warn().Msgf("jfrCaptureDuration %s is below the %s minimum; using %s", t.Duration, jfrMinDuration, jfrMinDuration)
+		return jfrMinDuration
+	case t.Duration > jfrMaxDuration:
+		logger.Warn().Msgf("jfrCaptureDuration %s is above the %s maximum; using %s", t.Duration, jfrMaxDuration, jfrMaxDuration)
+		return jfrMaxDuration
+	default:
+		return t.Duration
 	}
-	return t.Duration
 }
 
 // startRecording starts an open-ended JFR recording named name on the target
