@@ -113,6 +113,14 @@ func (t *JFR) effectiveDuration() time.Duration {
 	}
 }
 
+func jfrArg(key, value string) string {
+	return fmt.Sprintf("%s=%q", key, value)
+}
+
+func jfrPathUsable(p string) bool {
+	return !strings.ContainsAny(p, "\"'\n\r")
+}
+
 // startRecording starts an open-ended JFR recording named name on the target
 // JVM (no duration= - it keeps running until stopRecording stops it) and
 // returns the absolute path the recording is being written to.
@@ -122,7 +130,11 @@ func (t *JFR) startRecording(name string) (string, error) {
 		requestedPath = jfrOut
 	}
 
-	cmd := fmt.Sprintf("JFR.start name=%s filename=%s", name, requestedPath)
+	if !jfrPathUsable(requestedPath) {
+		return "", fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", requestedPath)
+	}
+
+	cmd := fmt.Sprintf("JFR.start %s %s", jfrArg("name", name), jfrArg("filename", requestedPath))
 	if _, err := t.runJcmd(cmd); err != nil {
 		return "", fmt.Errorf("failed to start JFR recording: %w", err)
 	}
@@ -133,7 +145,7 @@ func (t *JFR) startRecording(name string) (string, error) {
 // stopRecording stops the JFR recording named name, blocking until the JVM
 // confirms the stop (see CaptureToFile for why this matters).
 func (t *JFR) stopRecording(name string) error {
-	_, err := t.runJcmd(fmt.Sprintf("JFR.stop name=%s", name))
+	_, err := t.runJcmd(fmt.Sprintf("JFR.stop %s", jfrArg("name", name)))
 	return err
 }
 
