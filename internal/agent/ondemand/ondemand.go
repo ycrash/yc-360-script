@@ -289,7 +289,6 @@ Ignored errors: %v
 	var threadDump chan capture.Result
 	var hdsubLog chan capture.Result
 	var jfr chan capture.Result
-	var jfrDone chan struct{}
 	var nodeCPUProfile chan capture.Result
 	// nodeExtraCaptures collects the Node.js artifacts that don't map onto the
 	// shared gc/threadDump/hdsub/cpuprofile channels.
@@ -380,14 +379,13 @@ Ignored errors: %v
 		// ------------------------------------------------------------------------------
 
 		// Capture a JFR (Java Flight Recorder) recording. It's started now and
-		// kept running until jfrDone is closed, once every other artifact has
-		// been captured/transmitted (see the JFR transmit step further down).
+		// runs for a fixed jfrCaptureDuration; its result is read last
+		// so the recording window overlaps the rest of the capture instead of adding to it.
 		if config.GlobalConfig.JFREnabled {
-			jfrDone = make(chan struct{})
 			jfr = goCapture(endpoint, capture.WrapRun(&capture.JFR{
 				Pid:      pid,
 				JavaHome: config.GlobalConfig.JavaHomePath,
-				Done:     jfrDone,
+				Duration: config.GlobalConfig.JFRCaptureDuration.Duration(),
 			}))
 		}
 
@@ -914,9 +912,7 @@ Resp: %s
 	//     Stop & Transmit JFR recording
 	// -------------------------------
 	if jfr != nil {
-		// Every other artifact has now been captured/transmitted; tell the
-		// JFR capture to stop the recording and read the file.
-		close(jfrDone)
+		// Read last to let the JFR window overlap the rest of the capture.
 		logger.Log("Reading result from JFR channel")
 		result := <-jfr
 		logger.Log(

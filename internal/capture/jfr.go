@@ -17,6 +17,8 @@ import (
 // jfrFileName is the fixed filename yc-agent uses for the JFR recording.
 const jfrFileName = "my.jfr"
 
+const jfrDefaultDuration = 60 * time.Second
+
 // jfrFailurePhrases are substrings JFR/jcmd print in a diagnostic command's
 // response text on failure, even though the jcmd/jattach process itself
 // exits 0 (it successfully delivered the command; the JVM just refused it).
@@ -24,21 +26,21 @@ const jfrFileName = "my.jfr"
 // reason: a 0 exit code alone doesn't mean the JFR command succeeded.
 var jfrFailurePhrases = []string{
 	"could not start recording",
-	"is already",     // e.g. "Recording with name 'X' is already running/being used"
+	"is already",      // e.g. "Recording with name 'X' is already running/being used"
 	"no such process", // target pid vanished between IsProcessExists and jcmd
 }
 
 // JFR captures a JVM Flight Recorder recording for a running Java process.
-// The recording is started immediately and kept running for as long as
-// Done is unclosed - typically the rest of the capture cycle - then
-// explicitly stopped (JFR.stop) before being read and transmitted.
+// The recording is started immediately and kept running for Duration, then
+// explicitly stopped (JFR.stop) before being read and transmitted. FullCapture
+// reads its result last, so the recording window overlaps the rest of the
+// capture instead of adding to it.
 type JFR struct {
 	Capture
 	Pid      int
 	JavaHome string
-	// Done signals CaptureToFile to stop the recording and read the file.
-	// A nil channel means stop immediately after starting.
-	Done <-chan struct{}
+	// Duration is how long the recording runs. Zero means jfrDefaultDuration.
+	Duration time.Duration
 }
 
 func (t *JFR) Run() (Result, error) {
@@ -51,8 +53,8 @@ func (t *JFR) Run() (Result, error) {
 	return t.UploadCapturedFile(file), nil
 }
 
-// CaptureToFile starts a JFR recording, waits for Done, explicitly stops the
-// recording, then opens the resulting recording file.
+// CaptureToFile starts a JFR recording, lets it run for the configured
+// duration, explicitly stops it, then opens the resulting recording file.
 func (t *JFR) CaptureToFile() (*os.File, error) {
 	if !IsProcessExists(t.Pid) {
 		return nil, fmt.Errorf("process %d does not exist", t.Pid)
@@ -69,9 +71,9 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 		return nil, err
 	}
 
-	if t.Done != nil {
-		<-t.Done
-	}
+	duration := t.effectiveDuration()
+	logger.Log("JFR recording %s started, running for %s", name, duration)
+	time.Sleep(duration)
 
 	// Stop synchronously - jcmd/jattach don't return until the JVM has
 	// processed the command, so this guarantees the recording is flushed and
@@ -86,6 +88,15 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 func (t *JFR) UploadCapturedFile(file *os.File) Result {
 	msg, ok := PostData(t.Endpoint(), "jfr", file)
 	return Result{Msg: msg, Ok: ok}
+}
+
+// effectiveDuration is the recording window to use: t.Duration, or
+// jfrDefaultDuration when it isn't set.
+func (t *JFR) effectiveDuration() time.Duration {
+	if t.Duration == 0 {
+		return jfrDefaultDuration
+	}
+	return t.Duration
 }
 
 // startRecording starts an open-ended JFR recording named name on the target

@@ -64,7 +64,8 @@ type Options struct {
 	OnlyCapture  bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
 	MinimalTouch bool `yaml:"minimalTouch" usage:"Enable minimal-touch mode: skip CPU-intensive operations"`
 
-	JFREnabled bool `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
+	JFREnabled         bool     `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
+	JFRCaptureDuration Duration `yaml:"jfrCaptureDuration" usage:"Total duration to capture the JFR recording (e.g., 60s, 2m). Default is 60 seconds."`
 
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`
@@ -284,22 +285,23 @@ func (s *AccessLogSources) Set(v string) error {
 func defaultConfig() Config {
 	return Config{
 		Options: Options{
-			VerifySSL:         true,
-			M3Frequency:       Duration(3 * time.Minute),
-			Address:           "localhost",
-			Port:              -1,
-			LogFileMaxCount:   7,
-			LogFileMaxSize:    512 * 1024 * 1024,
-			LogLevel:          zerolog.InfoLevel.String(),
-			PingHost:          "google.com",
-			DeferDelete:       true,
-			AppLogLineCount:   10000,
-			TDCaptureDuration: Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
-			JFREnabled:        true,
-			CmdTimeout:        Duration(60 * time.Second),
-			HttpClientTimeout: Duration(60 * time.Second),
-			AppRuntime:        "",
-			DotnetToolPath:    "", // Empty string, will auto-discover during validation
+			VerifySSL:          true,
+			M3Frequency:        Duration(3 * time.Minute),
+			Address:            "localhost",
+			Port:               -1,
+			LogFileMaxCount:    7,
+			LogFileMaxSize:     512 * 1024 * 1024,
+			LogLevel:           zerolog.InfoLevel.String(),
+			PingHost:           "google.com",
+			DeferDelete:        true,
+			AppLogLineCount:    10000,
+			TDCaptureDuration:  Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
+			JFREnabled:         true,
+			JFRCaptureDuration: Duration(60 * time.Second),
+			CmdTimeout:         Duration(60 * time.Second),
+			HttpClientTimeout:  Duration(60 * time.Second),
+			AppRuntime:         "",
+			DotnetToolPath:     "", // Empty string, will auto-discover during validation
 
 			NodejsCaptureMode:        "hook",
 			NodejsReportSignal:       "SIGUSR2",
