@@ -16,9 +16,7 @@ import (
 	"yc-agent/internal/logger"
 )
 
-// jfrOut is what we call the artifact inside the capture directory. The JVM
-// does not write here - see jfrRecordingPath.
-const jfrOut = "jfr.out"
+const jfrFileName = "my.jfr"
 
 const (
 	jfrDefaultDuration = 60 * time.Second
@@ -47,7 +45,7 @@ var jfrFailurePhrases = []string{
 // The recording is started with duration=, so the JVM stops it and writes it
 // out on its own after Duration - the agent never sends JFR.stop. The JVM
 // writes to the temp directory (jfrRecordingPath); yc then stages the result
-// into the capture directory as jfrOut. FullCapture reads its result last, so
+// into the capture directory as jfrFileName. FullCapture reads its result last, so
 // the recording window overlaps the rest of the capture instead of adding to
 // it.
 type JFR struct {
@@ -109,7 +107,7 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	}
 	sourcePath = resolved
 
-	return stageRecording(sourcePath, jfrOut)
+	return stageRecording(sourcePath, jfrFileName)
 }
 
 func (t *JFR) UploadCapturedFile(file *os.File) Result {
@@ -154,7 +152,7 @@ func jfrTimespan(d time.Duration) string {
 // jfrRecordingPath is where the target JVM writes its recording: a unique name
 // in the system temp directory, deliberately *not* the capture directory.
 func jfrRecordingPath(pid int, nanos int64) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", jfrOut, pid, nanos))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", jfrFileName, pid, nanos))
 }
 
 // startRecording starts a JFR recording named name on the target JVM, writing
