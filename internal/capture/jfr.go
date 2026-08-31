@@ -20,6 +20,12 @@ const (
 	jfrDefaultDuration = 60 * time.Second
 	jfrMinDuration     = 10 * time.Second
 	jfrMaxDuration     = 5 * time.Minute
+
+	// jfrDumpGrace is how long we wait past the end of the recording window
+	// before opening the file. The JVM's duration= timer stops the recording
+	// and writes it out on its own, and nothing tells us when that write
+	// finished, so this is the margin that covers it.
+	jfrDumpGrace = 5 * time.Second
 )
 
 // jfrFailurePhrases are substrings JFR/jcmd print in a diagnostic command's
@@ -34,8 +40,8 @@ var jfrFailurePhrases = []string{
 }
 
 // JFR captures a JVM Flight Recorder recording for a running Java process.
-// The recording is started immediately and kept running for Duration, then
-// explicitly stopped (JFR.stop) before being read and transmitted. FullCapture
+// The recording is started with duration=, so the JVM stops it and writes it
+// out on its own after Duration - the agent never sends JFR.stop. FullCapture
 // reads its result last, so the recording window overlaps the rest of the
 // capture instead of adding to it.
 type JFR struct {
@@ -56,8 +62,9 @@ func (t *JFR) Run() (Result, error) {
 	return t.UploadCapturedFile(file), nil
 }
 
-// CaptureToFile starts a JFR recording, lets it run for the configured
-// duration, explicitly stops it, then opens the resulting recording file.
+// CaptureToFile starts a JFR recording that runs for the configured duration,
+// waits for the JVM's own timer to stop it and write it out, then opens the
+// resulting recording file.
 func (t *JFR) CaptureToFile() (*os.File, error) {
 	if !IsProcessExists(t.Pid) {
 		return nil, fmt.Errorf("process %d does not exist", t.Pid)
@@ -69,21 +76,16 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	// by a previous run.
 	name := fmt.Sprintf("ycJFR-%d-%d", t.Pid, time.Now().UnixNano())
 
-	requestedPath, err := t.startRecording(name)
+	duration := t.effectiveDuration()
+
+	requestedPath, err := t.startRecording(name, duration)
 	if err != nil {
 		return nil, err
 	}
 
-	duration := t.effectiveDuration()
-	logger.Log("JFR recording %s started, running for %s", name, duration)
-	time.Sleep(duration)
-
-	// Stop synchronously - jcmd/jattach don't return until the JVM has
-	// processed the command, so this guarantees the recording is flushed and
-	// its file handle closed before we try to read it below.
-	if err := t.stopRecording(name); err != nil {
-		return nil, fmt.Errorf("failed to stop JFR recording: %w", err)
-	}
+	wait := duration + jfrDumpGrace
+	logger.Log("JFR recording %s started, running for %s; reading it in %s", name, duration, wait)
+	time.Sleep(wait)
 
 	return t.openRecording(requestedPath)
 }
@@ -121,10 +123,21 @@ func jfrPathUsable(p string) bool {
 	return !strings.ContainsAny(p, "\"'\n\r")
 }
 
-// startRecording starts an open-ended JFR recording named name on the target
-// JVM (no duration= - it keeps running until stopRecording stops it) and
-// returns the absolute path the recording is being written to.
-func (t *JFR) startRecording(name string) (string, error) {
+// jfrTimespan renders d the way JFR's argument parser wants it: a number
+// followed by a single unit.
+func jfrTimespan(d time.Duration) string {
+	return fmt.Sprintf("%ds", int(d.Round(time.Second).Seconds()))
+}
+
+// startRecording starts a JFR recording named name on the target JVM, running
+// for duration, and returns the absolute path the recording is being written
+// to.
+//
+// duration= puts the timer inside the JVM: it stops the recording and writes
+// the file with nobody attached, so the agent needs only this one diagnostic
+// command, and a recording can't outlive the agent if yc is killed partway
+// through.
+func (t *JFR) startRecording(name string, duration time.Duration) (string, error) {
 	requestedPath, err := filepath.Abs(jfrOut)
 	if err != nil {
 		requestedPath = jfrOut
@@ -134,19 +147,14 @@ func (t *JFR) startRecording(name string) (string, error) {
 		return "", fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", requestedPath)
 	}
 
-	cmd := fmt.Sprintf("JFR.start %s %s", jfrArg("name", name), jfrArg("filename", requestedPath))
+	// duration= needs no quoting: jfrTimespan can only produce digits and 's'.
+	cmd := fmt.Sprintf("JFR.start %s %s duration=%s",
+		jfrArg("name", name), jfrArg("filename", requestedPath), jfrTimespan(duration))
 	if _, err := t.runJcmd(cmd); err != nil {
 		return "", fmt.Errorf("failed to start JFR recording: %w", err)
 	}
 
 	return requestedPath, nil
-}
-
-// stopRecording stops the JFR recording named name, blocking until the JVM
-// confirms the stop (see CaptureToFile for why this matters).
-func (t *JFR) stopRecording(name string) error {
-	_, err := t.runJcmd(fmt.Sprintf("JFR.stop %s", jfrArg("name", name)))
-	return err
 }
 
 // openRecording opens the JFR recording file written by startRecording.

@@ -378,9 +378,10 @@ Ignored errors: %v
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
 
-		// Capture a JFR (Java Flight Recorder) recording. It's started now and
-		// runs for a fixed jfrCaptureDuration; its result is read last
-		// so the recording window overlaps the rest of the capture instead of adding to it.
+		// Capture a JFR (Java Flight Recorder) recording. It's started now with
+		// duration=jfrCaptureDuration, so the JVM stops it and writes it out on
+		// its own; its result is read last so the recording window overlaps the
+		// rest of the capture instead of adding to it.
 		if config.GlobalConfig.JFREnabled {
 			jfr = goCapture(endpoint, capture.WrapRun(&capture.JFR{
 				Pid:      pid,
@@ -909,7 +910,7 @@ Resp: %s
 	logger.Log("Executed custom commands")
 
 	// -------------------------------
-	//     Stop & Transmit JFR recording
+	//     Transmit JFR recording
 	// -------------------------------
 	if jfr != nil {
 		// Read last to let the JFR window overlap the rest of the capture.
