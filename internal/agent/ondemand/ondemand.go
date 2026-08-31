@@ -136,7 +136,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 					Wg.Add(1)
 					defer func() {
 						defer Wg.Done()
-						err := removeDirWithRetry(captureDir)
+						err := RemoveDirWithRetry(captureDir)
 						if err != nil {
 							logger.Log("WARNING: Can not remove the current directory: %s", err)
 							return
@@ -1293,16 +1293,14 @@ Resp: %s
 	return
 }
 
-// removeDirWithRetry removes dir, retrying a few times on failure. On
-// Windows, a file that another process (e.g. an antivirus/EDR agent doing a
-// real-time scan right after the file is closed, or the JVM briefly holding
-// a JFR recording's handle a moment past what JFR.check reports) still has
-// open can't be deleted; that lock is normally released within a second or
-// two, so a short retry clears most of these transient failures instead of
-// leaving the capture directory behind.
-func removeDirWithRetry(dir string) (err error) {
-	const attempts = 5
-	const delay = 2 * time.Second
+// RemoveDirWithRetry removes dir, backing off between attempts (1s, 2s, 4s,
+// 8s, 8s - about 23s in total) before giving up.
+//
+// On Windows a directory can't be removed while another process holds it open.
+func RemoveDirWithRetry(dir string) (err error) {
+	const attempts = 6
+	const maxDelay = 8 * time.Second
+	delay := 1 * time.Second
 
 	for i := 0; i < attempts; i++ {
 		err = os.RemoveAll(dir)
@@ -1311,8 +1309,25 @@ func removeDirWithRetry(dir string) (err error) {
 		}
 		if i < attempts-1 {
 			time.Sleep(delay)
+			if delay < maxDelay {
+				delay *= 2
+			}
 		}
 	}
+
+	// Say whether anything is still in there.
+	if entries, readErr := os.ReadDir(dir); readErr == nil {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		if len(names) == 0 {
+			logger.Log("%s is empty; the directory itself is held open by another process", dir)
+		} else {
+			logger.Log("%s still contains %d entries: %s", dir, len(names), strings.Join(names, ", "))
+		}
+	}
+
 	return err
 }
 

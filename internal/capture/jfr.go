@@ -3,9 +3,11 @@ package capture
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"yc-agent/internal/logger"
 )
 
+// jfrOut is what we call the artifact inside the capture directory. The JVM
+// does not write here - see jfrRecordingPath.
 const jfrOut = "jfr.out"
 
 const (
@@ -41,9 +45,11 @@ var jfrFailurePhrases = []string{
 
 // JFR captures a JVM Flight Recorder recording for a running Java process.
 // The recording is started with duration=, so the JVM stops it and writes it
-// out on its own after Duration - the agent never sends JFR.stop. FullCapture
-// reads its result last, so the recording window overlaps the rest of the
-// capture instead of adding to it.
+// out on its own after Duration - the agent never sends JFR.stop. The JVM
+// writes to the temp directory (jfrRecordingPath); yc then stages the result
+// into the capture directory as jfrOut. FullCapture reads its result last, so
+// the recording window overlaps the rest of the capture instead of adding to
+// it.
 type JFR struct {
 	Capture
 	Pid      int
@@ -74,20 +80,36 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	// back runs against the same long-lived JVM (e.g. repeated manual
 	// testing) must never collide with a still-active recording left behind
 	// by a previous run.
-	name := fmt.Sprintf("ycJFR-%d-%d", t.Pid, time.Now().UnixNano())
+	nanos := time.Now().UnixNano()
+	name := fmt.Sprintf("ycJFR-%d-%d", t.Pid, nanos)
 
 	duration := t.effectiveDuration()
 
-	requestedPath, err := t.startRecording(name, duration)
-	if err != nil {
+	jvmPath := jfrRecordingPath(t.Pid, nanos)
+	if err := t.startRecording(name, jvmPath, duration); err != nil {
 		return nil, err
 	}
+
+	// DeferDelete only cleans the capture directory, so this file is ours to
+	// remove. Reassigned below if the recording is in the target's namespace.
+	sourcePath := jvmPath
+	defer func() {
+		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
+			logger.Log("WARNING: could not remove the JVM's JFR recording %s: %v", sourcePath, err)
+		}
+	}()
 
 	wait := duration + jfrDumpGrace
 	logger.Log("JFR recording %s started, running for %s; reading it in %s", name, duration, wait)
 	time.Sleep(wait)
 
-	return t.openRecording(requestedPath)
+	resolved, err := resolveRecordingPath(t.Pid, jvmPath)
+	if err != nil {
+		return nil, err
+	}
+	sourcePath = resolved
+
+	return stageRecording(sourcePath, jfrOut)
 }
 
 func (t *JFR) UploadCapturedFile(file *os.File) Result {
@@ -129,42 +151,93 @@ func jfrTimespan(d time.Duration) string {
 	return fmt.Sprintf("%ds", int(d.Round(time.Second).Seconds()))
 }
 
-// startRecording starts a JFR recording named name on the target JVM, running
-// for duration, and returns the absolute path the recording is being written
-// to.
+// jfrRecordingPath is where the target JVM writes its recording: a unique name
+// in the system temp directory, deliberately *not* the capture directory.
+func jfrRecordingPath(pid int, nanos int64) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", jfrOut, pid, nanos))
+}
+
+// startRecording starts a JFR recording named name on the target JVM, writing
+// to jvmPath and running for duration.
 //
 // duration= puts the timer inside the JVM: it stops the recording and writes
 // the file with nobody attached, so the agent needs only this one diagnostic
 // command, and a recording can't outlive the agent if yc is killed partway
 // through.
-func (t *JFR) startRecording(name string, duration time.Duration) (string, error) {
-	requestedPath, err := filepath.Abs(jfrOut)
-	if err != nil {
-		requestedPath = jfrOut
-	}
-
-	if !jfrPathUsable(requestedPath) {
-		return "", fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", requestedPath)
+func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error {
+	if !jfrPathUsable(jvmPath) {
+		return fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", jvmPath)
 	}
 
 	// duration= needs no quoting: jfrTimespan can only produce digits and 's'.
 	cmd := fmt.Sprintf("JFR.start %s %s duration=%s",
-		jfrArg("name", name), jfrArg("filename", requestedPath), jfrTimespan(duration))
+		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
 	if _, err := t.runJcmd(cmd); err != nil {
-		return "", fmt.Errorf("failed to start JFR recording: %w", err)
+		return fmt.Errorf("failed to start JFR recording: %w", err)
 	}
 
-	return requestedPath, nil
+	return nil
 }
 
-// openRecording opens the JFR recording file written by startRecording.
-func (t *JFR) openRecording(path string) (*os.File, error) {
-	file, err := os.Open(path)
+func resolveRecordingPath(pid int, jvmPath string) (string, error) {
+	if _, err := os.Stat(jvmPath); err == nil {
+		return jvmPath, nil
+	}
+
+	if runtime.GOOS != "linux" {
+		return "", fmt.Errorf("the JVM did not write a JFR recording to %s", jvmPath)
+	}
+
+	nsPath := filepath.Join("/proc", strconv.Itoa(pid), "root", jvmPath)
+	if _, err := os.Stat(nsPath); err != nil {
+		return "", fmt.Errorf("no JFR recording at %s, nor in the target's mount namespace at %s", jvmPath, nsPath)
+	}
+
+	logger.Log("JFR recording not visible at %s; reading it from the target's mount namespace at %s", jvmPath, nsPath)
+	return nsPath, nil
+}
+
+func stageRecording(src, dst string) (*os.File, error) {
+	if err := os.Rename(src, dst); err != nil {
+		if err := copyRecording(src, dst); err != nil {
+			return nil, err
+		}
+	}
+
+	file, err := os.Open(dst)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open JFR recording %s: %w", path, err)
+		return nil, fmt.Errorf("failed to open staged JFR recording %s: %w", dst, err)
+	}
+
+	if info, err := file.Stat(); err == nil {
+		logger.Log("staged JFR recording as %s (%d bytes)", dst, info.Size())
 	}
 
 	return file, nil
+}
+
+func copyRecording(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open JFR recording %s: %w", src, err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create JFR recording %s: %w", dst, err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy JFR recording %s to %s: %w", src, dst, err)
+	}
+
+	if err := dstFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync JFR recording %s: %w", dst, err)
+	}
+
+	return nil
 }
 
 // runJcmd runs a jcmd diagnostic command against t.Pid, trying the JDK's

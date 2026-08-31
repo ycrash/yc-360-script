@@ -105,7 +105,7 @@ func (m3 *M3App) RunSingle() error {
 			// Cleanup directory
 			if config.GlobalConfig.DeferDelete {
 				defer func() {
-					err := os.RemoveAll(captureDir)
+					err := ondemand.RemoveDirWithRetry(captureDir)
 					if err != nil {
 						logger.Log("WARNING: Can not remove the current directory: %s", err)
 						return
