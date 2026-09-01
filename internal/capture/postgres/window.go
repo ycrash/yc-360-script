@@ -29,7 +29,8 @@ const (
 	StatusConnectFailed = "connect_failed"
 )
 
-// Schedule: Every's offsets stay strictly inside the window, so the closing tick is never an interval collector's.
+// Schedule: Every's offsets stay strictly inside the window, so the closing tick is never an Every collector's.
+// Periodic's last offset is the close itself, so it counts towards moduleDeadline's closing tick.
 type Schedule struct {
 	kind     scheduleKind
 	interval time.Duration
@@ -41,6 +42,7 @@ const (
 	scheduleStartEnd scheduleKind = iota
 	scheduleEvery
 	scheduleOnce
+	schedulePeriodic
 )
 
 func StartEnd() Schedule {
@@ -56,6 +58,13 @@ func Every(d time.Duration) Schedule {
 	return Schedule{kind: scheduleEvery, interval: d}
 }
 
+// Periodic is Every plus a sample at the close. A window shorter than the interval
+// still gives two samples, so the first reading always has a second to be read
+// against. Periodic with no interval is StartEnd.
+func Periodic(d time.Duration) Schedule {
+	return Schedule{kind: schedulePeriodic, interval: d}
+}
+
 // offsets are computed before the window opens, so the preamble can state samples_expected.
 func (s Schedule) offsets(window time.Duration) []time.Duration {
 	if window <= 0 {
@@ -65,6 +74,12 @@ func (s Schedule) offsets(window time.Duration) []time.Duration {
 	// Must run before the "not Every" check, or Once samples twice.
 	if s.kind == scheduleOnce {
 		return []time.Duration{0}
+	}
+
+	// Before both Every checks below. Every with no interval gives one sample;
+	// Periodic with no interval must still give the two.
+	if s.kind == schedulePeriodic {
+		return periodicOffsets(s.interval, window)
 	}
 
 	if s.kind != scheduleEvery {
@@ -83,6 +98,27 @@ func (s Schedule) offsets(window time.Duration) []time.Duration {
 	return offsets
 }
 
+// periodicOffsets steps through the window like Every, then adds the close.
+func periodicOffsets(interval, window time.Duration) []time.Duration {
+	if interval <= 0 {
+		return []time.Duration{0, window}
+	}
+
+	offsets := make([]time.Duration, 0, int(window/interval)+2)
+	for at := time.Duration(0); at < window; at += interval {
+		offsets = append(offsets, at)
+	}
+
+	// Drop the last step if it lands within half an interval of the close. Periodic(119s)
+	// on a 120s window would sample at 119s and 120s, and a one-second gap is noise the
+	// counters cannot be read against. Never drop the opening sample.
+	if last := len(offsets) - 1; last > 0 && window-offsets[last] < interval/2 {
+		offsets = offsets[:last]
+	}
+
+	return append(offsets, window)
+}
+
 func (s Schedule) name() string {
 	switch s.kind {
 	case scheduleEvery:
@@ -90,13 +126,16 @@ func (s Schedule) name() string {
 
 	case scheduleOnce:
 		return "once"
+
+	case schedulePeriodic:
+		return "periodic"
 	}
 
 	return "start_end"
 }
 
 func (s Schedule) intervalText() string {
-	if s.kind != scheduleEvery || s.interval <= 0 {
+	if (s.kind != scheduleEvery && s.kind != schedulePeriodic) || s.interval <= 0 {
 		return ""
 	}
 
