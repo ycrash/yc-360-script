@@ -506,6 +506,14 @@ func TestWindowModuleDeadlineSizesTheClosingTick(t *testing.T) {
 		return collector
 	}
 
+	periodic := func() *fakeCollector {
+		collector := newFakeCollector("pg_periodic")
+		collector.artifact.Schedule = Periodic(10 * time.Second)
+		collector.artifact.SampleBudget = time.Minute
+
+		return collector
+	}
+
 	for _, tc := range []struct {
 		name       string
 		collectors []Collector
@@ -530,6 +538,11 @@ func TestWindowModuleDeadlineSizesTheClosingTick(t *testing.T) {
 			name:       "and neither does a once collector",
 			collectors: []Collector{capability(), edges(0)},
 			want:       window + DefaultSampleBudget + WindowCloseMargin,
+		},
+		{
+			name:       "a periodic collector does contribute, because its last offset is the close",
+			collectors: []Collector{periodic(), edges(0)},
+			want:       window + time.Minute + DefaultSampleBudget + WindowCloseMargin,
 		},
 		{
 			name:       "with nothing on the closing tick, a default sample's worth is still reserved",
@@ -1058,6 +1071,61 @@ func TestScheduleOffsets(t *testing.T) {
 			schedule: Every(500 * ms), window: 2 * s,
 			want: []time.Duration{0, 500 * ms, s, 1500 * ms},
 		},
+		{
+			name:     "the spec's own example: two minutes at thirty seconds is five samples",
+			schedule: Periodic(30 * s), window: 120 * s,
+			want: []time.Duration{0, 30 * s, 60 * s, 90 * s, 120 * s},
+		},
+		{
+			name:     "a frequency longer than the window is the bookend and nothing else",
+			schedule: Periodic(5 * time.Minute), window: 120 * s,
+			want: []time.Duration{0, 120 * s},
+		},
+		{
+			name:     "no frequency is the bookend too, not the single sample Every would give",
+			schedule: Periodic(0), window: 120 * s,
+			want: []time.Duration{0, 120 * s},
+		},
+		{
+			name:     "a negative frequency is read as no frequency",
+			schedule: Periodic(-time.Minute), window: 120 * s,
+			want: []time.Duration{0, 120 * s},
+		},
+		{
+			name:     "a stepped offset within half an interval of the close gives way to it",
+			schedule: Periodic(119 * s), window: 120 * s,
+			want: []time.Duration{0, 120 * s},
+		},
+		{
+			name:     "the drop is half an interval, so 100s of a 120s window survives at 60s",
+			schedule: Periodic(60 * s), window: 100 * s,
+			want: []time.Duration{0, 60 * s, 100 * s},
+		},
+		{
+			name:     "a close within half an interval drops only the last offset, not the ones before it",
+			schedule: Periodic(30 * s), window: 95 * s,
+			want: []time.Duration{0, 30 * s, 60 * s, 95 * s},
+		},
+		{
+			name:     "an interval that divides the window exactly keeps every stepped offset",
+			schedule: Periodic(40 * s), window: 120 * s,
+			want: []time.Duration{0, 40 * s, 80 * s, 120 * s},
+		},
+		{
+			name:     "the opening sample is never the one dropped",
+			schedule: Periodic(90 * s), window: 100 * s,
+			want: []time.Duration{0, 100 * s},
+		},
+		{
+			name:     "a zero window is one sample on the periodic cadence as well",
+			schedule: Periodic(30 * s), window: 0,
+			want: []time.Duration{0},
+		},
+		{
+			name:     "a negative window is one sample on the periodic cadence as well",
+			schedule: Periodic(30 * s), window: -time.Minute,
+			want: []time.Duration{0},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.schedule.offsets(tc.window))
@@ -1078,6 +1146,14 @@ func TestScheduleRendersItselfForThePreamble(t *testing.T) {
 
 	assert.Equal(t, "once", Once().name())
 	assert.Empty(t, Once().intervalText(), "one reading has no cadence to state")
+
+	assert.Equal(t, "periodic", Periodic(30*time.Second).name())
+	assert.Equal(t, "30s", Periodic(30*time.Second).intervalText())
+	assert.Equal(t, "300s", Periodic(5*time.Minute).intervalText())
+
+	assert.Equal(t, "periodic", Periodic(0).name(),
+		"an unset frequency still samples on the periodic rule, and the preamble says so")
+	assert.Empty(t, Periodic(0).intervalText(), "there is no cadence to state, only the bookend")
 }
 
 func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
@@ -1095,6 +1171,53 @@ func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
 		{at: 20 * time.Second, collector: 0, index: 3},
 		{at: 30 * time.Second, collector: 1, index: 2},
 	}, events)
+}
+
+func TestWindowPeriodicSamplesTheStepsAndTheClosingTick(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_periodic")
+	collector.artifact.Schedule = Periodic(30 * time.Second)
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 5, results[0].SamplesExpected, "the spec's own example: two minutes at thirty seconds")
+	assert.Equal(t, 5, results[0].SamplesWritten)
+
+	var at []time.Duration
+	for _, seen := range collector.seen {
+		at = append(at, seen.At.Sub(testWindowStart))
+	}
+
+	assert.Equal(t, []time.Duration{
+		0, 30 * time.Second, 60 * time.Second, 90 * time.Second, 120 * time.Second,
+	}, at, "the last sample is the close itself, which Every would have skipped")
+
+	assert.Contains(t, headersOf(t, results[0])[0],
+		"window=120s schedule=periodic interval=30s samples_expected=5")
+}
+
+func TestWindowPeriodicWithNoFrequencyStillBookendsTheWindow(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_periodic")
+	collector.artifact.Schedule = Periodic(0)
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusComplete, results[0].Status)
+
+	// The failure is a quiet one: one sample, status=complete, and nothing in the
+	// file to tell a missing frequency from a window that only wanted one sample.
+	require.Len(t, collector.seen, 2)
+	assert.Equal(t, testWindowStart, collector.seen[0].At)
+	assert.Equal(t, testWindowStart.Add(120*time.Second), collector.seen[1].At)
+
+	assert.Contains(t, headersOf(t, results[0])[0],
+		"window=120s schedule=periodic interval= samples_expected=2")
 }
 
 func TestTimelineBreaksTiesOnRegistrationOrder(t *testing.T) {
