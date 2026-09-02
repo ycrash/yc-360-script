@@ -1,0 +1,6 @@
+# engine=postgres source=pg_index_usage v=1 format=csv scope=database db=postgres dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_stat_user_indexes v=1 format=csv scope=database db=postgres dbid=16401 sample=1 indexes_written=0 indexes_total=0 truncated=false ts=2026-08-07T14:32:05.112Z
+indexrelid,relid,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch,index_size_bytes
+# engine=postgres source=pg_stat_user_indexes v=1 format=csv scope=database db=postgres dbid=16401 sample=2 indexes_written=0 indexes_total=0 truncated=false ts=2026-08-07T14:34:05.140Z
+indexrelid,relid,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch,index_size_bytes
+# engine=postgres source=pg_index_usage v=1 format=csv scope=database db=postgres dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

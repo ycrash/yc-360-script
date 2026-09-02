@@ -758,6 +758,170 @@ func assertMatrixCapFires(t *testing.T, target Target) {
 	assert.Len(t, blocks[0].rows, capped)
 }
 
+// matrixUnusedIndex is created by TestMatrixIndexUsage and dropped after it: an
+// index nothing scans, which is the finding pg_index_usage.txt exists for, and a
+// second index beside the fixture's yc_bloat_orders_pkey so the cap has
+// something to truncate. Test-time rather than in pg_matrix_init.sql, which only
+// runs when a container is first created.
+const matrixUnusedIndex = "yc_bloat_orders_status_idx"
+
+func parseIndexUsageBlocks(t *testing.T, artifact string) []sampleBlock {
+	t.Helper()
+
+	return parseSampleBlocks(t, artifact, "pg_stat_user_indexes")
+}
+
+// indexrelidOf matches on indexrelname alone: the artifact carries no schema
+// column of its own - relid is the join into pg_bloat.txt for that - and the
+// fixture has one index by each name.
+func (b sampleBlock) indexrelidOf(t *testing.T, name string) string {
+	t.Helper()
+
+	for indexrelid, row := range b.rows {
+		if row[2] == name {
+			return indexrelid
+		}
+	}
+
+	t.Fatalf("index %s is not in the block", name)
+
+	return ""
+}
+
+// runMatrixIndexUsageWindow samples bloat alongside so relid can be checked
+// against the table it names, the join the spec designed the column for.
+func runMatrixIndexUsageWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{Bloat{}, IndexUsage{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixIndexUsage(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				matrixDDL(t, server, target.Database,
+					"CREATE INDEX IF NOT EXISTS "+matrixUnusedIndex+" ON yc_bloat_orders (status)")
+				t.Cleanup(func() {
+					matrixDDL(t, server, target.Database, "DROP INDEX IF EXISTS "+matrixUnusedIndex)
+				})
+
+				results := runMatrixIndexUsageWindow(t, target)
+				require.Len(t, results, 2)
+
+				tables, usage := results[0], results[1]
+				require.NoError(t, usage.IOErr)
+
+				require.Equal(t, StatusComplete, usage.Status,
+					"the artifact must be complete for every role on every version")
+				require.Equal(t, 2, usage.SamplesWritten)
+
+				artifact := matrixArtifactText(t, usage)
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseIndexUsageBlocks(t, artifact)
+				require.Len(t, blocks, 2, "start and end")
+
+				assert.Equal(t, indexUsageColumns, blocks[0].columns)
+				assert.Equal(t, blocks[0].columns, blocks[1].columns,
+					"both samples carry identical column sets")
+
+				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[1]),
+					"indexrelid is stable across the two samples")
+
+				for i, block := range blocks {
+					assert.Equal(t, block.header["indexes_total"], block.header["indexes_written"],
+						"block %d: nothing is dropped below the cap", i)
+					assert.Equal(t, "false", block.header["truncated"])
+
+					assert.NotContains(t, block.rawHead, "sizes=unavailable",
+						"block %d: pg_relation_size must need no grant", i)
+				}
+
+				require.NoError(t, tables.IOErr)
+				tableBlocks := parseBloatBlocks(t, matrixArtifactText(t, tables))
+				require.Len(t, tableBlocks, 2)
+
+				assertMatrixKnownIndexes(t, blocks[1], tableBlocks[1])
+				assertMatrixIndexCapFires(t, target)
+			})
+		}
+	}
+}
+
+func assertMatrixKnownIndexes(t *testing.T, block, tables sampleBlock) {
+	t.Helper()
+
+	orders := tables.relidOf(t, "public", "yc_bloat_orders")
+
+	pkey := block.indexrelidOf(t, "yc_bloat_orders_pkey")
+	unused := block.indexrelidOf(t, matrixUnusedIndex)
+
+	assert.Equal(t, orders, block.cell(t, pkey, "relid"),
+		"relid is the table's OID, the join key into pg_bloat.txt")
+	assert.Equal(t, orders, block.cell(t, unused, "relid"))
+
+	_, err := strconv.Atoi(block.cell(t, pkey, "idx_scan"))
+	assert.NoError(t, err, "idx_scan is a number on every index, 0 included")
+
+	assert.Equal(t, "0", block.cell(t, unused, "idx_scan"),
+		"an index created moments ago and never scanned reports 0, not empty: the finding")
+	assert.Equal(t, "0", block.cell(t, unused, "idx_tup_read"))
+	assert.Equal(t, "0", block.cell(t, unused, "idx_tup_fetch"))
+
+	for _, indexrelid := range []string{pkey, unused} {
+		size, err := strconv.Atoi(block.cell(t, indexrelid, "index_size_bytes"))
+		require.NoError(t, err, "index_size_bytes must be a number")
+		assert.Positive(t, size, "an index on 500 rows has at least a metapage and a root page")
+	}
+}
+
+func assertMatrixIndexCapFires(t *testing.T, target Target) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		assert.NoError(t, conn.Close(closeCtx))
+	}()
+
+	const capped = 1
+
+	var buf strings.Builder
+	require.NoError(t, IndexUsage{MaxIndexes: capped}.Sample(ctx, conn, &buf, SampleContext{
+		At: time.Now(), Index: 1, Database: "postgres", DBID: "0",
+	}))
+
+	blocks := parseIndexUsageBlocks(t, buf.String())
+	require.Len(t, blocks, 1)
+
+	assert.Equal(t, strconv.Itoa(capped), blocks[0].header["indexes_written"])
+
+	total, err := strconv.Atoi(blocks[0].header["indexes_total"])
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, total, 2,
+		"the fixture's primary key and the test's own index: the real total survives the "+
+			"cap, so a capped file cannot read as complete")
+	assert.Equal(t, "true", blocks[0].header["truncated"])
+	assert.Len(t, blocks[0].rows, capped)
+}
+
 // matrixHealthWindow is three one-second steps; matrixHealthSamples counts the
 // close as well, which is the sample Periodic adds.
 const (

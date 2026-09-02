@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the eight below must equal
+// PostgresMetadataFileName and the ten below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -57,6 +57,11 @@ const pgDTDeadlocks = "pgDeadlocks"
 const PostgresTimeoutsFileName = "pg_timeouts.txt"
 
 const pgDTTimeouts = "pgTimeouts"
+
+// PostgresIndexUsageFileName has no dt constant beside it: dt=pgIndexUsage is
+// proposed to the server team and not yet assigned, so pgSampledDataType returns
+// "" for the artifact and the run writes it into the bundle without uploading it.
+const PostgresIndexUsageFileName = "pg_index_usage.txt"
 
 // pgSampledDataType returns "" for an artifact with no assigned dt: an invented
 // value would upload and drop silently, so the caller writes the artifact but
@@ -163,8 +168,9 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// Registration order is sampling order on the shared tick, not a timing
 		// guarantee. Log tails go first so from_offset is set before other
 		// collectors' statements reach the log; then the cheap reads, then the
-		// three whole-table reads (capacity, bloat, slow queries), so a tick that
-		// runs long is late with the expensive reading rather than the cheap ones.
+		// four whole-table reads (capacity, bloat, index usage, slow queries), so a
+		// tick that runs long is late with the expensive reading rather than the
+		// cheap ones.
 		//
 		// pg_explain goes last on both counts: at the close it reads slowQueries'
 		// closing sample, and at t0 its log tail then opens past the agent's own
@@ -178,6 +184,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			metadata,
 			postgres.Capacity{Interval: interval},
 			postgres.Bloat{Interval: interval},
+			postgres.IndexUsage{Interval: interval},
 			slowQueries,
 			postgres.NewExplain(p.explainMode(), slowQueries),
 		},
