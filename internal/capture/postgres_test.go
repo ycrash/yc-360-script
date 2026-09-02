@@ -278,12 +278,10 @@ func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 			"deadline by lying about the arithmetic is the one thing this number must not do")
 }
 
-func TestPostgresSampledCollectorsShareOneDerivedCadence(t *testing.T) {
-	interval := postgres.DefaultInterval(config.DefaultPostgresCaptureDuration)
-
-	require.Equal(t, 15*time.Second, interval,
-		"the default window's derived cadence: nine samples, not the flat 5m a two-minute "+
-			"window would have reduced to the bookend alone")
+func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
+	// The spec's incident case: 2m at 30s, five samples. The 5m default on the
+	// default window is the bookend alone, and Validate warns about it.
+	interval := 30 * time.Second
 
 	for name, schedule := range map[string]postgres.Schedule{
 		"pg_sessions":     postgres.Sessions{Interval: interval}.Artifact().Schedule,
@@ -471,19 +469,20 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Less(t, elapsed, 30*time.Second,
 		"a connect failure waited out the window instead of failing fast")
 
-	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/9 samples)",
-		"nine samples expected at the 2m window's derived 15s cadence, none taken - and it "+
-			"reports a refusal like every other")
-	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/9 samples)",
+	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/2 samples)",
+		"the spec's 5m default on the 2m window is the bookend alone, none taken - and it "+
+			"reports a refusal like every other; Validate is what warns a deployment about "+
+			"the two samples, since the capture itself takes what it is given")
+	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/2 samples)",
 		"the same cadence, where this artifact once carried a 10s constant of its own")
-	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/9 samples)",
+	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/2 samples)",
 		"and the same again for replication: one cadence for every sampled artifact")
-	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/9 samples)",
-		"the whole-table reads take the same cadence as the cheap ones, not the bookend alone")
-	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/9 samples)")
-	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/9 samples)")
+	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)",
+		"the whole-table reads take the same cadence as the cheap ones")
+	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
+	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
-		"pg_explain alone stays on the bookend, ranking the two endpoints")
+		"pg_explain is on the bookend by design, ranking the two endpoints")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
 		"every artifact reports the one refusal, and they report it identically")
 
@@ -879,22 +878,21 @@ func TestPostgresCaptureDefaultsTheWindowWhenUnvalidated(t *testing.T) {
 	assert.Equal(t, 45*time.Second, task.captureDuration())
 }
 
-func TestPostgresCaptureFrequencyIsConfiguredOrDerived(t *testing.T) {
+func TestPostgresCaptureDefaultsTheFrequencyWhenUnvalidated(t *testing.T) {
 	task := &PostgresCapture{Target: unreachablePostgres(t)}
 	require.Nil(t, task.Target.Frequency)
 
-	assert.Equal(t, postgres.DefaultInterval(2*time.Minute), task.frequency(2*time.Minute),
-		"omitted derives the cadence from the window")
+	assert.Equal(t, config.DefaultPostgresFrequency, task.frequency(),
+		"omitted takes the spec's 5m, the same value Validate would have filled in")
 
 	frequency := config.Duration(30 * time.Second)
 	task.Target.Frequency = &frequency
-	assert.Equal(t, 30*time.Second, task.frequency(2*time.Minute),
-		"configured overrides it, whatever the window")
+	assert.Equal(t, 30*time.Second, task.frequency())
 
 	zero := config.Duration(0)
 	task.Target.Frequency = &zero
-	assert.Equal(t, postgres.DefaultInterval(2*time.Minute), task.frequency(2*time.Minute),
-		"a zero that never went through Validate derives rather than sampling nothing")
+	assert.Equal(t, config.DefaultPostgresFrequency, task.frequency(),
+		"a zero that never went through Validate takes the default rather than sampling nothing")
 }
 
 func TestPostgresFrequencyFloorIsTheStatementTimeout(t *testing.T) {
@@ -916,7 +914,7 @@ func TestPostgresCaptureHonoursTheConfiguredFrequency(t *testing.T) {
 
 	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/5 samples)",
 		"the spec's own incident case, 2m at 30s: four steps and the close, where the "+
-			"derived cadence would have taken nine")
+			"5m default would have been the bookend alone")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/5 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
 		"and pg_explain keeps its bookend regardless")

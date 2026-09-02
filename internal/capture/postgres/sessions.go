@@ -138,7 +138,7 @@ LIMIT $1`
 // so a least-privilege capture looks complete with every query cell a denial;
 // pg_metadata.txt's has_pg_read_all_stats is what tells the two apart.
 type Sessions struct {
-	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxSessions bounds one sample's activity rows. Zero takes

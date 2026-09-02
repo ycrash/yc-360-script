@@ -62,7 +62,7 @@ LEFT JOIN pg_catalog.pg_class c ON c.oid = o`
 // Bloat captures pg_stat_user_tables every sample; deltas are computed
 // downstream by joining consecutive blocks on relid.
 type Bloat struct {
-	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxTables bounds one sample. Zero takes DefaultMaxTables.

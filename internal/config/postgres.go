@@ -23,10 +23,9 @@ type Postgres struct {
 	CaptureDuration *Duration `yaml:"captureDuration"`
 
 	// Frequency is how often the periodic artifacts are sampled. Pointer: nil (key
-	// omitted) derives the cadence from the window - window/8, floored at
-	// MinPostgresFrequency and capped at 5m - which serves a two-minute incident
-	// and a two-hour test alike; 0s is a configuration error. Whatever the value,
-	// the opening and closing samples are always taken.
+	// omitted) takes the default; 0s is a configuration error. Whatever the value,
+	// the opening and closing samples are always taken, so a frequency no shorter
+	// than the window leaves exactly those two - and Validate says so.
 	Frequency *Duration `yaml:"frequency"`
 
 	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
@@ -56,6 +55,11 @@ const (
 	// shared database. Two hours is the spec's performance-test case; the host
 	// files stretch with it, so a long window's netstat and ps readings are far apart.
 	MaxPostgresCaptureDuration = 2 * time.Hour
+
+	// DefaultPostgresFrequency is the spec's: 5m. Longer than the default window, so
+	// an incident capture that wants samples between the endpoints sets frequency
+	// itself (the spec's own example is 30s), and one that does not is warned.
+	DefaultPostgresFrequency = 5 * time.Minute
 
 	// MinPostgresFrequency floors frequency. It equals the capture's per-statement
 	// timeout, pinned by a test there, so a maxed-out sample can never outrun the
@@ -105,8 +109,7 @@ func (p *Postgres) String() string {
 		window = p.CaptureDuration.String()
 	}
 
-	// Nil after Validate too: omission is the derive switch, so it stays unset.
-	frequency := "(unset, derived from the window)"
+	frequency := fmt.Sprintf("(unset, defaults to %s)", DefaultPostgresFrequency)
 	if p.Frequency != nil {
 		frequency = p.Frequency.String()
 	}
@@ -194,16 +197,18 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		p.CaptureDuration = newDuration(MaxPostgresCaptureDuration)
 	}
 
-	// Under-floor clamps and warns, as the ceiling does above; non-positive is
-	// rejected. Omitted stays nil: deriving the cadence is the capture's own
-	// arithmetic, and echoing a derived value here would present it as configured.
+	// Under-floor clamps and warns, as the ceiling does above; non-positive is rejected.
+	frequencyDefaulted := false
+
 	switch {
 	case p.Frequency == nil:
+		p.Frequency = newDuration(DefaultPostgresFrequency)
+		frequencyDefaulted = true
 
 	case p.Frequency.Duration() <= 0:
 		errs = append(errs, fmt.Errorf(
-			"postgres.frequency is %s - it must be positive (omit the key to derive the cadence from the window)",
-			p.Frequency))
+			"postgres.frequency is %s - it must be positive (omit the key for the %s default)",
+			p.Frequency, DefaultPostgresFrequency))
 
 	case p.Frequency.Duration() < MinPostgresFrequency:
 		warnings = append(warnings, fmt.Sprintf(
@@ -213,12 +218,25 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 			p.Frequency, MinPostgresFrequency, MinPostgresFrequency, MinPostgresFrequency))
 
 		p.Frequency = newDuration(MinPostgresFrequency)
+	}
 
-	case p.CaptureDuration.Duration() > 0 && p.Frequency.Duration() >= p.CaptureDuration.Duration():
-		warnings = append(warnings, fmt.Sprintf(
-			"postgres.frequency %s is not shorter than the %s window - only the opening and "+
-				"closing samples will be taken.",
-			p.Frequency, p.CaptureDuration))
+	// The bookend is always taken, so this is a warning and not an error - but on
+	// the default window the default frequency lands here, and a capture that was
+	// never told a cadence would otherwise be silently two samples of everything.
+	if p.Frequency.Duration() > 0 && p.CaptureDuration.Duration() > 0 &&
+		p.Frequency.Duration() >= p.CaptureDuration.Duration() {
+		if frequencyDefaulted {
+			warnings = append(warnings, fmt.Sprintf(
+				"postgres.frequency is unset and defaults to %s, which is not shorter than the %s "+
+					"window - only the opening and closing samples will be taken. Set "+
+					"postgres.frequency (for example 30s) to sample within the window.",
+				DefaultPostgresFrequency, p.CaptureDuration))
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"postgres.frequency %s is not shorter than the %s window - only the opening and "+
+					"closing samples will be taken.",
+				p.Frequency, p.CaptureDuration))
+		}
 	}
 
 	if p.Host == "" {

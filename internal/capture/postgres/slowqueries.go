@@ -225,7 +225,7 @@ func buildStatementsSQL() string {
 // SlowQueries captures pg_stat_statements every sample; the delta, ranking, and top-N are the server's, not the agent's.
 // The view needs no grant, but a role without pg_read_all_stats gets queryid NULL and query masked on rows it doesn't own while every counter stays exact (measured: 234/270 rows on 18, 124/152 on 14) - the inverse of pg_sessions.txt, where identity survives and detail doesn't. pg_metadata.txt's has_pg_read_all_stats is the bundle's only signal of this.
 type SlowQueries struct {
-	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
