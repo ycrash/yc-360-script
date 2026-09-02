@@ -218,11 +218,12 @@ func TestMatrixMetadataWindow(t *testing.T) {
 
 				headers, values, keys := parseArtifact(t, artifact)
 
-				require.Len(t, headers, 4, "preamble, target block, server block, closing block")
+				require.Len(t, headers, 5, "preamble, target block, server block, tablespace block, closing block")
 				for i, source := range []string{
 					"source=pg_metadata ",
 					"source=pg_metadata_target ",
 					"source=pg_metadata_server ",
+					"source=pg_metadata_tablespaces ",
 					"source=pg_metadata ",
 				} {
 					assert.Contains(t, headers[i], source, "block %d", i)
@@ -920,6 +921,174 @@ func assertMatrixIndexCapFires(t *testing.T, target Target) {
 			"cap, so a capped file cannot read as complete")
 	assert.Equal(t, "true", blocks[0].header["truncated"])
 	assert.Len(t, blocks[0].rows, capped)
+}
+
+// A tablespace with storage of its own, for pg_tablespaces.txt and the location
+// block in pg_metadata.txt. Created at test time and dropped after: CREATE
+// TABLESPACE needs an empty directory the server's OS user owns, which only a
+// command inside the container can make, so the cases that need it are skipped
+// where docker is not on PATH. The two every cluster has, pg_default and
+// pg_global, are enough for the privilege split the guard exists for.
+const (
+	matrixTablespace    = "yc_matrix_ts"
+	matrixTablespaceDir = "/var/lib/postgresql/yc_matrix_ts"
+)
+
+// matrixExecInContainer runs a command inside the server's container and reports
+// whether it could: false when docker is not on PATH. A command that runs and
+// fails is a test failure. Call it before anything changes the working directory:
+// the compose file is found relative to the package.
+func matrixExecInContainer(t *testing.T, server matrixServer, args ...string) bool {
+	t.Helper()
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		return false
+	}
+
+	compose := os.Getenv("YC_PG_COMPOSE")
+	if compose == "" {
+		compose = filepath.Join("..", "..", "..", "compose.pg.yaml")
+	}
+
+	cmd := exec.Command("docker", append([]string{
+		"compose", "-f", compose, "exec", "-T", fmt.Sprintf("pg%d", server.major),
+	}, args...)...)
+
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "docker compose exec %s: %s", strings.Join(args, " "), out)
+
+	return true
+}
+
+// matrixCreateTablespace makes the directory in the container and the tablespace
+// on it, and drops the tablespace after the test. The directory stays: it is
+// empty again once the tablespace is dropped, and install -d is idempotent.
+func matrixCreateTablespace(t *testing.T, server matrixServer) bool {
+	t.Helper()
+
+	if !matrixExecInContainer(t, server, "install", "-d", "-o", "postgres", "-g", "postgres", "-m", "700", matrixTablespaceDir) {
+		return false
+	}
+
+	matrixDDL(t, server, "postgres",
+		"DROP TABLESPACE IF EXISTS "+matrixTablespace,
+		fmt.Sprintf("CREATE TABLESPACE %s LOCATION '%s'", matrixTablespace, matrixTablespaceDir))
+	t.Cleanup(func() {
+		matrixDDL(t, server, "postgres", "DROP TABLESPACE IF EXISTS "+matrixTablespace)
+	})
+
+	return true
+}
+
+func parseTablespaceBlocks(t *testing.T, artifact string) []sampleBlock {
+	t.Helper()
+
+	return parseSampleBlocks(t, artifact, "pg_tablespace_size")
+}
+
+func runMatrixTablespacesWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{Tablespaces{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixTablespaces(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+				created := matrixCreateTablespace(t, server)
+
+				// The location block, through the same reader the M3 poll uses.
+				deepDive := collectFromMatrix(t, target)
+				assert.Empty(t, deepDive.TablespaceError, "pg_tablespace_location needs no grant")
+
+				if created {
+					assert.Contains(t, deepDive.Tablespaces,
+						Tablespace{Name: matrixTablespace, Location: matrixTablespaceDir},
+						"every role lists the tablespace and where it lives")
+				} else {
+					t.Log("docker is not on PATH: the location block is checked empty, not populated")
+					assert.Empty(t, deepDive.Tablespaces,
+						"pg_default and pg_global live in the data directory and are not listed")
+				}
+
+				results := runMatrixTablespacesWindow(t, target)
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"complete for every role: the guard turns a size the role may not read into "+
+						"an empty cell, never into a failed statement")
+				require.Equal(t, 2, results[0].SamplesWritten)
+
+				artifact := matrixArtifactText(t, results[0])
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseTablespaceBlocks(t, artifact)
+				require.Len(t, blocks, 2, "start and end")
+
+				assert.Equal(t, tablespaceColumns, blocks[0].columns)
+				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[1]), "spcname is stable across the two samples")
+
+				// pg_read_all_stats reaches every size; pg_monitor carries it. A LOGIN-only
+				// role reads the database's own default tablespace and nothing else.
+				readsAll := role.superuser || role.monitor
+
+				for i, block := range blocks {
+					assertMatrixTablespaceSize(t, block, "pg_default", true)
+					assertMatrixTablespaceSize(t, block, "pg_global", readsAll)
+
+					unread := 0
+					if !readsAll {
+						unread++
+					}
+
+					if created {
+						assertMatrixTablespaceSize(t, block, matrixTablespace, readsAll)
+
+						if !readsAll {
+							unread++
+						}
+					}
+
+					assert.Equal(t, strconv.Itoa(unread), block.header["sizes_unread"],
+						"block %d: the header counts the refusals", i)
+					assert.Equal(t, strconv.Itoa(len(block.rows)), block.header["tablespaces"], "block %d", i)
+				}
+			})
+		}
+	}
+}
+
+func assertMatrixTablespaceSize(t *testing.T, block sampleBlock, name string, readable bool) {
+	t.Helper()
+
+	cell := block.cell(t, name, "pg_reported_size_bytes")
+
+	if !readable {
+		assert.Equal(t, "", cell, "%s: a size the role may not read is empty, never 0", name)
+
+		return
+	}
+
+	size, err := strconv.Atoi(cell)
+	require.NoError(t, err, "%s: pg_reported_size_bytes must be a number", name)
+
+	if name == matrixTablespace {
+		assert.GreaterOrEqual(t, size, 0, "%s holds nothing yet", name)
+
+		return
+	}
+
+	assert.Positive(t, size, "%s: pg_default holds the fixture's databases and pg_global the shared catalogues", name)
 }
 
 // matrixHealthWindow is three one-second steps; matrixHealthSamples counts the

@@ -206,9 +206,34 @@ func assign(dest, value any) error {
 type fakeQuerier struct {
 	serverFacts, logLocation, replication fakeRow
 
+	// tablespaces answers the one row-set statement Collect sends. Its
+	// bookkeeping is separate: the three single-row statements are asserted by
+	// count and order, and this read is not one of them.
+	tablespaces fakeResult
+
 	sql       []string
 	args      [][]any
 	deadlines []time.Time
+
+	rowSQL       []string
+	rowDeadlines []time.Time
+}
+
+func (f *fakeQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	f.rowSQL = append(f.rowSQL, sql)
+
+	deadline, _ := ctx.Deadline()
+	f.rowDeadlines = append(f.rowDeadlines, deadline)
+
+	if sql != tablespaceSQL {
+		return nil, fmt.Errorf("unexpected query: %s", sql)
+	}
+
+	if f.tablespaces.err != nil {
+		return nil, f.tablespaces.err
+	}
+
+	return &fakeRows{values: f.tablespaces.rows}, nil
 }
 
 func (f *fakeQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
@@ -235,12 +260,13 @@ func healthyQuerier() *fakeQuerier {
 		serverFacts: fakeRow{values: serverFactsValues()},
 		logLocation: fakeRow{values: logLocationValues(ptr("log/postgresql-2026-08-04_000000.csv"))},
 		replication: fakeRow{values: []any{ptr(int64(1))}},
+		tablespaces: rowsResult([][]any{{"orders_archive", ptr("/srv/pg/archive")}}),
 	}
 }
 
 func ptr[T any](v T) *T { return &v }
 
-func collect(t *testing.T, q Querier) Metadata {
+func collect(t *testing.T, q RowQuerier) Metadata {
 	t.Helper()
 
 	return Collect(context.Background(), q, testTarget(), testAgentNow)

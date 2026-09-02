@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the ten below must equal
+// PostgresMetadataFileName and the eleven below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -62,6 +62,10 @@ const pgDTTimeouts = "pgTimeouts"
 // proposed to the server team and not yet assigned, so pgSampledDataType returns
 // "" for the artifact and the run writes it into the bundle without uploading it.
 const PostgresIndexUsageFileName = "pg_index_usage.txt"
+
+// PostgresTablespacesFileName, on the same terms: dt=pgTablespaces is proposed,
+// not assigned.
+const PostgresTablespacesFileName = "pg_tablespaces.txt"
 
 // pgSampledDataType returns "" for an artifact with no assigned dt: an invented
 // value would upload and drop silently, so the caller writes the artifact but
@@ -168,9 +172,9 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// Registration order is sampling order on the shared tick, not a timing
 		// guarantee. Log tails go first so from_offset is set before other
 		// collectors' statements reach the log; then the cheap reads, then the
-		// four whole-table reads (capacity, bloat, index usage, slow queries), so a
-		// tick that runs long is late with the expensive reading rather than the
-		// cheap ones.
+		// whole-table and whole-filesystem reads (capacity, bloat, index usage,
+		// tablespaces, slow queries), so a tick that runs long is late with the
+		// expensive reading rather than the cheap ones.
 		//
 		// pg_explain goes last on both counts: at the close it reads slowQueries'
 		// closing sample, and at t0 its log tail then opens past the agent's own
@@ -185,6 +189,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.Capacity{Interval: interval},
 			postgres.Bloat{Interval: interval},
 			postgres.IndexUsage{Interval: interval},
+			postgres.Tablespaces{Interval: interval},
 			slowQueries,
 			postgres.NewExplain(p.explainMode(), slowQueries),
 		},
