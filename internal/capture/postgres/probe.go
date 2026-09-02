@@ -23,6 +23,10 @@ var capturedSettings = []struct {
 	{"max_connections", func(m *Metadata) *string { return &m.MaxConnections }},
 	{"logging_collector", func(m *Metadata) *string { return &m.LoggingCollector }},
 	{"log_destination", func(m *Metadata) *string { return &m.LogDestination }},
+	// Gates pg_checkpoint_log.txt: the server writes the line it tails only
+	// under on, the default since 15 and off on 14. Read so an empty tail can
+	// say whether the server was ever asked to log checkpoints.
+	{"log_checkpoints", func(m *Metadata) *string { return &m.LogCheckpoints }},
 	// superuser-only
 	{"log_directory", func(m *Metadata) *string { return &m.LogDirectory }},
 	// superuser-only

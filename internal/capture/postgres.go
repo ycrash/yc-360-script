@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the eleven below must equal
+// PostgresMetadataFileName and the twelve below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -66,6 +66,10 @@ const PostgresIndexUsageFileName = "pg_index_usage.txt"
 // PostgresTablespacesFileName, on the same terms: dt=pgTablespaces is proposed,
 // not assigned.
 const PostgresTablespacesFileName = "pg_tablespaces.txt"
+
+// PostgresCheckpointLogFileName, on the same terms: dt=pgCheckpointLog is
+// proposed, not assigned.
+const PostgresCheckpointLogFileName = "pg_checkpoint_log.txt"
 
 // pgSampledDataType returns "" for an artifact with no assigned dt: an invented
 // value would upload and drop silently, so the caller writes the artifact but
@@ -182,6 +186,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
+			postgres.NewCheckpointLog(),
 			postgres.Sessions{Interval: interval},
 			postgres.Health{Interval: interval},
 			postgres.Replication{Interval: interval},

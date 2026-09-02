@@ -183,7 +183,11 @@ func TestDeadlocksInEveryFormat(t *testing.T) {
 			assert.Equal(t, tt.fixture, body,
 				"the record's original bytes, never a re-encoding of what the parser understood")
 
-			assert.Equal(t, tt.matchedBy, logSource{format: tt.format}.matchedBy())
+			tail := newLogTail("pg_deadlocks", deadlockMatch)
+			tail.source.format = tt.format
+
+			assert.Equal(t, tt.matchedBy, tail.matchedBy(),
+				"a code stands alone for this event, so the format decides what the header says")
 		})
 	}
 }
