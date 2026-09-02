@@ -419,6 +419,24 @@ The goldens:
   honest: every scheduled sample was written, and the artifact's content is the
   reason it is empty. Four causes produce this shape and each is written rather
   than summarised — `collector_off`, `unresolved`, `unreadable`, `settings_unread`.
+- `pg_checkpoint_log_full.txt` — the third log tail, born under spec v1.2 and
+  held back from upload like its two sampled siblings (`dt=pgCheckpointLog` is
+  proposed, not assigned). Two completion lines in one window, both one line:
+  the one measured from the matrix's postgres:18 container on 2026-09-02, with
+  18's SLRU and lsn fields, and the spec's own pre-18 example. Around each, the
+  checkpoint's `starting:` line and an unrelated entry after it — the neighbours
+  the stderr boundary rule needs, and the ones that must not be taken for the
+  event. **`matched_by=message` on every block, csvlog or not:** a completion
+  line is `LOG` severity, and every `LOG` line carries the one SQLSTATE `00000`,
+  so no code names the event and the message decides in every format — the
+  shape `pg_explain.txt`'s tail set for `auto_explain`. `lc_messages` can
+  translate it everywhere, where the two siblings are blind on stderr only.
+- `pg_checkpoint_log_unreadable.txt` — the remote regime, three samples with
+  `reason=unreadable` and no `matched=` anywhere: the counters in
+  `pg_capacity.txt` say how many checkpoints ran, this file says what each cost,
+  and a zero here would claim none did. The server writes the line only under
+  `log_checkpoints = on` — the default since 15, off on 14 — which is the row
+  `pg_metadata.txt` now carries so an empty file can be read against it.
 - `pg_timeouts_full.txt` — all three timeout types in one window, at their
   measured line counts: the statement timeout is two lines, the lock timeout is
   three (its `CONTEXT:` names the relation and the tuple), and **the
@@ -574,7 +592,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 

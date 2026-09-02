@@ -185,6 +185,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_explain.txt", PostgresExplainFileName)
 	assert.Equal(t, "pg_index_usage.txt", PostgresIndexUsageFileName)
 	assert.Equal(t, "pg_tablespaces.txt", PostgresTablespacesFileName)
+	assert.Equal(t, "pg_checkpoint_log.txt", PostgresCheckpointLogFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -198,7 +199,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 12, "every artifact the run writes is named here")
+	assert.Len(t, seen, 13, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -241,6 +242,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Empty(t, pgSampledDataType(postgres.Tablespaces{}.Artifact()),
 		"pg_tablespaces.txt on the same terms: dt=pgTablespaces is proposed, not assigned")
+
+	assert.Empty(t, pgSampledDataType(postgres.NewCheckpointLog().Artifact()),
+		"and pg_checkpoint_log.txt: dt=pgCheckpointLog is proposed, not assigned")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no assigned dt is still refused rather than guessed at")
@@ -286,6 +290,10 @@ func TestPostgresTablespacesFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresTablespacesFileName, postgres.Tablespaces{}.Artifact().FileName)
 }
 
+func TestPostgresCheckpointLogFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresCheckpointLogFileName, postgres.NewCheckpointLog().Artifact().FileName)
+}
+
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 	require.Equal(t, postgres.Periodic(0), postgres.NewSlowQueries().Artifact().Schedule,
 		"a periodic collector, so its last offset is exactly the closing tick "+
@@ -319,6 +327,9 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 		postgres.NewDeadlocks().Artifact().Schedule,
 		"and the log tails do not: their poll bounds what a cancelled window loses, "+
 			"which is not a sampling rate")
+	assert.Equal(t, postgres.Every(postgres.DefaultLogTailInterval),
+		postgres.NewCheckpointLog().Artifact().Schedule,
+		"the third tail, on the same terms as its two siblings")
 
 	assert.Equal(t, postgres.StartEnd(),
 		postgres.NewExplain(postgres.ExplainModeLogged, postgres.NewSlowQueries()).Artifact().Schedule,
@@ -477,6 +488,7 @@ func readSampledArtifact(t *testing.T, name string) string {
 var postgresArtifactFiles = []string{
 	PostgresDeadlocksFileName,
 	PostgresTimeoutsFileName,
+	PostgresCheckpointLogFileName,
 	PostgresSessionsFileName,
 	PostgresHealthFileName,
 	PostgresReplicationFileName,
@@ -492,7 +504,11 @@ var postgresArtifactFiles = []string{
 // postgresArtifactsAwaitingDT are written into the bundle and held back from
 // upload until the server team assigns a value. Each is a one-line change in
 // pgSampledDataType and one here when its value arrives.
-var postgresArtifactsAwaitingDT = []string{PostgresIndexUsageFileName, PostgresTablespacesFileName}
+var postgresArtifactsAwaitingDT = []string{
+	PostgresCheckpointLogFileName,
+	PostgresIndexUsageFileName,
+	PostgresTablespacesFileName,
+}
 
 func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	dir := chdirToCaptureDir(t)
@@ -533,6 +549,8 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"the eleventh artifact takes the cadence too, and reports the refusal like the rest")
 	assert.Contains(t, result.Msg, PostgresTablespacesFileName+" written (0/2 samples); postgres connect failed",
 		"and the twelfth")
+	assert.Contains(t, result.Msg, PostgresCheckpointLogFileName+" written (0/12 samples); postgres connect failed",
+		"and the third log tail, on its siblings' 10s poll rather than the cadence")
 	assert.Equal(t, len(postgresArtifactsAwaitingDT), strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
 		"and exactly the held-back ones say why, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
@@ -641,8 +659,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, uploads, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
-		"every artifact with a dt is uploaded - ten of twelve, with pg_index_usage.txt and "+
-			"pg_tablespaces.txt waiting on their values")
+		"every artifact with a dt is uploaded - ten of thirteen, with pg_index_usage.txt, "+
+			"pg_tablespaces.txt and pg_checkpoint_log.txt waiting on their values")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -704,6 +722,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	assert.NotContains(t, byDT, "pgIndexUsage",
 		"and nothing is posted under a proposed value before it is assigned")
 	assert.NotContains(t, byDT, "pgTablespaces")
+	assert.NotContains(t, byDT, "pgCheckpointLog")
 
 	assert.False(t, result.Ok,
 		"the run's Ok is spent on the held-back artifact, deliberately: it is the one signal "+

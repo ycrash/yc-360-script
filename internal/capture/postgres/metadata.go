@@ -81,6 +81,7 @@ type Metadata struct {
 	MaxConnections          string
 	LoggingCollector        string
 	LogDestination          string
+	LogCheckpoints          string
 	LogDirectory            string
 	LogFilename             string
 	LogLinePrefix           string

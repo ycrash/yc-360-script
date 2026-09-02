@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Shared engine for pg_deadlocks.txt/pg_timeouts.txt; only the matcher differs. Body is raw bytes, not per-row.
+// Shared engine for pg_deadlocks.txt/pg_timeouts.txt/pg_checkpoint_log.txt; only the matcher differs. Body is raw bytes, not per-row.
 // log_line_prefix may start with '#' and csvlog DETAIL fields hold real newlines, so no scan finds a terminator — bytes= marks the end.
 const (
 	// DefaultLogTailInterval is the poll cadence. Log is append-only (rotation renames, not truncates) so polling loses nothing, unlike pg_stat_activity's missed-sample loss.
@@ -24,7 +24,7 @@ const (
 	DefaultLogTailInterval = 10 * time.Second
 
 	// LogDrainBudget bounds WriteClosing's drain, checked between reads since os.File.Read takes no context (a hung read can still exceed it).
-	// Three Closing implementations add up to 3x this beyond moduleDeadline, though pg_explain.txt's fires only where the closing sample never ran.
+	// Four Closing implementations add up to 4x this beyond moduleDeadline, though pg_explain.txt's fires only where the closing sample never ran.
 	LogDrainBudget = 5 * time.Second
 
 	// MaxScanBytes is the per-sample read cap. Beyond it the tail seeks to EOF and records scan_truncated=true skipped_bytes=<n> instead of matched=0.
@@ -203,8 +203,11 @@ func (s logSource) logAccess() string {
 // whenever the fact is not the decided one.
 func (s logSource) logAccessReason() string { return s.reason }
 
-func (s logSource) matchedBy() string {
-	if s.format == logFormatStderr {
+// matchedBy is how this tail's events were recognised: by message on stderr,
+// where no code is available, and wherever the matcher's every code is paired
+// with its message - a LOG line's 00000 names nothing, so the message decided.
+func (t *logTail) matchedBy() string {
+	if t.source.format == logFormatStderr || t.match.messageDecides() {
 		return matchedByMessage
 	}
 
@@ -537,6 +540,19 @@ type eventMatch struct {
 	// messageSuffix additionally requires the message's *first line* to end with one of these.
 	// auto_explain and log_min_duration_statement both open "duration: <n> ms ", so only what follows tells a plan from a slow-query transcript.
 	messageSuffix []string
+}
+
+// messageDecides is true when no code alone can match: every SQLSTATE the
+// matcher accepts is paired with its message, which is the shape a LOG-severity
+// event has - 00000 is every LOG line's code.
+func (m eventMatch) messageDecides() bool {
+	if len(m.sqlstate) == 0 {
+		return true
+	}
+
+	return !slices.ContainsFunc(m.sqlstate, func(code string) bool {
+		return !slices.Contains(m.paired, code)
+	})
 }
 
 func (m eventMatch) matches(sqlstate, message string) bool {
@@ -895,7 +911,7 @@ func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, 
 	}
 
 	if !drain {
-		fields = append(fields, headerField{"matched_by", t.source.matchedBy()})
+		fields = append(fields, headerField{"matched_by", t.matchedBy()})
 	}
 
 	fields = append(fields,

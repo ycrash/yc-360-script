@@ -3639,6 +3639,59 @@ func TestMatrixLogTailTimeouts(t *testing.T) {
 	}
 }
 
+// The third tail. log_checkpoints decides whether the server writes the line at
+// all: on by default from 15, off on 14, and the fixture sets nothing - so 14 is
+// the case W7 exists for, an empty file read against a metadata row that says
+// why.
+func TestMatrixLogTailCheckpoints(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			target := matrixTarget(server, matrixMonitor(t))
+
+			logCheckpoints := collectFromMatrix(t, target).LogCheckpoints
+
+			want := "on"
+			if server.major < 15 {
+				want = "off"
+			}
+
+			assert.Equal(t, want, logCheckpoints,
+				"log_checkpoints defaults to on from 15; the fixture sets nothing")
+
+			tail := newMatrixTail(t, target, NewCheckpointLog())
+
+			first := tail.sample()
+			require.Equal(t, LogAccessDirect, first.fields["log_access"])
+			assert.Equal(t, matchedByMessage, first.fields["matched_by"],
+				"no SQLSTATE names a checkpoint, so the message decides whatever the format")
+
+			worker := matrixLogConn(t, server, "yc_second")
+			require.NoError(t, matrixLogExec(t, worker, "CHECKPOINT"))
+
+			matrixLogMarker(t, server)
+
+			body := matrixDrainBodies(t, tail)
+
+			if logCheckpoints != "on" {
+				assert.Empty(t, body,
+					"the server was never asked to log checkpoints, and the metadata row is what "+
+						"says so about the empty file")
+
+				return
+			}
+
+			assert.Contains(t, body, "checkpoint complete:")
+			assert.NotContains(t, body, "checkpoint starting:", "the starting line is not the finding")
+
+			event := matrixEventStartingWith(t, body, "checkpoint complete:")
+			assert.Equal(t, 1, strings.Count(event, "\n"), "one line, and nothing absorbed after it")
+			assert.Contains(t, event, "total=", "the cost the counters cannot give")
+		})
+	}
+}
+
 func matrixDrainBodies(t *testing.T, tail *matrixTail) string {
 	t.Helper()
 
@@ -3926,6 +3979,7 @@ func TestMatrixLogSettingsAtThePrivilegeFloor(t *testing.T) {
 				"log_error_verbosity",
 				"log_min_error_statement",
 				"log_file_mode",
+				"log_checkpoints",
 			} {
 				assert.NotEmpty(t, values[name],
 					"%s decides what a matched= count or a reason=unreadable means, and it "+
@@ -3933,7 +3987,7 @@ func TestMatrixLogSettingsAtThePrivilegeFloor(t *testing.T) {
 			}
 
 			assert.NotContains(t, splitSettingList(values["settings_unavailable"]), "log_rotation_age",
-				"none of the seven is superuser-only")
+				"none of the eight is superuser-only")
 		})
 	}
 }
