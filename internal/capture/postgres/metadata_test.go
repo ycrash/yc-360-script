@@ -46,6 +46,10 @@ func (c *fakeMetadataConn) QueryRow(ctx context.Context, sql string, args ...any
 	return c.querier.QueryRow(ctx, sql, args...)
 }
 
+func (c *fakeMetadataConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return c.querier.Query(ctx, sql, args...)
+}
+
 func metadataAt(minute, second, milli int) time.Time {
 	return time.Date(2026, 8, 4, 9, minute, second, milli*int(time.Millisecond), time.UTC)
 }
@@ -72,7 +76,7 @@ func collecting(m Metadata) *MetadataCollector {
 	// The mode is supplied at construction, not read; passing the fixture's keeps the
 	// two from disagreeing.
 	collector := NewMetadata(testTarget(), "3.6.1", m.AgentTS, m.ExplainMode)
-	collector.collect = func(context.Context, Querier, Target, time.Time) Metadata { return m }
+	collector.collect = func(context.Context, RowQuerier, Target, time.Time) Metadata { return m }
 
 	return collector
 }
@@ -202,13 +206,16 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 
 	headers, values, keys := parseArtifact(t, artifactText(t, results[0]))
 
-	require.Len(t, headers, 4, "preamble, target block, server block, closing block")
+	require.Len(t, headers, 5, "preamble, target block, server block, tablespace block, closing block")
 	assert.Contains(t, headers[1], "source=pg_metadata_target")
 	assert.Contains(t, headers[1], "db=orders_db dbid= ts=",
 		"there is no connection yet, so the configured name and no OID")
 	assert.Contains(t, headers[2], "source=pg_metadata_server")
 	assert.Contains(t, headers[2], "db=orders_db dbid=16401 sample=1 ts=",
 		"and afterwards, what identify read")
+	assert.Contains(t, headers[3], "source=pg_metadata_tablespaces")
+	assert.Contains(t, headers[3], "db=orders_db dbid=16401 sample=1 ts=",
+		"the tablespace block is the same sample as the server block, and says so")
 
 	var want []string
 	for _, f := range append(targetFields(full), serverBlockFields(full)...) {
@@ -237,9 +244,90 @@ func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
 		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
 
 	assert.Equal(t, 1, sample.writes,
-		"a write failing between header and body would leave the window's stub "+
-			"behind a half-written block")
+		"the server block and the tablespace block go in one write: a write failing "+
+			"between them would leave the window's stub behind a server block with no "+
+			"block naming its volumes")
 	assert.NotEmpty(t, sample.buf.String())
+	assert.Contains(t, sample.buf.String(), "source=pg_metadata_tablespaces")
+}
+
+func TestMetadataTablespaceBlockCarriesTheLocations(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 44, 118),
+		metadataAt(12, 44, 119),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 201),
+		metadataAt(14, 44, 125),
+	)
+
+	full := fullArtifactMetadata()
+	full.Tablespaces = []Tablespace{
+		{Name: "orders_archive", Location: "/srv/pg/archive"},
+		{Name: "orders_fast", Location: "/mnt/nvme/pg"},
+	}
+
+	results := runMetadataWindow(t, clock, collecting(full), connectTo(newFakeMetadataConn()))
+
+	header, rows := parseTablespaceBlock(t, artifactText(t, results[0]))
+
+	assert.NotContains(t, header, "error=", "a read that worked carries no error key at all")
+	assert.Equal(t, [][]string{
+		{"orders_archive", "/srv/pg/archive"},
+		{"orders_fast", "/mnt/nvme/pg"},
+	}, rows, "one row per tablespace with storage of its own, name beside location")
+}
+
+func TestMetadataTablespaceBlockIsWrittenHeaderOnlyWhenTheReadFailed(t *testing.T) {
+	clock := newScriptedClock(t,
+		metadataAt(12, 44, 118),
+		metadataAt(12, 44, 119),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 120),
+		metadataAt(12, 44, 201),
+		metadataAt(14, 44, 125),
+	)
+
+	full := fullArtifactMetadata()
+	full.Tablespaces = nil
+	full.TablespaceError = "ERROR: canceling statement due to statement timeout"
+
+	results := runMetadataWindow(t, clock, collecting(full), connectTo(newFakeMetadataConn()))
+
+	header, rows := parseTablespaceBlock(t, artifactText(t, results[0]))
+
+	assert.Contains(t, header, `error="ERROR: canceling statement due to statement timeout"`,
+		"the failure rides the block's header, the way pg_capacity.txt's WAL block carries its refusal")
+	assert.Empty(t, rows, "and the column header still follows, so an absent block can never mean the read never ran")
+}
+
+func TestCollectTablespacesReadsThroughTheSharedStatement(t *testing.T) {
+	q := healthyQuerier()
+
+	m := collect(t, q)
+
+	assert.Equal(t, []Tablespace{{Name: "orders_archive", Location: "/srv/pg/archive"}}, m.Tablespaces)
+	assert.Empty(t, m.TablespaceError)
+	assert.Equal(t, []string{tablespaceSQL}, q.rowSQL,
+		"the one statement the M3 poll's disk reading also sends, so the two can never disagree")
+
+	require.Len(t, q.rowDeadlines, 1)
+	assert.WithinDuration(t, time.Now().Add(StatementTimeout), q.rowDeadlines[0], 2*time.Second,
+		"bounded like every other statement")
+}
+
+func TestCollectTablespacesFailureIsRedactedAndCostsOnlyTheBlock(t *testing.T) {
+	q := healthyQuerier()
+	q.tablespaces = errResult(fmt.Errorf("dial failed for %s", testPassword))
+
+	m := collect(t, q)
+
+	assert.Empty(t, m.Tablespaces)
+	assert.NotContains(t, m.TablespaceError, testPassword)
+	assert.Contains(t, m.TablespaceError, "<redacted>")
+
+	assert.Equal(t, "orders_db", m.CurrentDatabase, "the server facts are untouched by the failure")
+	assert.Empty(t, m.QueryError)
 }
 
 func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {

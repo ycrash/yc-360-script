@@ -10,10 +10,17 @@ owns.
 The goldens:
 
 - `pg_metadata_full.txt` — a complete capture: the preamble, the target block,
-  the server block, and the closing block. The split is the seam the capture
-  already had — what was configured is knowable before the network, what the
-  server said is not — so the block a reader can rely on is the one that is
-  always there. PostgreSQL 17 deliberately: `pg_monitor` was not granted
+  the server block, the tablespace block, and the closing block. The split is
+  the seam the capture already had — what was configured is knowable before
+  the network, what the server said is not — so the block a reader can rely on
+  is the one that is always there. **The tablespace block (2026-09-02) is the
+  file's one tabular body**, `spcname,location`, one row per tablespace with
+  storage of its own: a tablespace's name is data, and a key,value row would
+  have made it a key. `pg_default` and `pg_global` live in the data directory
+  and are not listed — `data_directory` in the server block is their location.
+  The block is additive under a new `source=`; the four blocks before it are
+  byte-identical to what they were, which is why `v` stays at 1 (see
+  *Versioning*). PostgreSQL 17 deliberately: `pg_monitor` was not granted
   EXECUTE on `pg_current_logfile()` until 17, so a 14–16 fixture showing
   `has_pg_monitor_role,true` next to `log_access,direct` would depict a
   deployment that needs an extra manual grant.
@@ -65,6 +72,23 @@ The goldens:
 - `pg_index_usage_connect_failure.txt`, `pg_index_usage_sample_error.txt` and
   `pg_index_usage_empty_db.txt` — the three regimes above, on the same clock as
   their `pg_bloat_*` counterparts.
+- `pg_tablespaces_full.txt` — the spec's two columns, every tablespace every
+  sample, `scope=cluster`. Three rows: the fixture cluster's one tablespace with
+  storage of its own (the one `pg_metadata_full.txt`'s tablespace block
+  locates), and the two every cluster has — `pg_default`, which holds every
+  database and is the row that moves between the samples, and `pg_global`, the
+  shared catalogues. Also held back from upload: `dt=pgTablespaces` is
+  proposed, not assigned.
+- `pg_tablespaces_least_privilege.txt` — a LOGIN-only role. `pg_tablespace_size`
+  refuses a tablespace the role holds no CREATE on unless it is the database's
+  own default tablespace or the role has `pg_read_all_stats`, and an error in a
+  select list aborts the whole statement — so the statement guards the call
+  with the server's own rule, and a refusal is an **empty cell, never a `0`**,
+  counted on the header as `sizes_unread=2`. `pg_default` is read because it is
+  this database's default; the other two are not. The sample is complete: the
+  guard is what keeps a refusal from costing the whole artifact.
+- `pg_tablespaces_connect_failure.txt` and `pg_tablespaces_sample_error.txt` —
+  the two regimes, on the same clock as the `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -443,9 +467,11 @@ pin the rule below against the driver text that motivates it.
   the artifact; a collector's blocks name what they read. `pg_health.txt`
   carries `pg_health` and `pg_stat_database`, `pg_bloat.txt` carries `pg_bloat`
   and `pg_stat_user_tables`, `pg_index_usage.txt` carries `pg_index_usage` and
-  `pg_stat_user_indexes`, `pg_metadata.txt` carries three:
+  `pg_stat_user_indexes`, `pg_tablespaces.txt` carries `pg_tablespaces` and
+  `pg_tablespace_size`, `pg_metadata.txt` carries four:
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
-  for what was configured, and `pg_metadata_server` for what the server said —
+  for what was configured, `pg_metadata_server` for what the server said, and
+  `pg_metadata_tablespaces` for where its tablespaces live —
   `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
   `pg_stat_activity_by_app` and `pg_ls_waldir` — `pg_replication.txt`
   carries three: `pg_replication`, `pg_stat_replication` and
@@ -532,6 +558,14 @@ has ever been classified and nothing has ever read one.
 stamped into every block of every artifact, so bumping it would announce a break
 in `pg_bloat.txt` and `pg_health.txt`, which have not changed shape.
 
+The tablespace block added to `pg_metadata.txt` on 2026-09-02 is not that case,
+and the distinction is worth stating once: it is a **fifth block under a new
+`source=`**, and the four before it did not move — same keys, same order, same
+bytes. A reader that dispatches on `source=` and skips one it does not know is
+not got wrong; a reader that counts four blocks is, and the server team is asked
+to confirm the `pgMeta` receiver is the former. Had any existing block changed
+shape, this paragraph would be about moving `v` instead.
+
 ## Editing
 
 The files are LF-terminated with a single trailing newline; `.gitattributes`
@@ -540,7 +574,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 

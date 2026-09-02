@@ -22,6 +22,7 @@ func fullArtifactMetadata() Metadata {
 	return Metadata{
 		AgentTS:        testAgentNow,
 		YC360Version:   "3.6.1",
+		Tablespaces:    []Tablespace{{Name: "orders_archive", Location: "/srv/pg/archive"}},
 		TargetHost:     "db-prod-01.internal",
 		TargetPort:     5432,
 		TargetDatabase: "orders_db",
@@ -135,11 +136,14 @@ func writeArtifact(t *testing.T, m Metadata) string {
 		{"dbid", target.DBID},
 	}, targetFields(m), target.At))
 
-	require.NoError(t, writeMetadataBlock(&buf, "pg_metadata_server", []headerField{
+	server := []headerField{
 		{"db", m.CurrentDatabase},
 		{"dbid", "16401"},
 		{"sample", "1"},
-	}, serverBlockFields(m), m.AgentTSAtClockRead))
+	}
+
+	require.NoError(t, writeMetadataBlock(&buf, "pg_metadata_server", server, serverBlockFields(m), m.AgentTSAtClockRead))
+	require.NoError(t, writeTablespaceBlock(&buf, server, m, m.AgentTSAtClockRead))
 
 	return buf.String()
 }
@@ -153,12 +157,18 @@ func golden(t *testing.T, name string) string {
 	return string(content)
 }
 
+// parseArtifact reads the key,value blocks into one map and one key list. The
+// tablespace block is the file's one tabular body: it is checked for shape here
+// and read by parseTablespaceBlock, since a tablespace's name is data, not a key.
 func parseArtifact(t *testing.T, artifact string) (headers []string, values map[string]string, keys []string) {
 	t.Helper()
 
 	values = map[string]string{}
 
-	var body strings.Builder
+	var (
+		body        strings.Builder
+		tablespaces bool
+	)
 
 	flush := func() {
 		if body.Len() == 0 {
@@ -171,6 +181,19 @@ func parseArtifact(t *testing.T, artifact string) (headers []string, values map[
 		records, err := reader.ReadAll()
 		require.NoError(t, err)
 		require.NotEmpty(t, records)
+
+		if tablespaces {
+			require.Equal(t, tablespaceLocationColumns, records[0],
+				"the tablespace block opens with its own column header")
+
+			for _, record := range records[1:] {
+				require.Len(t, record, 2, "every tablespace record is one name and one location")
+			}
+
+			body.Reset()
+
+			return
+		}
 
 		require.Equal(t, []string{"key", "value"}, records[0],
 			"a block's body opens with its own column header")
@@ -189,6 +212,7 @@ func parseArtifact(t *testing.T, artifact string) (headers []string, values map[
 		if strings.HasPrefix(line, "#") {
 			flush()
 			headers = append(headers, line)
+			tablespaces = strings.Contains(line, "source=pg_metadata_tablespaces ")
 
 			continue
 		}
@@ -200,6 +224,41 @@ func parseArtifact(t *testing.T, artifact string) (headers []string, values map[
 	flush()
 
 	return headers, values, keys
+}
+
+// parseTablespaceBlock returns the tablespace block's header line and its rows.
+func parseTablespaceBlock(t *testing.T, artifact string) (header string, rows [][]string) {
+	t.Helper()
+
+	var (
+		body   strings.Builder
+		inside bool
+	)
+
+	for line := range strings.SplitSeq(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			inside = strings.Contains(line, "source=pg_metadata_tablespaces ")
+			if inside {
+				header = line
+			}
+
+			continue
+		}
+
+		if inside {
+			body.WriteString(line)
+			body.WriteString("\n")
+		}
+	}
+
+	require.NotEmpty(t, header, "the artifact has no tablespace block")
+
+	records, err := csv.NewReader(strings.NewReader(body.String())).ReadAll()
+	require.NoError(t, err)
+	require.NotEmpty(t, records)
+	require.Equal(t, tablespaceLocationColumns, records[0])
+
+	return header, records[1:]
 }
 
 func TestEveryShippedGoldenDeclaresOneFormat(t *testing.T) {
@@ -241,7 +300,7 @@ func TestGoldenKeepsTrailingWhitespace(t *testing.T) {
 
 func TestBlockHeaderFieldOrder(t *testing.T) {
 	headers, _, _ := parseArtifact(t, writeArtifact(t, fullArtifactMetadata()))
-	require.Len(t, headers, 2, "the target block and the server block")
+	require.Len(t, headers, 3, "the target block, the server block and the tablespace block")
 
 	assert.Equal(t, []string{
 		"#",
@@ -267,6 +326,19 @@ func TestBlockHeaderFieldOrder(t *testing.T) {
 		"sample=1",
 		"ts=2026-08-04T09:12:44.118Z",
 	}, strings.Fields(headers[1]))
+
+	assert.Equal(t, []string{
+		"#",
+		"engine=postgres",
+		"source=pg_metadata_tablespaces",
+		"v=1",
+		"format=csv",
+		"scope=cluster",
+		"db=orders_db",
+		"dbid=16401",
+		"sample=1",
+		"ts=2026-08-04T09:12:44.118Z",
+	}, strings.Fields(headers[2]), "the same sample as the server block, and no error= when the read worked")
 }
 
 func TestBlockHeaderIsNotACSVRecord(t *testing.T) {
@@ -357,8 +429,9 @@ func TestValuesAreFlattened(t *testing.T) {
 	assert.Equal(t, "ERROR: permission denied DETAIL: role is not a member", values["query_error"])
 
 	lines := strings.Split(strings.TrimSuffix(artifact, "\n"), "\n")
-	assert.Len(t, lines, len(keys)+4,
-		"one row is one line, plus two blocks' block and column headers")
+	assert.Len(t, lines, len(keys)+4+2+len(m.Tablespaces),
+		"one row is one line, plus two key,value blocks' block and column headers, plus the "+
+			"tablespace block's two headers and its rows")
 }
 
 func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"encoding/csv"
 	"io"
 	"strconv"
@@ -136,6 +137,40 @@ func serverFields(m Metadata) []field {
 		{"clock_read_rtt_ms", m.ClockReadRTTMS},
 		{"connect_ms", m.ConnectMS},
 	}
+}
+
+// tablespaceLocationColumns heads pg_metadata.txt's one tabular block: a
+// key,value body would make a tablespace's name a key, and a name is data.
+var tablespaceLocationColumns = []string{"spcname", "location"}
+
+// writeTablespaceBlock writes the tablespaces with storage of their own, one
+// row each, and a column header alone where there are none or the read failed;
+// the failure rides the header as error=, the way pg_capacity.txt's WAL block
+// carries its refusal.
+func writeTablespaceBlock(w io.Writer, header []headerField, m Metadata, at time.Time) error {
+	fields := append([]headerField{}, header...)
+	if m.TablespaceError != "" {
+		fields = append(fields, headerField{"error", m.TablespaceError})
+	}
+
+	var block bytes.Buffer
+
+	if err := writeBlockHeader(&block, "pg_metadata_tablespaces", metadataScope, fields, at); err != nil {
+		return err
+	}
+
+	rows := make([][]string, len(m.Tablespaces))
+	for i, tablespace := range m.Tablespaces {
+		rows[i] = []string{tablespace.Name, tablespace.Location}
+	}
+
+	if err := writeRows(&block, tablespaceLocationColumns, rows); err != nil {
+		return err
+	}
+
+	_, err := w.Write(block.Bytes())
+
+	return err
 }
 
 type headerField struct {

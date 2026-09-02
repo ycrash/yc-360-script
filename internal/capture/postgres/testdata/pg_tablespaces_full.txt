@@ -1,0 +1,12 @@
+# engine=postgres source=pg_tablespaces v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_tablespace_size v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 tablespaces=3 sizes_unread=0 ts=2026-08-07T14:32:05.112Z
+spcname,pg_reported_size_bytes
+orders_archive,52428800
+pg_default,3617382400
+pg_global,622592
+# engine=postgres source=pg_tablespace_size v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 tablespaces=3 sizes_unread=0 ts=2026-08-07T14:34:05.140Z
+spcname,pg_reported_size_bytes
+orders_archive,52428800
+pg_default,3617644544
+pg_global,622592
+# engine=postgres source=pg_tablespaces v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z
