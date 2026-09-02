@@ -1,4 +1,4 @@
-# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
 pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
 # engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z

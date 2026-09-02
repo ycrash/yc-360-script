@@ -758,7 +758,12 @@ func assertMatrixCapFires(t *testing.T, target Target) {
 	assert.Len(t, blocks[0].rows, capped)
 }
 
-const matrixHealthSamples = 3
+// matrixHealthWindow is three one-second steps; matrixHealthSamples counts the
+// close as well, which is the sample Periodic adds.
+const (
+	matrixHealthWindow  = 3 * time.Second
+	matrixHealthSamples = 4
+)
 
 const matrixDatabases = 5
 
@@ -767,7 +772,7 @@ func runMatrixHealthWindow(t *testing.T, target Target) []ArtifactResult {
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Duration:   time.Duration(matrixHealthSamples) * time.Second,
+		Duration:   matrixHealthWindow,
 		Target:     target,
 		Collectors: []Collector{Health{Interval: time.Second}},
 	}
@@ -1585,17 +1590,18 @@ func TestMatrixReplication(t *testing.T) {
 						"neither view needs a grant: pg_replication_slots is open to a role "+
 							"holding only LOGIN, and pg_stat_replication masks columns rather "+
 							"than refusing the statement")
-					require.Equal(t, 2, results[0].SamplesWritten)
+					require.Equal(t, 3, results[0].SamplesWritten,
+						"one step and the close, against a real server")
 
 					artifact := matrixArtifactText(t, results[0])
 					assert.NotContains(t, artifact, target.Password,
 						"the artifact carries the password")
 
 					senders := parseCapacityBlocks(t, artifact, "pg_stat_replication")
-					require.Len(t, senders, 2, "one senders block on every sample")
+					require.Len(t, senders, 3, "one senders block on every sample")
 
 					slots := parseCapacityBlocks(t, artifact, "pg_replication_slots")
-					require.Len(t, slots, 2)
+					require.Len(t, slots, 3)
 
 					assertMatrixSenderColumns(t, senders[0])
 					assertMatrixMasking(t, senders[0], role)
@@ -1805,17 +1811,18 @@ func TestMatrixSessions(t *testing.T) {
 						"neither view needs a grant: pg_locks is open to a role holding only "+
 							"LOGIN, and pg_stat_activity masks columns rather than refusing "+
 							"the statement or dropping the row")
-					require.Equal(t, 2, results[0].SamplesWritten)
+					require.Equal(t, 3, results[0].SamplesWritten,
+						"one step and the close, against a real server")
 
 					artifact := matrixArtifactText(t, results[0])
 					assert.NotContains(t, artifact, target.Password,
 						"the artifact carries the password")
 
 					activityBlocks := parseCapacityBlocks(t, artifact, "pg_stat_activity")
-					require.Len(t, activityBlocks, 2, "one activity block on every sample")
+					require.Len(t, activityBlocks, 3, "one activity block on every sample")
 
 					lockBlocks := parseCapacityBlocks(t, artifact, "pg_locks")
-					require.Len(t, lockBlocks, 2, "and one locks block beside it")
+					require.Len(t, lockBlocks, 3, "and one locks block beside it")
 
 					for _, block := range append(activityBlocks, lockBlocks...) {
 						assert.NotContains(t, block.rawHead, "error=",

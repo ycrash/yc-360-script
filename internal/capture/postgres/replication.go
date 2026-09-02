@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const DefaultReplicationInterval = 10 * time.Second
-
 // pid joins samples across ticks (application_name isn't unique per replica);
 // it doesn't survive a WAL sender reconnect, so application_name/client_addr ride along too.
 var replicationColumns = []string{
@@ -162,7 +160,7 @@ func buildSlotsSQL() string {
 // pg_stat_replication masks every column past application_name to NULL without
 // pg_monitor, so a healthy and an hour-behind replica look byte-identical here.
 type Replication struct {
-	// Interval is the cadence. Zero takes DefaultReplicationInterval.
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
 	Interval time.Duration
 }
 
@@ -171,10 +169,10 @@ func (r Replication) Artifact() Artifact {
 		Name:     "pg_replication",
 		FileName: "pg_replication.txt",
 		Scope:    "cluster",
-		Schedule: Every(r.interval()),
+		Schedule: Periodic(r.Interval),
 
-		// No SampleBudget: two statements is DefaultSampleBudget already, and
-		// interval offsets stay inside the window, never reaching moduleDeadline's closing tick.
+		// No SampleBudget: two statements is DefaultSampleBudget already, which is
+		// what Periodic's closing sample contributes to moduleDeadline.
 	}
 }
 
@@ -469,12 +467,4 @@ func slotCells(rows []slotRow) [][]string {
 	}
 
 	return cells
-}
-
-func (r Replication) interval() time.Duration {
-	if r.Interval <= 0 {
-		return DefaultReplicationInterval
-	}
-
-	return r.Interval
 }

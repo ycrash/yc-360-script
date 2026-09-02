@@ -27,8 +27,8 @@ const (
 	ConnectTimeout = 5 * time.Second
 
 	// StatementTimeout is the client-side per-statement deadline, backstopping
-	// the server-side one. Equals DefaultHealthInterval (10s), so a maxed-out
-	// sample consumes its whole interval - the timeline can't catch up under load.
+	// the server-side one. It is also DefaultInterval's floor, so a maxed-out sample
+	// consumes at most its whole interval - the timeline can't catch up under load.
 	StatementTimeout = 10 * time.Second
 
 	// ModuleDeadline bounds the one-shot metadata capture; a sampled capture
