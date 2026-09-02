@@ -134,9 +134,10 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	duration := p.captureDuration()
 
-	// One cadence for every sampled artifact, derived from the window: the sampled
-	// collectors below take it rather than each carrying its own constant.
-	interval := postgres.DefaultInterval(duration)
+	// One cadence for every sampled artifact - configured, or derived from the
+	// window: the sampled collectors below take it rather than each carrying its
+	// own constant.
+	interval := p.frequency(duration)
 
 	// Written by the callback below and read once the window closes. Window.Run is
 	// synchronous on this goroutine, so the two never overlap.
@@ -234,6 +235,16 @@ func (p *PostgresCapture) captureDuration() time.Duration {
 	}
 
 	return p.Target.CaptureDuration.Duration()
+}
+
+// frequency is the configured cadence, or the window's derived one when the key
+// is omitted (or the block never went through Validate and carries a zero).
+func (p *PostgresCapture) frequency(window time.Duration) time.Duration {
+	if p.Target.Frequency == nil || p.Target.Frequency.Duration() <= 0 {
+		return postgres.DefaultInterval(window)
+	}
+
+	return p.Target.Frequency.Duration()
 }
 
 // explainMode passes config's own value through: the postgres package does not import

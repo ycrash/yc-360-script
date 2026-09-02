@@ -98,7 +98,7 @@ func TestPostgresValidateNormalization(t *testing.T) {
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
+		"(valid keys: host, port, database, username, password, sslmode, captureDuration, frequency, " +
 		"explain, agentOnDbHost)"
 
 	t.Run("zero block", func(t *testing.T) {
@@ -139,6 +139,15 @@ func TestPostgresValidateEmptyBlock(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, wantMsg, err.Error(),
 			"a declaration about this machine names no database to declare it about")
+	})
+
+	t.Run("a block whose only key is frequency is an empty block", func(t *testing.T) {
+		p := decodePostgresBlock(t, "frequency: 30s")
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Equal(t, wantMsg, err.Error(),
+			"a cadence alone names no database to sample")
 	})
 
 	t.Run("a block whose only key is explain is an empty block", func(t *testing.T) {
@@ -202,7 +211,7 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 	})
 
 	t.Run("the ceiling clamps and the warning names both values", func(t *testing.T) {
-		p := withTarget(t, "captureDuration: 900s")
+		p := withTarget(t, "captureDuration: 3h")
 
 		warnings, err := p.Validate()
 		require.NoError(t, err, "an over-large window is honoured in part, not rejected")
@@ -211,12 +220,17 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		assert.Equal(t, MaxPostgresCaptureDuration, p.CaptureDuration.Duration())
 
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "15m0s", "the warning must name what was asked for")
-		assert.Contains(t, warnings[0], "10m0s", "the warning must name what was done")
+		assert.Contains(t, warnings[0], "3h0m0s", "the warning must name what was asked for")
+		assert.Contains(t, warnings[0], "2h0m0s", "the warning must name what was done")
+	})
+
+	t.Run("the ceiling is the spec's two-hour performance-test case", func(t *testing.T) {
+		assert.Equal(t, 2*time.Hour, MaxPostgresCaptureDuration,
+			"raised from 10m for spec v1.2 - the host files stretch with it, by decision")
 	})
 
 	t.Run("the ceiling itself is not clamped", func(t *testing.T) {
-		p := withTarget(t, "captureDuration: 600s")
+		p := withTarget(t, "captureDuration: 2h")
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
@@ -256,6 +270,123 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid duration format")
+	})
+}
+
+func TestPostgresValidateFrequency(t *testing.T) {
+	withTarget := func(t *testing.T, body string) *Postgres {
+		t.Helper()
+
+		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+	}
+
+	t.Run("absent stays nil, so the capture derives the cadence", func(t *testing.T) {
+		p := withTarget(t, "")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		assert.Nil(t, p.Frequency,
+			"no default is filled in: the derivation is the capture's own arithmetic, and a "+
+				"value here would read as configured")
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("an explicit value is kept", func(t *testing.T) {
+		p := withTarget(t, "frequency: 30s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		require.NotNil(t, p.Frequency)
+		assert.Equal(t, 30*time.Second, p.Frequency.Duration(),
+			"the spec's incident case: 30s on the 2m default window")
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("the floor clamps and the warning names both values", func(t *testing.T) {
+		p := withTarget(t, "frequency: 2s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err, "a too-fast cadence is honoured in part, not rejected")
+
+		require.NotNil(t, p.Frequency)
+		assert.Equal(t, MinPostgresFrequency, p.Frequency.Duration())
+
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "2s is below", "the warning must name what was asked for")
+		assert.Contains(t, warnings[0], "10s", "the warning must name what was done")
+	})
+
+	t.Run("the floor itself is not clamped", func(t *testing.T) {
+		p := withTarget(t, "frequency: 10s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		assert.Equal(t, MinPostgresFrequency, p.Frequency.Duration())
+		assert.Empty(t, warnings, "the boundary is allowed, so it does not warn")
+	})
+
+	t.Run("a cadence no shorter than the window warns that only the bookend remains", func(t *testing.T) {
+		for _, body := range []string{
+			"frequency: 5m",
+			"captureDuration: 2m\nfrequency: 2m",
+			"captureDuration: 3h\nfrequency: 2h",
+		} {
+			t.Run(body, func(t *testing.T) {
+				p := withTarget(t, body)
+
+				warnings, err := p.Validate()
+				require.NoError(t, err, "the bookend is the spec's safety net, so this is a warning")
+
+				require.NotEmpty(t, warnings)
+				assert.Contains(t, warnings[len(warnings)-1], "only the opening and closing samples")
+			})
+		}
+	})
+
+	t.Run("a cadence shorter than the window does not warn", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 2m\nfrequency: 1m59s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("non-positive values are rejected", func(t *testing.T) {
+		for _, value := range []string{"0s", "-5s", "0ms"} {
+			t.Run(value, func(t *testing.T) {
+				p := withTarget(t, "frequency: "+value)
+				require.NotNil(t, p.Frequency, "an explicit zero decodes to a non-nil pointer")
+
+				_, err := p.Validate()
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "postgres.frequency")
+				assert.Contains(t, err.Error(), "must be positive")
+				assert.Contains(t, err.Error(), "omit the key",
+					"the fix is deletion, and the message says so")
+			})
+		}
+	})
+
+	t.Run("a bare key decodes to nil and is treated as absent", func(t *testing.T) {
+		p := withTarget(t, "frequency:")
+		require.Nil(t, p.Frequency)
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+		assert.Nil(t, p.Frequency)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("a rejected window does not also produce a bookend warning", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 0s\nfrequency: 30s")
+
+		warnings, err := p.Validate()
+		require.Error(t, err)
+		assert.Empty(t, warnings, "one fault, one message")
 	})
 }
 
@@ -714,7 +845,7 @@ func TestPostgresString(t *testing.T) {
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
 				`username="ycrash_monitor" password=<redacted> sslmode=require `+
-				`captureDuration=1m30s explain=off agentOnDbHost=false`,
+				`captureDuration=1m30s frequency=(unset, derived from the window) explain=off agentOnDbHost=false`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
 	})
@@ -734,6 +865,14 @@ func TestPostgresString(t *testing.T) {
 		got := validPostgres().String()
 
 		assert.Contains(t, got, "captureDuration=(unset, defaults to 2m0s)")
+	})
+
+	t.Run("a configured cadence is echoed", func(t *testing.T) {
+		p := validPostgres()
+		frequency := Duration(30 * time.Second)
+		p.Frequency = &frequency
+
+		assert.Contains(t, p.String(), "frequency=30s")
 	})
 
 	t.Run("free-form values are quoted so a comma cannot read as a separator", func(t *testing.T) {

@@ -879,6 +879,49 @@ func TestPostgresCaptureDefaultsTheWindowWhenUnvalidated(t *testing.T) {
 	assert.Equal(t, 45*time.Second, task.captureDuration())
 }
 
+func TestPostgresCaptureFrequencyIsConfiguredOrDerived(t *testing.T) {
+	task := &PostgresCapture{Target: unreachablePostgres(t)}
+	require.Nil(t, task.Target.Frequency)
+
+	assert.Equal(t, postgres.DefaultInterval(2*time.Minute), task.frequency(2*time.Minute),
+		"omitted derives the cadence from the window")
+
+	frequency := config.Duration(30 * time.Second)
+	task.Target.Frequency = &frequency
+	assert.Equal(t, 30*time.Second, task.frequency(2*time.Minute),
+		"configured overrides it, whatever the window")
+
+	zero := config.Duration(0)
+	task.Target.Frequency = &zero
+	assert.Equal(t, postgres.DefaultInterval(2*time.Minute), task.frequency(2*time.Minute),
+		"a zero that never went through Validate derives rather than sampling nothing")
+}
+
+func TestPostgresFrequencyFloorIsTheStatementTimeout(t *testing.T) {
+	assert.Equal(t, postgres.StatementTimeout, config.MinPostgresFrequency,
+		"config floors frequency at the capture's per-statement timeout, so a maxed-out "+
+			"sample can never outrun the tick behind it; the two packages do not import each "+
+			"other, so the spellings are pinned equal here")
+}
+
+func TestPostgresCaptureHonoursTheConfiguredFrequency(t *testing.T) {
+	chdirToCaptureDir(t)
+
+	target := withWindow(t, 2*time.Minute)
+	frequency := config.Duration(30 * time.Second)
+	target.Frequency = &frequency
+
+	result, err := (&PostgresCapture{Target: target}).Run()
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/5 samples)",
+		"the spec's own incident case, 2m at 30s: four steps and the close, where the "+
+			"derived cadence would have taken nine")
+	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/5 samples)")
+	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
+		"and pg_explain keeps its bookend regardless")
+}
+
 func TestPostgresCaptureMessage(t *testing.T) {
 	artifact := postgres.Bloat{}.Artifact()
 
