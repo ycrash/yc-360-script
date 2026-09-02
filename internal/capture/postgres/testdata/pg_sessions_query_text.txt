@@ -1,4 +1,4 @@
-# engine=postgres source=pg_sessions v=1 format=csv scope=cluster db=orders_db dbid= status=started window=6s schedule=every interval=2s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_sessions v=1 format=csv scope=cluster db=orders_db dbid= status=started window=4s schedule=periodic interval=2s samples_expected=3 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_stat_activity v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 sessions_written=3 sessions_total=3 truncated=false ts=2026-08-07T14:32:05.061Z
 pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
 1201,16401,orders_db,,10,postgres,orders-service,client backend,active,,,2026-08-07T14:32:03.001Z,,2026-08-07T14:32:04.900Z,2026-08-07T14:32:04.900Z,,789,,10.0.4.12,,55201,"SELECT o.id,        o.status   FROM orders o  WHERE o.id = 300;"

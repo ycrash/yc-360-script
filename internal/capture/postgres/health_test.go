@@ -187,8 +187,8 @@ func runHealthWindow(t *testing.T, clock *scriptedClock, target Target,
 
 	window := &Window{
 		Target:     target,
-		Duration:   30 * time.Second,
-		Collectors: []Collector{Health{}},
+		Duration:   20 * time.Second,
+		Collectors: []Collector{Health{Interval: 10 * time.Second}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -234,13 +234,16 @@ func TestHealthArtifact(t *testing.T) {
 	assert.Equal(t, "pg_health.txt", artifact.FileName)
 	assert.Equal(t, "cluster", artifact.Scope,
 		"pg_stat_database is read unfiltered, so the rows are about the cluster")
-	assert.Equal(t, Every(DefaultHealthInterval), artifact.Schedule)
+	assert.Equal(t, Periodic(0), artifact.Schedule)
+	assert.Equal(t, StatementTimeout, artifact.SampleBudget,
+		"one statement, where DefaultSampleBudget would have charged the closing tick for two")
 
-	assert.Len(t, artifact.Schedule.offsets(120*time.Second), 12,
-		"twelve samples at the default window, asserted where someone changing the "+
-			"constant will see it")
+	assert.Len(t,
+		Health{Interval: DefaultInterval(120*time.Second)}.Artifact().Schedule.offsets(120*time.Second), 9,
+		"nine samples at the default window - eight steps and the close - asserted where "+
+			"someone changing DefaultInterval will see it")
 
-	assert.Equal(t, Every(time.Second), Health{Interval: time.Second}.Artifact().Schedule,
+	assert.Equal(t, Periodic(time.Second), Health{Interval: time.Second}.Artifact().Schedule,
 		"a test can lower the cadence without waiting out a window")
 }
 

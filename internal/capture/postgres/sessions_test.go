@@ -378,8 +378,8 @@ func runSessionsWindow(t *testing.T, clock *scriptedClock,
 
 	window := &Window{
 		Target:     testTarget(),
-		Duration:   6 * time.Second,
-		Collectors: []Collector{Sessions{}},
+		Duration:   4 * time.Second,
+		Collectors: []Collector{Sessions{Interval: 2 * time.Second}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -425,18 +425,17 @@ func TestSessionsArtifact(t *testing.T) {
 		"pg_stat_activity is cluster-wide, so db= and dbid= mean connected through rather "+
 			"than about - pg_health.txt's reading, and the one the capture direction confirms")
 
-	assert.Equal(t, Every(DefaultSessionsInterval), artifact.Schedule)
-	assert.Equal(t, 2*time.Second, DefaultSessionsInterval,
-		"60 samples on the default window, and the count is the point: a blocking chain is a "+
-			"thing that develops")
+	assert.Equal(t, Periodic(0), artifact.Schedule)
+	assert.Equal(t, []time.Duration{0, 6 * time.Second}, artifact.Schedule.offsets(6*time.Second),
+		"a run with no cadence still bookends: two samples, never one. A blocking chain is a "+
+			"thing that develops, so the first reading always has a second to be read against")
 
 	assert.Equal(t, 3*time.Second, artifact.SampleBudget,
-		"two statements at this collector's own timeout. Documentation rather than arithmetic: "+
-			"SampleBudget is consulted only for the collectors due on the closing tick, which "+
-			"an Every collector never reaches - the SET in Sample is what does the work")
+		"two statements at this collector's own timeout. Periodic's last sample is the close, "+
+			"so moduleDeadline sums this - the SET in Sample is what enforces it")
 
-	assert.Equal(t, Every(5*time.Second), Sessions{Interval: 5 * time.Second}.Artifact().Schedule,
-		"and a configured interval is carried through")
+	assert.Equal(t, Periodic(5*time.Second), Sessions{Interval: 5 * time.Second}.Artifact().Schedule,
+		"and the run's cadence is carried through")
 }
 
 func TestSessionsColumnOrder(t *testing.T) {

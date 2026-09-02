@@ -582,23 +582,28 @@ func TestWindowModuleDeadlineOnADegenerateWindowCoversEveryCollector(t *testing.
 }
 
 func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
+	interval := DefaultInterval(120 * time.Second)
+
 	window := &Window{
 		Duration: 120 * time.Second,
 		Collectors: []Collector{
-			Sessions{}, Health{}, Replication{},
+			Sessions{Interval: interval}, Health{Interval: interval}, Replication{Interval: interval},
 			NewMetadata(Target{}, "3.6.1", time.Time{}, ""),
 			Capacity{}, Bloat{}, NewSlowQueries(),
 		},
 	}
 
-	assert.Equal(t, 205*time.Second, window.moduleDeadline(),
+	assert.Equal(t, 238*time.Second, window.moduleDeadline(),
 		"120s window, plus Capacity's 30s, Bloat's 20s default and SlowQueries' 30s on the "+
-			"closing tick, plus the 5s close margin")
+			"closing tick, plus the 5s close margin - and plus the 33s the bookend added, "+
+			"since Sessions, Health and Replication now end on that tick too")
 }
 
 func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
+	interval := DefaultInterval(120 * time.Second)
+
 	real := []Collector{
-		Sessions{}, Health{}, Replication{},
+		Sessions{Interval: interval}, Health{Interval: interval}, Replication{Interval: interval},
 		NewMetadata(Target{}, "3.6.1", time.Time{}, ""),
 		Capacity{}, Bloat{}, NewSlowQueries(),
 	}
@@ -608,9 +613,9 @@ func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
 		mode string
 		want time.Duration
 	}{
-		{name: "enabled", mode: ExplainModeAll, want: 238 * time.Second},
-		{name: "logged", mode: ExplainModeLogged, want: 238 * time.Second},
-		{name: "disabled", mode: "", want: 215 * time.Second},
+		{name: "enabled", mode: ExplainModeAll, want: 271 * time.Second},
+		{name: "logged", mode: ExplainModeLogged, want: 271 * time.Second},
+		{name: "disabled", mode: "", want: 248 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tenth := NewExplain(tc.mode, NewSlowQueries())
@@ -1130,6 +1135,72 @@ func TestScheduleOffsets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.schedule.offsets(tc.window))
 		})
+	}
+}
+
+func TestDefaultIntervalScalesWithTheWindow(t *testing.T) {
+	const s = time.Second
+
+	for _, tc := range []struct {
+		name    string
+		window  time.Duration
+		want    time.Duration
+		samples int
+	}{
+		{
+			name:   "the default window: eight steps and the close",
+			window: 120 * s, want: 15 * s, samples: 9,
+		},
+		{
+			name:   "the longest window config accepts today",
+			window: 600 * s, want: 75 * s, samples: 9,
+		},
+		{
+			name:   "a short incident window takes the floor, not a proportion of nothing",
+			window: 40 * s, want: StatementTimeout, samples: 5,
+		},
+		{
+			name:   "eighty seconds is where the proportion meets the floor",
+			window: 80 * s, want: StatementTimeout, samples: 9,
+		},
+		{
+			name:   "a window shorter than the floor gets the bookend, which is all it can honestly report",
+			window: 6 * s, want: StatementTimeout, samples: 2,
+		},
+		{
+			name:   "forty minutes is where the proportion meets the cap",
+			window: 40 * time.Minute, want: MaxDefaultInterval, samples: 9,
+		},
+		{
+			name:   "and the two hours the spec asks for stays at the cap",
+			window: 2 * time.Hour, want: MaxDefaultInterval, samples: 25,
+		},
+		{
+			name:   "a window that never started is the floor, not a division by zero",
+			window: 0, want: StatementTimeout, samples: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			interval := DefaultInterval(tc.window)
+
+			assert.Equal(t, tc.want, interval)
+			assert.Len(t, Periodic(interval).offsets(tc.window), tc.samples,
+				"what the operator actually gets, which is the number this constant exists to set")
+		})
+	}
+}
+
+func TestDefaultIntervalNeverOutrunsAStatement(t *testing.T) {
+	for _, window := range []time.Duration{
+		-time.Minute, 0, time.Second, 30 * time.Second, 120 * time.Second,
+		600 * time.Second, 2 * time.Hour, 24 * time.Hour,
+	} {
+		assert.GreaterOrEqual(t, DefaultInterval(window), StatementTimeout,
+			"a cadence faster than a sample's own deadline is a timeline that can never "+
+				"catch up: window %s", window)
+		assert.LessOrEqual(t, DefaultInterval(window), MaxDefaultInterval,
+			"and past the cap a longer window buys coarser samples and nothing else: window %s",
+			window)
 	}
 }
 

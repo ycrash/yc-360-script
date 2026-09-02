@@ -134,6 +134,10 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	duration := p.captureDuration()
 
+	// One cadence for every sampled artifact, derived from the window: the sampled
+	// collectors below take it rather than each carrying its own constant.
+	interval := postgres.DefaultInterval(duration)
+
 	// Written by the callback below and read once the window closes. Window.Run is
 	// synchronous on this goroutine, so the two never overlap.
 	var hostCollectors []hostCollector
@@ -166,9 +170,9 @@ func (p *PostgresCapture) Run() (Result, error) {
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
-			postgres.Sessions{},
-			postgres.Health{},
-			postgres.Replication{},
+			postgres.Sessions{Interval: interval},
+			postgres.Health{Interval: interval},
+			postgres.Replication{Interval: interval},
 			metadata,
 			postgres.Capacity{},
 			postgres.Bloat{},

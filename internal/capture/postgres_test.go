@@ -278,38 +278,47 @@ func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 			"deadline by lying about the arithmetic is the one thing this number must not do")
 }
 
-func TestPostgresSessionsBudgetDoesNotWidenTheModuleDeadline(t *testing.T) {
-	sessions := postgres.Sessions{}.Artifact()
+func TestPostgresSampledCollectorsShareOneDerivedCadence(t *testing.T) {
+	interval := postgres.DefaultInterval(config.DefaultPostgresCaptureDuration)
 
-	require.Equal(t, postgres.Every(postgres.DefaultSessionsInterval), sessions.Schedule,
-		"an interval collector, whose offsets are strictly inside the window")
+	require.Equal(t, 15*time.Second, interval,
+		"the default window's derived cadence: nine samples, not the flat 5m a two-minute "+
+			"window would have reduced to the bookend alone")
+
+	for name, schedule := range map[string]postgres.Schedule{
+		"pg_sessions":    postgres.Sessions{Interval: interval}.Artifact().Schedule,
+		"pg_health":      postgres.Health{Interval: interval}.Artifact().Schedule,
+		"pg_replication": postgres.Replication{Interval: interval}.Artifact().Schedule,
+	} {
+		assert.Equal(t, postgres.Periodic(interval), schedule, name+
+			" takes the run's cadence, not a constant of its own")
+	}
+
+	assert.Equal(t, postgres.Every(postgres.DefaultLogTailInterval),
+		postgres.NewDeadlocks().Artifact().Schedule,
+		"and the log tails do not: their poll bounds what a cancelled window loses, "+
+			"which is not a sampling rate")
+}
+
+func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T) {
+	sessions := postgres.Sessions{}.Artifact()
+	health := postgres.Health{}.Artifact()
+	replication := postgres.Replication{}.Artifact()
+
 	assert.Equal(t, 3*time.Second, sessions.SampleBudget,
 		"two statements at this collector's own timeout, declared so the next reader "+
 			"computing the deadline by hand does not have to derive it")
-
-	assert.Equal(t, 55*time.Second,
-		postgres.Capacity{}.Artifact().SampleBudget+postgres.DefaultSampleBudget+
-			postgres.WindowCloseMargin,
-		"the closing tick is still capacity plus bloat, so the module deadline is where the "+
-			"capacity slice left it - a sixth artifact, and the largest, bought no extra load "+
-			"commitment against a database already in trouble")
-}
-
-func TestPostgresReplicationDoesNotReachTheClosingTick(t *testing.T) {
-	replication := postgres.Replication{}.Artifact()
-
-	require.Equal(t, postgres.Every(postgres.DefaultReplicationInterval), replication.Schedule,
-		"an interval collector, whose offsets are strictly inside the window")
+	assert.Equal(t, postgres.StatementTimeout, health.SampleBudget,
+		"one statement: left at zero, DefaultSampleBudget would charge the tick for two")
 	assert.Zero(t, replication.SampleBudget,
-		"so it has no share of the closing tick to declare, and two statements is "+
-			"DefaultSampleBudget anyway")
+		"two statements is DefaultSampleBudget already, so there is nothing to restate")
 
-	assert.Equal(t, 55*time.Second,
-		postgres.Capacity{}.Artifact().SampleBudget+postgres.DefaultSampleBudget+
-			postgres.WindowCloseMargin,
-		"the closing tick is still capacity plus bloat, so the module deadline is where the "+
-			"capacity slice left it - a fifth artifact bought no extra load commitment against "+
-			"a database already in trouble")
+	assert.Equal(t, 33*time.Second,
+		sessions.SampleBudget+health.SampleBudget+postgres.DefaultSampleBudget,
+		"what the bookend costs: three collectors that stopped short of the close now land "+
+			"on it, so the module deadline goes from 245s to 278s on the default window. A "+
+			"deliberate widening, and the last one the sum can absorb quietly - capacity, "+
+			"bloat and slow queries are still to come")
 }
 
 func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
@@ -453,13 +462,13 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Less(t, elapsed, 30*time.Second,
 		"a connect failure waited out the window instead of failing fast")
 
-	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/60 samples)",
-		"sixty samples expected at 2s over a 2m window, none taken - by a wide margin the "+
-			"largest artifact in the bundle, and it reports a refusal like every other")
-	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/12 samples)",
-		"twelve samples expected at 10s over a 2m window, none taken")
-	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/12 samples)",
-		"and the same cadence for replication")
+	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/9 samples)",
+		"nine samples expected at the 2m window's derived 15s cadence, none taken - and it "+
+			"reports a refusal like every other")
+	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/9 samples)",
+		"the same cadence, where this artifact once carried a 10s constant of its own")
+	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/9 samples)",
+		"and the same again for replication: one cadence for every sampled artifact")
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",

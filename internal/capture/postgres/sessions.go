@@ -9,9 +9,6 @@ import (
 	"time"
 )
 
-// DefaultSessionsInterval is pg_sessions.txt's cadence: 60 samples per default window.
-const DefaultSessionsInterval = 2 * time.Second
-
 // SessionsStatementTimeout is applied server-side (SET/RESET), never as a context deadline:
 // pgx closes the connection on context expiry, and this window never reconnects.
 const SessionsStatementTimeout = 1500 * time.Millisecond
@@ -141,7 +138,7 @@ LIMIT $1`
 // so a least-privilege capture looks complete with every query cell a denial;
 // pg_metadata.txt's has_pg_read_all_stats is what tells the two apart.
 type Sessions struct {
-	// Interval is the cadence. Zero takes DefaultSessionsInterval.
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxSessions bounds one sample's activity rows. Zero takes
@@ -157,10 +154,10 @@ func (s Sessions) Artifact() Artifact {
 		Name:     "pg_sessions",
 		FileName: "pg_sessions.txt",
 		Scope:    "cluster",
-		Schedule: Every(s.interval()),
+		Schedule: Periodic(s.Interval),
 
-		// Unused here: consulted only for collectors due on the closing tick, which an Every
-		// collector never reaches. The SET in Sample enforces the timeout instead.
+		// Periodic's last sample is the close, so moduleDeadline sums this one.
+		// The SET in Sample is what enforces the timeout.
 		SampleBudget: 2 * SessionsStatementTimeout,
 	}
 }
@@ -498,14 +495,6 @@ func runUtilityStatement(ctx context.Context, q RowQuerier, sql string) {
 
 	for rows.Next() {
 	}
-}
-
-func (s Sessions) interval() time.Duration {
-	if s.Interval <= 0 {
-		return DefaultSessionsInterval
-	}
-
-	return s.Interval
 }
 
 func (s Sessions) maxSessions() int {
