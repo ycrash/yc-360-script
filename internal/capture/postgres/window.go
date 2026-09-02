@@ -119,26 +119,6 @@ func periodicOffsets(interval, window time.Duration) []time.Duration {
 	return append(offsets, window)
 }
 
-// MaxDefaultInterval caps the derived cadence. Past it a longer window buys
-// coarser samples and nothing else.
-const MaxDefaultInterval = 5 * time.Minute
-
-// DefaultInterval derives one run's cadence from its window, so a two-minute
-// incident is not sampled at a two-hour capture's rate. Eight steps plus the
-// close is nine samples for any window between the floor and the cap.
-//
-// The floor is StatementTimeout, the bound a sample's own statements carry, so a
-// maxed-out sample can never outrun the tick behind it. A window shorter than the
-// floor takes the floor anyway: Periodic reduces it to the bookend, which is the
-// most such a window can honestly report.
-func DefaultInterval(window time.Duration) time.Duration {
-	if window <= 0 {
-		return StatementTimeout
-	}
-
-	return min(max(window/8, StatementTimeout), MaxDefaultInterval)
-}
-
 func (s Schedule) name() string {
 	switch s.kind {
 	case scheduleEvery:

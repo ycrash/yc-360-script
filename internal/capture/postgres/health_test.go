@@ -239,9 +239,8 @@ func TestHealthArtifact(t *testing.T) {
 		"one statement, where DefaultSampleBudget would have charged the closing tick for two")
 
 	assert.Len(t,
-		Health{Interval: DefaultInterval(120 * time.Second)}.Artifact().Schedule.offsets(120*time.Second), 9,
-		"nine samples at the default window - eight steps and the close - asserted where "+
-			"someone changing DefaultInterval will see it")
+		Health{Interval: 30 * time.Second}.Artifact().Schedule.offsets(120*time.Second), 5,
+		"the spec's incident case, 2m at 30s: four steps and the close")
 
 	assert.Equal(t, Periodic(time.Second), Health{Interval: time.Second}.Artifact().Schedule,
 		"a test can lower the cadence without waiting out a window")

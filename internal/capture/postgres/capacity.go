@@ -74,7 +74,7 @@ const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
 // Checkpoint columns are cumulative counters and deltas are the server's; the other two are
 // gauges, so their series is the reading rather than a difference between samples.
 type Capacity struct {
-	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxConnectionGroups bounds the connection block; zero takes DefaultMaxConnectionGroups.

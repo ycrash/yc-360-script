@@ -19,14 +19,18 @@ func withCleanGlobalConfig(t *testing.T) {
 	GlobalConfig = defaultConfig()
 }
 
+// validPostgres is a fully specified block. Frequency is set because the spec's
+// 5m default does not fit the default window and Validate says so; a fixture that
+// left it unset would carry that warning into every test that counts warnings.
 func validPostgres() *Postgres {
 	return &Postgres{
-		Host:     "db-prod-01.internal",
-		Port:     5432,
-		Database: "orders_db",
-		Username: "ycrash_monitor",
-		Password: "s3cr3t",
-		SSLMode:  "require",
+		Host:      "db-prod-01.internal",
+		Port:      5432,
+		Database:  "orders_db",
+		Username:  "ycrash_monitor",
+		Password:  "s3cr3t",
+		SSLMode:   "require",
+		Frequency: newDuration(30 * time.Second),
 	}
 }
 
@@ -55,9 +59,11 @@ func TestPostgresValidateDefaults(t *testing.T) {
 		assert.Equal(t, DefaultPostgresDatabase, p.Database)
 		assert.Equal(t, DefaultPostgresSSLMode, p.SSLMode)
 
-		require.Len(t, warnings, 1)
+		require.Len(t, warnings, 2)
 		assert.Contains(t, warnings[0], "postgres.database not set")
 		assert.Contains(t, warnings[0], "pg_stat_statements")
+		assert.Contains(t, warnings[1], "postgres.frequency is unset and defaults to 5m0s",
+			"the spec's default does not fit the default window, and a block that set neither is told")
 	})
 
 	t.Run("explicit values untouched", func(t *testing.T) {
@@ -66,6 +72,7 @@ func TestPostgresValidateDefaults(t *testing.T) {
 		warnings, err := p.Validate()
 		require.NoError(t, err)
 		assert.Empty(t, warnings, "a fully specified block has nothing to warn about")
+		assert.Equal(t, 30*time.Second, p.Frequency.Duration())
 
 		assert.Equal(t, "db-prod-01.internal", p.Host)
 		assert.Equal(t, 5432, p.Port)
@@ -183,7 +190,7 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\nfrequency: 30s\n"+body)
 	}
 
 	t.Run("absent takes the default without warning", func(t *testing.T) {
@@ -281,15 +288,31 @@ func TestPostgresValidateFrequency(t *testing.T) {
 			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
 	}
 
-	t.Run("absent stays nil, so the capture derives the cadence", func(t *testing.T) {
+	t.Run("absent takes the spec's 5m default, which the default window cannot fit", func(t *testing.T) {
 		p := withTarget(t, "")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err, "the bookend is the spec's safety net, so this is a warning")
+
+		require.NotNil(t, p.Frequency)
+		assert.Equal(t, DefaultPostgresFrequency, p.Frequency.Duration())
+
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "postgres.frequency is unset and defaults to 5m0s")
+		assert.Contains(t, warnings[0], "not shorter than the 2m0s window")
+		assert.Contains(t, warnings[0], "only the opening and closing samples")
+		assert.Contains(t, warnings[0], "for example 30s",
+			"the spec's own incident value, named as the fix")
+	})
+
+	t.Run("absent on a window longer than the default takes it without warning", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 2h")
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
 
-		assert.Nil(t, p.Frequency,
-			"no default is filled in: the derivation is the capture's own arithmetic, and a "+
-				"value here would read as configured")
+		assert.Equal(t, DefaultPostgresFrequency, p.Frequency.Duration(),
+			"the spec's performance-test case: 2h at 5m, twenty-five samples")
 		assert.Empty(t, warnings)
 	})
 
@@ -365,24 +388,23 @@ func TestPostgresValidateFrequency(t *testing.T) {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "postgres.frequency")
 				assert.Contains(t, err.Error(), "must be positive")
-				assert.Contains(t, err.Error(), "omit the key",
-					"the fix is deletion, and the message says so")
+				assert.Contains(t, err.Error(), "omit the key for the 5m0s default")
 			})
 		}
 	})
 
 	t.Run("a bare key decodes to nil and is treated as absent", func(t *testing.T) {
-		p := withTarget(t, "frequency:")
-		require.Nil(t, p.Frequency)
+		p := withTarget(t, "captureDuration: 1h\nfrequency:")
+		require.Nil(t, p.Frequency, "an explicit null does not reach UnmarshalYAML")
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
-		assert.Nil(t, p.Frequency)
+		assert.Equal(t, DefaultPostgresFrequency, p.Frequency.Duration())
 		assert.Empty(t, warnings)
 	})
 
 	t.Run("a rejected window does not also produce a bookend warning", func(t *testing.T) {
-		p := withTarget(t, "captureDuration: 0s\nfrequency: 30s")
+		p := withTarget(t, "captureDuration: 0s")
 
 		warnings, err := p.Validate()
 		require.Error(t, err)
@@ -542,7 +564,7 @@ func TestPostgresValidateExplain(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\nfrequency: 30s\n"+body)
 	}
 
 	t.Run("the two accepted values", func(t *testing.T) {
@@ -845,7 +867,7 @@ func TestPostgresString(t *testing.T) {
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
 				`username="ycrash_monitor" password=<redacted> sslmode=require `+
-				`captureDuration=1m30s frequency=(unset, derived from the window) explain=off agentOnDbHost=false`,
+				`captureDuration=1m30s frequency=30s explain=off agentOnDbHost=false`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
 	})
@@ -867,12 +889,11 @@ func TestPostgresString(t *testing.T) {
 		assert.Contains(t, got, "captureDuration=(unset, defaults to 2m0s)")
 	})
 
-	t.Run("a configured cadence is echoed", func(t *testing.T) {
+	t.Run("an unset cadence says so rather than reading as a value", func(t *testing.T) {
 		p := validPostgres()
-		frequency := Duration(30 * time.Second)
-		p.Frequency = &frequency
+		p.Frequency = nil
 
-		assert.Contains(t, p.String(), "frequency=30s")
+		assert.Contains(t, p.String(), "frequency=(unset, defaults to 5m0s)")
 	})
 
 	t.Run("free-form values are quoted so a comma cannot read as a separator", func(t *testing.T) {
@@ -1133,7 +1154,7 @@ agentOnDbHost: true`)
 		require.NoError(t, err)
 
 		assert.True(t, p.AgentOnDBHost)
-		require.Len(t, warnings, 2, "the database default warns too")
+		require.Len(t, warnings, 3, "the database and frequency defaults warn too")
 		assert.Contains(t, strings.Join(warnings, " "), "postgres.agentOnDbHost=true")
 	})
 }
