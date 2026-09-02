@@ -223,8 +223,8 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, want, keys)
-	assert.Len(t, serverBlockFields(full), 67,
-		"log_access and log_access_reason plus serverFields' sixty-five, and no connect_error row")
+	assert.Len(t, serverBlockFields(full), 68,
+		"log_access and log_access_reason plus serverFields' sixty-six, and no connect_error row")
 	assert.Len(t, targetFields(full), 9)
 
 	assert.Equal(t, LogAccessDirect, values["log_access"])

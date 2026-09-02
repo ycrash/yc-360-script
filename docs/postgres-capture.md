@@ -431,13 +431,18 @@ Run it anywhere with network reachability to the database and you get every
 artifact sourced from SQL — the only supported mode for managed PostgreSQL (RDS,
 Aurora, Cloud SQL, Azure Database).
 
-Run it on the database host and two more artifacts become available:
-`pg_deadlocks.txt` and `pg_timeouts.txt`, which come from the server's log file
-rather than from a query. They are the only record in the bundle of what the
-database *did to a transaction* — the participants of a deadlock, and which
-statement a timeout killed — and neither needs any logging configuration:
-`log_min_messages = warning` and `deadlock_timeout = 1000` are the defaults, so
-every default installation logs all four events.
+Run it on the database host and three more artifacts become available:
+`pg_deadlocks.txt`, `pg_timeouts.txt` and `pg_checkpoint_log.txt`, which come
+from the server's log file rather than from a query. The first two are the only
+record in the bundle of what the database *did to a transaction* — the
+participants of a deadlock, and which statement a timeout killed — and neither
+needs any logging configuration: `log_min_messages = warning` and
+`deadlock_timeout = 1000` are the defaults, so every default installation logs
+all four events. The third copies each checkpoint's completion line, with the
+buffers written and the `write=`, `sync=` and `total=` costs the counters in
+`pg_capacity.txt` cannot give, and it does need one setting:
+`log_checkpoints = on`, the default since PostgreSQL 15 and off on 14.
+`pg_metadata.txt` records the value, so an empty file can be read against it.
 
 Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`, `kernel`)
 describe the machine that ran the script, so a database capture takes them only
@@ -473,8 +478,8 @@ it, so their formats are shared and none of them changes here.
 Measured on PostgreSQL 14 through 18: the data directory is `0700`, the log
 directory inside it is `0700`, every log file is `0600`, and
 `log_file_mode = 0600`. A dedicated service account reads none of it, so an agent
-sitting on the database host reports `log_access=none` and both log artifacts
-say `reason=unreadable` with the path they could not open. That is why the field
+sitting on the database host reports `log_access=none` and all three log
+artifacts say `reason=unreadable` with the path they could not open. That is why the field
 is named for the experiment it runs — opening the file the server named — and not
 for a location it never tested.
 

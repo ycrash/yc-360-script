@@ -55,6 +55,7 @@ func fullSettings() map[string]string {
 		"logging_collector":          "on",
 		"update_process_title":       "on",
 		"log_destination":            "csvlog",
+		"log_checkpoints":            "on",
 		"log_directory":              "log",
 		"log_filename":               "postgresql-%Y-%m-%d_%H%M%S.log",
 		"log_line_prefix":            "%m [%p] ",
@@ -295,6 +296,7 @@ func TestServerFactsSendsTheSettingsCatalogue(t *testing.T) {
 		"max_connections",
 		"logging_collector",
 		"log_destination",
+		"log_checkpoints",
 		"log_directory",
 		"log_filename",
 		"log_line_prefix",
@@ -459,6 +461,7 @@ func TestSettingsFullVisibility(t *testing.T) {
 	assert.Empty(t, m.SettingsUnavailable)
 
 	assert.Equal(t, "500", m.LogMinDurationStatement)
+	assert.Equal(t, "on", m.LogCheckpoints, "what an empty pg_checkpoint_log.txt is read against")
 
 	assert.Equal(t, "off", m.TrackIOTiming)
 	assert.Equal(t, "5000", m.PgStatStatementsMax)
@@ -581,7 +584,7 @@ func TestSettingsNoneVisible(t *testing.T) {
 
 	m := collect(t, q)
 
-	assert.Equal(t, "max_connections,logging_collector,log_destination,log_directory,log_filename,"+
+	assert.Equal(t, "max_connections,logging_collector,log_destination,log_checkpoints,log_directory,log_filename,"+
 		"log_line_prefix,log_rotation_age,log_rotation_size,log_timezone,log_min_messages,"+
 		"log_error_verbosity,log_min_error_statement,log_file_mode,"+
 		"log_min_duration_statement,log_parameter_max_length,"+

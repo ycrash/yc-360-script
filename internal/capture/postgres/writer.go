@@ -79,6 +79,7 @@ func serverFields(m Metadata) []field {
 		{"max_connections", m.MaxConnections},
 		{"logging_collector", m.LoggingCollector},
 		{"log_destination", m.LogDestination},
+		{"log_checkpoints", m.LogCheckpoints},
 		{"log_directory", m.LogDirectory},
 		{"log_filename", m.LogFilename},
 		{"log_line_prefix", m.LogLinePrefix},
