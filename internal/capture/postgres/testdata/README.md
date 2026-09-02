@@ -52,6 +52,19 @@ The goldens:
 - `pg_bloat_empty_db.txt` — a complete capture of a database with no user
   tables. A column header with no rows: captured and found nothing, which is a
   different shape from could not be captured.
+- `pg_index_usage_full.txt` — the first artifact born under spec v1.2, and the
+  first written into the bundle without being uploaded: `dt=pgIndexUsage` is
+  proposed to the server team, not assigned. Four indexes on
+  `pg_bloat_full.txt`'s two tables, kept consistent with that fixture: each
+  table's two `idx_scan` counts sum to the table's there on both samples, and
+  each table's two sizes sum to its `index_size_bytes`. `orders_status_idx` is
+  the finding the artifact exists for — `idx_scan` stays `0` across the window,
+  and `0` is a reading where an empty cell would mean not read. The spec's seven
+  columns exactly and no schema or table name: `relid` is the join key into
+  `pg_bloat.txt`, where those live.
+- `pg_index_usage_connect_failure.txt`, `pg_index_usage_sample_error.txt` and
+  `pg_index_usage_empty_db.txt` — the three regimes above, on the same clock as
+  their `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -429,7 +442,8 @@ pin the rule below against the driver text that motivates it.
 - **One file may carry more than one `source=`.** The window's own blocks name
   the artifact; a collector's blocks name what they read. `pg_health.txt`
   carries `pg_health` and `pg_stat_database`, `pg_bloat.txt` carries `pg_bloat`
-  and `pg_stat_user_tables`, `pg_metadata.txt` carries three:
+  and `pg_stat_user_tables`, `pg_index_usage.txt` carries `pg_index_usage` and
+  `pg_stat_user_indexes`, `pg_metadata.txt` carries three:
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, and `pg_metadata_server` for what the server said —
   `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
@@ -526,7 +540,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 
