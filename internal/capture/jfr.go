@@ -173,8 +173,10 @@ func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error
 	}
 
 	// duration= and the jdk.ThreadDump#period= event setting need no quoting:
-	// jfrTimespan can only produce digits and 's'.
-	cmd := fmt.Sprintf("JFR.start %s %s duration=%s jdk.ThreadDump#period=%s",
+	// jfrTimespan can only produce digits and 's'. settings=profile is a
+	// bare identifier (one of the JDK's built-in .jfc names), so it needs no
+	// quoting either.
+	cmd := fmt.Sprintf("JFR.start %s %s duration=%s settings=profile jdk.ThreadDump#period=%s",
 		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration), jfrTimespan(jfrThreadDumpPeriod))
 	if _, err := t.runJcmd(cmd); err != nil {
 		return fmt.Errorf("failed to start JFR recording: %w", err)
