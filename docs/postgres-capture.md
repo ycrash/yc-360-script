@@ -68,6 +68,14 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 | `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
 | `all` | the above, plus plans the agent asks the server for | `EXPLAIN` statements built from captured query text are submitted back to your database |
 
+Which queries get a plan is not a judgment the agent makes. Every distinct query
+shape in `pg_stat_statements` is attempted once, in the first sample it is seen
+in, and never again; the agent ranks nothing, and which shapes matter is the
+server's call. A sample attempts at most ten, and the rest wait for the next
+sample, so a database that walks in tracking thousands of shapes is explained as
+a drip across the window rather than a burst at its start. Each block records
+`first_seen=`, and each sample's summary says how many shapes still wait.
+
 `all` is the only setting in this block that makes the agent *write* to your
 database connection rather than read from it, which is why it is opt-in and why
 configuring it prints a warning. `EXPLAIN` never executes the statement — the
@@ -234,9 +242,10 @@ role — an unplanned write candidate is a smaller loss than a monitoring role
 that can write.
 
 `explain: all` also wants `database:` pointed at the application database. Under
-the `postgres` default most candidates are counted `excluded_other_database` and
-`pg_stat_statements` is usually absent there, so the ranking falls back to
-`pg_stat_activity` and finds an idle maintenance database.
+the `postgres` default most candidates are counted `excluded_other_database`, and
+where `pg_stat_statements` is absent there is nothing to attempt at all: the
+summary says `statements_reason=extension_absent` rather than reporting an idle
+database.
 
 **Without `pg_monitor`, five artifacts lose data, and they lose it five
 different ways.**
@@ -406,7 +415,7 @@ every relation the plan actually resolved to, `search_path=` records the agent's
 own resolution context, and `plan_queryid=` with `queryid_match=false` is the
 one machine-checkable symptom of a wrong resolution. `mode=LOGGED` blocks do not
 have this problem at all — they are the server's own plan for the execution that
-really happened, which is why they rank first.
+really happened, which is why that tier is tried first.
 
 ### What the bundle says about the connection itself
 

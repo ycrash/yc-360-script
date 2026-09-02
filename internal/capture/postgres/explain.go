@@ -8,7 +8,6 @@ import (
 	"io"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,8 +46,10 @@ func explainModeText(mode string) string {
 }
 
 const (
-	// DefaultMaxExplains bounds how many ranked candidates are submitted. Not
-	// configurable: a tunable N produces plan counts nobody can reproduce from a bundle.
+	// DefaultMaxExplains bounds how many shapes one sample attempts; the rest wait for
+	// the next sample, so a database that walks in tracking thousands of shapes is
+	// explained as a drip rather than a burst. Not configurable: a tunable N produces
+	// plan counts nobody can reproduce from a bundle.
 	DefaultMaxExplains = 10
 
 	// ExplainTimeout bounds one candidate, applied server-side with
@@ -78,19 +79,6 @@ const (
 	MaxActivitySessions = DefaultMaxSessions
 )
 
-// Which view a candidate came from, written as candidate_source=: source= is the
-// mandatory first header token naming the artifact.
-const (
-	candidateSourceStatements = "statements"
-	candidateSourceActivity   = "activity"
-)
-
-// How the selection was ordered, written once in the summary block.
-const (
-	rankingStatementsDelta  = "statements_delta"
-	rankingActivityFallback = "activity_fallback"
-)
-
 // The plan mode that produced a block's body, written as mode=; none where nothing
 // was submitted.
 const (
@@ -105,9 +93,14 @@ const (
 	// reasonExplainDisabled: the postgres.explain key was omitted - the default.
 	reasonExplainDisabled = "explain_disabled"
 
-	// reasonNoCandidates: nothing rankable and no activity row to fall back to - an
-	// idle database, not a failure.
+	// reasonNoCandidates: nothing new to attempt this sample - a feed with no unseen
+	// shapes, or no feed at all - not a failure.
 	reasonNoCandidates = "no_candidates"
+
+	// reasonStatementsUnread: the statements collector offered no read this sample, so
+	// the feed could not be walked. Rides statements_reason=, beside the extension's
+	// own reasons and a failed read's error text.
+	reasonStatementsUnread = "statements_unread"
 
 	// reasonQueryTruncated: the only text was cut mid-token and unmarked at
 	// track_activity_query_size, with no normalized form to fall back to.
@@ -138,7 +131,8 @@ const (
 	reasonNoQueryIdentifier = "no_query_identifier"
 
 	// reasonNoRankedReport: an identified plan emitted by the closing pass, where the
-	// closing sample never ran and there were no candidates to attach it to.
+	// closing sample never ran and no candidate was left to attach it to. The token
+	// predates the once-per-shape selection and is kept as written.
 	reasonNoRankedReport = "no_ranked_report"
 )
 
@@ -152,7 +146,7 @@ var setExplainTimeoutSQL = fmt.Sprintf("SET statement_timeout TO '%dms'",
 
 const resetExplainTimeoutSQL = `RESET statement_timeout`
 
-// activitySQL is one read at the closing tick, carrying five facts that cost no extra
+// activitySQL is one read per sample, carrying five facts that cost no extra
 // statement: search_path, the capture role's OID (self-exclusion), auto_explain
 // visibility, track_activity_query_size (the truncation gate) and the encoding's widest
 // character (which widens that gate). They come from pg_settings and pg_roles, never
@@ -219,10 +213,22 @@ var explainableKeywords = []string{
 type Explain struct {
 	mode string
 
-	// sq supplies the ranking's two endpoint reads; Explain never re-runs them.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	Interval time.Duration
+
+	// sq offers each sample's statements read; Explain never re-runs it.
 	sq *SlowQueries
 
 	tail logTail
+
+	// store keeps the log's plans across samples, so a shape the cap deferred can
+	// still claim the execution the server logged for it.
+	store *planStore
+
+	// seen is every statement key the feed has shown, with the sample it first
+	// appeared in; queue holds the ones not yet attempted, in that order.
+	seen  map[statementKey]int
+	queue []*explainCandidate
 
 	// now is the budget's clock, injectable so a test can spend it.
 	now func() time.Time
@@ -240,7 +246,7 @@ type Explain struct {
 // reason=explain_disabled about a run that asked for plans.
 func NewExplain(mode string, sq *SlowQueries) *Explain {
 	if sq == nil {
-		panic("postgres: NewExplain requires the SlowQueries collector whose endpoints it ranks")
+		panic("postgres: NewExplain requires the SlowQueries collector whose reads it walks")
 	}
 
 	if mode != "" && mode != ExplainModeLogged && mode != ExplainModeAll {
@@ -248,10 +254,12 @@ func NewExplain(mode string, sq *SlowQueries) *Explain {
 	}
 
 	return &Explain{
-		mode: mode,
-		sq:   sq,
-		tail: newLogTail("pg_explain", explainMatch),
-		now:  time.Now,
+		mode:  mode,
+		sq:    sq,
+		tail:  newLogTail("pg_explain", explainMatch),
+		store: newPlanStore(nil),
+		seen:  map[statementKey]int{},
+		now:   time.Now,
 	}
 }
 
@@ -261,10 +269,12 @@ func (e *Explain) Artifact() Artifact {
 		FileName: "pg_explain.txt",
 
 		// database, not cluster: plans are obtainable only for the connected database,
-		// even though the ranking source is cluster-wide.
+		// even though the feed is cluster-wide.
 		Scope: "database",
 
-		Schedule: StartEnd(),
+		// The run's cadence: every sample walks that tick's statements read for shapes
+		// not yet seen, and the close is the last chance to attempt what waited.
+		Schedule: Periodic(e.Interval),
 		Format:   formatText,
 
 		SampleBudget: e.sampleBudget(),
@@ -289,10 +299,21 @@ func (e *Explain) enabled() bool { return e.mode == ExplainModeLogged || e.mode 
 // submits reports whether this run sends statements to the server; only mode all does.
 func (e *Explain) submits() bool { return e.mode == ExplainModeAll }
 
-// Sample arms the log tail as the window opens and writes the report as it closes; the
-// two are separate conditions, since a one-tick window does both in one sample.
+// Sample arms the log tail on the opening sample and reports on every sample: the
+// once-per-shape rule is applied in the interval a shape is first seen, so each tick
+// walks the feed, drains the log and attempts what is waiting.
 func (e *Explain) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	if s.Index == 1 && e.enabled() {
+	if !e.enabled() {
+		// Disabled is one block at the close and no summary: a summary of zeroes would
+		// read as an empty database rather than a feature left off.
+		if s.Index < s.Total {
+			return nil
+		}
+
+		return e.writeBlock(w, s, []headerField{{"reason", reasonExplainDisabled}}, nil)
+	}
+
+	if s.Index == 1 {
 		// Registration order puts this after the other collectors' t0 statements,
 		// so the tail opens past the agent's own first burst of plans.
 		e.tailOpened = true
@@ -300,62 +321,86 @@ func (e *Explain) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 		e.tail.openAtEnd(ctx, q, s)
 	}
 
-	if s.Index < s.Total {
-		return nil
-	}
-
 	return e.report(ctx, q, w, s)
 }
 
-// report writes the closing sample's blocks. Disabled is one block and no summary: a
-// summary of zeroes would read as an empty database rather than a feature left off.
+// report writes one sample's blocks: the shapes attempted this tick, the
+// identifier-less plans the log yielded since the last one, and the summary.
 func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	if !e.enabled() {
-		return e.writeBlock(w, s, []headerField{{"reason", reasonExplainDisabled}}, nil)
-	}
-
-	e.reported = true
+	closing := s.Index == s.Total
+	e.reported = closing
 
 	events, read := e.tail.readEvents(ctx, q, time.Time{})
-	e.tail.closeFile()
+	if closing {
+		e.tail.closeFile()
+	}
 
-	store := newPlanStore(events)
+	e.store.addAll(events)
 
 	activity, facts, activityErr := readActivity(ctx, q)
 
-	selection := e.selectCandidates(s, activity, facts)
+	feed, fed := e.sq.feed(s)
+	selection := e.selectCandidates(s, feed, fed, activity, facts)
 
 	// Attachment runs before submission: the LOGGED mode is the plan for the execution
 	// that actually happened, so a candidate it claims is never also submitted.
-	store.attach(selection.candidates)
+	e.store.attach(selection.candidates)
 
 	if e.submits() {
 		e.submitAll(ctx, q, s, selection.candidates, &selection.counters)
 	}
 
-	for _, c := range selection.candidates {
+	for _, c := range e.requeueSkipped(&selection) {
 		if err := e.writeCandidate(w, s, c, facts); err != nil {
 			return err
 		}
 	}
 
-	// Identifier-less plans follow the ranked blocks. An identified plan no candidate
-	// claimed stays retained and unwritten, showing as plans_harvested= minus
-	// plans_written=.
-	for _, plan := range store.unattached() {
+	// Identifier-less plans follow this sample's blocks and leave the store. An
+	// identified plan no candidate claimed stays retained for a shape still queued,
+	// showing meanwhile as plans_harvested= minus plans_written=.
+	for _, plan := range e.store.takeUnattached() {
 		if err := e.writePlan(w, s, plan); err != nil {
 			return err
 		}
 
-		store.written++
+		e.store.written++
 	}
 
-	return e.writeSummary(w, s, selection, facts, store, read, s.errorText(activityErr))
+	return e.writeSummary(w, s, selection, facts, e.store, read, s.errorText(activityErr))
+}
+
+// requeueSkipped puts back, at the head of the queue and in order, every candidate the
+// aggregate budget skipped: its attempt never began, so it is not this sample's and no
+// block is written for it. It returns what was attempted.
+func (e *Explain) requeueSkipped(selection *explainSelection) []*explainCandidate {
+	var attempted, skipped []*explainCandidate
+
+	for _, c := range selection.candidates {
+		if c.reason == reasonBudgetSpent {
+			c.reason = ""
+			skipped = append(skipped, c)
+
+			continue
+		}
+
+		attempted = append(attempted, c)
+	}
+
+	if len(skipped) > 0 {
+		e.queue = append(skipped, e.queue...)
+		selection.counters.written = len(attempted)
+		selection.counters.queued = len(e.queue)
+	}
+
+	selection.candidates = attempted
+
+	return attempted
 }
 
 // WriteClosing acts only where the closing sample did not, so a cancelled or
-// deadline-exceeded window still ships what the tail collected. No connection here, so it
-// never re-resolves and never follows a rotation.
+// deadline-exceeded window still ships what the tail collected and says what was left
+// waiting. No connection here, so it never re-resolves and never follows a rotation.
 func (e *Explain) WriteClosing(w io.Writer, s SampleContext) error {
 	if e.reported || !e.enabled() || !e.tailOpened {
 		// An unopened tail is the connect-failure path: a summary would report plans_harvested=0
@@ -368,18 +413,20 @@ func (e *Explain) WriteClosing(w io.Writer, s SampleContext) error {
 	events, read := e.tail.readEvents(context.Background(), nil, e.now().Add(LogDrainBudget))
 	e.tail.closeFile()
 
-	store := newPlanStore(events)
+	e.store.addAll(events)
 
-	for _, plan := range store.all() {
+	for _, plan := range e.store.takeAll() {
 		if err := e.writePlan(w, s, plan); err != nil {
 			return err
 		}
 
-		store.written++
+		e.store.written++
 	}
 
-	return e.writeSummary(w, s, explainSelection{ranking: rankingStatementsDelta},
-		activityFacts{}, store, read, "")
+	selection := explainSelection{drain: true}
+	selection.counters.queued = len(e.queue)
+
+	return e.writeSummary(w, s, selection, activityFacts{}, e.store, read, "")
 }
 
 // --- the logged-plan store --------------------------------------------------
@@ -427,11 +474,15 @@ func newPlanStore(events [][]byte) *planStore {
 		claimed: map[string]bool{},
 	}
 
-	for _, event := range events {
-		store.add(event)
-	}
+	store.addAll(events)
 
 	return store
+}
+
+func (p *planStore) addAll(events [][]byte) {
+	for _, event := range events {
+		p.add(event)
+	}
 }
 
 func (p *planStore) add(event []byte) {
@@ -522,23 +573,27 @@ func (p *planStore) attach(candidates []*explainCandidate) {
 
 		id := strconv.FormatInt(*c.queryid, 10)
 
-		plan, ok := p.byID[id]
-		if !ok {
-			continue
-		}
-
 		if p.claimed[id] {
 			// The same queryid under a different role. The entry names an identifier and
 			// nothing else, so neither candidate can be shown to be the logged execution,
-			// and attaching to both would write one plan under two headers. The
-			// highest-ranked keeps it; the rest take their ordinary path.
+			// and attaching to both would write one plan under two headers. The first
+			// keeps it; the rest take their ordinary path.
 			p.ambiguous++
 
 			continue
 		}
 
+		plan, ok := p.byID[id]
+		if !ok {
+			continue
+		}
+
 		p.claimed[id] = true
 		p.written++
+
+		// The body is written under the candidate, so the store need not hold it
+		// against MaxRetainedPlanBytes any longer; claimed keeps the identifier.
+		p.remove(plan)
 
 		c.mode = planModeLogged
 		c.plan = plan.body
@@ -555,8 +610,9 @@ func (p *planStore) attach(candidates []*explainCandidate) {
 	}
 }
 
-// unattached is what the ranked report writes after its candidates: the entries the log
-// gave no identifier for. An identified plan no candidate claimed stays unwritten.
+// unattached is what a sample's report writes after its candidates: the entries the
+// log gave no identifier for. An identified plan no candidate claimed stays retained
+// for a shape still queued.
 func (p *planStore) unattached() []*loggedPlan {
 	var plans []*loggedPlan
 
@@ -569,8 +625,29 @@ func (p *planStore) unattached() []*loggedPlan {
 	return plans
 }
 
-// all is the closing pass's set: no ranked report to attach to, so everything is written.
-func (p *planStore) all() []*loggedPlan { return p.retained }
+// takeUnattached is unattached and their removal, so a plan written under one sample
+// is not written again under the next.
+func (p *planStore) takeUnattached() []*loggedPlan {
+	plans := p.unattached()
+
+	for _, plan := range plans {
+		p.remove(plan)
+	}
+
+	return plans
+}
+
+// takeAll is the closing pass's set, and the store emptied: no report to attach to,
+// so everything is written.
+func (p *planStore) takeAll() []*loggedPlan {
+	plans := p.retained
+
+	p.retained = nil
+	p.byID = map[string]*loggedPlan{}
+	p.bytes = 0
+
+	return plans
+}
 
 // parsePlanEvent reads the two values the entry declares about itself. A non-text
 // log_format yields neither, so the body is stored verbatim and never attached.
@@ -586,8 +663,10 @@ func parsePlanEvent(event []byte) *loggedPlan {
 
 // --- selection ---------------------------------------------------------------
 
-// explainCounters is the summary block's account of a selection that is otherwise
-// invisible: which rows were dropped, and for what.
+// explainCounters is the summary block's account of one sample's selection, which is
+// otherwise invisible: which rows were dropped, and for what. Exclusions are counted
+// when a shape is first seen; masked rows carry no identity, so they are counted on
+// every read.
 type explainCounters struct {
 	considered int
 
@@ -597,13 +676,13 @@ type explainCounters struct {
 	excludedNotToplevel   int
 	excludedSelf          int
 
-	invalid    int
-	restarted  int
-	unrankable int
-	noExecTime int
-
+	// observed is first seen this sample and eligible; written is attempted this
+	// sample; skippedBudget went back to the queue when the aggregate ran out; queued
+	// is what still waits after this sample.
+	observed      int
 	written       int
 	skippedBudget int
+	queued        int
 }
 
 // fields omits zero-valued counters: a key present at zero is a measurement, and most
@@ -619,12 +698,10 @@ func (c explainCounters) fields() []headerField {
 		{"excluded_utility", c.excludedUtility},
 		{"excluded_not_toplevel", c.excludedNotToplevel},
 		{"excluded_self", c.excludedSelf},
-		{"candidates_invalid", c.invalid},
-		{"candidates_restarted", c.restarted},
-		{"candidates_unrankable", c.unrankable},
-		{"excluded_no_exec_time", c.noExecTime},
+		{"candidates_new", c.observed},
 		{"candidates_written", c.written},
 		{"candidates_skipped_budget", c.skippedBudget},
+		{"candidates_queued", c.queued},
 	}
 
 	fields := make([]headerField, 0, len(counted))
@@ -638,11 +715,8 @@ func (c explainCounters) fields() []headerField {
 	return fields
 }
 
-// explainCandidate is one selected statement and everything the block about it says.
+// explainCandidate is one shape to attempt and everything the block about it says.
 type explainCandidate struct {
-	rank   int
-	source string
-
 	queryid *int64
 
 	// userid and dbid complete the identity: queryid alone is not unique across roles or
@@ -650,18 +724,9 @@ type explainCandidate struct {
 	userid string
 	dbid   string
 
-	// pid and queryStart identify a fallback candidate, which has no queryid the
-	// statements view would recognise.
-	pid        *int32
-	queryStart *time.Time
-
-	// running: the clock has not stopped, so elapsed time is a lower bound and not
-	// comparable with a completed duration. Recorded once, not per sort comparison.
-	running bool
-
-	// sortKey is the delta or the elapsed time. Never written: it is an in-memory sort
-	// key, not RCA judgement.
-	sortKey float64
+	// firstSeen is the sample the feed first showed this shape. The block is written
+	// in the sample it was attempted, which the cap can put later.
+	firstSeen int
 
 	// literalText is submittable as-is; genericText carries $n placeholders and needs
 	// GENERIC_PLAN. Either may be empty.
@@ -688,136 +753,95 @@ type explainCandidate struct {
 	planTruncated bool
 }
 
+// explainSelection is one sample's attempt list and its account.
 type explainSelection struct {
-	ranking    string
 	candidates []*explainCandidate
 	counters   explainCounters
+
+	// feedReason is why the feed had no rows this sample.
+	feedReason string
+
+	// drain marks the closing pass, which attempts nothing.
+	drain bool
 }
 
-// selectCandidates ranks, filters and cuts. The activity fallback runs when the
-// statements delta cannot: extension unread, stats reset, or nothing survived the rules.
+// selectCandidates queues every shape the feed shows for the first time, in the feed's
+// own order, and attempts the first DefaultMaxExplains of what is waiting. No ranking:
+// which shapes matter is the server's judgment. The cap and the aggregate budget bound
+// each sample, and the summary says how many still wait.
 func (e *Explain) selectCandidates(
-	s SampleContext, activity []activityRow, facts activityFacts,
+	s SampleContext, feed statementFeed, fed bool, activity []activityRow, facts activityFacts,
 ) explainSelection {
-	selection := explainSelection{ranking: rankingStatementsDelta}
+	var selection explainSelection
 
-	ranked := e.rankStatements(s, facts, &selection.counters)
+	counters := &selection.counters
 
-	if ranked == nil {
-		selection.ranking = rankingActivityFallback
+	switch {
+	case !fed:
+		selection.feedReason = reasonStatementsUnread
 
-		// The statements-side counters are the record of why the fallback ran, so they
-		// stay. considered becomes the activity count only where that ranking never ran.
-		considered := selection.counters.considered
-		selection.counters.considered = 0
+	case !feed.read:
+		selection.feedReason = feed.reason
 
-		ranked = rankActivity(activity, &selection.counters)
+	default:
+		counters.considered = len(feed.rows)
 
-		if considered > 0 {
-			selection.counters.considered = considered
+		for _, row := range feed.rows {
+			if row.queryid == nil {
+				counters.excludedMasked++
+
+				continue
+			}
+
+			key, _ := statementRowKey(row)
+
+			if _, seen := e.seen[key]; seen {
+				continue
+			}
+
+			e.seen[key] = s.Index
+
+			if !eligible(row, s, facts, counters) {
+				continue
+			}
+
+			counters.observed++
+
+			e.queue = append(e.queue, &explainCandidate{
+				queryid:     row.queryid,
+				userid:      key.userid,
+				dbid:        key.dbid,
+				firstSeen:   s.Index,
+				genericText: statementQueryText(row.query),
+				textReason:  statementTextReason(row.query),
+			})
 		}
 	}
 
-	if len(ranked) > DefaultMaxExplains {
-		ranked = ranked[:DefaultMaxExplains]
-	}
+	n := min(DefaultMaxExplains, len(e.queue))
 
-	for i, c := range ranked {
-		c.rank = i + 1
+	attempt := e.queue[:n:n]
+	e.queue = e.queue[n:]
+
+	for _, c := range attempt {
 		c.mode = planModeNone
 	}
 
-	selection.counters.written = len(ranked)
-	selection.candidates = ranked
+	counters.written = n
+	counters.queued = len(e.queue)
 
-	attachText(ranked, activity, facts)
+	attachText(attempt, activity, facts)
+
+	selection.candidates = attempt
 
 	return selection
 }
 
-// rankStatements returns nil - the fallback's signal - both when the ranking cannot run
-// and when nothing qualified; an empty slice would suppress the fallback.
-func (e *Explain) rankStatements(
-	s SampleContext, facts activityFacts, counters *explainCounters,
-) []*explainCandidate {
-	endpoints := e.sq.rankingEndpoints()
-
-	if !endpoints.endRead || statsWereReset(endpoints) {
-		return nil
-	}
-
-	counters.considered = len(endpoints.end)
-
-	var ranked []*explainCandidate
-
-	for _, row := range endpoints.end {
-		if !eligible(row, s, facts, counters) {
-			continue
-		}
-
-		key, _ := statementRowKey(row)
-
-		sortKey, ok := rankKey(endpoints, key, row, counters)
-		if !ok {
-			continue
-		}
-
-		if sortKey <= 0 {
-			// Nothing accrued between the endpoints: the statement never ran inside the
-			// window, so submitting an EXPLAIN for it would spend the budget on nothing.
-			counters.noExecTime++
-
-			continue
-		}
-
-		ranked = append(ranked, &explainCandidate{
-			source:      candidateSourceStatements,
-			queryid:     row.queryid,
-			userid:      key.userid,
-			dbid:        key.dbid,
-			sortKey:     sortKey,
-			genericText: statementQueryText(row.query),
-			textReason:  statementTextReason(row.query),
-		})
-	}
-
-	if len(ranked) == 0 {
-		return nil
-	}
-
-	sortByKeyDescending(ranked)
-
-	return ranked
-}
-
-// statsWereReset compares the two info readings that bracket the window. A reset between
-// them means every delta in the file spans it and none is trustworthy.
-func statsWereReset(endpoints statementEndpoints) bool {
-	start, end := endpoints.startInfo, endpoints.endInfo
-	if start == nil || end == nil {
-		return false
-	}
-
-	switch {
-	case start.statsReset == nil && end.statsReset == nil:
-		return false
-
-	case start.statsReset == nil || end.statsReset == nil:
-		return true
-	}
-
-	return !start.statsReset.Equal(*end.statsReset)
-}
-
-// eligible applies the four unexplainable classes plus self-exclusion before the top-N
-// cut: a global top ten none of which is explainable serves nobody.
+// eligible applies the three unexplainable classes plus self-exclusion, once, when a
+// shape is first seen: a shape that cannot be planned from this connection is never
+// queued. The masked class is the caller's, since a masked row has no identity to
+// remember.
 func eligible(row statementRow, s SampleContext, facts activityFacts, counters *explainCounters) bool {
-	if row.queryid == nil {
-		counters.excludedMasked++
-
-		return false
-	}
-
 	if s.DBID != "" && text(row.dbid) != s.DBID {
 		counters.excludedOtherDatabase++
 
@@ -845,135 +869,6 @@ func eligible(row statementRow, s SampleContext, facts activityFacts, counters *
 	}
 
 	return true
-}
-
-// rankKey applies the three validity rules and reports whether the row ranks at all.
-func rankKey(
-	endpoints statementEndpoints, key statementKey, row statementRow, counters *explainCounters,
-) (float64, bool) {
-	end := floatValue(row.totalExecTime)
-
-	start, both := endpoints.start[key]
-	if !both {
-		// Rule 3. Under a truncated or unread start endpoint, absence proves nothing:
-		// zero-baselining would rank a long-lived query by its lifetime total.
-		if !endpoints.startRead || endpoints.startTruncated || endpoints.endTruncated {
-			counters.unrankable++
-
-			return 0, false
-		}
-
-		return end, true
-	}
-
-	// Rule 2. A row whose stats_since moved was evicted and re-created, or
-	// targeted-reset; its genuine in-window accrual is the end value.
-	if restarted(start.statsSince, row.statsSince) {
-		counters.restarted++
-
-		return end, true
-	}
-
-	delta := end - floatValue(start.totalExecTime)
-	if delta < 0 {
-		// The extension is too old to prove a restart, so the cause is unknowable.
-		counters.invalid++
-
-		return 0, false
-	}
-
-	return delta, true
-}
-
-// restarted needs both readings: below extension 1.11 stats_since does not exist, both
-// are NULL, and a negative delta stays unexplained rather than being excused.
-func restarted(start, end *time.Time) bool {
-	if start == nil || end == nil {
-		return false
-	}
-
-	return !start.Equal(*end)
-}
-
-// rankActivity is the fallback: the longest-running statements in the same closing read,
-// state-aware because now() - query_start is wrong for an idle session.
-func rankActivity(activity []activityRow, counters *explainCounters) []*explainCandidate {
-	var ranked []*explainCandidate
-
-	for _, row := range activity {
-		if row.pid == nil {
-			continue
-		}
-
-		counters.considered++
-
-		if !explainable(text(row.query)) {
-			counters.excludedUtility++
-
-			continue
-		}
-
-		elapsed, ok := activityElapsed(row)
-		if !ok {
-			counters.unrankable++
-
-			continue
-		}
-
-		ranked = append(ranked, &explainCandidate{
-			source:     candidateSourceActivity,
-			queryid:    row.queryID,
-			userid:     text(row.usesysid),
-			dbid:       text(row.datid),
-			pid:        row.pid,
-			queryStart: row.queryStart,
-			running:    activityStateRunning(text(row.state)),
-			sortKey:    elapsed,
-			textReason: reasonQueryTruncated,
-		})
-	}
-
-	// Running rows first as a class - their elapsed time is a lower bound, not comparable
-	// with a completed duration - then by elapsed time within each class. The flag is
-	// recorded at construction rather than rescanned inside every comparison.
-	sort.SliceStable(ranked, func(i, j int) bool {
-		if ranked[i].running != ranked[j].running {
-			return ranked[i].running
-		}
-
-		return ranked[i].sortKey > ranked[j].sortKey
-	})
-
-	return ranked
-}
-
-// activityElapsed is now() - query_start while running, and state_change - query_start
-// once finished - which is every state but active, idle in transaction included.
-func activityElapsed(row activityRow) (float64, bool) {
-	if activityStateRunning(text(row.state)) {
-		if row.runningFor == nil {
-			return 0, false
-		}
-
-		return *row.runningFor, true
-	}
-
-	if row.ranFor == nil {
-		return 0, false
-	}
-
-	return *row.ranFor, true
-}
-
-// activityStateRunning is state = 'active' and nothing else: in every other state
-// query_start describes the last statement, so now() - query_start counts the session's
-// idle time too and would rank a 2ms query ahead of every active statement.
-func activityStateRunning(state string) bool {
-	return state == "active"
-}
-
-func sortByKeyDescending(ranked []*explainCandidate) {
-	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].sortKey > ranked[j].sortKey })
 }
 
 // attachText finds each candidate's submittable text and applies the two truncation
@@ -1014,7 +909,7 @@ func attachText(candidates []*explainCandidate, activity []activityRow, facts ac
 }
 
 // matchActivity picks one session per candidate: active first, then most recent
-// query_start. A fallback candidate is already a session and matches on pid.
+// query_start.
 func matchActivity(c *explainCandidate, activity []activityRow) (activityRow, bool) {
 	var best activityRow
 
@@ -1034,10 +929,6 @@ func matchActivity(c *explainCandidate, activity []activityRow) (activityRow, bo
 }
 
 func activityMatches(c *explainCandidate, row activityRow) bool {
-	if c.source == candidateSourceActivity {
-		return c.pid != nil && *row.pid == *c.pid
-	}
-
 	// (query_id, datid, usesysid), never query_id alone: pg_stat_activity is cluster-wide
 	// and one queryid appears under several roles, so an integer-only join would hand this
 	// candidate another role's session text - the wrong plan, and that role's literals
@@ -1503,26 +1394,11 @@ func (e *Explain) writeCandidate(
 	w io.Writer, s SampleContext, c *explainCandidate, facts activityFacts,
 ) error {
 	fields := []headerField{
-		{"rank", strconv.Itoa(c.rank)},
-		{"candidate_source", c.source},
+		{"sample", strconv.Itoa(s.Index)},
+		{"queryid", int64Text(c.queryid)},
+		{"first_seen", strconv.Itoa(c.firstSeen)},
+		{"mode", c.mode},
 	}
-
-	if c.source == candidateSourceActivity {
-		// pid and query_start identify a candidate the statements view never saw;
-		// query_id rides whenever the server populated it, extension view or not.
-		fields = append(fields,
-			headerField{"pid", int32Text(c.pid)},
-			headerField{"query_start", timeText(c.queryStart)},
-		)
-
-		if c.queryid != nil {
-			fields = append(fields, headerField{"query_id", strconv.FormatInt(*c.queryid, 10)})
-		}
-	} else {
-		fields = append(fields, headerField{"queryid", int64Text(c.queryid)})
-	}
-
-	fields = append(fields, headerField{"mode", c.mode})
 
 	if c.matchedBy != "" {
 		fields = append(fields, headerField{"matched_by", c.matchedBy})
@@ -1558,8 +1434,8 @@ func (e *Explain) writeCandidate(
 		fields = append(fields, headerField{"reason", c.reason})
 
 	case c.mode == planModeNone:
-		// Mode logged ranks candidates but submits nothing, so one with no attachable
-		// log entry has no plan.
+		// Mode logged attempts candidates but submits nothing, so one with no
+		// attachable log entry has no plan.
 		fields = append(fields, headerField{"reason", reasonNoLoggedPlan})
 	}
 
@@ -1581,8 +1457,8 @@ func (e *Explain) writePlan(w io.Writer, s SampleContext, plan *loggedPlan) erro
 	if plan.queryID != "" {
 		fields = append(fields, headerField{"plan_queryid", plan.queryID})
 
-		// Reached only from the closing pass: the ranked report never ran, so there was
-		// nothing to attach this to - which is not the same as having no identifier.
+		// Reached only from the closing pass: no sample's report claimed it, so there
+		// was nothing to attach this to - which is not the same as having no identifier.
 		reason = reasonNoRankedReport
 	}
 
@@ -1591,19 +1467,27 @@ func (e *Explain) writePlan(w io.Writer, s SampleContext, plan *loggedPlan) erro
 	return e.writeBlock(w, s, fields, plan.body)
 }
 
-// writeSummary is the collector's own administrative block: the window's field set is
-// fixed and has no hook for one, as with the log tails' drain blocks.
+// writeSummary is the collector's own administrative block, one per sample: the
+// window's field set is fixed and has no hook for one, as with the log tails' drain
+// blocks.
 func (e *Explain) writeSummary(
 	w io.Writer, s SampleContext, selection explainSelection, facts activityFacts,
 	store *planStore, read *tailRead, activityErr string,
 ) error {
-	fields := []headerField{
-		{"summary", "true"},
-		{"ranking", selection.ranking},
+	fields := []headerField{{"summary", "true"}}
+
+	if selection.drain {
+		fields = append(fields, headerField{"drain", "true"})
+	} else {
+		fields = append(fields, headerField{"sample", strconv.Itoa(s.Index)})
 	}
 
 	if len(selection.candidates) == 0 {
 		fields = append(fields, headerField{"reason", reasonNoCandidates})
+	}
+
+	if selection.feedReason != "" {
+		fields = append(fields, headerField{"statements_reason", selection.feedReason})
 	}
 
 	fields = append(fields, selection.counters.fields()...)
@@ -1694,14 +1578,6 @@ func (e *Explain) writeBlock(w io.Writer, s SampleContext, fields []headerField,
 	_, err := w.Write(block.Bytes())
 
 	return err
-}
-
-func floatValue(v *float64) float64 {
-	if v == nil {
-		return 0
-	}
-
-	return *v
 }
 
 func int64Value(v *int64) int64 {

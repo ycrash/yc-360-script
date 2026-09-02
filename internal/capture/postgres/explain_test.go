@@ -219,20 +219,22 @@ func factsOnlyActivity() [][]any {
 	}}
 }
 
-func explainRanker() *SlowQueries { return NewSlowQueries() }
+func explainFeed() *SlowQueries { return NewSlowQueries() }
 
-// rankerWith retains endpoints directly, so the ranking can be driven without running
-// SlowQueries' own samples.
-func rankerWith(start, end []statementRow) *SlowQueries {
+// feedWith offers the rows as the second sample's read, so the harness's opening sample
+// has nothing to attempt and the report under test is the closing sample's - without
+// running SlowQueries' own samples.
+func feedWith(rows []statementRow) *SlowQueries {
 	sq := NewSlowQueries()
-
-	if start != nil {
-		sq.retainStart(start, false)
-	}
-
-	sq.retainEnd(end, false)
+	feedAt(sq, 2, rows)
 
 	return sq
+}
+
+// feedAt offers one read for one sample, the way the real collector does on a shared
+// tick.
+func feedAt(sq *SlowQueries, sample int, rows []statementRow) {
+	sq.retain(SampleContext{Index: sample}, rows, false)
 }
 
 func explainContext(index, total int) SampleContext {
@@ -259,15 +261,16 @@ func readableLog(t *testing.T, seed string) *fakeLogQuerier {
 	return deniedQuerier(dir.settings())
 }
 
-// runExplainSamples drives both scheduled samples and returns the artifact's blocks.
+// runExplainSamples drives both scheduled samples and returns the closing sample's
+// blocks: feedWith offers its rows there, so the opening sample arms the tail and
+// reports nothing to attempt.
 func runExplainSamples(t *testing.T, e *Explain, q RowQuerier) []textBlock {
 	t.Helper()
 
-	var buf bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
-	for index := 1; index <= 2; index++ {
-		require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(index, 2)))
-	}
+	var buf bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
 
 	return parseTextArtifact(t, buf.String())
 }
@@ -298,15 +301,20 @@ func blockByQueryID(blocks []textBlock, queryid int64) (textBlock, bool) {
 // --- the artifact and its wiring ---------------------------------------------
 
 func TestExplainArtifact(t *testing.T) {
-	artifact := NewExplain("", explainRanker()).Artifact()
+	artifact := NewExplain("", explainFeed()).Artifact()
 
 	assert.Equal(t, "pg_explain", artifact.Name)
 	assert.Equal(t, "pg_explain.txt", artifact.FileName)
-	assert.Equal(t, StartEnd(), artifact.Schedule)
+	assert.Equal(t, Periodic(0), artifact.Schedule,
+		"no cadence given is the bookend alone: every sample walks that tick's statements read")
+
+	e := NewExplain("", explainFeed())
+	e.Interval = 15 * time.Second
+	assert.Equal(t, Periodic(15*time.Second), e.Artifact().Schedule, "the run's cadence")
 
 	assert.Equal(t, "database", artifact.Scope,
 		"plans are obtainable only for the connected database, however cluster-wide the "+
-			"ranking source is - the header must not claim coverage the file does not have")
+			"feed is - the header must not claim coverage the file does not have")
 
 	assert.Equal(t, formatText, artifact.Format,
 		"plan bodies are multi-line and can legally contain a leading '#', so bytes= is the "+
@@ -314,12 +322,12 @@ func TestExplainArtifact(t *testing.T) {
 }
 
 func TestExplainSampleBudgetIsModeDependent(t *testing.T) {
-	assert.Equal(t, StatementTimeout, NewExplain("", explainRanker()).Artifact().SampleBudget,
+	assert.Equal(t, StatementTimeout, NewExplain("", explainFeed()).Artifact().SampleBudget,
 		"a disabled feature must not buy every customer the enabled feature's worst case")
 
 	for _, mode := range []string{ExplainModeLogged, ExplainModeAll} {
 		assert.Equal(t, ExplainBudget+ExplainTimeout+StatementTimeout,
-			NewExplain(mode, explainRanker()).Artifact().SampleBudget,
+			NewExplain(mode, explainFeed()).Artifact().SampleBudget,
 			"the aggregate, plus the candidate that can start just under it and still "+
 				"run its full server-side timeout, plus the one pg_stat_activity read, "+
 				"for mode %q", mode)
@@ -332,17 +340,17 @@ func TestExplainSampleBudgetIsModeDependent(t *testing.T) {
 
 func TestNewExplainRefusesAWiringBug(t *testing.T) {
 	assert.PanicsWithValue(t,
-		"postgres: NewExplain requires the SlowQueries collector whose endpoints it ranks",
+		"postgres: NewExplain requires the SlowQueries collector whose reads it walks",
 		func() { NewExplain(ExplainModeAll, nil) },
 		"registration is one function, and a nil there is a bug every test catches")
 
 	assert.PanicsWithValue(t,
 		"postgres: NewExplain got an unvalidated explain mode: LOGGED",
-		func() { NewExplain("LOGGED", explainRanker()) },
+		func() { NewExplain("LOGGED", explainFeed()) },
 		"config lowercases and validates; treating an unknown mode as off would write "+
 			"reason=explain_disabled about a run that asked for plans")
 
-	assert.NotPanics(t, func() { NewExplain("", explainRanker()) },
+	assert.NotPanics(t, func() { NewExplain("", explainFeed()) },
 		"the omitted key is the common case, not a bug")
 }
 
@@ -351,7 +359,7 @@ func TestNewExplainRefusesAWiringBug(t *testing.T) {
 func TestExplainDisabledWritesOneReasonBlockAndReadsNothing(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, measuredPlan))
 
-	blocks := runExplainSamples(t, NewExplain("", explainRanker()), q)
+	blocks := runExplainSamples(t, NewExplain("", explainFeed()), q)
 
 	require.Len(t, blocks, 1, "the opening sample writes nothing at all")
 	assert.Equal(t, reasonExplainDisabled, blocks[0].fields["reason"])
@@ -425,7 +433,7 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			blocks := runExplainSamples(t, NewExplain(tc.mode, explainRanker()), tc.querier(t))
+			blocks := runExplainSamples(t, NewExplain(tc.mode, explainFeed()), tc.querier(t))
 
 			require.Len(t, blocks, 1, "one summary block, and the opening sample writes nothing")
 
@@ -443,12 +451,10 @@ func TestExplainOpensTheTailPastTheAgentsOwnFirstBurst(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, measuredPlan))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
-	e := NewExplain(ExplainModeLogged, explainRanker())
+	e := NewExplain(ExplainModeLogged, explainFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
-	require.Empty(t, buf.String(), "arming writes nothing")
-
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
 
 	assert.Equal(t, "0", summaryOf(t, parseTextArtifact(t, buf.String())).fields["plans_harvested"],
@@ -459,7 +465,7 @@ func TestExplainOnAOneTickWindowStillReports(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, measuredPlan))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
-	e := NewExplain(ExplainModeLogged, explainRanker())
+	e := NewExplain(ExplainModeLogged, explainFeed())
 
 	var buf bytes.Buffer
 	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 1)))
@@ -472,139 +478,6 @@ func TestExplainOnAOneTickWindowStillReports(t *testing.T) {
 }
 
 // --- the ranking -------------------------------------------------------------
-
-func TestExplainRanksByTheDeltaNotTheTotal(t *testing.T) {
-	require.Greater(t, ordersInventoryEnd.execTime, ordersItemsEnd.execTime)
-	require.Greater(t,
-		ordersItemsEnd.execTime-ordersItemsStart.execTime,
-		ordersInventoryEnd.execTime-ordersInventoryStart.execTime)
-
-	sq := rankerWith(
-		[]statementRow{pg18Statement(ordersItemsStart), pg18Statement(ordersInventoryStart)},
-		[]statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)},
-	)
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
-
-	require.Len(t, blocks, 3, "two candidates and the summary")
-
-	assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), blocks[0].fields["queryid"])
-	assert.Equal(t, "1", blocks[0].fields["rank"])
-	assert.Equal(t, "2", blocks[1].fields["rank"])
-
-	assert.Equal(t, rankingStatementsDelta, summaryOf(t, blocks).fields["ranking"])
-
-	for _, block := range blocks {
-		assert.NotContains(t, block.header, "delta=",
-			"the delta is an in-memory sort key, never a written measurement")
-	}
-}
-
-func TestExplainValidityRules(t *testing.T) {
-	restarted := pg18Statement(ordersItemsEnd)
-	restarted.totalExecTime = ptr(12.5)
-	movedSince := testStatsSince.Add(time.Hour)
-	restarted.statsSince = &movedSince
-
-	negative := pre17Statement(ordersItemsEnd)
-	negative.totalExecTime = ptr(1.0)
-
-	for _, tc := range []struct {
-		name     string
-		endpoint func() *SlowQueries
-		counter  string
-		written  string
-	}{
-		{
-			name: "a moved stats_since ranks by the end value and is counted",
-			endpoint: func() *SlowQueries {
-				return rankerWith([]statementRow{pg18Statement(ordersItemsStart)},
-					[]statementRow{restarted})
-			},
-			counter: "candidates_restarted",
-			written: "1",
-		},
-		{
-			name: "a negative delta the extension cannot explain is excluded",
-			endpoint: func() *SlowQueries {
-				return rankerWith([]statementRow{pre17Statement(ordersItemsStart)},
-					[]statementRow{negative})
-			},
-			counter: "candidates_invalid",
-		},
-		{
-			name: "a row only in the end read is zero-baselined when neither endpoint truncated",
-			endpoint: func() *SlowQueries {
-				return rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
-			},
-			written: "1",
-		},
-		{
-			name: "and is unrankable when an endpoint was truncated",
-			endpoint: func() *SlowQueries {
-				sq := NewSlowQueries()
-				sq.retainStart(nil, true)
-				sq.retainEnd([]statementRow{pg18Statement(ordersItemsEnd)}, false)
-
-				return sq
-			},
-			counter: "candidates_unrankable",
-		},
-		{
-			name: "and is unrankable when the opening endpoint was never read",
-			endpoint: func() *SlowQueries {
-				sq := NewSlowQueries()
-				sq.retainEnd([]statementRow{pg18Statement(ordersItemsEnd)}, false)
-
-				return sq
-			},
-			counter: "candidates_unrankable",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-			q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-			blocks := runExplainSamples(t, NewExplain(ExplainModeAll, tc.endpoint()), q)
-			summary := summaryOf(t, blocks)
-
-			if tc.counter != "" {
-				assert.Equal(t, "1", summary.fields[tc.counter])
-			}
-
-			if tc.written == "" {
-				assert.False(t, summary.has("candidates_written"))
-				assert.Equal(t, rankingActivityFallback, summary.fields["ranking"],
-					"nothing rankable survived, which is one of the fallback's three triggers")
-
-				return
-			}
-
-			assert.Equal(t, tc.written, summary.fields["candidates_written"])
-			assert.Equal(t, rankingStatementsDelta, summary.fields["ranking"])
-		})
-	}
-}
-
-func TestExplainDiscardsEveryDeltaWhenStatsWereReset(t *testing.T) {
-	sq := rankerWith(
-		[]statementRow{pg18Statement(ordersItemsStart)},
-		[]statementRow{pg18Statement(ordersItemsEnd)},
-	)
-
-	moved := testInfoStatsReset.Add(time.Minute)
-	sq.retained.startInfo = &infoRow{statsReset: &testInfoStatsReset}
-	sq.retained.endInfo = &infoRow{statsReset: &moved}
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
-
-	assert.Equal(t, rankingActivityFallback, summaryOf(t, blocks).fields["ranking"],
-		"the two info reads bracket the window; a reset between them spans every delta in the file")
-}
 
 // --- the prefilter and the allowlist -----------------------------------------
 
@@ -621,7 +494,7 @@ func TestExplainPrefilterCountsEachClass(t *testing.T) {
 	utility := pg18Statement(ordersItemsEnd)
 	utility.query = ptr("VACUUM ANALYZE orders")
 
-	sq := rankerWith([]statementRow{}, []statementRow{
+	sq := feedWith([]statementRow{
 		maskedStatement(ordersItemsEnd), otherDatabase, self, nested, utility,
 	})
 
@@ -681,7 +554,7 @@ func TestExplainAllowlist(t *testing.T) {
 // --- the two estimated modes -------------------------------------------------
 
 func TestExplainLiteralTierUsesTheExtendedProtocol(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
@@ -690,7 +563,7 @@ func TestExplainLiteralTierUsesTheExtendedProtocol(t *testing.T) {
 	block := blocks[0]
 
 	assert.Equal(t, planModeEstimatedLiteral, block.fields["mode"])
-	assert.Equal(t, candidateSourceStatements, block.fields["candidate_source"])
+	assert.Equal(t, "2", block.fields["first_seen"], "the sample the feed first showed it")
 	assert.Equal(t, explainSearchPath, block.fields["search_path"])
 	assert.NotEmpty(t, block.body)
 
@@ -708,7 +581,7 @@ func TestExplainLiteralTierUsesTheExtendedProtocol(t *testing.T) {
 }
 
 func TestExplainGenericTierUsesTheSimpleProtocol(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersUpdateEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
@@ -728,7 +601,7 @@ func TestExplainGenericTierUsesTheSimpleProtocol(t *testing.T) {
 }
 
 func TestExplainParameterizedActivityTextReroutesToGeneric(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
@@ -750,7 +623,7 @@ func TestExplainTruncatedActivityTextIsNotSubmitted(t *testing.T) {
 	end := pg18Statement(ordersItemsEnd)
 	end.query = ptr("SELECT * FROM order_items WHERE order_id = $1")
 
-	sq := rankerWith([]statementRow{}, []statementRow{end})
+	sq := feedWith([]statementRow{end})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
@@ -771,24 +644,8 @@ func TestExplainTruncatedActivityTextIsNotSubmitted(t *testing.T) {
 		"the bytes the server cut mid-token are never submitted")
 }
 
-func TestExplainTruncatedWithNoOtherTextIsExcluded(t *testing.T) {
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-		pid: 4021, state: "active", runningFor: 9.5,
-
-		query:      "SELECT * FROM order_items WHERE note = " + strings.Repeat("x", 980),
-		queryBytes: 1023,
-	})}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, explainRanker()), q)
-
-	assert.Equal(t, planModeNone, blocks[0].fields["mode"])
-	assert.Equal(t, reasonQueryTruncated, blocks[0].fields["reason"])
-	assert.Empty(t, q.submitted, "a statement cut mid-token is a guaranteed syntax error")
-}
-
 func TestExplainGenericTierIsAbsentBelowPostgres16(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersUpdateEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
@@ -799,7 +656,7 @@ func TestExplainGenericTierIsAbsentBelowPostgres16(t *testing.T) {
 	s.HasGenericPlan = false
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	require.NoError(t, e.Sample(context.Background(), q, &buf, s))
 
 	blocks := parseTextArtifact(t, buf.String())
@@ -812,7 +669,7 @@ func TestExplainGenericTierIsAbsentBelowPostgres16(t *testing.T) {
 
 func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 	t.Run("literal asserts equality", func(t *testing.T) {
-		sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+		sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 		q.defaultPlan = rowsResult(planRows(
@@ -827,7 +684,7 @@ func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 	})
 
 	t.Run("a mismatch is flagged, not hidden", func(t *testing.T) {
-		sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+		sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 		q.defaultPlan = rowsResult(planRows("Query Identifier: 42"))
@@ -840,7 +697,7 @@ func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 	})
 
 	t.Run("generic asserts nothing", func(t *testing.T) {
-		sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersUpdateEnd)})
+		sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 		q.activity = repeat(rowsResult(factsOnlyActivity()))
@@ -856,7 +713,7 @@ func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 }
 
 func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{
+	sq := feedWith([]statementRow{
 		pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd),
 	})
 
@@ -884,116 +741,7 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 		"a server-side timeout is a per-candidate error; the connection is still usable")
 }
 
-func TestExplainCutsAtTheCandidateCap(t *testing.T) {
-	var end []statementRow
-
-	for i := range DefaultMaxExplains + 5 {
-		row := pg18Statement(ordersItemsEnd)
-		row.queryid = ptr(int64(1000 + i))
-		row.totalExecTime = ptr(float64(1000 - i))
-		end = append(end, row)
-	}
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, rankerWith([]statementRow{}, end)), q)
-
-	require.Len(t, blocks, DefaultMaxExplains+1)
-
-	summary := summaryOf(t, blocks)
-	assert.Equal(t, strconv.Itoa(DefaultMaxExplains+5), summary.fields["candidates_considered"])
-	assert.Equal(t, strconv.Itoa(DefaultMaxExplains), summary.fields["candidates_written"],
-		"fewer plans than candidates is a bounded selection, and the counters say where it fell")
-}
-
-func TestExplainStopsWhenTheAggregateBudgetIsSpent(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{
-		pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd),
-	})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	e := NewExplain(ExplainModeAll, sq)
-
-	ticks := []time.Time{
-		testWindowStart,
-		testWindowStart,
-		testWindowStart.Add(ExplainBudget + time.Second),
-	}
-	e.now = func() time.Time {
-		next := ticks[0]
-		if len(ticks) > 1 {
-			ticks = ticks[1:]
-		}
-
-		return next
-	}
-
-	blocks := runExplainSamples(t, e, q)
-
-	assert.Equal(t, "1", summaryOf(t, blocks).fields["candidates_skipped_budget"])
-	assert.Equal(t, reasonBudgetSpent, blocks[1].fields["reason"])
-	assert.Len(t, q.submitted, 1)
-}
-
 // --- the activity fallback ---------------------------------------------------
-
-func TestExplainActivityFallbackRanksStateAware(t *testing.T) {
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{
-		activityValue(activityFixture{
-			pid: 11, state: "idle", query: "SELECT 1 FROM idle_but_ancient",
-
-			runningFor: 10800, ranFor: 0.002,
-		}),
-		activityValue(activityFixture{
-			pid: 12, state: "active", query: "SELECT 2 FROM still_running",
-			runningFor: 9.5,
-		}),
-		activityValue(activityFixture{
-			pid: 13, state: "idle", query: "SELECT 3 FROM finished_slowly",
-			runningFor: 4000, ranFor: 41.5,
-		}),
-	}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, explainRanker()), q)
-
-	require.Len(t, blocks, 4)
-
-	assert.Equal(t, rankingActivityFallback, summaryOf(t, blocks).fields["ranking"])
-
-	assert.Equal(t, "12", blocks[0].fields["pid"], "a running statement's clock has not stopped")
-	assert.Equal(t, "13", blocks[1].fields["pid"], "then the slowest completed statement")
-	assert.Equal(t, "11", blocks[2].fields["pid"])
-
-	for _, block := range blocks[:3] {
-		assert.Equal(t, candidateSourceActivity, block.fields["candidate_source"])
-		assert.NotEmpty(t, block.fields["query_start"])
-	}
-}
-
-func TestExplainFallbackCarriesTheQueryIDWhenTheServerHasOne(t *testing.T) {
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{
-		activityValue(activityFixture{
-			pid: 11, queryID: ptr(int64(884210)), state: "active",
-			query: "SELECT 1 FROM t", runningFor: 3,
-		}),
-		activityValue(activityFixture{
-			pid: 12, state: "active", query: "SELECT 2 FROM t", runningFor: 2,
-		}),
-	}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, explainRanker()), q)
-
-	assert.Equal(t, "884210", blocks[0].fields["query_id"],
-		"a database with no extension view still computes ids when the library is preloaded")
-	assert.False(t, blocks[1].has("query_id"))
-	assert.False(t, blocks[0].has("queryid"),
-		"queryid= names a pg_stat_statements row; this candidate is a session")
-}
 
 // --- the invariant -----------------------------------------------------------
 
@@ -1014,7 +762,7 @@ func TestExplainOptionListNeverContainsAnalyze(t *testing.T) {
 }
 
 func TestExplainSubmitsNoStatementUnderModeLogged(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	blocks := runExplainSamples(t, NewExplain(ExplainModeLogged, sq), q)
@@ -1030,7 +778,7 @@ func TestExplainSubmitsNoStatementUnderModeLogged(t *testing.T) {
 // --- framing -----------------------------------------------------------------
 
 func TestExplainEveryBlockCarriesBytes(t *testing.T) {
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 	for _, mode := range []string{"", ExplainModeLogged, ExplainModeAll} {
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
@@ -1045,7 +793,7 @@ func TestExplainEveryBlockCarriesBytes(t *testing.T) {
 func TestExplainWriteFailureIsAnErrorNotAPartialBlock(t *testing.T) {
 	sinkErr := errors.New("no space left on device")
 
-	sq := rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 
 	for _, mode := range []string{"", ExplainModeLogged, ExplainModeAll} {
 		e := NewExplain(mode, sq)
@@ -1091,7 +839,7 @@ func runExplainWindow(t *testing.T, e *Explain, clock *scriptedClock, conn windo
 }
 
 func TestExplainGoldenDisabled(t *testing.T) {
-	results := runExplainWindow(t, NewExplain("", explainRanker()), explainGoldenClock(t), newFakeWindowConn())
+	results := runExplainWindow(t, NewExplain("", explainFeed()), explainGoldenClock(t), newFakeWindowConn())
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	require.Equal(t, 2, results[0].SamplesWritten,
@@ -1142,12 +890,14 @@ func TestExplainGoldenFull(t *testing.T) {
 	otherDatabase := pg18Statement(agentRead)
 	otherDatabase.dbid = ptr("16999")
 
-	sq := rankerWith(
-		[]statementRow{pg18Statement(ordersItemsStart), pg18Statement(ordersInventoryStart),
-			pg18Statement(ordersUpdateStart)},
-		[]statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd),
-			pg18Statement(ordersUpdateEnd), otherDatabase},
-	)
+	rows := []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd),
+		pg18Statement(ordersUpdateEnd), otherDatabase}
+
+	// Both samples read the same four rows, as the real collector would on a shared
+	// tick: the opening sample attempts every shape, the closing one finds nothing new.
+	sq := NewSlowQueries()
+	feedAt(sq, 1, rows)
+	feedAt(sq, 2, rows)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.defaultPlan = rowsResult(planRows(
@@ -1171,10 +921,11 @@ func TestExplainGoldenFull(t *testing.T) {
 }
 
 func TestExplainGoldenLeastPrivilege(t *testing.T) {
-	sq := rankerWith(
-		[]statementRow{pg18Statement(ordersItemsStart), pg18Statement(ordersInventoryStart)},
-		[]statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)},
-	)
+	rows := []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)}
+
+	sq := NewSlowQueries()
+	feedAt(sq, 1, rows)
+	feedAt(sq, 2, rows)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.defaultPlan = errResult(errors.New("ERROR: permission denied for table order_items"))
@@ -1186,42 +937,12 @@ func TestExplainGoldenLeastPrivilege(t *testing.T) {
 	assert.Equal(t, bloatGolden(t, "pg_explain_least_privilege.txt"), artifactText(t, results[0]))
 }
 
-func TestExplainGoldenActivityFallback(t *testing.T) {
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{
-		activityValue(activityFixture{
-			pid: 4021, queryID: ptr(int64(884210)), state: "active",
-			query: "SELECT * FROM inventory WHERE sku = 'SKU-88291'", runningFor: 41.5,
-		}),
-		activityValue(activityFixture{
-			pid: 4102, state: "idle",
-			query: "SELECT count(*) FROM order_items", runningFor: 900, ranFor: 12.25,
-		}),
-	}))
-
-	q.plans = map[string]fakeResult{
-		"inventory": rowsResult(planRows(
-			" Index Scan using inventory_sku_idx on public.inventory  (cost=0.42..8.44 rows=1 width=48)",
-			"   Index Cond: (inventory.sku = 'SKU-88291'::text)",
-		)),
-		"count(*)": rowsResult(planRows(
-			" Aggregate  (cost=25.00..25.01 rows=1 width=8)",
-			"   ->  Seq Scan on public.order_items  (cost=0.00..22.00 rows=1200 width=0)",
-		)),
-	}
-
-	results := runExplainWindow(t, NewExplain(ExplainModeAll, explainRanker()), explainGoldenClock(t),
-		explainConnFor(t, q, true))
-
-	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, bloatGolden(t, "pg_explain_activity_fallback.txt"), artifactText(t, results[0]))
-}
-
 func TestExplainGoldenPre16(t *testing.T) {
-	sq := rankerWith(
-		[]statementRow{pre17Statement(ordersUpdateStart)},
-		[]statementRow{pre17Statement(ordersUpdateEnd)},
-	)
+	rows := []statementRow{pre17Statement(ordersUpdateEnd)}
+
+	sq := NewSlowQueries()
+	feedAt(sq, 1, rows)
+	feedAt(sq, 2, rows)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
@@ -1273,8 +994,8 @@ func readableLogAs(t *testing.T, format logFormat, seed string) *fakeLogQuerier 
 	return deniedQuerier(dir.settings())
 }
 
-func itemsRanker() *SlowQueries {
-	return rankerWith([]statementRow{}, []statementRow{pg18Statement(ordersItemsEnd)})
+func itemsFeed() *SlowQueries {
+	return feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
 }
 
 func TestExplainLoggedTierAttachesByIdentifier(t *testing.T) {
@@ -1282,10 +1003,10 @@ func TestExplainLoggedTierAttachesByIdentifier(t *testing.T) {
 
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeAll, itemsRanker())
+	e := NewExplain(ExplainModeAll, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q), entry+unrelatedTraffic)
 
@@ -1328,10 +1049,10 @@ func currentLogPath(t *testing.T, q *fakeExplainConn) string {
 func TestExplainLoggedKeepsTheSlowestPerIdentifier(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeAll, itemsRanker())
+	e := NewExplain(ExplainModeAll, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q),
 		itemsPlanEntry("0.9")+itemsPlanEntry("412.5")+itemsPlanEntry("7.25")+unrelatedTraffic)
@@ -1355,10 +1076,10 @@ func TestExplainLoggedWithNoIdentifierIsWrittenUnattached(t *testing.T) {
 
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, itemsRanker())
+	e := NewExplain(ExplainModeLogged, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q), entry+unrelatedTraffic)
 
@@ -1382,10 +1103,10 @@ func TestExplainLoggedWithNoIdentifierIsWrittenUnattached(t *testing.T) {
 func TestExplainLoggedIdentifierMatchingNoCandidateIsNotWritten(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, itemsRanker())
+	e := NewExplain(ExplainModeLogged, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q),
 		planEntry("99887766", "31.2", "SELECT 1 FROM somewhere_else")+unrelatedTraffic)
@@ -1410,10 +1131,10 @@ func TestExplainLoggedNonTextFormatIsStoredButNeverAttached(t *testing.T) {
 
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, itemsRanker())
+	e := NewExplain(ExplainModeLogged, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q), entry+unrelatedTraffic)
 
@@ -1471,7 +1192,7 @@ func planStoreOf(t *testing.T, log string) *planStore {
 
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, explainRanker())
+	e := NewExplain(ExplainModeLogged, explainFeed())
 	require.True(t, e.tail.openAtEnd(context.Background(), q, explainContext(1, 2)))
 
 	defer e.tail.closeFile()
@@ -1498,10 +1219,10 @@ func TestExplainLoggedOnEveryLogFormat(t *testing.T) {
 		t.Run(string(tc.format), func(t *testing.T) {
 			q := newFakeExplainConn(readableLogAs(t, tc.format, ""))
 
-			e := NewExplain(ExplainModeLogged, itemsRanker())
+			e := NewExplain(ExplainModeLogged, itemsFeed())
 
 			var buf bytes.Buffer
-			require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+			require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 			appendFile(t, currentLogPath(t, q), tc.body(t))
 
@@ -1521,10 +1242,10 @@ func TestExplainLoggedOnEveryLogFormat(t *testing.T) {
 func TestExplainClosingShipsEvidenceFromACancelledWindow(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, itemsRanker())
+	e := NewExplain(ExplainModeLogged, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q),
 		itemsPlanEntry("55.5")+planEntry("", "3.0", "SELECT 1")+unrelatedTraffic)
@@ -1548,10 +1269,10 @@ func TestExplainClosingShipsEvidenceFromACancelledWindow(t *testing.T) {
 func TestExplainClosingIsSilentAfterAClosingSample(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeLogged, itemsRanker())
+	e := NewExplain(ExplainModeLogged, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q), itemsPlanEntry("55.5")+unrelatedTraffic)
 
@@ -1565,7 +1286,7 @@ func TestExplainClosingIsSilentAfterAClosingSample(t *testing.T) {
 }
 
 func TestExplainClosingIsSilentWhenDisabled(t *testing.T) {
-	e := NewExplain("", explainRanker())
+	e := NewExplain("", explainFeed())
 
 	var buf bytes.Buffer
 	require.NoError(t, e.WriteClosing(&buf, explainContext(2, 2)))
@@ -1614,7 +1335,7 @@ func explainLoggedWindow(t *testing.T, e *Explain, q *fakeExplainConn, entries s
 func TestExplainGoldenLogged(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	results := explainLoggedWindow(t, NewExplain(ExplainModeLogged, itemsRanker()), q,
+	results := explainLoggedWindow(t, NewExplain(ExplainModeLogged, itemsFeed()), q,
 		itemsPlanEntry("0.9")+itemsPlanEntry("412.5")+unrelatedTraffic)
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -1624,7 +1345,7 @@ func TestExplainGoldenLogged(t *testing.T) {
 func TestExplainGoldenLoggedNoIdentifier(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	results := explainLoggedWindow(t, NewExplain(ExplainModeLogged, itemsRanker()), q,
+	results := explainLoggedWindow(t, NewExplain(ExplainModeLogged, itemsFeed()), q,
 		planEntry("", "412.5", "SELECT * FROM order_items WHERE order_id = $1")+unrelatedTraffic)
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -1648,7 +1369,7 @@ func TestExplainLiteralTierJoinsOnTheFullIdentity(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult([][]any{other}))
 
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	assert.NotContains(t, strings.Join(q.submitted, "\n"), "777777",
 		"another role's literal values were submitted under this candidate's queryid")
@@ -1669,13 +1390,13 @@ func TestExplainLiteralTierRefusesAnotherDatabasesSession(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult([][]any{elsewhere}))
 
-	e := NewExplain(ExplainModeAll, itemsRanker())
+	e := NewExplain(ExplainModeAll, itemsFeed())
 
 	var buf bytes.Buffer
 	unidentified := explainContext(2, 2)
 	unidentified.DBID = ""
 
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	require.NoError(t, e.Sample(context.Background(), q, &buf, unidentified))
 
 	assert.NotContains(t, strings.Join(q.submitted, "\n"), "555",
@@ -1686,14 +1407,14 @@ func TestExplainNeverSubmitsTextTheAgentsOwnCapCut(t *testing.T) {
 	full := "SELECT " + strings.Repeat("a", DefaultMaxQueryText) + " FROM t WHERE x = $1"
 	cut := string([]rune(full)[:DefaultMaxQueryText+1])
 
-	start, end := pg18Statement(ordersItemsStart), pg18Statement(ordersItemsEnd)
-	start.query, end.query = ptr(cut), ptr(cut)
+	end := pg18Statement(ordersItemsEnd)
+	end.query = ptr(cut)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
-		rankerWith([]statementRow{start}, []statementRow{end})), q)
+		feedWith([]statementRow{end})), q)
 
 	assert.Empty(t, q.submitted, "a cap+1 prefix ends mid-token and is not submittable")
 	assert.Equal(t, reasonTextTruncated, blocks[0].fields["reason"],
@@ -1714,7 +1435,7 @@ func TestExplainNeverSubmitsActivityTextTheAgentsOwnCapCut(t *testing.T) {
 		ranFor:     4.2,
 	})}))
 
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 		"the cut activity text is refused and the normalized text carries the candidate")
@@ -1737,7 +1458,7 @@ func TestExplainServerTruncationGateCoversTheMultibyteBand(t *testing.T) {
 				ranFor:     4.2,
 			})}))
 
-			blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+			blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 			assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 				"text at %d octets under a 1024-byte cap may be a clipped prefix, and "+
@@ -1747,7 +1468,7 @@ func TestExplainServerTruncationGateCoversTheMultibyteBand(t *testing.T) {
 
 	t.Run("well under the cap is still literal", func(t *testing.T) {
 		blocks := runExplainSamples(t,
-			NewExplain(ExplainModeAll, itemsRanker()),
+			NewExplain(ExplainModeAll, itemsFeed()),
 			newFakeExplainConn(readableLog(t, unrelatedTraffic)))
 
 		assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"],
@@ -1756,25 +1477,23 @@ func TestExplainServerTruncationGateCoversTheMultibyteBand(t *testing.T) {
 }
 
 func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
-	aStart, bStart := pg18Statement(ordersItemsStart), pg18Statement(ordersItemsStart)
 	a, b := pg18Statement(ordersItemsEnd), pg18Statement(ordersItemsEnd)
-	bStart.userid, b.userid = ptr("99"), ptr("99")
+	b.userid = ptr("99")
 
 	q := newFakeExplainConn(readableLog(t, ""))
 	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
-	e := NewExplain(ExplainModeLogged, rankerWith(
-		[]statementRow{aStart, bStart}, []statementRow{a, b}))
+	e := NewExplain(ExplainModeLogged, feedWith([]statementRow{a, b}))
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	appendFile(t, currentLogPath(t, q), itemsPlanEntry("412.5"))
 	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
 
 	blocks := parseTextArtifact(t, buf.String())
 	require.Len(t, blocks, 3, "two candidates and the summary")
 
-	assert.Equal(t, planModeLogged, blocks[0].fields["mode"], "the highest-ranked claimant keeps it")
+	assert.Equal(t, planModeLogged, blocks[0].fields["mode"], "the first claimant keeps it")
 	assert.Equal(t, planModeNone, blocks[1].fields["mode"])
 	assert.Equal(t, reasonNoLoggedPlan, blocks[1].fields["reason"])
 
@@ -1788,10 +1507,10 @@ func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
 func TestExplainSummaryCarriesTheLogReadsOwnState(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, ""))
 
-	e := NewExplain(ExplainModeAll, itemsRanker())
+	e := NewExplain(ExplainModeAll, itemsFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
 	appendFile(t, currentLogPath(t, q), strings.Repeat("x", MaxScanBytes+1)+"\n")
 
@@ -1806,46 +1525,6 @@ func TestExplainSummaryCarriesTheLogReadsOwnState(t *testing.T) {
 		"zero beside scan_truncated= is legible; zero alone would be a measurement")
 }
 
-func TestExplainFallbackDoesNotRankIdleInTransactionAsRunning(t *testing.T) {
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{
-		activityValue(activityFixture{
-			pid: 4102, state: "idle in transaction",
-			query:      "SELECT * FROM order_items WHERE order_id = 1",
-			runningFor: 10800, ranFor: 0.002,
-		}),
-		activityValue(activityFixture{
-			pid: 4021, state: "active",
-			query:      "SELECT count(*) FROM order_items",
-			runningFor: 42.5,
-		}),
-	}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, explainRanker()), q)
-
-	assert.Equal(t, "4021", blocks[0].fields["pid"],
-		"a 2ms query whose session then sat idle for three hours must not outrank a "+
-			"statement that is still executing")
-	assert.Equal(t, "4102", blocks[1].fields["pid"])
-}
-
-func TestExplainDoesNotSubmitStatementsThatNeverRanInTheWindow(t *testing.T) {
-	same := pg18Statement(ordersItemsEnd)
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
-		rankerWith([]statementRow{same}, []statementRow{same})), q)
-
-	assert.Empty(t, q.submitted)
-
-	summary := summaryOf(t, blocks)
-	assert.Equal(t, "1", summary.fields["excluded_no_exec_time"])
-	assert.Equal(t, rankingActivityFallback, summary.fields["ranking"],
-		"nothing rankable survived, which is the fallback's trigger")
-}
-
 func TestExplainRefusesAMultiStatementText(t *testing.T) {
 	batch := "SET application_name = 'x'; SELECT count(*) FROM order_items"
 
@@ -1856,7 +1535,7 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 			query: batch, ranFor: 4.2,
 		})}))
 
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 		require.Len(t, q.submitted, 1)
 		assert.NotContains(t, q.submitted[0], "SET application_name",
@@ -1866,10 +1545,9 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 	})
 
 	t.Run("with no normalized form to fall back to", func(t *testing.T) {
-		start, end := pg18Statement(ordersItemsStart), pg18Statement(ordersItemsEnd)
-		cut := ptr(string([]rune("SELECT " +
+		end := pg18Statement(ordersItemsEnd)
+		end.query = ptr(string([]rune("SELECT " +
 			strings.Repeat("a", DefaultMaxQueryText))[:DefaultMaxQueryText+1]))
-		start.query, end.query = cut, cut
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 		q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
@@ -1878,33 +1556,21 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 		})}))
 
 		blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
-			rankerWith([]statementRow{start}, []statementRow{end})), q)
+			feedWith([]statementRow{end})), q)
 
 		assert.Empty(t, q.submitted)
 		assert.Equal(t, reasonMultiStatement, blocks[0].fields["reason"])
 	})
 
-	t.Run("and the fallback's own candidates", func(t *testing.T) {
-		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-			pid: 4021, state: "active", runningFor: 12,
-			query: "SELECT 1; SELECT count(*) FROM order_items",
-		})}))
-
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, explainRanker()), q)
-
-		assert.Empty(t, q.submitted, "the fallback reaches the simple protocol too")
-		assert.Equal(t, reasonMultiStatement, blocks[0].fields["reason"])
-	})
-
 	t.Run("the allowlist refuses a batch whose first keyword is a utility", func(t *testing.T) {
+		utility := pg18Statement(ordersItemsEnd)
+		utility.query = ptr(batch)
+
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-			pid: 4021, state: "active", query: batch, runningFor: 12,
-		})}))
+		q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 		summary := summaryOf(t, runExplainSamples(t,
-			NewExplain(ExplainModeAll, explainRanker()), q))
+			NewExplain(ExplainModeAll, feedWith([]statementRow{utility})), q))
 
 		assert.Empty(t, q.submitted)
 		assert.Equal(t, "1", summary.fields["excluded_utility"],
@@ -1930,7 +1596,7 @@ func TestExplainBoundsASubmittedPlan(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.defaultPlan = rowsResult(rows)
 
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	assert.Equal(t, "true", blocks[0].fields["plan_truncated"])
 	assert.LessOrEqual(t, len(blocks[0].body), MaxPlanBytes+len(line)+1,
@@ -1940,7 +1606,7 @@ func TestExplainBoundsASubmittedPlan(t *testing.T) {
 func TestExplainClosingIsSilentWhenNothingWasEverAttempted(t *testing.T) {
 	var buf bytes.Buffer
 
-	e := NewExplain(ExplainModeAll, explainRanker())
+	e := NewExplain(ExplainModeAll, explainFeed())
 	require.NoError(t, e.WriteClosing(&buf, explainContext(2, 2)))
 
 	assert.Empty(t, buf.String(),
@@ -1950,10 +1616,10 @@ func TestExplainClosingIsSilentWhenNothingWasEverAttempted(t *testing.T) {
 func TestExplainClosingStillReportsAnArmedTailThatNeverResolved(t *testing.T) {
 	q := newFakeExplainConn(deniedQuerier(logSettings{}))
 
-	e := NewExplain(ExplainModeAll, explainRanker())
+	e := NewExplain(ExplainModeAll, explainFeed())
 
 	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	require.NoError(t, e.WriteClosing(&buf, explainContext(2, 2)))
 
 	summary := summaryOf(t, parseTextArtifact(t, buf.String()))
@@ -1969,7 +1635,7 @@ func TestExplainReportsAFailedActivityRead(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.activity = repeat(fakeResult{err: readErr})
 
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsRanker()), q)
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	summary := summaryOf(t, blocks)
 	assert.Contains(t, summary.fields["activity_error"], "permission denied")
@@ -1980,7 +1646,7 @@ func TestExplainReportsAFailedActivityRead(t *testing.T) {
 func TestExplainWritesEachBlockAsOneWrite(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 
-	e := NewExplain(ExplainModeAll, itemsRanker())
+	e := NewExplain(ExplainModeAll, itemsFeed())
 
 	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 
@@ -2008,7 +1674,7 @@ func TestExplainActivityReadIsBounded(t *testing.T) {
 	assert.Contains(t, activitySQL, "left(a.query, $2)")
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	require.NoError(t, NewExplain(ExplainModeAll, itemsRanker()).
+	require.NoError(t, NewExplain(ExplainModeAll, itemsFeed()).
 		Sample(context.Background(), q, &bytes.Buffer{}, explainContext(2, 2)))
 
 	require.NotEmpty(t, q.activityArgs)
@@ -2018,4 +1684,206 @@ func TestExplainActivityReadIsBounded(t *testing.T) {
 func TestExplainReadsItsOwnOIDFromTheCatalogue(t *testing.T) {
 	assert.Contains(t, activitySQL, "FROM pg_catalog.pg_roles")
 	assert.NotContains(t, activitySQL, "regrole")
+}
+
+// --- the selection -----------------------------------------------------------
+
+func TestExplainAttemptsEachShapeOnceAcrossSamples(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
+	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	var first, second bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &first, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 2)))
+
+	one := parseTextArtifact(t, first.String())
+	require.Len(t, one, 2, "the one shape, and the sample's summary")
+	assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), one[0].fields["queryid"])
+	assert.Equal(t, "1", one[0].fields["sample"])
+	assert.Equal(t, "1", one[0].fields["first_seen"])
+	assert.Equal(t, "1", one[1].fields["candidates_new"])
+	assert.Equal(t, "1", one[1].fields["candidates_written"])
+
+	two := parseTextArtifact(t, second.String())
+	require.Len(t, two, 2, "only the shape the second read showed for the first time")
+	assert.Equal(t, strconv.FormatInt(ordersInventoryEnd.queryid, 10), two[0].fields["queryid"])
+	assert.Equal(t, "2", two[0].fields["first_seen"])
+	assert.Equal(t, "2", two[1].fields["candidates_considered"], "both rows were read")
+	assert.Equal(t, "1", two[1].fields["candidates_new"], "and one of them was new")
+
+	assert.Len(t, q.submitted, 2, "each shape once, in the interval it was first seen, never again")
+}
+
+func fifteenShapes() []statementRow {
+	var rows []statementRow
+
+	for i := range DefaultMaxExplains + 5 {
+		row := pg18Statement(ordersItemsEnd)
+		row.queryid = ptr(int64(1000 + i))
+		rows = append(rows, row)
+	}
+
+	return rows
+}
+
+func TestExplainDefersBeyondTheCapToTheNextSample(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 1, fifteenShapes())
+	feedAt(sq, 2, fifteenShapes())
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	var first, second bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &first, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 2)))
+
+	one := parseTextArtifact(t, first.String())
+	require.Len(t, one, DefaultMaxExplains+1, "the cap's worth of shapes, and the summary")
+	assert.Equal(t, "1000", one[0].fields["queryid"], "the feed's own order, no ranking")
+
+	summary := summaryOf(t, one)
+	assert.Equal(t, strconv.Itoa(DefaultMaxExplains+5), summary.fields["candidates_considered"])
+	assert.Equal(t, strconv.Itoa(DefaultMaxExplains+5), summary.fields["candidates_new"])
+	assert.Equal(t, strconv.Itoa(DefaultMaxExplains), summary.fields["candidates_written"])
+	assert.Equal(t, "5", summary.fields["candidates_queued"],
+		"the rest wait rather than being dropped, and the summary says so")
+
+	two := parseTextArtifact(t, second.String())
+	require.Len(t, two, 6, "the five that waited, and the summary")
+	assert.Equal(t, strconv.Itoa(1000+DefaultMaxExplains), two[0].fields["queryid"],
+		"in the order they were first seen")
+	assert.Equal(t, "1", two[0].fields["first_seen"], "seen at the first sample, attempted at the second")
+	assert.Equal(t, "2", two[0].fields["sample"])
+	assert.False(t, summaryOf(t, two).has("candidates_queued"), "nothing left waiting")
+	assert.False(t, summaryOf(t, two).has("candidates_new"),
+		"the second read showed the same shapes, and none of them is new")
+
+	assert.Len(t, q.submitted, DefaultMaxExplains+5, "every shape exactly once, as a drip")
+}
+
+func TestExplainBudgetSkipReturnsTheShapeToTheQueue(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	// The first sample's budget is spent after its first candidate; the second sample's
+	// clock stands still, so the shape that waited is attempted there.
+	ticks := []time.Time{
+		testWindowStart,
+		testWindowStart,
+		testWindowStart.Add(ExplainBudget + time.Second),
+	}
+	e.now = func() time.Time {
+		next := ticks[0]
+		if len(ticks) > 1 {
+			ticks = ticks[1:]
+		}
+
+		return next
+	}
+
+	var first, second bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &first, explainContext(1, 3)))
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 3)))
+
+	one := parseTextArtifact(t, first.String())
+	require.Len(t, one, 2, "the one attempted shape and the summary: a skipped attempt never began, so it has no block")
+	assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), one[0].fields["queryid"])
+
+	summary := summaryOf(t, one)
+	assert.Equal(t, "1", summary.fields["candidates_written"])
+	assert.Equal(t, "1", summary.fields["candidates_skipped_budget"])
+	assert.Equal(t, "1", summary.fields["candidates_queued"], "back at the head of the queue")
+
+	two := parseTextArtifact(t, second.String())
+	require.Len(t, two, 2)
+	assert.Equal(t, strconv.FormatInt(ordersInventoryEnd.queryid, 10), two[0].fields["queryid"])
+	assert.Equal(t, "1", two[0].fields["first_seen"])
+	assert.Equal(t, planModeEstimatedGeneric, two[0].fields["mode"], "attempted, not written off")
+
+	assert.Len(t, q.submitted, 2)
+}
+
+func TestExplainSummaryNamesTheFeedsReason(t *testing.T) {
+	t.Run("the extension's own reason", func(t *testing.T) {
+		sq := NewSlowQueries()
+		sq.retainReason(SampleContext{Index: 2}, reasonExtensionAbsent)
+
+		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+		summary := summaryOf(t, runExplainSamples(t, NewExplain(ExplainModeAll, sq), q))
+
+		assert.Equal(t, reasonNoCandidates, summary.fields["reason"])
+		assert.Equal(t, reasonExtensionAbsent, summary.fields["statements_reason"],
+			"an empty report names the feed's own reason rather than reading as an idle database")
+		assert.False(t, summary.has("candidates_considered"), "nothing was read, so nothing is counted")
+	})
+
+	t.Run("no read at all", func(t *testing.T) {
+		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+		summary := summaryOf(t, runExplainSamples(t, NewExplain(ExplainModeAll, explainFeed()), q))
+
+		assert.Equal(t, reasonStatementsUnread, summary.fields["statements_reason"])
+	})
+}
+
+func TestExplainEverySampleWritesItsOwnSummary(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
+	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd)})
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	var buf bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(1, 2)))
+	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
+
+	blocks := parseTextArtifact(t, buf.String())
+	require.Len(t, blocks, 3, "a shape, the first sample's summary, the second sample's summary")
+
+	assert.Equal(t, "1", blocks[1].fields["sample"])
+	assert.Equal(t, "true", blocks[1].fields["summary"])
+	assert.Equal(t, "2", blocks[2].fields["sample"])
+	assert.Equal(t, reasonNoCandidates, blocks[2].fields["reason"],
+		"the second read showed nothing new, which is a finding about a quiet interval")
+	assert.Equal(t, "1", blocks[2].fields["candidates_considered"])
+}
+
+func TestExplainClosingPassSaysWhatWasLeftQueued(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 1, fifteenShapes())
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 3)))
+
+	var buf bytes.Buffer
+	require.NoError(t, e.WriteClosing(&buf, explainContext(3, 3)))
+
+	summary := summaryOf(t, parseTextArtifact(t, buf.String()))
+	assert.Equal(t, "true", summary.fields["drain"])
+	assert.Equal(t, "5", summary.fields["candidates_queued"],
+		"a cancelled window says how many shapes it never reached")
 }

@@ -164,10 +164,13 @@ func (p *PostgresCapture) Run() (Result, error) {
 		hostCollectors = p.startHostCapture(ctx, m, duration)
 	})
 
-	// Shared, not two collectors: Explain ranks the endpoints this one retains, and
-	// never re-runs the statement behind them.
+	// Shared, not two collectors: Explain walks the read this one offers each sample,
+	// and never re-runs the statement behind it.
 	slowQueries := postgres.NewSlowQueries()
 	slowQueries.Interval = interval
+
+	explain := postgres.NewExplain(p.explainMode(), slowQueries)
+	explain.Interval = interval
 
 	window := &postgres.Window{
 		Target:   target,
@@ -180,8 +183,8 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// tablespaces, slow queries), so a tick that runs long is late with the
 		// expensive reading rather than the cheap ones.
 		//
-		// pg_explain goes last on both counts: at the close it reads slowQueries'
-		// closing sample, and at t0 its log tail then opens past the agent's own
+		// pg_explain goes last on both counts: on every tick it walks slowQueries'
+		// read of that tick, and at t0 its log tail then opens past the agent's own
 		// first plans.
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
@@ -196,7 +199,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.IndexUsage{Interval: interval},
 			postgres.Tablespaces{Interval: interval},
 			slowQueries,
-			postgres.NewExplain(p.explainMode(), slowQueries),
+			explain,
 		},
 	}
 

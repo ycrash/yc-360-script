@@ -1,8 +1,9 @@
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 rank=1 candidate_source=statements queryid=-4821096637582910234 mode=none search_path="\"$user\", public" reason=no_logged_plan bytes=0 ts=2026-08-07T14:33:05.022Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true sample=1 reason=no_candidates statements_reason=statements_unread log_access=direct plans_harvested=0 auto_explain_visible=true bytes=0 ts=2026-08-07T14:32:05.020Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 sample=2 queryid=-4821096637582910234 first_seen=2 mode=none search_path="\"$user\", public" reason=no_logged_plan bytes=0 ts=2026-08-07T14:33:05.022Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 queryid= mode=LOGGED matched_by=message reason=no_query_identifier bytes=197 ts=2026-08-07T14:33:05.022Z
 2026-08-17 02:01:31.226 UTC [13031] LOG:  duration: 412.5 ms  plan:
 	Query Text: SELECT * FROM order_items WHERE order_id = $1
 	Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true ranking=statements_delta candidates_considered=1 candidates_written=1 log_access=direct plans_harvested=1 plans_written=1 auto_explain_visible=true bytes=0 ts=2026-08-07T14:33:05.022Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 summary=true sample=2 candidates_considered=1 candidates_new=1 candidates_written=1 log_access=direct plans_harvested=1 plans_written=1 auto_explain_visible=true bytes=0 ts=2026-08-07T14:33:05.022Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:33:15.020Z
