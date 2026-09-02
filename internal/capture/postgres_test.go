@@ -331,10 +331,11 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 		postgres.NewCheckpointLog().Artifact().Schedule,
 		"the third tail, on the same terms as its two siblings")
 
-	assert.Equal(t, postgres.StartEnd(),
-		postgres.NewExplain(postgres.ExplainModeLogged, postgres.NewSlowQueries()).Artifact().Schedule,
-		"nor does pg_explain, until the once-per-queryid rework: it ranks the two "+
-			"endpoints slow queries retains, and a middle sample gives it nothing to rank")
+	explain := postgres.NewExplain(postgres.ExplainModeLogged, postgres.NewSlowQueries())
+	explain.Interval = interval
+	assert.Equal(t, postgres.Periodic(interval), explain.Artifact().Schedule,
+		"and pg_explain takes it too, since the once-per-shape rework: every sample walks "+
+			"that tick's statements read for shapes not yet seen")
 }
 
 func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T) {
@@ -555,7 +556,7 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and exactly the held-back ones say why, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
-		"pg_explain is on the bookend by design, ranking the two endpoints")
+		"and pg_explain takes the cadence too: every sample walks that tick's statements read")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
 		"every artifact reports the one refusal, and they report it identically")
 
@@ -998,8 +999,9 @@ func TestPostgresCaptureHonoursTheConfiguredFrequency(t *testing.T) {
 		"the spec's own incident case, 2m at 30s: four steps and the close, where the "+
 			"5m default would have been the bookend alone")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/5 samples)")
-	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
-		"and pg_explain keeps its bookend regardless")
+	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/5 samples)",
+		"and pg_explain takes the same five: since the once-per-shape rework it walks "+
+			"every sample's statements read rather than ranking the two endpoints")
 }
 
 func TestPostgresCaptureMessage(t *testing.T) {

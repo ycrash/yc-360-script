@@ -231,9 +231,11 @@ type SlowQueries struct {
 	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
 	MaxStatements int
 
-	// retained is what Explain ranks at the window's close. Never written to any file:
-	// the delta it supports is a sort key for a bounded selection, not a measurement.
-	retained statementEndpoints
+	// feeds holds each sample's read until Explain takes it on the same tick, keyed by
+	// sample so a read is offered to its own sample and no other. Never written to any
+	// file by this collector: it is the feed the explain selection walks, not a
+	// measurement.
+	feeds map[int]statementFeed
 }
 
 // NewSlowQueries constructs the collector. A pointer because Sample retains across
@@ -250,60 +252,39 @@ type statementKey struct {
 	toplevel string
 }
 
-// statementProjection is one opening-sample row reduced to the delta's inputs. No text:
-// 5,000 rows of it would hold tens of megabytes for the whole window, and a sort key
-// needs none.
-type statementProjection struct {
-	totalExecTime *float64
-	statsSince    *time.Time
+// statementFeed is one sample's read, offered to Explain on the same tick and taken
+// once: the rows carry the normalized text the generic mode submits, and a read that
+// yielded nothing says why, so the explain summary can repeat the reason rather than
+// report an idle database.
+type statementFeed struct {
+	sample    int
+	rows      []statementRow
+	read      bool
+	truncated bool
+
+	// reason is why there are no rows: the extension's own reason, or the read's error
+	// text, redacted.
+	reason string
 }
 
-// statementEndpoints is the ranking's whole input: the opening projection, the closing
-// sample's full rows - the only place the generic mode's normalized text exists - and each
-// endpoint's truncation flag and info reading, which the validity rules consume.
-type statementEndpoints struct {
-	start     map[statementKey]statementProjection
-	startRead bool
-
-	// startTruncated: the endpoint is a prefix of the view, so a row missing from it
-	// proves nothing about when the statement first ran.
-	startTruncated bool
-	startInfo      *infoRow
-
-	end     []statementRow
-	endRead bool
-
-	endTruncated bool
-	endInfo      *infoRow
-}
-
-// rankingEndpoints hands Explain the retained reads, the one coupling between the two
-// collectors: Explain never re-runs the statement behind them.
-func (sq *SlowQueries) rankingEndpoints() statementEndpoints { return sq.retained }
-
-// retainStart keeps the projection, dropping rows whose queryid the privilege floor
-// masked: those cannot key a join, and the prefilter counts them from the end read.
-func (sq *SlowQueries) retainStart(rows []statementRow, truncated bool) {
-	start := make(map[statementKey]statementProjection, len(rows))
-
-	for _, row := range rows {
-		key, ok := statementRowKey(row)
-		if !ok {
-			continue
-		}
-
-		start[key] = statementProjection{totalExecTime: row.totalExecTime, statsSince: row.statsSince}
+// feed hands Explain the read taken for this sample, once - the one coupling between
+// the two collectors. False means no read was offered for the sample, so a tick that
+// never reached the view is not walked as if it had.
+func (sq *SlowQueries) feed(s SampleContext) (statementFeed, bool) {
+	feed, ok := sq.feeds[s.Index]
+	if ok {
+		delete(sq.feeds, s.Index)
 	}
 
-	sq.retained.start = start
-	sq.retained.startRead = true
-	sq.retained.startTruncated = truncated
+	return feed, ok
 }
 
-func (sq *SlowQueries) retainEnd(rows []statementRow, truncated bool) {
-	sq.retained.end = rows
-	sq.retained.endRead = true
-	sq.retained.endTruncated = truncated
+func (sq *SlowQueries) offer(feed statementFeed) {
+	if sq.feeds == nil {
+		sq.feeds = map[int]statementFeed{}
+	}
+
+	sq.feeds[feed.sample] = feed
 }
 
 func statementRowKey(row statementRow) (statementKey, bool) {
@@ -391,6 +372,8 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	}
 
 	if extErr != nil {
+		sq.retainReason(s, s.errorText(extErr))
+
 		return sq.writeStatements(w, append(fields, headerField{"error", s.errorText(extErr)}), s.At, nil)
 	}
 
@@ -405,6 +388,8 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 			fields = append(fields, headerField{"schema_usage", strconv.FormatBool(ext.schemaUsage)})
 		}
 
+		sq.retainReason(s, reason)
+
 		return sq.writeStatements(w, append(fields, headerField{"reason", reason}), s.At, nil)
 	}
 
@@ -414,6 +399,8 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 
 	if err == nil {
 		sq.retain(s, rows, int64(len(rows)) < total)
+	} else {
+		sq.retainReason(s, s.errorText(err))
 	}
 
 	if ext.optionalColumns != nil {
@@ -475,37 +462,19 @@ func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wr
 		return sq.writeInfo(w, append(fields, headerField{"error", s.errorText(err)}), s.At, nil)
 	}
 
-	sq.retainInfo(s, row)
-
 	return sq.writeInfo(w, fields, s.At, infoCells(row))
 }
 
-// retain files a read under the endpoint it belongs to. Samples between the endpoints
-// are written, not retained: the ranking's delta spans the whole window, and a middle
-// reading adds nothing to it. A one-tick window is the closing endpoint only: with
-// nothing to subtract from, rule 3 decides every row.
+// retain offers every sample's read to Explain, which walks it for shapes it has not
+// seen: with no delta to compute, a middle sample is as good a feed as an endpoint.
 func (sq *SlowQueries) retain(s SampleContext, rows []statementRow, truncated bool) {
-	if s.Index == 1 && s.Total > 1 {
-		sq.retainStart(rows, truncated)
-
-		return
-	}
-
-	if s.Index == s.Total {
-		sq.retainEnd(rows, truncated)
-	}
+	sq.offer(statementFeed{sample: s.Index, rows: rows, read: true, truncated: truncated})
 }
 
-func (sq *SlowQueries) retainInfo(s SampleContext, row *infoRow) {
-	if s.Index == 1 && s.Total > 1 {
-		sq.retained.startInfo = row
-
-		return
-	}
-
-	if s.Index == s.Total {
-		sq.retained.endInfo = row
-	}
+// retainReason offers the reason there were no rows, so Explain's summary can say
+// statements_reason= rather than reporting an idle database.
+func (sq *SlowQueries) retainReason(s SampleContext, reason string) {
+	sq.offer(statementFeed{sample: s.Index, reason: reason})
 }
 
 func (sq *SlowQueries) writeInfo(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
