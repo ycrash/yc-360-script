@@ -159,16 +159,19 @@ Two limits to know:
 
 ## Which database to name
 
-**Name the application database. The default is `postgres`, and it costs you two
-of the seven artifacts — silently, with both files reporting `status=complete`.**
+**Name the application database. The default is `postgres`, and it costs you three
+of the eleven artifacts — silently, with all three files reporting `status=complete`.**
 
 `database:` is optional and defaults to `postgres`, which exists on effectively
 every cluster. Most of the artifacts do not care which database you connect
-through. Two of them care completely:
+through. Three of them care completely:
 
 - `pg_bloat.txt` reads `pg_stat_user_tables`, which only ever shows the connected
   database's tables. Pointed at `postgres`, it captures a column header and no
   rows.
+- `pg_index_usage.txt` reads `pg_stat_user_indexes`, the same view family, and
+  shows the connected database's indexes only. Pointed at `postgres`, the same
+  column header and no rows.
 - `pg_slow_queries.txt` reads `pg_stat_statements`, and this one is the
   surprising case. The extension holds statistics for the **whole cluster**, but
   its view exists only in the databases where `CREATE EXTENSION` was actually
@@ -176,7 +179,7 @@ through. Two of them care completely:
   `orders_db` has nothing to read — no query statistics at all, on a cluster
   where they are all being collected.
 
-The second one says so, in the file, rather than leaving you to work it out:
+The third one says so, in the file, rather than leaving you to work it out:
 
 ```
 # ... source=pg_stat_statements ... library_loaded=true reason=extension_absent ...

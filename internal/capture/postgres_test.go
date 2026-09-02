@@ -156,9 +156,9 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTExplain":     pgDTExplain,
 	}
 
-	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles),
-		"one dt per artifact the run writes: an artifact added without one is written into "+
-			"the bundle and never transmitted, which no run reports as a failure")
+	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
+		"one dt per artifact the run writes, less the ones still waiting on the server team: "+
+			"those are written into the bundle, held back from upload, and the run says so")
 
 	for name, dt := range postgresDataTypes {
 		assert.NotContains(t, taken, dt, "%s collides with an existing dt value", name)
@@ -182,6 +182,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_deadlocks.txt", PostgresDeadlocksFileName)
 	assert.Equal(t, "pg_timeouts.txt", PostgresTimeoutsFileName)
 	assert.Equal(t, "pg_explain.txt", PostgresExplainFileName)
+	assert.Equal(t, "pg_index_usage.txt", PostgresIndexUsageFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -195,7 +196,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 10, "every artifact the run writes is named here")
+	assert.Len(t, seen, 11, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -231,6 +232,10 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 		pgSampledDataType(postgres.NewExplain("", postgres.NewSlowQueries()).Artifact()),
 		"pg_explain.txt has its assigned value - the tenth and last, which closes the gate "+
 			"this switch existed to hold open")
+
+	assert.Empty(t, pgSampledDataType(postgres.IndexUsage{}.Artifact()),
+		"pg_index_usage.txt is the gate's first occupant since pgExplain closed it: "+
+			"dt=pgIndexUsage is proposed, not assigned, so the artifact is written and held back")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no assigned dt is still refused rather than guessed at")
@@ -268,6 +273,10 @@ func TestPostgresSlowQueriesFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresSlowQueriesFileName, postgres.NewSlowQueries().Artifact().FileName)
 }
 
+func TestPostgresIndexUsageFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresIndexUsageFileName, postgres.IndexUsage{}.Artifact().FileName)
+}
+
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 	require.Equal(t, postgres.Periodic(0), postgres.NewSlowQueries().Artifact().Schedule,
 		"a periodic collector, so its last offset is exactly the closing tick "+
@@ -289,6 +298,7 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 		"pg_replication":  postgres.Replication{Interval: interval}.Artifact().Schedule,
 		"pg_capacity":     postgres.Capacity{Interval: interval}.Artifact().Schedule,
 		"pg_bloat":        postgres.Bloat{Interval: interval}.Artifact().Schedule,
+		"pg_index_usage":  postgres.IndexUsage{Interval: interval}.Artifact().Schedule,
 		"pg_slow_queries": (&postgres.SlowQueries{Interval: interval}).Artifact().Schedule,
 	} {
 		assert.Equal(t, postgres.Periodic(interval), schedule, name+
@@ -344,6 +354,19 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 		"so the closing tick now costs the window 55s where it cost 25s - a real load "+
 			"commitment against a database already in trouble, and one that should move "+
 			"only deliberately")
+}
+
+func TestPostgresIndexUsageJoinsTheClosingTick(t *testing.T) {
+	indexUsage := postgres.IndexUsage{}.Artifact()
+
+	require.Equal(t, postgres.Periodic(0), indexUsage.Schedule,
+		"born periodic, so its last sample is the close")
+	assert.Zero(t, indexUsage.SampleBudget, "two statements, the default shape, copied from bloat")
+
+	assert.Equal(t, 20*time.Second, postgres.DefaultSampleBudget,
+		"what the eleventh artifact adds to the closing tick's deadline: one more "+
+			"DefaultSampleBudget, on the shared tick the test above calls a load commitment. "+
+			"Deliberate, and the review's F1 counts it")
 }
 
 func pgCollectedMetadata() postgres.Metadata {
@@ -441,9 +464,15 @@ var postgresArtifactFiles = []string{
 	PostgresMetadataFileName,
 	PostgresCapacityFileName,
 	PostgresBloatFileName,
+	PostgresIndexUsageFileName,
 	PostgresSlowQueriesFileName,
 	PostgresExplainFileName,
 }
+
+// postgresArtifactsAwaitingDT are written into the bundle and held back from
+// upload until the server team assigns a value. Each is a one-line change in
+// pgSampledDataType and one here when its value arrives.
+var postgresArtifactsAwaitingDT = []string{PostgresIndexUsageFileName}
 
 func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	dir := chdirToCaptureDir(t)
@@ -480,6 +509,10 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)",
 		"the whole-table reads take the same cadence as the cheap ones")
 	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
+	assert.Contains(t, result.Msg, PostgresIndexUsageFileName+" written (0/2 samples); postgres connect failed",
+		"the eleventh artifact takes the cadence too, and reports the refusal like the rest")
+	assert.Equal(t, 1, strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
+		"and it alone says why it was held back, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
 		"pg_explain is on the bookend by design, ranking the two endpoints")
@@ -490,6 +523,9 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		strings.Index(result.Msg, PostgresBloatFileName),
 		"capacity samples before bloat on every shared tick: registration order is sampling "+
 			"order, and the run's message lists the artifacts in it")
+	assert.Less(t, strings.Index(result.Msg, PostgresBloatFileName),
+		strings.Index(result.Msg, PostgresIndexUsageFileName),
+		"and bloat before index usage: the table reading before the reading that joins to it")
 
 	_, values := readPostgresArtifact(t)
 	assert.Equal(t, "127.0.0.1", values["target_host"],
@@ -582,8 +618,9 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, uploads, len(postgresArtifactFiles),
-		"every artifact the run writes is uploaded - ten of ten, none of them waiting on a dt")
+	require.Len(t, uploads, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
+		"every artifact with a dt is uploaded - ten of eleven, with pg_index_usage.txt "+
+			"waiting on its value")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
@@ -637,14 +674,17 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		"nothing posted under an empty dt: an invented value uploads and is then dropped "+
 			"silently at the far end, which is why the gate skips instead of guessing")
 
-	assert.NotContains(t, result.Msg, "not uploaded: dt value not yet assigned",
-		"no artifact is held back: pgExplain was assigned on 2026-08-23 and was the last of "+
-			"the ten, so this is the assertion that fails first if an eleventh artifact is "+
-			"registered without one")
+	assert.Contains(t, result.Msg, PostgresIndexUsageFileName+" written (0/2 samples); postgres connect failed",
+		"the one artifact held back is in the run's record like the rest")
+	assert.Equal(t, 1, strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
+		"and says so rather than vanishing: dt=pgIndexUsage is proposed to the server team, "+
+			"and an invented value would upload and be dropped silently")
+	assert.NotContains(t, byDT, "pgIndexUsage",
+		"and nothing is posted under the proposed value before it is assigned")
 
-	assert.True(t, result.Ok,
-		"and the run's Ok is not spent on a missing dt - which is what makes it worth "+
-			"something as a signal")
+	assert.False(t, result.Ok,
+		"the run's Ok is spent on the held-back artifact, deliberately: it is the one signal "+
+			"that reaches the completion record, and it clears the day the value is assigned")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {
