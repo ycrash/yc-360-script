@@ -20,7 +20,22 @@ options:
 
 `port`, `database`, `sslmode` and `captureDuration` may be omitted; they default
 to `5432`, `postgres`, `require` and `120s`. `captureDuration` is capped at
-`600s`.
+`2h`.
+
+### `frequency` — how often the periodic artifacts are sampled
+
+```yaml
+    frequency: 30s
+```
+
+Omit it and the cadence is derived from the window: `captureDuration` divided
+by eight, never below `10s` and never above `5m`. The default window therefore
+samples nine times, and a two-hour window every five minutes. Set the key to
+override that. A value below `10s` is raised to `10s` with a warning, because a
+sample's statements are bounded at `10s` and a faster cadence would let one slow
+sample outrun the tick behind it. Whatever the value, the opening and closing
+samples are always taken, so a `frequency` no shorter than the window still
+yields those two and warns that it will.
 
 ### `agentOnDbHost` — only for a database that cannot answer
 
@@ -97,7 +112,9 @@ One consequence worth knowing before you plan a rollout:
 
 `-m3` with a `postgres:` block and no application target runs database
 monitoring. Every cycle takes one small reading and sends it; the cycle length is
-`m3Frequency`, three minutes by default.
+`m3Frequency`, three minutes by default. When the server asks for a capture, the
+run uses the block's own `captureDuration` and `frequency`; the request carries
+neither.
 
 ```sh
 ./yc-360 -c db-monitor.yaml -m3 -k <key>
@@ -429,7 +446,8 @@ uploads a foreign machine's process list and connection table under the
 database's name. And on a database host, `netstat` and `ps` stretch their
 readings across `captureDuration` — `netstat` at both edges, `ps` spread evenly
 over three — so a connection table or process list that changes during the
-window leaves a trace. The other four are unchanged: `top` and `vmstat` take
+window leaves a trace. That holds for the longest window too: on a two-hour
+capture `netstat`'s two readings are two hours apart and `ps`'s an hour. The other four are unchanged: `top` and `vmstat` take
 their own fixed ~20 s burst at the opening edge, and `df`, `dmesg` and `kernel`
 take one reading, exactly as an application capture takes them. Every one of
 these files uploads under the same identifier whichever kind of capture wrote
