@@ -222,9 +222,12 @@ func buildStatementsSQL() string {
 	return sql.String()
 }
 
-// SlowQueries captures pg_stat_statements at both edges of the window; the delta, ranking, and top-N are the server's, not the agent's.
+// SlowQueries captures pg_stat_statements every sample; the delta, ranking, and top-N are the server's, not the agent's.
 // The view needs no grant, but a role without pg_read_all_stats gets queryid NULL and query masked on rows it doesn't own while every counter stays exact (measured: 234/270 rows on 18, 124/152 on 14) - the inverse of pg_sessions.txt, where identity survives and detail doesn't. pg_metadata.txt's has_pg_read_all_stats is the bundle's only signal of this.
 type SlowQueries struct {
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	Interval time.Duration
+
 	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
 	MaxStatements int
 
@@ -325,7 +328,7 @@ func boolKey(b *bool) string {
 	return strconv.FormatBool(*b)
 }
 
-func (*SlowQueries) Artifact() Artifact {
+func (sq *SlowQueries) Artifact() Artifact {
 	return Artifact{
 		Name:     "pg_slow_queries",
 		FileName: "pg_slow_queries.txt",
@@ -333,22 +336,22 @@ func (*SlowQueries) Artifact() Artifact {
 		// cluster, not database: pg_stat_statements holds stats for every database in the cluster, tagged by dbid, though the extension is installed per database.
 		Scope: "cluster",
 
-		Schedule: StartEnd(),
+		Schedule: Periodic(sq.Interval),
 
-		// Preflight + two reads on the closing sample: 3x StatementTimeout, summed by moduleDeadline against Capacity and Bloat.
+		// Preflight + two reads on every sample: 3x StatementTimeout. Periodic's last sample is the close, so moduleDeadline sums this against Capacity and Bloat.
 		SampleBudget: 3 * StatementTimeout,
 	}
 }
 
 // Sample runs the preflight once and passes its result to both blocks so they can't disagree about what the server has.
-// Info reads bracket the window (first on the opening sample, last on the closing one) so the two stats_reset readings enclose everything between the endpoints.
+// Info reads bracket the window (first on the opening sample, last on every later one) so the first and last stats_reset readings enclose everything between the endpoints.
 // Errors returned here are write failures; read errors are captured as error= header fields instead.
 func (sq *SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	ext, extErr := readExtension(ctx, q)
 
 	var sample bytes.Buffer
 
-	// Total == 1 (single-sample window) takes the closing (infoFirst=false) order.
+	// Total == 1 (single-sample window) and every sample after the first take the closing (infoFirst=false) order.
 	infoFirst := s.Index == 1 && s.Total > 1
 
 	if infoFirst {
@@ -477,8 +480,10 @@ func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wr
 	return sq.writeInfo(w, fields, s.At, infoCells(row))
 }
 
-// retain files a read under the endpoint it belongs to. A one-tick window is the closing
-// endpoint only: with nothing to subtract from, rule 3 decides every row.
+// retain files a read under the endpoint it belongs to. Samples between the endpoints
+// are written, not retained: the ranking's delta spans the whole window, and a middle
+// reading adds nothing to it. A one-tick window is the closing endpoint only: with
+// nothing to subtract from, rule 3 decides every row.
 func (sq *SlowQueries) retain(s SampleContext, rows []statementRow, truncated bool) {
 	if s.Index == 1 && s.Total > 1 {
 		sq.retainStart(rows, truncated)

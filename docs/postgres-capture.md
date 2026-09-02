@@ -278,8 +278,8 @@ On a typical cluster that is most of the file. Measured on a matrix container:
 277 of 319 rows.
 
 The counters are real, so the artifact is not worthless — but `queryid` is the
-key, and without it those rows cannot be matched between the start and end
-samples, cannot be told apart from each other, and cannot be joined to
+key, and without it those rows cannot be matched from one sample to the
+next, cannot be told apart from each other, and cannot be joined to
 `pg_sessions.txt`'s `query_id`. The window delta the report is built from does
 not exist for them. And nothing in the file says so: no `error=`, the right row
 count, `status=complete`.

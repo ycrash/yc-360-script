@@ -807,9 +807,64 @@ func TestSlowQueriesArtifact(t *testing.T) {
 	assert.Equal(t, "pg_slow_queries.txt", artifact.FileName)
 	assert.Equal(t, "cluster", artifact.Scope,
 		"the statistics are cluster-wide and tagged by dbid, though the extension is installed per database")
-	assert.Equal(t, StartEnd(), artifact.Schedule)
+	assert.Equal(t, Periodic(0), artifact.Schedule,
+		"no cadence given is the bookend alone, never a single sample")
+	assert.Equal(t, Periodic(15*time.Second), (&SlowQueries{Interval: 15 * time.Second}).Artifact().Schedule,
+		"the run's cadence, with the close as the last sample")
 	assert.Equal(t, 3*StatementTimeout, artifact.SampleBudget,
 		"a preflight and two reads, which moduleDeadline sums against Capacity and Bloat")
+}
+
+func TestSlowQueriesMiddleSampleIsWrittenButNotRetained(t *testing.T) {
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = queue(
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsStart)}, 1)),
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersInventoryStart)}, 1)),
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsEnd)}, 1)),
+	)
+
+	sq := NewSlowQueries()
+
+	samples := make([]string, 0, 3)
+
+	for index := 1; index <= 3; index++ {
+		s := slowQueriesSampleContext()
+		s.Index, s.Total = index, 3
+
+		var buf bytes.Buffer
+		require.NoError(t, sq.Sample(context.Background(), conn, &buf, s))
+
+		samples = append(samples, buf.String())
+	}
+
+	assert.Less(t, strings.Index(samples[0], "source=pg_stat_statements_info"),
+		strings.Index(samples[0], "source=pg_stat_statements "),
+		"the opening sample reads info first")
+
+	for _, index := range []int{1, 2} {
+		assert.Greater(t, strings.Index(samples[index], "source=pg_stat_statements_info"),
+			strings.Index(samples[index], "source=pg_stat_statements "),
+			"sample %d reads info last: a middle sample takes the closing order, so the "+
+				"first and last info readings still enclose everything between them", index+1)
+	}
+
+	assert.Contains(t, samples[1], ordersInventoryStart.query,
+		"the middle sample is written in full")
+
+	endpoints := sq.rankingEndpoints()
+	require.True(t, endpoints.startRead)
+	require.True(t, endpoints.endRead)
+
+	_, ok := endpoints.start[statementKey{queryid: ordersItemsStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}]
+	assert.True(t, ok, "the opening sample is the start endpoint")
+
+	require.Len(t, endpoints.end, 1)
+	assert.Equal(t, ordersItemsEnd.query, *endpoints.end[0].query,
+		"the closing sample is the end endpoint")
+
+	_, retained := endpoints.start[statementKey{queryid: ordersInventoryStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}]
+	assert.False(t, retained,
+		"and the middle sample is neither: the ranking's delta spans the whole window")
 }
 
 func slowQueriesGoldenClock(t *testing.T) *scriptedClock {

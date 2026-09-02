@@ -55,40 +55,48 @@ const checkpointSQLPre17 = `SELECT checkpoints_timed,
 FROM pg_catalog.pg_stat_bgwriter`
 
 // connectionsSQL groups rather than filters by backend_type: parallel/autovacuum workers show as
-// their own rows. ORDER BY count(*) is safe only because this block is written once, not sampled twice.
+// their own rows. ORDER BY identity, never count(*): the block is sampled repeatedly under a cap,
+// and a statistic ordering would let two samples keep two different group sets - the same rule
+// bloatStatsSQL and pg_slow_queries.txt follow.
 const connectionsSQL = `SELECT application_name::text,
        backend_type::text,
        count(*) AS active_connections,
        count(*) OVER () AS groups_total
 FROM pg_catalog.pg_stat_activity
 GROUP BY application_name, backend_type
-ORDER BY count(*) DESC, application_name, backend_type
+ORDER BY application_name, backend_type
 LIMIT $1`
 
 // walSQL needs pg_monitor or superuser; a LOGIN-only role is denied and the block says so.
 const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
 
-// Capacity captures checkpoint pressure across the window, and connection distribution and WAL
-// volume as it closes. Checkpoint columns are cumulative counters; deltas are the server's.
+// Capacity captures checkpoint pressure, connection distribution and WAL volume every sample.
+// Checkpoint columns are cumulative counters and deltas are the server's; the other two are
+// gauges, so their series is the reading rather than a difference between samples.
 type Capacity struct {
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	Interval time.Duration
+
 	// MaxConnectionGroups bounds the connection block; zero takes DefaultMaxConnectionGroups.
 	MaxConnectionGroups int
 }
 
-func (Capacity) Artifact() Artifact {
+func (c Capacity) Artifact() Artifact {
 	return Artifact{
 		Name:     "pg_capacity",
 		FileName: "pg_capacity.txt",
 		Scope:    "cluster",
-		Schedule: StartEnd(),
+		Schedule: Periodic(c.Interval),
 
-		// Three statements on the closing sample; moduleDeadline sums this against other collectors.
+		// Three statements on every sample. Periodic's last sample is the close, so
+		// moduleDeadline sums this against every other closing-tick collector.
 		SampleBudget: 3 * StatementTimeout,
 	}
 }
 
-// Sample writes the checkpoint block every time, and the two gauges (active_connections, wal_bytes)
-// only as the window closes, since those are point-in-time readings, not deltas.
+// Sample writes all three blocks every time. The gauges (active_connections, wal_bytes) used to
+// land on the closing sample alone; as a series they show connections climbing and WAL growing
+// through the window, which one closing reading cannot.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	// One buffer, one Write: avoids leaving a half-written sample if a write fails mid-block.
 	var sample bytes.Buffer
@@ -97,14 +105,12 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 		return err
 	}
 
-	if s.Index == s.Total {
-		if err := c.writeConnectionsBlock(ctx, q, &sample, s); err != nil {
-			return err
-		}
+	if err := c.writeConnectionsBlock(ctx, q, &sample, s); err != nil {
+		return err
+	}
 
-		if err := c.writeWALBlock(ctx, q, &sample, s); err != nil {
-			return err
-		}
+	if err := c.writeWALBlock(ctx, q, &sample, s); err != nil {
+		return err
 	}
 
 	_, err := w.Write(sample.Bytes())

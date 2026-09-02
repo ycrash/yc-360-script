@@ -299,7 +299,11 @@ func TestBloatArtifact(t *testing.T) {
 	assert.Equal(t, "pg_bloat", artifact.Name)
 	assert.Equal(t, "pg_bloat.txt", artifact.FileName)
 	assert.Equal(t, "database", artifact.Scope)
-	assert.Equal(t, StartEnd(), artifact.Schedule)
+	assert.Equal(t, Periodic(0), artifact.Schedule,
+		"no cadence given is the bookend alone, never a single sample")
+	assert.Equal(t, Periodic(15*time.Second), Bloat{Interval: 15 * time.Second}.Artifact().Schedule,
+		"the run's cadence, with the close as the last sample")
+	assert.Zero(t, artifact.SampleBudget, "two statements is DefaultSampleBudget already")
 }
 
 func TestBloatColumnOrder(t *testing.T) {

@@ -1,4 +1,4 @@
-# engine=postgres source=pg_slow_queries v=1 format=csv scope=cluster db=orders_db dbid= status=started window=6s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_slow_queries v=1 format=csv scope=cluster db=orders_db dbid= status=started window=6s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_stat_statements_info v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 extension_version= reason=extension_absent ts=2026-08-07T14:32:05.061Z
 dealloc,stats_reset
 # engine=postgres source=pg_stat_statements v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 extension_version= extension_schema= library_loaded=true reason=extension_absent ts=2026-08-07T14:32:05.061Z

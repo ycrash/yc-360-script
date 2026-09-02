@@ -269,8 +269,8 @@ func TestPostgresSlowQueriesFileNameMatchesTheArtifact(t *testing.T) {
 }
 
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
-	require.Equal(t, postgres.StartEnd(), postgres.NewSlowQueries().Artifact().Schedule,
-		"a start-and-end collector, so its second offset is exactly the closing tick "+
+	require.Equal(t, postgres.Periodic(0), postgres.NewSlowQueries().Artifact().Schedule,
+		"a periodic collector, so its last offset is exactly the closing tick "+
 			"and its budget joins capacity's and bloat's there")
 
 	assert.Equal(t, 3*postgres.StatementTimeout, postgres.NewSlowQueries().Artifact().SampleBudget,
@@ -286,18 +286,26 @@ func TestPostgresSampledCollectorsShareOneDerivedCadence(t *testing.T) {
 			"window would have reduced to the bookend alone")
 
 	for name, schedule := range map[string]postgres.Schedule{
-		"pg_sessions":    postgres.Sessions{Interval: interval}.Artifact().Schedule,
-		"pg_health":      postgres.Health{Interval: interval}.Artifact().Schedule,
-		"pg_replication": postgres.Replication{Interval: interval}.Artifact().Schedule,
+		"pg_sessions":     postgres.Sessions{Interval: interval}.Artifact().Schedule,
+		"pg_health":       postgres.Health{Interval: interval}.Artifact().Schedule,
+		"pg_replication":  postgres.Replication{Interval: interval}.Artifact().Schedule,
+		"pg_capacity":     postgres.Capacity{Interval: interval}.Artifact().Schedule,
+		"pg_bloat":        postgres.Bloat{Interval: interval}.Artifact().Schedule,
+		"pg_slow_queries": (&postgres.SlowQueries{Interval: interval}).Artifact().Schedule,
 	} {
 		assert.Equal(t, postgres.Periodic(interval), schedule, name+
-			" takes the run's cadence, not a constant of its own")
+			" takes the run's cadence, not a constant or a bookend of its own")
 	}
 
 	assert.Equal(t, postgres.Every(postgres.DefaultLogTailInterval),
 		postgres.NewDeadlocks().Artifact().Schedule,
 		"and the log tails do not: their poll bounds what a cancelled window loses, "+
 			"which is not a sampling rate")
+
+	assert.Equal(t, postgres.StartEnd(),
+		postgres.NewExplain(postgres.ExplainModeLogged, postgres.NewSlowQueries()).Artifact().Schedule,
+		"nor does pg_explain, until the once-per-queryid rework: it ranks the two "+
+			"endpoints slow queries retains, and a middle sample gives it nothing to rank")
 }
 
 func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T) {
@@ -317,16 +325,17 @@ func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T
 		sessions.SampleBudget+health.SampleBudget+postgres.DefaultSampleBudget,
 		"what the bookend costs: three collectors that stopped short of the close now land "+
 			"on it, so the module deadline goes from 245s to 278s on the default window. A "+
-			"deliberate widening, and the last one the sum can absorb quietly - capacity, "+
-			"bloat and slow queries are still to come")
+			"deliberate widening. Capacity, bloat and slow queries were on the close already "+
+			"as start-and-end collectors, so taking the cadence adds nothing to the sum")
 }
 
 func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 	capacity := postgres.Capacity{}.Artifact()
 	bloat := postgres.Bloat{}.Artifact()
 
-	require.Equal(t, postgres.StartEnd(), capacity.Schedule, "both land on the closing tick")
-	require.Equal(t, postgres.StartEnd(), bloat.Schedule)
+	require.Equal(t, postgres.Periodic(0), capacity.Schedule,
+		"both land on the closing tick: Periodic's last sample is the close")
+	require.Equal(t, postgres.Periodic(0), bloat.Schedule)
 
 	assert.Equal(t, 3*postgres.StatementTimeout, capacity.SampleBudget,
 		"three statements: left at zero, the shared tick would be sized for two")
@@ -469,15 +478,19 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"the same cadence, where this artifact once carried a 10s constant of its own")
 	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/9 samples)",
 		"and the same again for replication: one cadence for every sampled artifact")
-	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)")
-	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
+	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/9 samples)",
+		"the whole-table reads take the same cadence as the cheap ones, not the bookend alone")
+	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/9 samples)")
+	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/9 samples)")
+	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/2 samples)",
+		"pg_explain alone stays on the bookend, ranking the two endpoints")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
-		"all six artifacts report the one refusal, and they report it identically")
+		"every artifact reports the one refusal, and they report it identically")
 
 	assert.Less(t, strings.Index(result.Msg, PostgresCapacityFileName),
 		strings.Index(result.Msg, PostgresBloatFileName),
-		"capacity samples before bloat at the closing tick: its gauges have one chance in the "+
-			"run, where bloat's second sample has an endpoint already on disk")
+		"capacity samples before bloat on every shared tick: registration order is sampling "+
+			"order, and the run's message lists the artifacts in it")
 
 	_, values := readPostgresArtifact(t)
 	assert.Equal(t, "127.0.0.1", values["target_host"],

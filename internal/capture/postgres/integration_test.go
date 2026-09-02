@@ -963,7 +963,13 @@ func rowKeys(b sampleBlock) []string {
 	return relids
 }
 
-const matrixCapacityWindow = 3 * time.Second
+// matrixCapacityWindow at matrixCapacityInterval is one step and the close, so
+// the periodic shape is proven against a real server and not only a fake.
+const (
+	matrixCapacityWindow   = 3 * time.Second
+	matrixCapacityInterval = 2 * time.Second
+	matrixCapacitySamples  = 3
+)
 
 const matrixHeldSessions = 3
 
@@ -1061,7 +1067,7 @@ func runMatrixCapacityWindow(t *testing.T, target Target, between func()) []Arti
 	window := &Window{
 		Duration:   matrixCapacityWindow,
 		Target:     target,
-		Collectors: []Collector{Capacity{}},
+		Collectors: []Collector{Capacity{Interval: matrixCapacityInterval}},
 	}
 
 	var wg sync.WaitGroup
@@ -1104,24 +1110,32 @@ func TestMatrixCapacity(t *testing.T) {
 
 				require.Equal(t, StatusComplete, results[0].Status,
 					"a denied read costs its own block, never the artifact")
-				require.Equal(t, 2, results[0].SamplesWritten)
+				require.Equal(t, matrixCapacitySamples, results[0].SamplesWritten,
+					"one step and the close, against a real server")
 
 				artifact := matrixArtifactText(t, results[0])
 				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
 
 				checkpoints := parseCapacityBlocks(t, artifact, "pg_checkpointer")
-				require.Len(t, checkpoints, 2, "the counters are read at both edges of the window")
+				require.Len(t, checkpoints, matrixCapacitySamples, "the counters are read on every sample")
 
 				assertMatrixCheckpointShape(t, server, checkpoints)
 				assertMatrixCheckpointCounters(t, role, checkpoints)
 
 				connections := parseCapacityBlocks(t, artifact, "pg_stat_activity_by_app")
-				require.Len(t, connections, 1, "a gauge, written once as the window closes")
-				assertMatrixConnectionVisibility(t, role, connections[0])
+				require.Len(t, connections, matrixCapacitySamples,
+					"a gauge, once a single closing reading, is now one reading per sample")
+
+				for _, block := range connections {
+					assertMatrixConnectionVisibility(t, role, block)
+				}
 
 				wal := parseCapacityBlocks(t, artifact, "pg_ls_waldir")
-				require.Len(t, wal, 1)
-				assertMatrixWAL(t, role, wal[0])
+				require.Len(t, wal, matrixCapacitySamples)
+
+				for _, block := range wal {
+					assertMatrixWAL(t, role, block)
+				}
 
 				if role.superuser {
 					assertMatrixResetClocksAreTwo(t, server, target)
@@ -1168,11 +1182,11 @@ func assertMatrixCheckpointCounters(t *testing.T, role matrixRole, blocks []capa
 	t.Helper()
 
 	first := matrixCheckpointCounter(t, blocks[0], "checkpoints_req")
-	last := matrixCheckpointCounter(t, blocks[1], "checkpoints_req")
+	last := matrixCheckpointCounter(t, blocks[len(blocks)-1], "checkpoints_req")
 
 	if role.superuser {
 		assert.Greater(t, last, first,
-			"the run issued a CHECKPOINT between the two samples, so the requested count climbs")
+			"the run issued a CHECKPOINT between the endpoints, so the requested count climbs")
 
 		return
 	}
@@ -1279,14 +1293,18 @@ func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Tar
 	require.NoError(t, results[0].IOErr)
 
 	blocks := parseCapacityBlocks(t, matrixArtifactText(t, results[0]), "pg_checkpointer")
-	require.Len(t, blocks, 2)
+	require.Len(t, blocks, matrixCapacitySamples)
 
-	assert.NotEqual(t, blocks[0].only(t, "bgwriter_stats_reset"), blocks[1].only(t, "bgwriter_stats_reset"),
+	// The reset fires between the opening sample and the first step, so the
+	// endpoints straddle it whatever the cadence.
+	first, last := blocks[0], blocks[len(blocks)-1]
+
+	assert.NotEqual(t, first.only(t, "bgwriter_stats_reset"), last.only(t, "bgwriter_stats_reset"),
 		"resetting bgwriter must move bgwriter's own clock")
 
 	if server.major >= 17 {
 		assert.Equal(t,
-			blocks[0].only(t, "checkpointer_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+			first.only(t, "checkpointer_stats_reset"), last.only(t, "checkpointer_stats_reset"),
 			"and must leave pg_stat_checkpointer's where it was: two views, two clocks, which is "+
 				"why one column would leave the other view's counter with an undetectable reset")
 
@@ -1294,10 +1312,10 @@ func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Tar
 	}
 
 	assert.NotEqual(t,
-		blocks[0].only(t, "checkpointer_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+		first.only(t, "checkpointer_stats_reset"), last.only(t, "checkpointer_stats_reset"),
 		"below 17 the reset takes the checkpoint counters with it, because they are one view")
 	assert.Equal(t,
-		blocks[1].only(t, "bgwriter_stats_reset"), blocks[1].only(t, "checkpointer_stats_reset"),
+		last.only(t, "bgwriter_stats_reset"), last.only(t, "checkpointer_stats_reset"),
 		"and one clock is read into both columns")
 }
 
