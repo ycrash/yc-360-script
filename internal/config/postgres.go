@@ -22,6 +22,13 @@ type Postgres struct {
 	// Pointer: nil (key omitted) takes the default; 0s is a configuration error.
 	CaptureDuration *Duration `yaml:"captureDuration"`
 
+	// Frequency is how often the periodic artifacts are sampled. Pointer: nil (key
+	// omitted) derives the cadence from the window - window/8, floored at
+	// MinPostgresFrequency and capped at 5m - which serves a two-minute incident
+	// and a two-hour test alike; 0s is a configuration error. Whatever the value,
+	// the opening and closing samples are always taken.
+	Frequency *Duration `yaml:"frequency"`
+
 	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
 	// plans: EXPLAIN carries a privilege and a load cost the other nine artifacts do not.
 	Explain string `yaml:"explain"`
@@ -45,8 +52,15 @@ const (
 	// nominal span - not the host collectors' real one: top and vmstat run ~20s.
 	DefaultPostgresCaptureDuration = 120 * time.Second
 
-	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a shared database.
-	MaxPostgresCaptureDuration = 600 * time.Second
+	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a
+	// shared database. Two hours is the spec's performance-test case; the host
+	// files stretch with it, so a long window's netstat and ps readings are far apart.
+	MaxPostgresCaptureDuration = 2 * time.Hour
+
+	// MinPostgresFrequency floors frequency. It equals the capture's per-statement
+	// timeout, pinned by a test there, so a maxed-out sample can never outrun the
+	// tick behind it; below it the timeline could not catch up under load.
+	MinPostgresFrequency = 10 * time.Second
 
 	// ExplainLogged captures only the plans the server itself logged - nothing is
 	// submitted back to the database.
@@ -91,9 +105,15 @@ func (p *Postgres) String() string {
 		window = p.CaptureDuration.String()
 	}
 
+	// Nil after Validate too: omission is the derive switch, so it stays unset.
+	frequency := "(unset, derived from the window)"
+	if p.Frequency != nil {
+		frequency = p.Frequency.String()
+	}
+
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s explain=%s agentOnDbHost=%t",
-		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, p.ExplainMode(), p.AgentOnDBHost,
+		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s frequency=%s explain=%s agentOnDbHost=%t",
+		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, frequency, p.ExplainMode(), p.AgentOnDBHost,
 	)
 }
 
@@ -135,7 +155,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
 			"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
-			"explain, agentOnDbHost)")
+			"frequency, explain, agentOnDbHost)")
 	}
 
 	if p.Port == 0 {
@@ -172,6 +192,33 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 			p.CaptureDuration, MaxPostgresCaptureDuration, MaxPostgresCaptureDuration))
 
 		p.CaptureDuration = newDuration(MaxPostgresCaptureDuration)
+	}
+
+	// Under-floor clamps and warns, as the ceiling does above; non-positive is
+	// rejected. Omitted stays nil: deriving the cadence is the capture's own
+	// arithmetic, and echoing a derived value here would present it as configured.
+	switch {
+	case p.Frequency == nil:
+
+	case p.Frequency.Duration() <= 0:
+		errs = append(errs, fmt.Errorf(
+			"postgres.frequency is %s - it must be positive (omit the key to derive the cadence from the window)",
+			p.Frequency))
+
+	case p.Frequency.Duration() < MinPostgresFrequency:
+		warnings = append(warnings, fmt.Sprintf(
+			"postgres.frequency %s is below the %s minimum - sampling every %s instead. "+
+				"A sample's statements are bounded at %s, so a faster cadence would let one slow "+
+				"sample outrun the tick behind it.",
+			p.Frequency, MinPostgresFrequency, MinPostgresFrequency, MinPostgresFrequency))
+
+		p.Frequency = newDuration(MinPostgresFrequency)
+
+	case p.CaptureDuration.Duration() > 0 && p.Frequency.Duration() >= p.CaptureDuration.Duration():
+		warnings = append(warnings, fmt.Sprintf(
+			"postgres.frequency %s is not shorter than the %s window - only the opening and "+
+				"closing samples will be taken.",
+			p.Frequency, p.CaptureDuration))
 	}
 
 	if p.Host == "" {
@@ -271,8 +318,9 @@ func newDuration(d time.Duration) *Duration {
 	return &wrapped
 }
 
-// isZero reports whether the block names no target. CaptureDuration is excluded:
-// captureDuration alone hasn't said what to capture, so that case gets the "empty" error.
+// isZero reports whether the block names no target. CaptureDuration and Frequency
+// are excluded: a window or a cadence alone hasn't said what to capture, so that
+// case gets the "empty" error.
 func (p *Postgres) isZero() bool {
 	return p.Host == "" &&
 		p.Port == 0 &&
