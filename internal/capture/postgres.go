@@ -154,6 +154,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 	// Shared, not two collectors: Explain ranks the endpoints this one retains, and
 	// never re-runs the statement behind them.
 	slowQueries := postgres.NewSlowQueries()
+	slowQueries.Interval = interval
 
 	window := &postgres.Window{
 		Target:   target,
@@ -161,12 +162,13 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 		// Registration order is sampling order on the shared tick, not a timing
 		// guarantee. Log tails go first so from_offset is set before other
-		// collectors' statements reach the log; otherwise cheapest reads go first
-		// at t0, and at the closing tick (capacity, bloat, slow queries) the
-		// reading with no second chance goes first.
+		// collectors' statements reach the log; then the cheap reads, then the
+		// three whole-table reads (capacity, bloat, slow queries), so a tick that
+		// runs long is late with the expensive reading rather than the cheap ones.
 		//
-		// pg_explain goes last on both counts: at the close it reads slowQueries' second
-		// sample, and at t0 its log tail then opens past the agent's own first plans.
+		// pg_explain goes last on both counts: at the close it reads slowQueries'
+		// closing sample, and at t0 its log tail then opens past the agent's own
+		// first plans.
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
@@ -174,8 +176,8 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.Health{Interval: interval},
 			postgres.Replication{Interval: interval},
 			metadata,
-			postgres.Capacity{},
-			postgres.Bloat{},
+			postgres.Capacity{Interval: interval},
+			postgres.Bloat{Interval: interval},
 			slowQueries,
 			postgres.NewExplain(p.explainMode(), slowQueries),
 		},

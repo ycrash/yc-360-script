@@ -84,19 +84,21 @@ func connectionGroup(application, backendType string, connections, total int64) 
 	return []any{ptr(application), ptr(backendType), connections, total}
 }
 
+// ordersConnections is in the statement's own order - application_name, then
+// backend_type - so the goldens show what a server returns: the unnamed groups first.
 func ordersConnections() [][]any {
 	const total = 10
 
 	return [][]any{
-		connectionGroup("orders-service", "client backend", 86, total),
-		connectionGroup("inventory-service", "client backend", 31, total),
-		connectionGroup("reporting-worker", "client backend", 14, total),
-		connectionGroup("", "client backend", 11, total),
 		connectionGroup("", "autovacuum launcher", 1, total),
 		connectionGroup("", "background writer", 1, total),
 		connectionGroup("", "checkpointer", 1, total),
+		connectionGroup("", "client backend", 11, total),
 		connectionGroup("", "logical replication launcher", 1, total),
 		connectionGroup("", "walwriter", 1, total),
+		connectionGroup("inventory-service", "client backend", 31, total),
+		connectionGroup("orders-service", "client backend", 86, total),
+		connectionGroup("reporting-worker", "client backend", 14, total),
 		connectionGroup(ApplicationName, "client backend", 1, total),
 	}
 }
@@ -262,11 +264,14 @@ func TestCapacityArtifact(t *testing.T) {
 	assert.Equal(t, "pg_capacity.txt", artifact.FileName)
 	assert.Equal(t, "cluster", artifact.Scope,
 		"checkpoints, connections and WAL are the server's, not the connected database's")
-	assert.Equal(t, StartEnd(), artifact.Schedule)
+	assert.Equal(t, Periodic(0), artifact.Schedule,
+		"no cadence given is the bookend alone, never a single sample")
+	assert.Equal(t, Periodic(15*time.Second), Capacity{Interval: 15 * time.Second}.Artifact().Schedule,
+		"the run's cadence, with the close as the last sample")
 
 	assert.Equal(t, 3*StatementTimeout, artifact.SampleBudget,
-		"three statements on the closing sample, which is what moduleDeadline sums - "+
-			"leaving it zero would size the shared tick for two")
+		"three statements on every sample, and Periodic's last sample is the close, which "+
+			"moduleDeadline sums - leaving it zero would size the shared tick for two")
 }
 
 func TestCapacityColumnOrder(t *testing.T) {
@@ -387,27 +392,15 @@ func TestCapacityWritesBothResetClocks(t *testing.T) {
 	assert.NotEmpty(t, rows[0][colCheckpointerReset], "which is a value, not two empty cells")
 }
 
-func TestCapacityWritesTheGaugesOnlyAsTheWindowCloses(t *testing.T) {
+func TestCapacityWritesAllThreeBlocksOnEverySample(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		index, total int
-		want         []string
 	}{
-		{
-			name:  "the opening sample writes the counters alone",
-			index: 1, total: 2,
-			want: []string{"pg_checkpointer"},
-		},
-		{
-			name:  "the closing sample writes all three",
-			index: 2, total: 2,
-			want: []string{"pg_checkpointer", "pg_stat_activity_by_app", "pg_ls_waldir"},
-		},
-		{
-			name:  "and a window with one sample writes all three at t0",
-			index: 1, total: 1,
-			want: []string{"pg_checkpointer", "pg_stat_activity_by_app", "pg_ls_waldir"},
-		},
+		{name: "the opening sample", index: 1, total: 3},
+		{name: "a sample between the endpoints", index: 2, total: 3},
+		{name: "the closing sample", index: 3, total: 3},
+		{name: "and a window with one sample", index: 1, total: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -421,7 +414,9 @@ func TestCapacityWritesTheGaugesOnlyAsTheWindowCloses(t *testing.T) {
 				sources = append(sources, source)
 			}
 
-			assert.ElementsMatch(t, tc.want, sources)
+			assert.ElementsMatch(t, []string{"pg_checkpointer", "pg_stat_activity_by_app", "pg_ls_waldir"}, sources,
+				"the gauges once landed on the closing sample alone; as a series they show "+
+					"connections climbing and WAL growing through the window")
 		})
 	}
 }
@@ -459,7 +454,7 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 		assert.Empty(t, blocks["pg_checkpointer"].rows(t, checkpointColumns))
 
 		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10,
-			"the gauges still land: they have exactly one chance in the run")
+			"the gauges beside it still land")
 		assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
 	})
 
@@ -530,19 +525,14 @@ func TestCapacityWritesTheWholeSampleInOneWrite(t *testing.T) {
 }
 
 func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
-	opening := newFakeCapacityConn()
-	require.NoError(t, Capacity{}.Sample(context.Background(), opening, io.Discard,
-		capacitySampleContext(1, 2)))
+	for _, s := range []SampleContext{capacitySampleContext(1, 2), capacitySampleContext(2, 2)} {
+		conn := newFakeCapacityConn()
+		require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, s))
 
-	assert.Equal(t, []string{checkpointSQL}, opening.sql)
-
-	closing := newFakeCapacityConn()
-	require.NoError(t, Capacity{}.Sample(context.Background(), closing, io.Discard,
-		capacitySampleContext(2, 2)))
-
-	assert.Equal(t, []string{checkpointSQL, connectionsSQL, walSQL}, closing.sql,
-		"three statements, which is what Artifact().SampleBudget declares and what "+
-			"Window.moduleDeadline sizes the shared closing tick from")
+		assert.Equal(t, []string{checkpointSQL, connectionsSQL, walSQL}, conn.sql,
+			"sample %d: three statements, which is what Artifact().SampleBudget declares and "+
+				"what Window.moduleDeadline sizes the shared closing tick from", s.Index)
+	}
 }
 
 func TestCapacityConnectionBlockGroupsRatherThanFilters(t *testing.T) {
@@ -557,12 +547,15 @@ func TestCapacityConnectionBlockGroupsRatherThanFilters(t *testing.T) {
 	rows := block.rows(t, connectionColumns)
 	require.Len(t, rows, 10)
 
-	assert.Equal(t, []string{"orders-service", "client backend", "86"}, rows[0])
+	assert.Equal(t, []string{"", "autovacuum launcher", "1"}, rows[0],
+		"identity order: the unnamed groups sort before any application")
 	assert.Equal(t, []string{"", "client backend", "11"}, rows[3],
 		"a connection that never set an application_name is an empty string, not a NULL")
-	assert.Equal(t, []string{"", "checkpointer", "1"}, rows[6],
+	assert.Equal(t, []string{"", "checkpointer", "1"}, rows[2],
 		"a background process is its own row: under an unfiltered GROUP BY application_name it "+
 			"was an unnamed client connection, in a number read against max_connections")
+	assert.Equal(t, []string{"orders-service", "client backend", "86"}, rows[7],
+		"the group holding the most connections is wherever its name sorts")
 	assert.Equal(t, []string{ApplicationName, "client backend", "1"}, rows[9],
 		"the agent's own connection stays, so the block agrees with a hand-run count(*)")
 }
@@ -585,12 +578,12 @@ func TestCapacityMaskedBackendTypeRendersEmpty(t *testing.T) {
 		"and it sees its own backend in full")
 }
 
-func TestCapacityCapKeepsTheGroupsHoldingTheConnections(t *testing.T) {
+func TestCapacityCapCutsOnIdentitySoSamplesAgree(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.connections = repeat(rowsResult([][]any{
-		connectionGroup("orders-service", "client backend", 86, 4120),
+		connectionGroup("", "checkpointer", 1, 4120),
 		connectionGroup("inventory-service", "client backend", 31, 4120),
-		connectionGroup("reporting-worker", "client backend", 14, 4120),
+		connectionGroup("orders-service", "client backend", 86, 4120),
 	}))
 
 	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{MaxConnectionGroups: 3}))["pg_stat_activity_by_app"]
@@ -598,18 +591,20 @@ func TestCapacityCapKeepsTheGroupsHoldingTheConnections(t *testing.T) {
 	assert.Contains(t, block.header, "groups_written=3 groups_total=4120 truncated=true",
 		"a capped block must not read as a complete one")
 
-	rows := block.rows(t, connectionColumns)
-	require.Len(t, rows, 3)
-
-	assert.Equal(t, []string{"86", "31", "14"}, []string{
-		rows[0][colActiveConnections], rows[1][colActiveConnections], rows[2][colActiveConnections],
-	}, "the survivors are the groups holding the connections, which is what the statement's "+
-		"ORDER BY count(*) DESC is for")
+	require.Len(t, block.rows(t, connectionColumns), 3)
 
 	require.Len(t, conn.connectionsArgs, 1)
 	assert.Equal(t, []any{3}, conn.connectionsArgs[0], "the cap is the LIMIT the server is sent")
-	assert.Contains(t, connectionsSQL, "ORDER BY count(*) DESC, application_name, backend_type",
-		"asserted on the statement, because the fake cannot rank for the server")
+
+	assert.Contains(t, connectionsSQL, "ORDER BY application_name, backend_type",
+		"asserted on the statement, because the fake cannot sort for the server: the cap cuts "+
+			"on identity, so every sample keeps the same groups and the server can read one "+
+			"sample against the next")
+	assert.NotContains(t, connectionsSQL, "count(*) DESC",
+		"a cap ordered by count(*) was safe while the block was written once; sampled "+
+			"repeatedly it would let two samples keep two different sets with nothing in "+
+			"common to delta. What identity order costs: the groups holding the most "+
+			"connections can fall past the cap, which groups_total= and truncated= report")
 }
 
 func TestCapacityDefaultCapIsSentWhenUnset(t *testing.T) {
@@ -656,7 +651,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, four sample blocks")
+	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, six sample blocks")
 	assert.Equal(t, bloatGolden(t, "pg_capacity_pg17.txt"), artifactText(t, results[0]))
 }
 
@@ -679,7 +674,8 @@ func TestCapacityGoldenWALDenied(t *testing.T) {
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status,
-		"the least-privilege role gets two populated blocks and one that says why it is empty")
+		"on every sample, the least-privilege role gets two populated blocks and one that "+
+			"says why it is empty")
 	assert.Equal(t, bloatGolden(t, "pg_capacity_wal_denied.txt"), artifactText(t, results[0]))
 }
 

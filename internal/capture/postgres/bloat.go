@@ -33,7 +33,7 @@ var bloatColumns = []string{
 // could exceed statement_timeout and lose the dead-tuple counts with it.
 
 // ORDER BY relid for determinism only: ordering on a statistic would change
-// between the two samples and cap on two different table sets.
+// between samples and cap on two different table sets.
 const bloatStatsSQL = `SELECT relid,
        schemaname::text,
        relname::text,
@@ -59,19 +59,25 @@ const bloatSizesSQL = `SELECT o AS relid,
 FROM unnest($1::oid[]) AS o
 LEFT JOIN pg_catalog.pg_class c ON c.oid = o`
 
-// Bloat captures pg_stat_user_tables at both edges of the window; deltas are
-// computed downstream by joining the two blocks on relid.
+// Bloat captures pg_stat_user_tables every sample; deltas are computed
+// downstream by joining consecutive blocks on relid.
 type Bloat struct {
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	Interval time.Duration
+
 	// MaxTables bounds one sample. Zero takes DefaultMaxTables.
 	MaxTables int
 }
 
-func (Bloat) Artifact() Artifact {
+func (b Bloat) Artifact() Artifact {
 	return Artifact{
 		Name:     "pg_bloat",
 		FileName: "pg_bloat.txt",
 		Scope:    "database",
-		Schedule: StartEnd(),
+		Schedule: Periodic(b.Interval),
+
+		// No SampleBudget: two statements is DefaultSampleBudget already. Periodic's
+		// last sample is the close, so moduleDeadline sums it there like the others.
 	}
 }
 
