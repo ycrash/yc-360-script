@@ -9,9 +9,6 @@ import (
 	"time"
 )
 
-// DefaultHealthInterval is pg_health.txt's cadence.
-const DefaultHealthInterval = 10 * time.Second
-
 // DefaultMaxDatabases bounds one sample.
 const DefaultMaxDatabases = 1000
 
@@ -77,7 +74,7 @@ var (
 // Health captures pg_stat_database each tick. Every column but the timestamps
 // is a cumulative counter - the server does no delta arithmetic.
 type Health struct {
-	// Interval is the cadence. Zero takes DefaultHealthInterval.
+	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxDatabases bounds one sample. Zero takes DefaultMaxDatabases.
@@ -89,7 +86,11 @@ func (h Health) Artifact() Artifact {
 		Name:     "pg_health",
 		FileName: "pg_health.txt",
 		Scope:    "cluster",
-		Schedule: Every(h.interval()),
+		Schedule: Periodic(h.Interval),
+
+		// One statement, not DefaultSampleBudget's two. Periodic's last sample is
+		// the close, so this is summed against every other closing-tick collector.
+		SampleBudget: StatementTimeout,
 	}
 }
 
@@ -220,14 +221,6 @@ func connectedOID(dbid string) *uint32 {
 	value := uint32(oid)
 
 	return &value
-}
-
-func (h Health) interval() time.Duration {
-	if h.Interval <= 0 {
-		return DefaultHealthInterval
-	}
-
-	return h.Interval
 }
 
 func (h Health) maxDatabases() int {

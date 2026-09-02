@@ -205,8 +205,8 @@ func runReplicationWindow(t *testing.T, clock *scriptedClock,
 
 	window := &Window{
 		Target:     testTarget(),
-		Duration:   30 * time.Second,
-		Collectors: []Collector{Replication{}},
+		Duration:   20 * time.Second,
+		Collectors: []Collector{Replication{Interval: 10 * time.Second}},
 		now:        clock.now,
 		after:      clock.after,
 		connect:    connect,
@@ -239,16 +239,14 @@ func TestReplicationArtifact(t *testing.T) {
 	assert.Equal(t, "cluster", artifact.Scope,
 		"WAL senders and slots are the server's, not the connected database's")
 
-	assert.Equal(t, Every(DefaultReplicationInterval), artifact.Schedule)
-	assert.Equal(t, 10*time.Second, DefaultReplicationInterval, "12 samples on the default window")
+	assert.Equal(t, Periodic(0), artifact.Schedule)
 
 	assert.Zero(t, artifact.SampleBudget,
-		"two statements is exactly DefaultSampleBudget, and an interval collector's offsets are "+
-			"strictly inside the window - so it never reaches the closing tick moduleDeadline "+
-			"sums budgets for, and has nothing to declare")
+		"two statements is exactly DefaultSampleBudget, which is what this collector now "+
+			"contributes to the closing tick Periodic lands it on - nothing to restate")
 
-	assert.Equal(t, Every(2*time.Second), Replication{Interval: 2 * time.Second}.Artifact().Schedule,
-		"and a configured interval is carried through")
+	assert.Equal(t, Periodic(2*time.Second), Replication{Interval: 2 * time.Second}.Artifact().Schedule,
+		"and the run's cadence is carried through")
 }
 
 func TestReplicationColumnOrder(t *testing.T) {

@@ -1,4 +1,4 @@
-# engine=postgres source=pg_health v=1 format=csv scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_health v=1 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_stat_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 databases_written=5 databases_total=5 truncated=false sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:05.061Z
 datid,datname,blks_hit,blks_read,xact_commit,xact_rollback,temp_files,temp_bytes,deadlocks,sessions_fatal,stats_reset
 0,,182044,9120,0,0,0,0,0,,
