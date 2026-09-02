@@ -74,7 +74,7 @@ var (
 // Health captures pg_stat_database each tick. Every column but the timestamps
 // is a cumulative counter - the server does no delta arithmetic.
 type Health struct {
-	// Interval is the cadence, one run's DefaultInterval. Zero is the bookend alone.
+	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxDatabases bounds one sample. Zero takes DefaultMaxDatabases.

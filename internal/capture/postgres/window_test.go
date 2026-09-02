@@ -582,7 +582,8 @@ func TestWindowModuleDeadlineOnADegenerateWindowCoversEveryCollector(t *testing.
 }
 
 func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
-	interval := DefaultInterval(120 * time.Second)
+	// Any Periodic cadence lands its last sample on the close; the spec's incident case.
+	interval := 30 * time.Second
 
 	window := &Window{
 		Duration: 120 * time.Second,
@@ -600,7 +601,8 @@ func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
 }
 
 func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
-	interval := DefaultInterval(120 * time.Second)
+	// Any Periodic cadence lands its last sample on the close; the spec's incident case.
+	interval := 30 * time.Second
 
 	real := []Collector{
 		Sessions{Interval: interval}, Health{Interval: interval}, Replication{Interval: interval},
@@ -1135,72 +1137,6 @@ func TestScheduleOffsets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.schedule.offsets(tc.window))
 		})
-	}
-}
-
-func TestDefaultIntervalScalesWithTheWindow(t *testing.T) {
-	const s = time.Second
-
-	for _, tc := range []struct {
-		name    string
-		window  time.Duration
-		want    time.Duration
-		samples int
-	}{
-		{
-			name:   "the default window: eight steps and the close",
-			window: 120 * s, want: 15 * s, samples: 9,
-		},
-		{
-			name:   "the longest window config accepts today",
-			window: 600 * s, want: 75 * s, samples: 9,
-		},
-		{
-			name:   "a short incident window takes the floor, not a proportion of nothing",
-			window: 40 * s, want: StatementTimeout, samples: 5,
-		},
-		{
-			name:   "eighty seconds is where the proportion meets the floor",
-			window: 80 * s, want: StatementTimeout, samples: 9,
-		},
-		{
-			name:   "a window shorter than the floor gets the bookend, which is all it can honestly report",
-			window: 6 * s, want: StatementTimeout, samples: 2,
-		},
-		{
-			name:   "forty minutes is where the proportion meets the cap",
-			window: 40 * time.Minute, want: MaxDefaultInterval, samples: 9,
-		},
-		{
-			name:   "and the two hours the spec asks for stays at the cap",
-			window: 2 * time.Hour, want: MaxDefaultInterval, samples: 25,
-		},
-		{
-			name:   "a window that never started is the floor, not a division by zero",
-			window: 0, want: StatementTimeout, samples: 1,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			interval := DefaultInterval(tc.window)
-
-			assert.Equal(t, tc.want, interval)
-			assert.Len(t, Periodic(interval).offsets(tc.window), tc.samples,
-				"what the operator actually gets, which is the number this constant exists to set")
-		})
-	}
-}
-
-func TestDefaultIntervalNeverOutrunsAStatement(t *testing.T) {
-	for _, window := range []time.Duration{
-		-time.Minute, 0, time.Second, 30 * time.Second, 120 * time.Second,
-		600 * time.Second, 2 * time.Hour, 24 * time.Hour,
-	} {
-		assert.GreaterOrEqual(t, DefaultInterval(window), StatementTimeout,
-			"a cadence faster than a sample's own deadline is a timeline that can never "+
-				"catch up: window %s", window)
-		assert.LessOrEqual(t, DefaultInterval(window), MaxDefaultInterval,
-			"and past the cap a longer window buys coarser samples and nothing else: window %s",
-			window)
 	}
 }
 

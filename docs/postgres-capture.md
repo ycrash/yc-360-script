@@ -15,6 +15,7 @@ options:
     password: ${YC_PG_PASSWORD}
     sslmode: require
     captureDuration: 120s
+    frequency: 30s
     explain: logged
 ```
 
@@ -28,14 +29,14 @@ to `5432`, `postgres`, `require` and `120s`. `captureDuration` is capped at
     frequency: 30s
 ```
 
-Omit it and the cadence is derived from the window: `captureDuration` divided
-by eight, never below `10s` and never above `5m`. The default window therefore
-samples nine times, and a two-hour window every five minutes. Set the key to
-override that. A value below `10s` is raised to `10s` with a warning, because a
-sample's statements are bounded at `10s` and a faster cadence would let one slow
-sample outrun the tick behind it. Whatever the value, the opening and closing
-samples are always taken, so a `frequency` no shorter than the window still
-yields those two and warns that it will.
+It defaults to `5m`, which suits a long capture: a two-hour window samples
+twenty-five times. It does not fit the default two-minute window, so a block that
+sets neither key takes the opening and closing samples only, and the run warns
+that it will. An incident capture that wants to see a blocking chain form and
+clear sets `frequency: 30s`, as the example above does. A value below `10s` is
+raised to `10s` with a warning, because a sample's statements are bounded at
+`10s` and a faster cadence would let one slow sample outrun the tick behind it.
+Whatever the value, the opening and closing samples are always taken.
 
 ### `agentOnDbHost` — only for a database that cannot answer
 
