@@ -815,58 +815,6 @@ func TestSlowQueriesArtifact(t *testing.T) {
 		"a preflight and two reads, which moduleDeadline sums against Capacity and Bloat")
 }
 
-func TestSlowQueriesMiddleSampleIsWrittenButNotRetained(t *testing.T) {
-	conn := newFakeSlowQueriesConn(healthyExtension())
-	conn.statements = queue(
-		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsStart)}, 1)),
-		rowsResult(statementValues([]statementRow{pg18Statement(ordersInventoryStart)}, 1)),
-		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsEnd)}, 1)),
-	)
-
-	sq := NewSlowQueries()
-
-	samples := make([]string, 0, 3)
-
-	for index := 1; index <= 3; index++ {
-		s := slowQueriesSampleContext()
-		s.Index, s.Total = index, 3
-
-		var buf bytes.Buffer
-		require.NoError(t, sq.Sample(context.Background(), conn, &buf, s))
-
-		samples = append(samples, buf.String())
-	}
-
-	assert.Less(t, strings.Index(samples[0], "source=pg_stat_statements_info"),
-		strings.Index(samples[0], "source=pg_stat_statements "),
-		"the opening sample reads info first")
-
-	for _, index := range []int{1, 2} {
-		assert.Greater(t, strings.Index(samples[index], "source=pg_stat_statements_info"),
-			strings.Index(samples[index], "source=pg_stat_statements "),
-			"sample %d reads info last: a middle sample takes the closing order, so the "+
-				"first and last info readings still enclose everything between them", index+1)
-	}
-
-	assert.Contains(t, samples[1], ordersInventoryStart.query,
-		"the middle sample is written in full")
-
-	endpoints := sq.rankingEndpoints()
-	require.True(t, endpoints.startRead)
-	require.True(t, endpoints.endRead)
-
-	_, ok := endpoints.start[statementKey{queryid: ordersItemsStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}]
-	assert.True(t, ok, "the opening sample is the start endpoint")
-
-	require.Len(t, endpoints.end, 1)
-	assert.Equal(t, ordersItemsEnd.query, *endpoints.end[0].query,
-		"the closing sample is the end endpoint")
-
-	_, retained := endpoints.start[statementKey{queryid: ordersInventoryStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}]
-	assert.False(t, retained,
-		"and the middle sample is neither: the ranking's delta spans the whole window")
-}
-
 func slowQueriesGoldenClock(t *testing.T) *scriptedClock {
 	return newScriptedClock(t,
 		at(32, 4, 980),
@@ -1032,106 +980,106 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 
 // --- endpoint retention, which pg_explain.txt ranks (never written here) -----
 
-func TestSlowQueriesRetainsBothEndpoints(t *testing.T) {
+func TestSlowQueriesOffersEverySampleToExplainOnce(t *testing.T) {
 	conn := newFakeSlowQueriesConn(healthyExtension())
-	conn.statements = []fakeResult{
+	conn.statements = queue(
 		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsStart)}, 1)),
+		rowsResult(statementValues([]statementRow{pg18Statement(ordersInventoryStart)}, 1)),
 		rowsResult(statementValues([]statementRow{pg18Statement(ordersItemsEnd)}, 1)),
-	}
+	)
 
 	sq := NewSlowQueries()
 
-	var buf bytes.Buffer
-	for index := 1; index <= 2; index++ {
+	samples := make([]string, 0, 3)
+
+	for index := 1; index <= 3; index++ {
 		s := slowQueriesSampleContext()
-		s.Index, s.Total = index, 2
+		s.Index, s.Total = index, 3
 
+		var buf bytes.Buffer
 		require.NoError(t, sq.Sample(context.Background(), conn, &buf, s))
+
+		samples = append(samples, buf.String())
+
+		feed, ok := sq.feed(s)
+		require.True(t, ok, "sample %d is offered to the tick that read it", index)
+		assert.Equal(t, index, feed.sample)
+		assert.True(t, feed.read)
+		assert.False(t, feed.truncated)
+		require.Len(t, feed.rows, 1)
+		assert.NotNil(t, feed.rows[0].query,
+			"the feed keeps its text: it is the only place the generic mode's normalized "+
+				"statement exists")
+
+		_, again := sq.feed(s)
+		assert.False(t, again, "and taken once")
 	}
 
-	endpoints := sq.rankingEndpoints()
+	assert.Less(t, strings.Index(samples[0], "source=pg_stat_statements_info"),
+		strings.Index(samples[0], "source=pg_stat_statements "),
+		"the opening sample reads info first")
 
-	require.True(t, endpoints.startRead)
-	require.True(t, endpoints.endRead)
-
-	key := statementKey{queryid: ordersItemsStart.queryid, userid: "10", dbid: "16401", toplevel: "true"}
-
-	start, ok := endpoints.start[key]
-	require.True(t, ok, "the opening sample is keyed on queryid, userid, dbid and toplevel together")
-	assert.Equal(t, ordersItemsStart.execTime, *start.totalExecTime)
-	assert.Equal(t, &testStatsSince, start.statsSince)
-
-	require.Len(t, endpoints.end, 1)
-	assert.Equal(t, ordersItemsEnd.execTime, *endpoints.end[0].totalExecTime)
-	assert.Equal(t, ordersItemsEnd.query, *endpoints.end[0].query,
-		"the closing sample keeps its text: it is the only place the generic mode's "+
-			"normalized statement exists")
-
-	assert.False(t, endpoints.startTruncated)
-	assert.False(t, endpoints.endTruncated)
-
-	require.NotNil(t, endpoints.startInfo)
-	require.NotNil(t, endpoints.endInfo)
-	assert.Equal(t, testInfoStatsReset, *endpoints.endInfo.statsReset,
-		"the two info reads bracket the window, which is how a reset between them is seen")
-}
-
-func TestSlowQueriesRetentionHoldsNoTextAtTheOpeningEndpoint(t *testing.T) {
-	conn := newFakeSlowQueriesConn(healthyExtension())
-	conn.statements = repeat(rowsResult(statementValues([]statementRow{
-		pg18Statement(ordersItemsStart),
-	}, 1)))
-
-	sq := NewSlowQueries()
-
-	s := slowQueriesSampleContext()
-	s.Index, s.Total = 1, 2
-
-	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
-
-	endpoints := sq.rankingEndpoints()
-	require.Len(t, endpoints.start, 1)
-	assert.Empty(t, endpoints.end, "the closing endpoint has not happened yet")
-
-	for _, projection := range endpoints.start {
-		assert.NotNil(t, projection.totalExecTime)
+	for _, index := range []int{1, 2} {
+		assert.Greater(t, strings.Index(samples[index], "source=pg_stat_statements_info"),
+			strings.Index(samples[index], "source=pg_stat_statements "),
+			"sample %d reads info last: a middle sample takes the closing order, so the "+
+				"first and last info readings still enclose everything between them", index+1)
 	}
+
+	assert.Contains(t, samples[1], ordersInventoryStart.query,
+		"the middle sample is written in full, and offered like any other: with no "+
+			"delta to compute, it is as good a feed as an endpoint")
 }
 
-func TestSlowQueriesRetentionSkipsAMaskedQueryid(t *testing.T) {
-	conn := newFakeSlowQueriesConn(healthyExtension())
-	conn.statements = repeat(rowsResult(statementValues([]statementRow{
-		maskedStatement(ordersItemsStart),
-		pg18Statement(ordersInventoryStart),
-	}, 2)))
-
+func TestSlowQueriesFeedIsOfferedToItsOwnSampleOnly(t *testing.T) {
 	sq := NewSlowQueries()
+	sq.retain(SampleContext{Index: 2}, []statementRow{pg18Statement(ordersItemsEnd)}, false)
 
-	s := slowQueriesSampleContext()
-	s.Index, s.Total = 1, 2
+	_, ok := sq.feed(SampleContext{Index: 1})
+	assert.False(t, ok, "another sample's read is not this sample's")
 
-	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
-
-	assert.Len(t, sq.rankingEndpoints().start, 1,
-		"a NULL queryid cannot key a join; the prefilter counts those from the end read")
+	feed, ok := sq.feed(SampleContext{Index: 2})
+	require.True(t, ok)
+	assert.Equal(t, 2, feed.sample)
 }
 
-func TestSlowQueriesRetainsNothingWhenTheReadFailed(t *testing.T) {
-	conn := newFakeSlowQueriesConn(healthyExtension())
-	conn.statements = repeat(fakeResult{err: errors.New("ERROR: permission denied")})
+func TestSlowQueriesOffersTheReasonWhenThereWereNoRows(t *testing.T) {
+	t.Run("the read failed", func(t *testing.T) {
+		conn := newFakeSlowQueriesConn(healthyExtension())
+		conn.statements = repeat(fakeResult{err: errors.New("ERROR: permission denied")})
 
-	sq := NewSlowQueries()
+		sq := NewSlowQueries()
 
-	s := slowQueriesSampleContext()
-	s.Index, s.Total = 1, 2
+		s := slowQueriesSampleContext()
+		s.Index, s.Total = 1, 2
 
-	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+		require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
 
-	assert.False(t, sq.rankingEndpoints().startRead,
-		"an unread endpoint must not read as an empty one: every row would look new")
+		feed, ok := sq.feed(s)
+		require.True(t, ok, "offered, so Explain can say why rather than report an idle database")
+		assert.False(t, feed.read, "an unread sample must not read as an empty one: every row would look new")
+		assert.Empty(t, feed.rows)
+		assert.Contains(t, feed.reason, "permission denied")
+	})
+
+	t.Run("the extension is absent", func(t *testing.T) {
+		conn := newFakeSlowQueriesConn(absentExtension())
+
+		sq := NewSlowQueries()
+
+		s := slowQueriesSampleContext()
+		s.Index, s.Total = 1, 2
+
+		require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
+
+		feed, ok := sq.feed(s)
+		require.True(t, ok)
+		assert.False(t, feed.read)
+		assert.Equal(t, reasonExtensionAbsent, feed.reason, "the extension's own reason, verbatim")
+	})
 }
 
-func TestSlowQueriesOneTickWindowRetainsOnlyTheClose(t *testing.T) {
+func TestSlowQueriesOneTickWindowOffersItsOnlySample(t *testing.T) {
 	conn := newFakeSlowQueriesConn(healthyExtension())
 	conn.statements = repeat(rowsResult(statementValues([]statementRow{
 		pg18Statement(ordersItemsEnd),
@@ -1144,9 +1092,10 @@ func TestSlowQueriesOneTickWindowRetainsOnlyTheClose(t *testing.T) {
 
 	require.NoError(t, sq.Sample(context.Background(), conn, &bytes.Buffer{}, s))
 
-	endpoints := sq.rankingEndpoints()
-	assert.False(t, endpoints.startRead)
-	assert.True(t, endpoints.endRead)
+	feed, ok := sq.feed(s)
+	require.True(t, ok)
+	assert.True(t, feed.read)
+	require.Len(t, feed.rows, 1)
 }
 
 func TestStatementKeyTreatsNullToplevelAsAValue(t *testing.T) {

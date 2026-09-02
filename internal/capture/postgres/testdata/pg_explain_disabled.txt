@@ -1,3 +1,3 @@
-# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=start_end interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 reason=explain_disabled bytes=0 ts=2026-08-07T14:34:05.140Z
 # engine=postgres source=pg_explain v=1 format=text scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z
