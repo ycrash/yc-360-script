@@ -238,7 +238,7 @@ the `postgres` default most candidates are counted `excluded_other_database` and
 `pg_stat_statements` is usually absent there, so the ranking falls back to
 `pg_stat_activity` and finds an idle maintenance database.
 
-**Without `pg_monitor`, four artifacts lose data, and they lose it four
+**Without `pg_monitor`, five artifacts lose data, and they lose it five
 different ways.**
 
 A role holding only `LOGIN` is *denied* some statements outright. Those failures
@@ -314,6 +314,16 @@ not `has_pg_monitor_role`: that is the gate the server actually applies, and a
 role granted `pg_read_all_stats` directly sees everything while the monitor flag
 says false. `pg_monitor` includes it, which is why the one grant above is still
 the whole answer.
+
+`pg_tablespaces.txt` is the fifth case and the smallest. `pg_tablespace_size`
+refuses a tablespace the role holds no `CREATE` on, unless it is the database's
+own default tablespace or the role has `pg_read_all_stats` — and an error raised
+inside a select list aborts the whole statement, so the capture guards the call
+with that same rule rather than letting one refusal cost every row. A size the
+role may not read is an **empty cell, never `0`**, and the block's header counts
+them as `sizes_unread=`. Under `LOGIN` alone that is every tablespace but the
+default one; the artifact is still `status=complete`, and `has_pg_read_all_stats`
+is again the flag that says why.
 
 ## What leaves the database
 

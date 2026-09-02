@@ -178,6 +178,14 @@ type Metadata struct {
 	// ConnectMS is the dial: TCP, TLS and authentication. What people reach for
 	// ping.out expecting. Empty when the connection never happened.
 	ConnectMS string
+
+	// Tablespaces are the ones with storage outside the data directory, written
+	// as their own block (spcname, location) so the server can set
+	// pg_tablespaces.txt's sizes against the mounts df.out measures. Not rows of
+	// the server block: one key per tablespace would make a name load-bearing.
+	// TablespaceError is that read's failure, carried on the block's header.
+	Tablespaces     []Tablespace
+	TablespaceError string
 }
 
 // MetadataCollector writes the target block before connecting and the server block from the one
@@ -188,7 +196,7 @@ type MetadataCollector struct {
 	agentNow     time.Time
 
 	// collect is a test seam; nil in production, since mode detection can't be faked through a Querier.
-	collect func(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata
+	collect func(ctx context.Context, q RowQuerier, t Target, agentNow time.Time) Metadata
 
 	declaredOnDBHost bool
 	afterCollect     func(Metadata)
@@ -271,8 +279,10 @@ func (m *MetadataCollector) WriteOpening(w io.Writer, s SampleContext) error {
 	}, targetFields(m.collected), s.At)
 }
 
-// Sample writes what the server said; Collect never errors (each probe records its own failure),
-// so only the write can fail.
+// Sample writes what the server said, and the tablespace locations beside it;
+// Collect never errors (each probe records its own failure), so only the write
+// can fail. The two blocks go in one write, so a failure cannot leave the server
+// block without the block that names its volumes.
 func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	collected := m.collectWith(ctx, q)
 
@@ -288,13 +298,24 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 	m.collected = collected
 	collected = m.ResolveHostDecision()
 
-	err := writeMetadataBlock(w, "pg_metadata_server", []headerField{
+	header := []headerField{
 		{"db", s.Database},
 		{"dbid", s.DBID},
 		{"sample", strconv.Itoa(s.Index)},
-	}, serverBlockFields(collected), s.At)
+	}
 
-	// After the block, so a failed write cannot also lose the host capture.
+	var blocks bytes.Buffer
+
+	err := writeMetadataBlock(&blocks, "pg_metadata_server", header, serverBlockFields(collected), s.At)
+	if err == nil {
+		err = writeTablespaceBlock(&blocks, header, collected, s.At)
+	}
+
+	if err == nil {
+		_, err = w.Write(blocks.Bytes())
+	}
+
+	// After the blocks, so a failed write cannot also lose the host capture.
 	if m.afterCollect != nil {
 		m.afterCollect(collected)
 	}
@@ -314,7 +335,7 @@ func (m *MetadataCollector) ResolveHostDecision() Metadata {
 	return m.collected
 }
 
-func (m *MetadataCollector) collectWith(ctx context.Context, q Querier) Metadata {
+func (m *MetadataCollector) collectWith(ctx context.Context, q RowQuerier) Metadata {
 	if m.collect != nil {
 		return m.collect(ctx, q, m.target, m.agentNow)
 	}
@@ -342,9 +363,9 @@ func writeMetadataBlock(w io.Writer, source string, header []headerField, fields
 // metadataScope is "cluster": db=/dbid= mean connected through, not about.
 const metadataScope = "cluster"
 
-// Collect runs the three statements and resolves the capture mode; never errors, since each probe
+// Collect runs the four statements and resolves the capture mode; never errors, since each probe
 // records its own failure. Split along the privilege boundary, so one missing grant costs one section.
-func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metadata {
+func Collect(ctx context.Context, q RowQuerier, t Target, agentNow time.Time) Metadata {
 	m := Metadata{
 		AgentTS:        agentNow,
 		TargetHost:     t.Host,
@@ -370,7 +391,23 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time) Metad
 
 	collectReplication(ctx, q, &m, t.Password)
 
+	collectTablespaces(ctx, q, &m, t.Password)
+
 	return m
+}
+
+// collectTablespaces records failure in TablespaceError and leaves the list
+// empty; the block is still written, header-only, so an absent block can never
+// mean the read never ran.
+func collectTablespaces(ctx context.Context, q RowQuerier, m *Metadata, password string) {
+	tablespaces, err := readTablespaces(ctx, q)
+	if err != nil {
+		m.TablespaceError = errorText(err, password)
+
+		return
+	}
+
+	m.Tablespaces = tablespaces
 }
 
 // collectServerFacts records failure in QueryError and leaves its fields empty; target block and

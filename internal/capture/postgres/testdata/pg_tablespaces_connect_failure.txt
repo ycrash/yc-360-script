@@ -1,0 +1,2 @@
+# engine=postgres source=pg_tablespaces v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_tablespaces v=1 format=csv scope=cluster db=orders_db dbid= status=connect_failed samples_expected=2 samples_written=0 connect_error=too_many_connections ts=2026-08-07T14:32:09.994Z

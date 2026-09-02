@@ -18,12 +18,6 @@ import (
 // describes the machine the agent runs on and is taken only where it is not, so
 // heartbeat numbers can be judged against the machine that measured them.
 
-// tablespaceSQL lists the locations outside the data directory. Read every poll:
-// a tablespace can be created while the server runs, and the list is tiny.
-const tablespaceSQL = `SELECT pg_tablespace_location(oid)
-FROM pg_catalog.pg_tablespace
-WHERE pg_tablespace_location(oid) <> ''`
-
 // readRunnerHealth takes the two numbers that say whether the runner itself was
 // struggling. Skipped on a confirmed database host, where the top capture covers it.
 func (p *PollResult) readRunnerHealth() {
@@ -93,7 +87,8 @@ func (p *PollResult) readDisk(ctx context.Context, q RowQuerier, dataDirectory, 
 func (p *PollResult) databasePaths(ctx context.Context, q RowQuerier, dataDirectory, password string) []string {
 	paths := []string{dataDirectory, filepath.Join(dataDirectory, "pg_wal")}
 
-	locations, err := readTablespaceLocations(ctx, q)
+	// The reader pg_metadata.txt's location block shares (tablespaces.go).
+	tablespaces, err := readTablespaces(ctx, q)
 	if err != nil {
 		// One missing grant costs the tablespaces, not the reading.
 		p.Notes = append(p.Notes, "tablespace locations unread: "+errorText(err, password))
@@ -101,33 +96,11 @@ func (p *PollResult) databasePaths(ctx context.Context, q RowQuerier, dataDirect
 		return paths
 	}
 
-	return append(paths, locations...)
-}
-
-func readTablespaceLocations(ctx context.Context, q RowQuerier) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
-	defer cancel()
-
-	rows, err := q.Query(ctx, tablespaceSQL)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var locations []string
-
-	for rows.Next() {
-		var location *string
-		if err := rows.Scan(&location); err != nil {
-			return nil, err
-		}
-
-		if location != nil && *location != "" {
-			locations = append(locations, *location)
-		}
+	for _, tablespace := range tablespaces {
+		paths = append(paths, tablespace.Location)
 	}
 
-	return locations, rows.Err()
+	return paths
 }
 
 // volume is one path's answer, in bytes as a non-root user sees them.
