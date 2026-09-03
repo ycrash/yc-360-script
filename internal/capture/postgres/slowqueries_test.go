@@ -1113,3 +1113,51 @@ func TestStatementKeyTreatsNullToplevelAsAValue(t *testing.T) {
 			"merge rows the server's own key keeps apart")
 	assert.Empty(t, nullKey.toplevel)
 }
+
+func TestSlowQueriesHoldsOnlyTheLatestUntakenFeed(t *testing.T) {
+	sq := NewSlowQueries()
+
+	for index := 1; index <= 3; index++ {
+		sq.retain(SampleContext{Index: index}, []statementRow{pg18Statement(ordersItemsEnd)}, false)
+	}
+
+	_, ok := sq.feed(SampleContext{Index: 1})
+	assert.False(t, ok, "replaced by the second sample's read")
+
+	_, ok = sq.feed(SampleContext{Index: 2})
+	assert.False(t, ok, "replaced by the third's")
+
+	feed, ok := sq.feed(SampleContext{Index: 3})
+	require.True(t, ok)
+	assert.Equal(t, 3, feed.sample)
+	assert.Nil(t, sq.pending, "and taken")
+}
+
+// With explain off nothing takes the feed; the collector must not keep every
+// sample's rows until the window ends.
+func TestSlowQueriesUntakenFeedsDoNotAccumulate(t *testing.T) {
+	clock := newFakeClock()
+
+	conn := newFakeSlowQueriesConn(healthyExtension())
+	conn.statements = repeat(rowsResult(statementValues([]statementRow{
+		pg18Statement(ordersUpdateStart),
+	}, 1)))
+
+	sq := NewSlowQueries()
+	sq.Interval = 30 * time.Second
+
+	explain := NewExplain("", sq)
+	explain.Interval = 30 * time.Second
+
+	window := newTestWindow(t, clock, sq, explain)
+	window.connect = func(context.Context, Target) (windowConn, error) { return conn, nil }
+
+	results := window.Run(context.Background())
+
+	require.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, 5, results[0].SamplesWritten)
+
+	require.NotNil(t, sq.pending)
+	assert.Equal(t, 5, sq.pending.sample,
+		"only the last sample's read is held, and only until the next one replaces it")
+}
