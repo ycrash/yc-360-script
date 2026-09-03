@@ -70,7 +70,8 @@ func (f *fakeLogQuerier) QueryRow(ctx context.Context, sql string, args ...any) 
 
 		return fakeRow{values: []any{
 			nullable(s.dataDirectory), nullable(s.logDirectory), nullable(s.logFilename),
-			nullable(s.loggingCollector), nullable(s.logDestination), nullable(s.serverAddr),
+			nullable(s.loggingCollector), nullable(s.logDestination), nullable(s.logLinePrefix),
+			nullable(s.serverAddr),
 		}}
 
 	case logLocationSQL:
@@ -288,6 +289,10 @@ func newLogDir(t *testing.T) *logDir {
 	return d
 }
 
+// testLogLinePrefix is the server's default log_line_prefix, which every stderr fixture
+// here is written under; it carries no query identifier.
+const testLogLinePrefix = "%m [%p] "
+
 func (d *logDir) settings() logSettings {
 	return logSettings{
 		dataDirectory:    d.dataDirectory,
@@ -295,6 +300,7 @@ func (d *logDir) settings() logSettings {
 		logFilename:      "postgresql-%Y-%m-%d_%H%M%S.log",
 		loggingCollector: "on",
 		logDestination:   string(d.format),
+		logLinePrefix:    testLogLinePrefix,
 		read:             true,
 	}
 }
@@ -1228,11 +1234,12 @@ func csvEntry(message string) string {
 func jsonEntryLine(t *testing.T, message string) string {
 	t.Helper()
 
+	// No state_code: the writer omits it for 00000, which is every LOG line (measured
+	// on 15 through 18).
 	encoded, err := json.Marshal(map[string]any{
 		"timestamp":      "2026-08-17 02:01:31.226 UTC",
 		"pid":            13031,
 		"error_severity": "LOG",
-		"state_code":     "00000",
 		"message":        message,
 		"backend_type":   "client backend",
 	})
@@ -1249,16 +1256,22 @@ func stderrMessage(entry string) string {
 	return message + strings.TrimSuffix(strings.TrimPrefix(entry, first), "\n")
 }
 
+// The explain matcher takes two of the three "duration:" shapes: auto_explain's plan
+// by its first line's suffix, and an execute record by the verb after the duration.
+// The statement: line - every simple-protocol statement the threshold logs - is the
+// one it exists to exclude. Whether an execute record carries parameters is the
+// parser's question, not the matcher's.
 func TestEventMatchFirstLineSuffixSeparatesPlansFromStatements(t *testing.T) {
 	require.True(t, strings.HasPrefix(stderrMessage(measuredPlan), "duration: "))
 	require.True(t, strings.HasPrefix(stderrMessage(measuredStatement), "duration: "))
+	require.True(t, strings.HasPrefix(stderrMessage(measuredExecute), "duration: "))
 
 	t.Run("stderr", func(t *testing.T) {
 		body, matched := matchBody(logFormatStderr, explainMatch,
 			measuredPlan+measuredStatement+measuredExecute+unrelatedTraffic)
 
-		assert.Equal(t, 1, matched)
-		assert.Equal(t, measuredPlan, body)
+		assert.Equal(t, 2, matched)
+		assert.Equal(t, measuredPlan+measuredExecute, body)
 	})
 
 	for _, tc := range []struct {
@@ -1278,10 +1291,10 @@ func TestEventMatchFirstLineSuffixSeparatesPlansFromStatements(t *testing.T) {
 					tc.build(t, stderrMessage(measuredExecute))+
 					tc.build(t, "checkpoint starting: time"))
 
-			assert.Equal(t, 1, matched,
+			assert.Equal(t, 2, matched,
 				"SQLSTATE 00000 is every LOG line in the file; paired is what makes the "+
 					"message predicate run here at all")
-			assert.Equal(t, plan, body)
+			assert.Equal(t, plan+tc.build(t, stderrMessage(measuredExecute)), body)
 		})
 	}
 

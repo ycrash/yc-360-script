@@ -31,7 +31,7 @@ const unrelatedCSV = `2026-08-15 10:02:50.000 UTC,"postgres","postgres",113,"[lo
 `
 
 const unrelatedJSON = `{"timestamp":"2026-08-15 10:02:50.000 UTC","pid":113,"error_severity":"LOG",` +
-	`"state_code":"00000","message":"checkpoint starting: time","backend_type":"client backend"}
+	`"message":"checkpoint starting: time","backend_type":"client backend"}
 `
 
 func matchOnce(format logFormat, m eventMatch, data string) (body, pending string, pendingIsEvent bool, matched int, read *tailRead) {

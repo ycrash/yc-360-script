@@ -4035,15 +4035,17 @@ func matrixConn(t *testing.T, target Target) *Conn {
 	return conn
 }
 
-// matrixPlan submits one literal EXPLAIN through the collector's own submission path,
-// so the protocol under test is the one production uses.
+// matrixPlan plans one statement with no parameters through the literal tier's own
+// path - PREPARE, the forced custom plan, EXPLAIN EXECUTE and the cleanup - so the
+// protocol under test is the one production uses.
 func matrixPlan(t *testing.T, conn *Conn, statement string) (string, error) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 	defer cancel()
 
-	plan, truncated, err := submitExplain(ctx, conn, statement)
+	plan, truncated, err := submitPreparedPlan(ctx, conn, "yc_explain_matrix", statement,
+		forceCustomPlanSQL, nil)
 
 	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
 
@@ -4051,14 +4053,36 @@ func matrixPlan(t *testing.T, conn *Conn, statement string) (string, error) {
 }
 
 // matrixGenericPlan submits one candidate through the generic tier's own path: PREPARE,
-// the forced plan_cache_mode, EXPLAIN EXECUTE with NULLs, and the cleanup.
+// the forced generic plan, EXPLAIN EXECUTE with NULLs, and the cleanup.
 func matrixGenericPlan(t *testing.T, conn *Conn, name, query string) (string, error) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 	defer cancel()
 
-	plan, truncated, err := submitGenericPlan(ctx, conn, name, query)
+	plan, truncated, err := submitPreparedPlan(ctx, conn, name, query, forceGenericPlanSQL,
+		nullArguments(inferredParameters(query)))
+
+	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
+
+	return string(plan), err
+}
+
+// matrixLiteralPlan submits one bind record through the literal tier's own path, with
+// the record's values rendered as the EXECUTE's arguments.
+func matrixLiteralPlan(t *testing.T, conn *Conn, name string, record *bindRecord) (string, error) {
+	t.Helper()
+
+	arguments := make([]string, len(record.values))
+	for i, v := range record.values {
+		arguments[i] = renderArgument(v)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	plan, truncated, err := submitPreparedPlan(ctx, conn, name, record.query,
+		forceCustomPlanSQL, arguments)
 
 	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
 
@@ -4101,7 +4125,7 @@ func TestMatrixExplainGenericTierIsParameterizedOnEveryVersion(t *testing.T) {
 			defer func() { _ = execSimple(ctx, conn, deallocateStatement(contrast)) }()
 
 			custom, _, err := conn.ExecSimple(ctx,
-				explainStatement(explainOptions(), executeStatement(contrast, 2)), MaxPlanBytes)
+				explainStatement(explainOptions(), executeStatement(contrast, nullArguments(2))), MaxPlanBytes)
 			require.NoError(t, err)
 
 			assert.Contains(t, strings.Join(custom, "\n"), "One-Time Filter: false",
@@ -4168,8 +4192,7 @@ func TestMatrixExplainPrivilege(t *testing.T) {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
 			matrixExplainFixture(t, server)
 
-			selectPlan := explainStatement(explainOptions(),
-				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1")
+			selectPlan := "SELECT * FROM " + matrixExplainTable + " WHERE id = 1"
 
 			for _, role := range matrixRoles {
 				if role.superuser {
@@ -4202,46 +4225,14 @@ func TestMatrixExplainPrivilege(t *testing.T) {
 			require.NoError(t, err, "pg_read_all_data plans a SELECT")
 			assert.Contains(t, plan, matrixExplainTable)
 
-			_, writeErr := matrixPlan(t, conn, explainStatement(explainOptions(),
-				"UPDATE "+matrixExplainTable+" SET note = 'x' WHERE id = 1"))
+			_, writeErr := matrixPlan(t, conn,
+				"UPDATE "+matrixExplainTable+" SET note = 'x' WHERE id = 1")
 
 			require.Error(t, writeErr,
 				"EXPLAIN runs the executor's permission checks, so a read-only grant "+
 					"cannot plan a write - and the answer is not to grant writes to a "+
 					"monitoring role")
 			assert.Contains(t, writeErr.Error(), "permission denied")
-		})
-	}
-}
-
-func TestMatrixExplainQueryIDIsPopulated(t *testing.T) {
-	for _, server := range matrixServers {
-		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
-			matrixExplainFixture(t, server)
-
-			require.Nil(t, matrixQuery(t,
-				matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB),
-				"SELECT to_regclass('pg_stat_statements')::text")[0],
-				"yc_second has no extension view, which is the fallback's own case")
-
-			workload := matrixLogConn(t, server, matrixSecondDB)
-			require.NoError(t, matrixLogExec(t, workload,
-				"SELECT count(*) FROM "+matrixExplainTable))
-
-			rows := matrixQuery(t, matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB),
-				`SELECT a.state, a.query, a.query_id::text
-				   FROM pg_catalog.pg_stat_activity a
-				  WHERE a.datname = $1 AND a.backend_type = 'client backend'
-				    AND a.query LIKE '%`+matrixExplainTable+`%'
-				    AND a.pid <> pg_backend_pid()
-				  ORDER BY a.state_change DESC LIMIT 3`, matrixSecondDB)
-
-			require.NotNil(t, rows[0], "the workload session is still connected")
-			assert.Equal(t, "idle", *rows[0])
-			require.NotNil(t, rows[2],
-				"query_id is populated under the default compute_query_id=auto, which "+
-					"preloading pg_stat_statements turns on - extension view or not")
-			assert.NotEqual(t, "0", *rows[2])
 		})
 	}
 }
@@ -4357,93 +4348,6 @@ func matrixExplainUntilStored(t *testing.T, server matrixServer, tail *logTail) 
 	}
 }
 
-func TestMatrixExplainWireProtocol(t *testing.T) {
-	for _, server := range matrixServers {
-		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
-			matrixExplainFixture(t, server)
-
-			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
-			workload := matrixConn(t, target)
-
-			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
-			defer cancel()
-
-			const statement = "SELECT sku FROM " + matrixExplainTable + " WHERE id = $1"
-
-			rows, err := workload.Query(ctx, statement, 42)
-			require.NoError(t, err)
-			rows.Close()
-			require.NoError(t, rows.Err())
-
-			activity := matrixQuery(t, target,
-				`SELECT a.query, a.query_id::text
-				   FROM pg_catalog.pg_stat_activity a
-				  WHERE a.datname = $1 AND a.query LIKE '%`+matrixExplainTable+`%'
-				    AND a.query LIKE '%$1%' AND a.pid <> pg_backend_pid()
-				  ORDER BY a.state_change DESC LIMIT 2`, matrixSecondDB)
-
-			require.NotNil(t, activity[0])
-			assert.Contains(t, *activity[0], "$1",
-				"the parameterized text, which plain EXPLAIN refuses - the gate that "+
-					"routes this candidate to the generic mode instead")
-			require.NotNil(t, activity[1])
-
-			_, bindErr := matrixPlan(t, workload,
-				explainStatement(explainOptions(), statement))
-
-			require.Error(t, bindErr, "an unbound $1 cannot reach the server over Bind")
-
-			plan, genericErr := matrixGenericPlan(t, workload, "yc_explain_wire", statement)
-
-			require.NoError(t, genericErr,
-				"the same text, through the prepared statement, on every version")
-			assert.Contains(t, plan, matrixExplainTable)
-		})
-	}
-}
-
-func TestMatrixExplainActivityTextTruncation(t *testing.T) {
-	for _, server := range matrixServers {
-		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
-			matrixExplainFixture(t, server)
-
-			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
-
-			size := matrixQuery(t, target,
-				"SELECT setting FROM pg_catalog.pg_settings WHERE name = 'track_activity_query_size'")
-			require.NotNil(t, size[0])
-
-			limit, err := strconv.Atoi(*size[0])
-			require.NoError(t, err)
-
-			workload := matrixLogConn(t, server, matrixSecondDB)
-			require.NoError(t, matrixLogExec(t, workload,
-				"SELECT count(*) FROM "+matrixExplainTable+
-					" /* "+strings.Repeat("x", limit+500)+" */"))
-
-			read := matrixQuery(t, target,
-				`SELECT octet_length(a.query)::text, a.query
-				   FROM pg_catalog.pg_stat_activity a
-				  WHERE a.datname = $1 AND a.query LIKE '%`+matrixExplainTable+`%'
-				    AND a.pid <> pg_backend_pid()
-				  ORDER BY octet_length(a.query) DESC LIMIT 1`, matrixSecondDB)
-
-			require.NotNil(t, read[0])
-			assert.Equal(t, strconv.Itoa(limit-1), *read[0],
-				"cut at the cap less one, and nothing in the text says so")
-
-			require.NotNil(t, read[1])
-			assert.NotContains(t, *read[1], "...", "unmarked, which is the whole problem")
-
-			assert.True(t,
-				truncatedActivityText(
-					activityRow{queryBytes: ptr(int64(limit - 1))},
-					activityFacts{activityQuerySize: int64(limit)}),
-				"and the gate the artifact applies agrees with the server about it")
-		})
-	}
-}
-
 func TestMatrixExplainSurvivesAStatementTimeout(t *testing.T) {
 	for _, server := range matrixServers {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
@@ -4473,73 +4377,11 @@ func TestMatrixExplainSurvivesAStatementTimeout(t *testing.T) {
 
 			runUtilityStatement(ctx, conn, resetExplainTimeoutSQL)
 
-			plan, planErr := matrixPlan(t, conn, explainStatement(explainOptions(),
-				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1"))
+			plan, planErr := matrixPlan(t, conn,
+				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1")
 
 			require.NoError(t, planErr, "the next candidate runs on the same connection")
 			assert.Contains(t, plan, matrixExplainTable)
-		})
-	}
-}
-
-func TestMatrixExplainActivityTruncationIsMultibyteAware(t *testing.T) {
-	for _, server := range matrixServers {
-		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
-			matrixExplainFixture(t, server)
-
-			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
-
-			size := matrixQuery(t, target,
-				"SELECT setting FROM pg_catalog.pg_settings WHERE name = 'track_activity_query_size'")
-			require.NotNil(t, size[0])
-
-			limit, err := strconv.Atoi(*size[0])
-			require.NoError(t, err)
-
-			maxChar := matrixQuery(t, target,
-				`SELECT pg_catalog.pg_encoding_max_length(
-				            pg_catalog.pg_char_to_encoding(current_setting('server_encoding')))::text`)
-			require.NotNil(t, maxChar[0])
-
-			width, err := strconv.Atoi(*maxChar[0])
-			require.NoError(t, err)
-			require.Equal(t, 4, width, "the matrix databases are UTF-8")
-
-			for offset := range 4 {
-				t.Run(fmt.Sprintf("offset=%d", offset), func(t *testing.T) {
-					marker := "yc_mb" + strconv.Itoa(offset)
-
-					workload := matrixLogConn(t, server, matrixSecondDB)
-					require.NoError(t, matrixLogExec(t, workload,
-						"SELECT count(*) FROM "+matrixExplainTable+
-							" /* "+marker+strings.Repeat("x", offset)+
-							strings.Repeat("\U0001F600", limit)+" */"))
-
-					read := matrixQuery(t, target,
-						`SELECT octet_length(a.query)::text
-						   FROM pg_catalog.pg_stat_activity a
-						  WHERE a.datname = $1 AND a.query LIKE '%' || $2 || '%'
-						    AND a.pid <> pg_backend_pid() LIMIT 1`, matrixSecondDB, marker)
-
-					require.NotNil(t, read[0])
-
-					octets, err := strconv.Atoi(*read[0])
-					require.NoError(t, err)
-
-					require.Less(t, octets, limit,
-						"the statement was far longer than the cap, so this is a cut prefix")
-
-					assert.True(t,
-						truncatedActivityText(
-							activityRow{queryBytes: ptr(int64(octets))},
-							activityFacts{
-								activityQuerySize: int64(limit),
-								maxCharBytes:      int64(width),
-							}),
-						"a cut prefix at %d octets under a %d-byte cap must not read as "+
-							"complete text - it would be submitted mid-statement", octets, limit)
-				})
-			}
 		})
 	}
 }
@@ -4567,14 +4409,16 @@ func TestMatrixExplainReadsItsOwnOIDForAQuotedRoleName(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 			defer cancel()
 
-			_, facts, err := readActivity(ctx, conn)
+			facts, err := readExplainFacts(ctx, conn)
 
 			require.NoError(t, err,
 				"the whole read, facts included, fails on a role name that needs quoting")
 			assert.True(t, facts.read)
 			assert.NotEmpty(t, facts.selfOID, "self-exclusion needs the capture role's OID")
-			assert.Positive(t, facts.activityQuerySize)
-			assert.Positive(t, facts.maxCharBytes)
+			assert.True(t, facts.parameterCapRead,
+				"log_parameter_max_length is readable by every role, superuser context or not")
+			assert.Equal(t, int64(-1), facts.parameterCap,
+				"the default, which is why the literal tier is off until the deployment sets it")
 
 			rows, err := conn.Query(ctx, "SELECT (current_user::text)::regrole::oid::text")
 			if err == nil {
@@ -4584,40 +4428,258 @@ func TestMatrixExplainReadsItsOwnOIDForAQuotedRoleName(t *testing.T) {
 
 			require.Error(t, err,
 				"current_user::text::regrole is what this role name breaks; if it stopped "+
-					"breaking, PostgreSQL changed and activitySQL can be simplified")
+					"breaking, PostgreSQL changed and explainFactsSQL can be simplified")
 		})
 	}
 }
 
-func TestMatrixExplainRefusesAMultiStatementBatch(t *testing.T) {
+// A simple-protocol batch is one activity text, and it was the activity path's one way
+// of handing the agent several statements as one. The two sources that remain cannot:
+// the statements view records each statement of a batch as its own row, and the
+// extended protocol refuses a batch at Parse, so no execute record carries one. The
+// multiStatement guard stays as the guard behind both.
+func TestMatrixStatementsViewRecordsEachStatementOfABatch(t *testing.T) {
 	for _, server := range matrixServers {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
 			matrixExplainFixture(t, server)
 
-			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
-
 			workload := matrixLogConn(t, server, matrixSecondDB)
 			require.NoError(t, matrixLogExec(t, workload,
-				"SET application_name = 'yc_batch'; SELECT count(*) FROM "+matrixExplainTable))
+				"SET application_name = 'yc_batch'; SELECT count(*) FROM "+matrixExplainTable+
+					" WHERE sku = 'yc-batch'"))
 
-			batch := matrixQuery(t, target,
-				`SELECT a.query FROM pg_catalog.pg_stat_activity a
-				  WHERE a.datname = $1 AND a.application_name = 'yc_batch'
-				    AND a.pid <> pg_backend_pid() LIMIT 1`, matrixSecondDB)
+			texts := matrixQuery(t, matrixTarget(server, matrixSuperuser(t)),
+				`SELECT string_agg(s.query, E'\n' ORDER BY s.query)
+				   FROM pg_stat_statements s
+				  WHERE s.query LIKE '%`+matrixExplainTable+`%'
+				    AND s.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = $1)`,
+				matrixSecondDB)
 
-			require.NotNil(t, batch[0])
-			assert.Contains(t, *batch[0], ";",
-				"the whole batch reads back as one activity text")
-			assert.Contains(t, *batch[0], "SET application_name")
+			require.NotNil(t, texts[0], "the batch's SELECT reached the view")
+			assert.Contains(t, *texts[0],
+				"SELECT count(*) FROM "+matrixExplainTable+" WHERE sku = $1",
+				"the SELECT alone, normalized")
+			assert.NotContains(t, *texts[0], "SET application_name",
+				"no row carries the batch as one text")
 
-			conn := matrixConn(t, target)
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
 
-			_, err := matrixPlan(t, conn,
-				explainStatement(explainOptions(), *batch[0]))
+			_, err := workload.ExecParams(ctx,
+				"SET application_name = 'yc_batch'; SELECT count(*) FROM "+matrixExplainTable,
+				nil, nil, nil, nil).Close()
 
-			require.Error(t, err,
-				"cleanly refused: over the simple protocol this would have run the "+
-					"customer's statements, which is the one thing this artifact must never do")
+			require.Error(t, err, "and the extended protocol refuses a batch outright")
+			assert.Contains(t, err.Error(), "cannot insert multiple commands")
+		})
+	}
+}
+
+// matrixExecParams runs one statement over the extended protocol, which is what puts an
+// execute record with parameters in the log.
+func matrixExecParams(t *testing.T, conn *pgconn.PgConn, sql string, args ...string) {
+	t.Helper()
+
+	values := make([][]byte, len(args))
+	for i, arg := range args {
+		values[i] = []byte(arg)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	_, err := conn.ExecParams(ctx, sql, values, nil, nil, nil).Close()
+	require.NoError(t, err)
+}
+
+// matrixBindRecordUntilLogged reads the tail until an execute record with parameters
+// arrives, and returns it parsed.
+func matrixBindRecordUntilLogged(
+	t *testing.T, server matrixServer, tail *logTail, prefix *linePrefix,
+) *bindRecord {
+	t.Helper()
+
+	deadline := time.Now().Add(20 * time.Second)
+
+	for {
+		matrixLogMarker(t, server)
+
+		events, _ := tail.readEvents(context.Background(), nil, time.Time{})
+
+		for _, event := range events {
+			entry, ok := parseLogEntry(event, tail.source.format, prefix)
+			if !ok {
+				continue
+			}
+
+			if record, ok := executeRecord(entry); ok {
+				return record
+			}
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("no execute record with parameters reached the log within the deadline")
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// The literal tier end to end against the server's own log, on every format the tail
+// reads. Three facts a unit test cannot reach: the execute record's identifier is the
+// one pg_stat_statements carries for the same text, its values decode to what the
+// client bound, and a forced custom plan through EXPLAIN EXECUTE plans those values
+// and carries the same identifier. stderr needs %Q in log_line_prefix, which is the
+// deployment's to set; the test sets it the way a deployment would.
+func TestMatrixExplainLiteralTierFromTheLog(t *testing.T) {
+	const statement = "SELECT sku FROM " + matrixExplainTable + " WHERE id = $1 AND note <> $2"
+
+	for _, format := range []logFormat{logFormatStderr, logFormatCSV, logFormatJSON} {
+		for _, server := range matrixServers {
+			requireMatrixLogDir(t, server)
+
+			t.Run(fmt.Sprintf("%s/pg%d", format, server.major), func(t *testing.T) {
+				if format == logFormatJSON && server.major < 15 {
+					t.Skip(`jsonlog is PostgreSQL 15+: 14 answers "log format \"jsonlog\" is not supported"`)
+				}
+
+				matrixExplainFixture(t, server)
+
+				settings := []string{fmt.Sprintf("ALTER SYSTEM SET log_destination = '%s'", format)}
+				if format == logFormatStderr {
+					settings = append(settings,
+						"ALTER SYSTEM SET log_line_prefix = '%m [%p] %q%u@%d %a qid=%Q '")
+				}
+
+				matrixDDL(t, server, "postgres", append(settings, "SELECT pg_reload_conf()")...)
+
+				t.Cleanup(func() {
+					matrixDDL(t, server, "postgres",
+						"ALTER SYSTEM RESET log_destination",
+						"ALTER SYSTEM RESET log_line_prefix",
+						"SELECT pg_reload_conf()")
+				})
+
+				time.Sleep(2 * time.Second)
+
+				tail := matrixExplainTailAtEnd(t, server)
+				prefix := compileLinePrefix(tail.settings.logLinePrefix)
+
+				workload := matrixLogConn(t, server, matrixSecondDB)
+				for _, sql := range []string{
+					"SET log_min_duration_statement = 0",
+					"SET log_parameter_max_length = 64",
+				} {
+					require.NoError(t, matrixLogExec(t, workload, sql),
+						"the workload session's own settings; the agent sets neither")
+				}
+
+				// The fixture's table is recreated per subtest, and a query identifier
+				// hashes the table's OID: the statements view would otherwise still hold
+				// the same text under an earlier fixture's identifier.
+				matrixDDL(t, server, "postgres",
+					"SELECT pg_stat_statements_reset(0, "+
+						"(SELECT oid FROM pg_catalog.pg_database WHERE datname = '"+matrixSecondDB+"'), 0)")
+
+				matrixExecParams(t, workload, statement, "42", "it's")
+
+				record := matrixBindRecordUntilLogged(t, server, tail, prefix)
+
+				require.Empty(t, record.reason, "a whole record under a finite cap")
+				assert.Equal(t, statement, record.query,
+					"the log's own text, which is the text the values are positional for")
+				assert.Equal(t, []bindValue{{text: "42"}, {text: "it's"}}, record.values,
+					"quotes un-doubled, as the client sent them")
+
+				expected := matrixQuery(t, matrixTarget(server, matrixSuperuser(t)),
+					`SELECT s.queryid::text FROM pg_stat_statements s
+					  WHERE s.query = $1
+					    AND s.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = $2)`,
+					statement, matrixSecondDB)
+
+				require.NotNil(t, expected[0], "the shape is in the statements view")
+				assert.Equal(t, *expected[0], record.queryID,
+					"the identifier the %s record carries is the statements view's: the join key", format)
+
+				conn := matrixConn(t, matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB))
+
+				plan, err := matrixLiteralPlan(t, conn, "yc_explain_matrix_literal", record)
+				require.NoError(t, err)
+
+				assert.Contains(t, plan, "id = 42", "a custom plan for the value, not a $1")
+				assert.Contains(t, plan, "'it''s'::text")
+				assert.Contains(t, plan, "plan_cache_mode = 'force_custom_plan'",
+					"the block's own proof of how it was made")
+				assert.Contains(t, plan, "Query Identifier: "+record.queryID,
+					"the log's text under the log's identifier: queryid_match=true by construction")
+				assert.NotContains(t, plan, "$1")
+
+				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+				defer cancel()
+
+				var mode string
+				require.NoError(t, conn.QueryRow(ctx, "SHOW plan_cache_mode").Scan(&mode))
+				assert.Equal(t, "auto", mode, "the session setting is restored")
+
+				var leftover int64
+				require.NoError(t, conn.QueryRow(ctx,
+					`SELECT count(*) FROM pg_prepared_statements WHERE name LIKE 'yc\_explain\_%'`).
+					Scan(&leftover))
+				assert.Zero(t, leftover, "nothing of the agent's outlives the candidate")
+
+				// The server's own clip marker, which the parser must refuse: an 8-byte cap
+				// on a 16-byte value.
+				require.NoError(t, matrixLogExec(t, workload, "SET log_parameter_max_length = 8"))
+				matrixExecParams(t, workload, statement, "42", "abcdefghijklmnop")
+
+				clipped := matrixBindRecordUntilLogged(t, server, tail, prefix)
+
+				assert.Equal(t, reasonBindTruncated, clipped.reason,
+					"a value the server cut at the cap is not a complete parameter set")
+				assert.Nil(t, clipped.values, "and none of its values are kept")
+			})
+		}
+	}
+}
+
+// D7's gate reads the cap the agent's own connection observes, which a role-level
+// setting changes without touching the cluster - the deployment's lever, not the
+// agent's, which sets nothing.
+func TestMatrixExplainLiteralGateReadsTheObservedCap(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			monitor := matrixMonitor(t)
+
+			t.Cleanup(func() {
+				matrixDDL(t, server, "postgres",
+					"ALTER ROLE "+monitor.user+" RESET log_parameter_max_length")
+			})
+
+			for _, tc := range []struct {
+				setting string
+				cap     int64
+				reason  string
+			}{
+				{setting: "-1", cap: -1, reason: reasonParameterCapUnbounded},
+				{setting: "0", cap: 0, reason: reasonParametersNotLogged},
+				{setting: "512", cap: 512, reason: ""},
+			} {
+				matrixDDL(t, server, "postgres",
+					"ALTER ROLE "+monitor.user+" SET log_parameter_max_length = "+tc.setting)
+
+				conn := matrixConn(t, matrixTarget(server, monitor))
+
+				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+
+				facts, err := readExplainFacts(ctx, conn)
+
+				cancel()
+
+				require.NoError(t, err)
+				assert.True(t, facts.parameterCapRead)
+				assert.Equal(t, tc.cap, facts.parameterCap, "setting %s", tc.setting)
+				assert.Equal(t, tc.reason, (&Explain{}).literalGate(facts), "setting %s", tc.setting)
+			}
 		})
 	}
 }
