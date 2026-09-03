@@ -139,3 +139,63 @@ services:
     volumes:
       - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
       - /tmp/yc-pglogs/pg18:/tmp/yc-pglogs/pg18
+
+  # Opt-in services for manual-tests/16-replica.sh and 17-log-permissions.sh,
+  # started with --profile replica / --profile perms. Not part of the Go matrix.
+
+  # Physical standby of pg17, base-backed-up under a slot on first start. The
+  # scenario adds the replication role and pg_hba line to pg17.
+  pg17-replica:
+    <<: *pg-common
+    image: postgres:17
+    profiles: ["replica"]
+    ports: ["15427:5432"]
+    depends_on:
+      pg17:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          gosu postgres pg_basebackup \
+            -d 'host=pg17 port=5432 user=yc_replicator password=yc-replicator-pw application_name=yc-replica' \
+            -D "$$PGDATA" -R -X stream -C -S yc_replica_slot
+        fi
+        exec docker-entrypoint.sh postgres
+
+  # pg17 with a real installation's log permissions: 0700 data directory, 0600
+  # log files, no bind mount.
+  pg17-perms:
+    <<: *pg-common
+    image: postgres:17
+    profiles: ["perms"]
+    ports: ["15437:5432"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+
+  # The same, initialised with --allow-group-access (0750 / 0640).
+  pg17-group:
+    <<: *pg-common
+    image: postgres:17
+    profiles: ["perms"]
+    ports: ["15447:5432"]
+    environment:
+      POSTGRES_PASSWORD: yc-superuser-pw
+      POSTGRES_INITDB_ARGS: --allow-group-access
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - logging_collector=on
+      - -c
+      - log_file_mode=0640
+    volumes:
+      - ./internal/capture/postgres/testdata/pg_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
