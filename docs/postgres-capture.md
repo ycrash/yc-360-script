@@ -485,12 +485,24 @@ database report during an incident.
 **A connection lost mid-capture.** The capture is one connection for the whole
 window, and the agent does not reconnect: a second connection would restart every
 delta baseline under the same artifact. When the driver reports the connection
-closed — a terminated backend, a broken network, a failover — the sample that
-found out writes its `sample_error=` block, the timeline stops there, and every
-artifact's closing block says `status=connection_lost` with the same error in
-`connection_error=` and a `samples_written` below `samples_expected`. Everything
-written up to that point stays in the bundle; the run reports
-`connection lost: …` for each file and still uploads them. A statement that
+closed — a terminated backend, a broken network, a failover — the timeline stops
+at the sample that found out, and every artifact's closing block says
+`status=connection_lost` with a `samples_written` below `samples_expected` and,
+in `connection_error=`, the error the driver closed the connection on: the
+server's own message where it sent one — `FATAL: terminating connection due to
+administrator command (SQLSTATE 57P01)` for a terminated backend — or the
+agent's own deadline where the server stopped answering. That is the first
+error the connection met, kept on purpose: a collector may fold it into its own
+block header rather than return it, and every statement after it fails on the
+driver's cleanup of a cached statement against the closed socket, which names
+nothing. The sample that found out either writes a `sample_error=` block or,
+for a collector that localises failures to a block, carries the error on that
+block's header — or shows nothing at all, when it is a log tail: a tail's only
+statement per sample re-checks the log's location, and a failed re-check keeps
+the file it has. The tails sample on their own shorter cadence, so a connection
+lost between two periodic ticks is usually found by a tail before the next
+periodic tick, and the run ends there. Everything written up to that point stays in the bundle; the
+run reports `connection lost: …` for each file and still uploads them. A statement that
 merely failed leaves the connection open and stops nothing: that artifact's
 closing block says `status=partial` and the next tick proceeds. A statement that
 runs to the server's `statement_timeout` (10s) is such a failure: the server
