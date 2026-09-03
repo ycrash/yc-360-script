@@ -56,6 +56,13 @@ The goldens:
 - `pg_bloat_sample_error.txt` — one sample's statement timed out. The window
   writes the stub block carrying `sample_error=`, the window does not stop, and
   the closing block says `status=partial`.
+- `pg_bloat_connection_lost.txt` — the connection died under the window (spec
+  v1.2 §6's mid-capture disconnect). The sample that found out writes its stub,
+  the timeline stops there rather than ticking against a closed connection, and
+  the closing block says `status=connection_lost` with the revealing error as
+  `connection_error=` — on every artifact of the run, so each file explains its
+  own early end. Nothing written before is lost, and nothing reconnects: the
+  capture is one connection.
 - `pg_bloat_empty_db.txt` — a complete capture of a database with no user
   tables. A column header with no rows: captured and found nothing, which is a
   different shape from could not be captured.

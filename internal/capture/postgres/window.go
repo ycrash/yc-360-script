@@ -25,6 +25,12 @@ const (
 	StatusCancelled        = "cancelled"
 	StatusDeadlineExceeded = "deadline_exceeded"
 
+	// StatusConnectionLost: the driver closed the connection mid-window. The timeline
+	// stopped at the sample that found out, every artifact keeps what it had written,
+	// and no reconnect is attempted: the capture is one connection (spec v1.2 §6), and
+	// a second one would restart every delta baseline under the same artifact.
+	StatusConnectionLost = "connection_lost"
+
 	// StatusConnectFailed: the file still exists, the only record the run tried.
 	StatusConnectFailed = "connect_failed"
 )
@@ -251,6 +257,18 @@ type connectTimer interface {
 	ConnectDuration() time.Duration
 }
 
+// connectionState is the part of *Conn that knows the driver closed the connection.
+// Asserted the same way: a fake that cannot say is a live connection.
+type connectionState interface {
+	Lost() bool
+}
+
+func connectionLost(conn windowConn) bool {
+	state, ok := conn.(connectionState)
+
+	return ok && state.Lost()
+}
+
 func connectDuration(conn windowConn) time.Duration {
 	if timer, ok := conn.(connectTimer); ok {
 		return timer.ConnectDuration()
@@ -328,7 +346,7 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 		// reader matches on, and the full text for the log. A refusal at
 		// max_connections, a role's CONNECTION LIMIT and a database's are all
 		// SQLSTATE 53300 with three different fixes, told apart only by the text.
-		w.closeArtifacts(results, sampleCtx, "",
+		w.closeArtifacts(results, sampleCtx, "", "",
 			ConnectErrorText(err, w.Target), errorText(err, w.Target.Password))
 		return results
 	}
@@ -341,9 +359,9 @@ func (w *Window) Run(ctx context.Context) []ArtifactResult {
 	ctx, cancel := context.WithTimeout(ctx, w.moduleDeadline())
 	defer cancel()
 
-	stopped := w.sample(ctx, conn, sampleCtx, results)
+	stopped, lostErr := w.sample(ctx, conn, sampleCtx, results)
 
-	w.closeArtifacts(results, sampleCtx, stopped, "", "")
+	w.closeArtifacts(results, sampleCtx, stopped, lostErr, "", "")
 
 	return results
 }
@@ -418,16 +436,25 @@ func (w *Window) writeClosing(result *ArtifactResult, collector Collector, sampl
 }
 
 // closeArtifacts is the last pass, run with no context so it can record an expired deadline.
-// stopped: status that ended the window early (empty if it completed). connectErr: set only when there was never a connection.
+// stopped: status that ended the window early (empty if it completed); lostErr is the
+// sample error that revealed a lost connection, already redacted, and rides every
+// artifact's closing block as connection_error= so each file says on its own what ended
+// it. connectErr: set only when there was never a connection.
 // connectErr is the artifact row's value; connectDetail is the same failure in
 // full, for the caller's log. Only the row is a contract.
-func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContext, stopped, connectErr, connectDetail string) {
+func (w *Window) closeArtifacts(
+	results []ArtifactResult, sampleCtx SampleContext, stopped, lostErr, connectErr, connectDetail string,
+) {
 	// Drains run before the clock read below, so the closing timestamp doesn't predate their bytes.
 	for i := range results {
 		results[i].Status = artifactStatus(results[i], stopped, connectErr)
 
 		if connectErr != "" {
 			results[i].Err = connectDetail
+		}
+
+		if stopped == StatusConnectionLost && results[i].Err == "" {
+			results[i].Err = lostErr
 		}
 
 		// Must run after Status is set: a closing-pass IOErr makes writable() false, skipping the closing block.
@@ -451,6 +478,10 @@ func (w *Window) closeArtifacts(results []ArtifactResult, sampleCtx SampleContex
 
 		if connectErr != "" {
 			fields = append(fields, headerField{"connect_error", connectErr})
+		}
+
+		if stopped == StatusConnectionLost {
+			fields = append(fields, headerField{"connection_error", lostErr})
 		}
 
 		artifact := results[i].Artifact
@@ -509,8 +540,11 @@ func timeline(collectors []Collector, window time.Duration) []sampleEvent {
 	return events
 }
 
-// sample walks the timeline serially; returns the status that stopped it early, or empty if complete.
-func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult) string {
+// sample walks the timeline serially; returns the status that stopped it early, or empty
+// if complete, and for a lost connection the sample error that revealed it.
+func (w *Window) sample(
+	ctx context.Context, conn windowConn, sampleCtx SampleContext, results []ArtifactResult,
+) (stopped, lostErr string) {
 	start := w.clock()
 
 	for _, event := range timeline(w.Collectors, w.Duration) {
@@ -518,25 +552,34 @@ func (w *Window) sample(ctx context.Context, conn RowQuerier, sampleCtx SampleCo
 		if wait := start.Add(event.at).Sub(w.clock()); wait > 0 {
 			select {
 			case <-ctx.Done():
-				return stoppedStatus(ctx)
+				return stoppedStatus(ctx), ""
 			case <-w.timer(wait):
 			}
 		}
 
 		if ctx.Err() != nil {
-			return stoppedStatus(ctx)
+			return stoppedStatus(ctx), ""
 		}
 
-		w.sampleOnce(ctx, conn, sampleCtx, results, event)
+		// A failed sample on a live connection is that sample's stub block and the next
+		// tick proceeds; on a connection the driver has closed, every later tick would
+		// fail the same way, so the timeline stops here and the artifacts say why.
+		if lost, err := w.sampleOnce(ctx, conn, sampleCtx, results, event); lost {
+			return StatusConnectionLost, err
+		}
 	}
 
-	return ""
+	return "", ""
 }
 
-func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx SampleContext, results []ArtifactResult, event sampleEvent) {
+// sampleOnce runs one tick; lost reports a connection the driver has closed, with the
+// redacted error that revealed it.
+func (w *Window) sampleOnce(
+	ctx context.Context, conn windowConn, sampleCtx SampleContext, results []ArtifactResult, event sampleEvent,
+) (lost bool, err string) {
 	result := &results[event.collector]
 	if !result.writable() {
-		return
+		return false, ""
 	}
 
 	at := sampleCtx
@@ -544,12 +587,15 @@ func (w *Window) sampleOnce(ctx context.Context, conn RowQuerier, sampleCtx Samp
 	at.Total = result.SamplesExpected
 	at.At = w.clock()
 
-	if err := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); err != nil {
-		w.writeSampleError(result, at, err)
-		return
+	if sampleErr := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); sampleErr != nil {
+		w.writeSampleError(result, at, sampleErr)
+
+		return connectionLost(conn), result.Err
 	}
 
 	result.SamplesWritten++
+
+	return false, ""
 }
 
 // writeSampleError records a failed sample so numbering doesn't gap silently; the block names the artifact, not a view.

@@ -1054,6 +1054,16 @@ func TestPostgresCaptureMessage(t *testing.T) {
 			},
 			want: "pg_bloat.txt written (1/2 samples); window deadline exceeded",
 		},
+		{
+			name: "connection lost",
+			result: postgres.ArtifactResult{
+				Artifact: artifact, Status: postgres.StatusConnectionLost,
+				SamplesExpected: 2, SamplesWritten: 1,
+				Err: "FATAL: terminating connection due to administrator command (SQLSTATE 57P01)",
+			},
+			want: "pg_bloat.txt written (1/2 samples); connection lost: " +
+				"FATAL: terminating connection due to administrator command (SQLSTATE 57P01)",
+		},
 	}
 
 	for _, tt := range tests {
