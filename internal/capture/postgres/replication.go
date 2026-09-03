@@ -270,7 +270,7 @@ type senderRow struct {
 }
 
 func readSenders(ctx context.Context, q RowQuerier) ([]senderRow, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, sendersSQL)
@@ -382,7 +382,7 @@ type slotRow struct {
 // readSlots returns the rows and the presence set for the block header; the
 // latter is nil if the server has none of the optional columns or there are no rows.
 func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, *string, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, slotsSQL, optionalSlotColumnNames())

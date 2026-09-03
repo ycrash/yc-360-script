@@ -774,8 +774,8 @@ func TestSessionsStatementTimeoutIsServerSideAndAlwaysRestored(t *testing.T) {
 		require.Len(t, conn.deadlines, 4)
 
 		for i, deadline := range conn.deadlines {
-			assert.WithinDuration(t, start.Add(StatementTimeout), deadline, 5*time.Second,
-				"statement %d: the reads' contexts stay at the package timeout", i)
+			assert.WithinDuration(t, start.Add(StatementDeadline), deadline, 5*time.Second,
+				"statement %d: the reads' contexts stay at the package deadline", i)
 			assert.Greater(t, deadline.Sub(start), SessionsStatementTimeout,
 				"statement %d: the timeout is a server-side SET and never a context deadline. "+
 					"pgx's default context watcher closes the connection when a context "+

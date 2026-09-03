@@ -152,7 +152,7 @@ func (b Bloat) readStats(ctx context.Context, q RowQuerier) ([]bloatRow, int64, 
 		limit = DefaultMaxTables
 	}
 
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, bloatStatsSQL, limit)
@@ -209,7 +209,7 @@ func readBloatSizes(ctx context.Context, q RowQuerier, rows []bloatRow) error {
 		relids[i] = rows[i].relid
 	}
 
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	sized, err := q.Query(stmtCtx, bloatSizesSQL, relids)

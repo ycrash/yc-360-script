@@ -380,3 +380,11 @@ func TestTargetRedaction(t *testing.T) {
 		assert.NotContains(t, target.String(), "<redacted>")
 	})
 }
+
+func TestStatementDeadlineSitsAboveTheServerTimeout(t *testing.T) {
+	assert.Greater(t, StatementDeadline, StatementTimeout,
+		"the client-side deadline must fire after the server's statement_timeout: at "+
+			"equal values the client's timer fires first, pgx closes the connection when a "+
+			"context expires mid-statement, and one slow statement ends the window as "+
+			"connection_lost instead of one error= block")
+}

@@ -1080,7 +1080,7 @@ type explainFacts struct {
 // literal tier its gate and the summary its facts, which would otherwise read as an
 // unbounded cap or an idle database.
 func readExplainFacts(ctx context.Context, q RowQuerier) (explainFacts, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var (

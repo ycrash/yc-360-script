@@ -343,7 +343,7 @@ func TestStatementDeadline(t *testing.T) {
 
 	for i, deadline := range q.deadlines {
 		assert.False(t, deadline.IsZero(), "statement %d ran with no deadline", i+1)
-		assert.WithinRange(t, deadline, before.Add(StatementTimeout), after.Add(StatementTimeout),
+		assert.WithinRange(t, deadline, before.Add(StatementDeadline), after.Add(StatementDeadline),
 			"statement %d", i+1)
 	}
 }

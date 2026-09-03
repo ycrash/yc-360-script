@@ -415,7 +415,7 @@ func collectTablespaces(ctx context.Context, q RowQuerier, m *Metadata, password
 // collectServerFacts records failure in QueryError and leaves its fields empty; target block and
 // capture mode survive.
 func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password string) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	// This query carries clock_timestamp(), so the agent's clock is read beside the
@@ -558,7 +558,7 @@ func isReadable(path string) bool {
 // collectReplication counts connected WAL senders only: false means either a standby (legitimately
 // empty) or an abandoned slot. Treat pg_replication.txt as authoritative for whether replication exists.
 func collectReplication(ctx context.Context, q Querier, m *Metadata, password string) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var count *int64

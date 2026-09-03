@@ -312,7 +312,7 @@ func TestCollectTablespacesReadsThroughTheSharedStatement(t *testing.T) {
 		"the one statement the M3 poll's disk reading also sends, so the two can never disagree")
 
 	require.Len(t, q.rowDeadlines, 1)
-	assert.WithinDuration(t, time.Now().Add(StatementTimeout), q.rowDeadlines[0], 2*time.Second,
+	assert.WithinDuration(t, time.Now().Add(StatementDeadline), q.rowDeadlines[0], 2*time.Second,
 		"bounded like every other statement")
 }
 

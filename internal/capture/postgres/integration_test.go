@@ -5114,3 +5114,49 @@ func TestSameHostAgreesWithTheDeepDive(t *testing.T) {
 	assert.Equal(t, deepDive.AgentOnDBHost, poll.AgentOnDBHost)
 	assert.Equal(t, deepDive.AgentOnDBHostBy, poll.AgentOnDBHostBy)
 }
+
+// A statement that reaches the server's statement_timeout is that statement's
+// error and nothing more: the client-side deadline sits above the server's, so
+// the server answers first and the connection is still there for the next tick.
+func TestMatrixSlowStatementFailsWithoutLosingTheConnection(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			t.Parallel()
+
+			conn := matrixConn(t, matrixTarget(server, matrixMonitor(t)))
+
+			stmtCtx, cancel := statementContext(context.Background())
+			defer cancel()
+
+			started := time.Now()
+
+			rows, err := conn.Query(stmtCtx, "SELECT pg_sleep($1)",
+				(StatementTimeout + 2*time.Second).Seconds())
+			if err == nil {
+				for rows.Next() { //nolint:revive // draining is the point
+				}
+
+				rows.Close()
+				err = rows.Err()
+			}
+
+			elapsed := time.Since(started)
+
+			require.Error(t, err, "the statement was expected to be cancelled")
+			assert.True(t, hasSQLState(err, "57014"),
+				"query_canceled from the server, not the client's deadline: %v", err)
+			assert.False(t, conn.Lost(), "the connection survives a statement the server cancelled")
+			assert.Less(t, elapsed, StatementDeadline, "the server answered before the client deadline")
+
+			probeCtx, probeCancel := statementContext(context.Background())
+			defer probeCancel()
+
+			var one int
+			require.NoError(t, conn.QueryRow(probeCtx, "SELECT 1").Scan(&one),
+				"the next statement runs on the same connection")
+
+			t.Logf("pg%d: cancelled by the server after %s: %v",
+				server.major, elapsed.Round(time.Millisecond), err)
+		})
+	}
+}

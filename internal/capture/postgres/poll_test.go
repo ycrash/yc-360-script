@@ -278,7 +278,7 @@ func TestReadPollRow(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, time.Duration(0))
 
 	// The statement is bounded whatever the caller's deadline.
-	assert.WithinDuration(t, time.Now().Add(StatementTimeout), querier.deadline, time.Second)
+	assert.WithinDuration(t, time.Now().Add(StatementDeadline), querier.deadline, time.Second)
 }
 
 func TestPollAppliesTheStatement(t *testing.T) {
