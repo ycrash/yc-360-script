@@ -207,15 +207,18 @@ func (p *AppLogs) Set(s string) error {
 // Duration wraps time.Duration to provide better YAML unmarshaling with user-friendly error messages
 type Duration time.Duration
 
-func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
+// UnmarshalYAML takes the node rather than a value so the error can say where the bad
+// value sits: a file carries several duration keys and the decoder does not name the key.
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 	var s string
-	if err := unmarshal(&s); err != nil {
+	if err := value.Decode(&s); err != nil {
 		return err
 	}
 
 	duration, err := time.ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("invalid duration format '%s': %w (expected format like '1m', '30s', '1h30m')", s, err)
+		return fmt.Errorf("invalid duration format '%s' at line %d: %w (expected format like '1m', '30s', '1h30m')",
+			s, value.Line, err)
 	}
 
 	*d = Duration(duration)
