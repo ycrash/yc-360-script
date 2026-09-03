@@ -355,6 +355,9 @@ func postgresArtifactMessage(artifact postgres.ArtifactResult) string {
 
 	case postgres.StatusPartial:
 		return summary + "; last sample error: " + artifact.Err
+
+	case postgres.StatusConnectionLost:
+		return summary + "; connection lost: " + artifact.Err
 	}
 
 	return summary

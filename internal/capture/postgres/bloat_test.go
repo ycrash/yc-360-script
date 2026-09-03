@@ -368,6 +368,27 @@ func TestBloatGoldenSampleError(t *testing.T) {
 	assert.Equal(t, bloatGolden(t, "pg_bloat_sample_error.txt"), artifactText(t, results[0]))
 }
 
+func TestBloatGoldenConnectionLost(t *testing.T) {
+	clock := newScriptedClock(t,
+		at(32, 4, 980),
+		at(32, 5, 0),
+		at(32, 5, 0),
+		at(32, 5, 112),
+		at(32, 5, 201),
+	)
+
+	conn := newFakeBloatConn()
+	conn.lost = true
+	conn.stats = queue(errResult(errors.New(
+		"FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")))
+
+	results := runBloatWindow(t, clock, testTarget(), connectTo(conn))
+
+	require.Equal(t, StatusConnectionLost, results[0].Status)
+	assert.Equal(t, 0, results[0].SamplesWritten)
+	assert.Equal(t, bloatGolden(t, "pg_bloat_connection_lost.txt"), artifactText(t, results[0]))
+}
+
 func TestBloatGoldenEmptyDatabase(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult(nil))

@@ -191,6 +191,12 @@ func (c *Conn) Close(ctx context.Context) error {
 	return c.conn.Close(ctx)
 }
 
+// Lost reports whether the driver has closed the connection underneath the window: a
+// terminated backend, a broken socket, or a context that expired mid-statement - pgx
+// closes on all three. Read after a failed sample, it is what tells a lost connection
+// from a failed statement, which leaves the connection open.
+func (c *Conn) Lost() bool { return c.conn.IsClosed() }
+
 func buildConfig(t Target) (*pgx.ConnConfig, error) {
 	cfg, err := parseConfigWithoutEnvironment(dsn(t))
 	if err != nil {
