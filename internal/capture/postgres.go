@@ -58,22 +58,29 @@ const PostgresTimeoutsFileName = "pg_timeouts.txt"
 
 const pgDTTimeouts = "pgTimeouts"
 
-// PostgresIndexUsageFileName has no dt constant beside it: dt=pgIndexUsage is
-// proposed to the server team and not yet assigned, so pgSampledDataType returns
-// "" for the artifact and the run writes it into the bundle without uploading it.
+// The three spec v1.2 artifacts upload under the dt values the agent proposed,
+// ahead of the server team's confirmation (Andy, 2026-09-03; they were held back
+// from 2026-09-02 until then). Until the receiver knows the names it accepts the
+// upload and throws the file away with no error at either end (plan §4.0), so a
+// reported success for these three is not yet proof of arrival; the bundle
+// carries the files regardless.
 const PostgresIndexUsageFileName = "pg_index_usage.txt"
 
-// PostgresTablespacesFileName, on the same terms: dt=pgTablespaces is proposed,
-// not assigned.
+const pgDTIndexUsage = "pgIndexUsage"
+
 const PostgresTablespacesFileName = "pg_tablespaces.txt"
 
-// PostgresCheckpointLogFileName, on the same terms: dt=pgCheckpointLog is
-// proposed, not assigned.
+const pgDTTablespaces = "pgTablespaces"
+
 const PostgresCheckpointLogFileName = "pg_checkpoint_log.txt"
 
-// pgSampledDataType returns "" for an artifact with no assigned dt: an invented
+const pgDTCheckpointLog = "pgCheckpointLog"
+
+// pgSampledDataType returns "" for an artifact with no dt at all: an invented
 // value would upload and drop silently, so the caller writes the artifact but
-// skips the upload with an explicit reason instead.
+// skips the upload with an explicit reason instead. No shipped artifact takes
+// that path today; it is the rule a future one (the deferred bundle marker,
+// plan D8) lands under until its value exists.
 func pgSampledDataType(artifact postgres.Artifact) string {
 	switch artifact.Name {
 	case "pg_metadata":
@@ -105,6 +112,15 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_explain":
 		return pgDTExplain
+
+	case "pg_index_usage":
+		return pgDTIndexUsage
+
+	case "pg_tablespaces":
+		return pgDTTablespaces
+
+	case "pg_checkpoint_log":
+		return pgDTCheckpointLog
 	}
 
 	return ""
