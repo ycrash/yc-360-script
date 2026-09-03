@@ -269,14 +269,15 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		assert.Equal(t, DefaultPostgresCaptureDuration, p.CaptureDuration.Duration())
 	})
 
-	t.Run("an unparseable value is the decoder's error, naming the key", func(t *testing.T) {
+	t.Run("an unparseable value is the decoder's error, naming the line", func(t *testing.T) {
 		var block struct {
 			Postgres *Postgres `yaml:"postgres"`
 		}
 		err := yaml.Unmarshal([]byte("postgres:\n  captureDuration: 2 minutes\n"), &block)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid duration format")
+		assert.Contains(t, err.Error(), "invalid duration format '2 minutes' at line 2",
+			"the decoder does not name the key, and a file carries several duration keys")
 	})
 }
 
