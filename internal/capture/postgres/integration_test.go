@@ -1235,10 +1235,9 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 		database              string
 		dbid                  *string
 		hasPgStatCheckpointer bool
-		hasGenericPlan        bool
 	)
 	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).
-		Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan))
+		Scan(&database, &dbid, &hasPgStatCheckpointer))
 	require.Equal(t, "yc_second", database)
 	require.NotNil(t, dbid)
 
@@ -4036,22 +4035,42 @@ func matrixConn(t *testing.T, target Target) *Conn {
 	return conn
 }
 
-// matrixPlan submits one EXPLAIN through the collector's own submission path, so the
-// protocol under test is the one production uses.
-func matrixPlan(t *testing.T, conn *Conn, statement string, generic bool) (string, error) {
+// matrixPlan submits one literal EXPLAIN through the collector's own submission path,
+// so the protocol under test is the one production uses.
+func matrixPlan(t *testing.T, conn *Conn, statement string) (string, error) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 	defer cancel()
 
-	plan, truncated, err := submitExplain(ctx, conn, statement, generic)
+	plan, truncated, err := submitExplain(ctx, conn, statement)
 
 	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
 
 	return string(plan), err
 }
 
-func TestMatrixExplainGenericPlanIsAVersionGate(t *testing.T) {
+// matrixGenericPlan submits one candidate through the generic tier's own path: PREPARE,
+// the forced plan_cache_mode, EXPLAIN EXECUTE with NULLs, and the cleanup.
+func matrixGenericPlan(t *testing.T, conn *Conn, name, query string) (string, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	plan, truncated, err := submitGenericPlan(ctx, conn, name, query)
+
+	assert.False(t, truncated, "the fixture's plans are far under MaxPlanBytes")
+
+	return string(plan), err
+}
+
+// The generic tier has no version gate: the same prepared-statement path on 14 through
+// 18, and the plan it returns keeps its parameter symbols on every one of them. The
+// contrast case is what makes that assertion mean something - the same EXECUTE, the
+// same NULLs, under the default plan_cache_mode, is a custom plan, and a custom plan
+// folds "column = NULL" into a plan that never runs.
+func TestMatrixExplainGenericTierIsParameterizedOnEveryVersion(t *testing.T) {
 	for _, server := range matrixServers {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
 			matrixExplainFixture(t, server)
@@ -4059,46 +4078,85 @@ func TestMatrixExplainGenericPlanIsAVersionGate(t *testing.T) {
 			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
 			conn := matrixConn(t, target)
 
+			parameterized := "SELECT * FROM " + matrixExplainTable + " WHERE id = $1 AND sku = $2"
+
+			plan, err := matrixGenericPlan(t, conn, "yc_explain_matrix", parameterized)
+			require.NoError(t, err)
+
+			assert.Contains(t, plan, matrixExplainTable)
+			assert.Contains(t, plan, "= $1",
+				"the parameter symbol, not a folded NULL: a generic plan on 14 and 15 as on 16")
+			assert.Contains(t, plan, "= $2")
+			assert.Contains(t, plan, "plan_cache_mode = 'force_generic_plan'",
+				"SETTINGS prints the forced mode, so the block says how its plan was made")
+			assert.NotContains(t, plan, "One-Time Filter: false")
+
 			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 			defer cancel()
 
-			var (
-				database              string
-				dbid                  *string
-				hasPgStatCheckpointer bool
-				hasGenericPlan        bool
-			)
-			require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).
-				Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan))
+			const contrast = "yc_explain_contrast"
 
-			assert.Equal(t, server.major >= 16, hasGenericPlan,
-				"EXPLAIN (GENERIC_PLAN) landed in PostgreSQL 16")
+			require.NoError(t, execSimple(ctx, conn, prepareStatement(contrast, parameterized)))
 
-			parameterized := "SELECT * FROM " + matrixExplainTable + " WHERE id = $1"
+			defer func() { _ = execSimple(ctx, conn, deallocateStatement(contrast)) }()
 
-			plan, err := matrixPlan(t, conn,
-				explainStatement(explainOptions(true), parameterized),
-				true)
+			custom, _, err := conn.ExecSimple(ctx,
+				explainStatement(explainOptions(), executeStatement(contrast, 2)), MaxPlanBytes)
+			require.NoError(t, err)
 
-			if hasGenericPlan {
-				require.NoError(t, err)
-				assert.Contains(t, plan, matrixExplainTable)
+			assert.Contains(t, strings.Join(custom, "\n"), "One-Time Filter: false",
+				"under the default the NULLs select a custom plan, which is what the forced "+
+					"setting exists to prevent")
 
-				return
-			}
+			// And the session is left as it was found: the setting at its default, the
+			// agent's statement gone.
+			var mode string
+			require.NoError(t, conn.QueryRow(ctx, "SHOW plan_cache_mode").Scan(&mode))
+			assert.Equal(t, "auto", mode, "RESET on the way out")
 
+			var leftover int
+			require.NoError(t, conn.QueryRow(ctx,
+				"SELECT count(*) FROM pg_prepared_statements WHERE name = $1", "yc_explain_matrix").
+				Scan(&leftover))
+			assert.Zero(t, leftover, "DEALLOCATE on the way out")
+		})
+	}
+}
+
+// A PREPARE the server refuses is the candidate's error, and the session is left as it
+// was found. Measured on the way: a parameter whose type nothing constrains is not a
+// refusal on this path - PREPARE types it as text - where EXPLAIN (GENERIC_PLAN)
+// refused it, so the prepared tier plans strictly more shapes than the option did.
+func TestMatrixExplainGenericTierRecordsARefusedPrepare(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			target := matrixTargetDB(server, matrixSuperuser(t), matrixSecondDB)
+			conn := matrixConn(t, target)
+
+			_, err := matrixGenericPlan(t, conn, "yc_explain_missing",
+				"SELECT * FROM yc_no_such_table WHERE id = $1")
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "there is no parameter $1")
-			assert.NotContains(t, err.Error(), "generic_plan")
+			assert.Contains(t, err.Error(), `relation "yc_no_such_table" does not exist`,
+				"the server's own refusal, at PREPARE, before any setting was touched")
 
-			_, optionErr := matrixPlan(t, conn,
-				explainStatement(explainOptions(true), "SELECT 1"),
-				true)
+			ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+			defer cancel()
 
-			require.Error(t, optionErr)
-			assert.Contains(t, optionErr.Error(), `unrecognized EXPLAIN option "generic_plan"`,
-				"the option error exists on 14/15 - it is simply unreachable for the "+
-					"parameterized text this mode submits")
+			var mode string
+			require.NoError(t, conn.QueryRow(ctx, "SHOW plan_cache_mode").Scan(&mode))
+			assert.Equal(t, "auto", mode)
+
+			// The agent's names only: pgx caches its own prepared statements on this
+			// connection, under names of its own.
+			var leftover int
+			require.NoError(t, conn.QueryRow(ctx,
+				"SELECT count(*) FROM pg_prepared_statements WHERE name LIKE 'yc\\_explain\\_%'").
+				Scan(&leftover))
+			assert.Zero(t, leftover, "a PREPARE that failed left nothing to deallocate")
+
+			untyped, err := matrixGenericPlan(t, conn, "yc_explain_untyped", "SELECT $1")
+			require.NoError(t, err, "an unconstrained parameter is typed text, not refused")
+			assert.Contains(t, untyped, "Output: $1")
 		})
 	}
 }
@@ -4110,7 +4168,7 @@ func TestMatrixExplainPrivilege(t *testing.T) {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
 			matrixExplainFixture(t, server)
 
-			selectPlan := explainStatement(explainOptions(false),
+			selectPlan := explainStatement(explainOptions(),
 				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1")
 
 			for _, role := range matrixRoles {
@@ -4120,7 +4178,7 @@ func TestMatrixExplainPrivilege(t *testing.T) {
 
 				conn := matrixConn(t, matrixTargetDB(server, role, matrixSecondDB))
 
-				_, err := matrixPlan(t, conn, selectPlan, false)
+				_, err := matrixPlan(t, conn, selectPlan)
 
 				require.Error(t, err, "%s must not be able to plan an application query", role.user)
 				assert.Contains(t, err.Error(), "permission denied",
@@ -4140,13 +4198,12 @@ func TestMatrixExplainPrivilege(t *testing.T) {
 				matrixSecondDB)
 			conn := matrixConn(t, target)
 
-			plan, err := matrixPlan(t, conn, selectPlan, false)
+			plan, err := matrixPlan(t, conn, selectPlan)
 			require.NoError(t, err, "pg_read_all_data plans a SELECT")
 			assert.Contains(t, plan, matrixExplainTable)
 
-			_, writeErr := matrixPlan(t, conn, explainStatement(explainOptions(false),
-				"UPDATE "+matrixExplainTable+" SET note = 'x' WHERE id = 1"),
-				false)
+			_, writeErr := matrixPlan(t, conn, explainStatement(explainOptions(),
+				"UPDATE "+matrixExplainTable+" SET note = 'x' WHERE id = 1"))
 
 			require.Error(t, writeErr,
 				"EXPLAIN runs the executor's permission checks, so a read-only grant "+
@@ -4332,18 +4389,15 @@ func TestMatrixExplainWireProtocol(t *testing.T) {
 			require.NotNil(t, activity[1])
 
 			_, bindErr := matrixPlan(t, workload,
-				explainStatement(explainOptions(true), statement), false)
+				explainStatement(explainOptions(), statement))
 
 			require.Error(t, bindErr, "an unbound $1 cannot reach the server over Bind")
 
-			if server.major >= 16 {
-				plan, simpleErr := matrixPlan(t, workload,
-					explainStatement(explainOptions(true), statement),
-					true)
+			plan, genericErr := matrixGenericPlan(t, workload, "yc_explain_wire", statement)
 
-				require.NoError(t, simpleErr, "the same statement, over the protocol psql uses")
-				assert.Contains(t, plan, matrixExplainTable)
-			}
+			require.NoError(t, genericErr,
+				"the same text, through the prepared statement, on every version")
+			assert.Contains(t, plan, matrixExplainTable)
 		})
 	}
 }
@@ -4419,8 +4473,8 @@ func TestMatrixExplainSurvivesAStatementTimeout(t *testing.T) {
 
 			runUtilityStatement(ctx, conn, resetExplainTimeoutSQL)
 
-			plan, planErr := matrixPlan(t, conn, explainStatement(explainOptions(false),
-				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1"), false)
+			plan, planErr := matrixPlan(t, conn, explainStatement(explainOptions(),
+				"SELECT * FROM "+matrixExplainTable+" WHERE id = 1"))
 
 			require.NoError(t, planErr, "the next candidate runs on the same connection")
 			assert.Contains(t, plan, matrixExplainTable)
@@ -4559,7 +4613,7 @@ func TestMatrixExplainRefusesAMultiStatementBatch(t *testing.T) {
 			conn := matrixConn(t, target)
 
 			_, err := matrixPlan(t, conn,
-				explainStatement(explainOptions(false), *batch[0]), false)
+				explainStatement(explainOptions(), *batch[0]))
 
 			require.Error(t, err,
 				"cleanly refused: over the simple protocol this would have run the "+

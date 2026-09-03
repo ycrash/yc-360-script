@@ -66,7 +66,7 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 | --- | --- | --- |
 | *(omitted)* | nothing — `pg_explain.txt` is one `reason=explain_disabled` block | — |
 | `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
-| `all` | the above, plus plans the agent asks the server for | `EXPLAIN` statements built from captured query text are submitted back to your database |
+| `all` | the above, plus plans the agent asks the server for | `EXPLAIN` statements built from captured query text are submitted back to your database, on every supported version |
 
 Which queries get a plan is not a judgment the agent makes. Every distinct query
 shape in `pg_stat_statements` is attempted once, in the first sample it is seen
@@ -400,6 +400,16 @@ table names every machine talking to this one. A run that cannot establish that
 this machine is the database's captures none of them; see *Where to run it*.
 `agentOnDbHost: true` is the one way to authorise that collection without a
 measurement, which is why it warns at startup.
+
+**How an `ESTIMATED_GENERIC` plan is made.** The agent prepares the normalized
+query text under a name of its own, forces its session's `plan_cache_mode` to
+`force_generic_plan`, asks for `EXPLAIN EXECUTE` with one `NULL` per parameter,
+then resets the setting and deallocates the statement, on success and on
+failure alike. The forced mode is what keeps the `NULL`s from selecting a custom
+plan, so the plan keeps its `$1`, `$2` symbols; the block records how many
+stood in as `parameters=`, and the plan's own `Settings:` line shows the forced
+mode. This is one path on PostgreSQL 14 through 18; nothing is version-gated.
+`EXPLAIN EXECUTE` without `ANALYZE` plans the statement and does not run it.
 
 **A limitation of the estimated plans, worth knowing before you read one.**
 `pg_explain.txt`'s `ESTIMATED_LITERAL` and `ESTIMATED_GENERIC` blocks are plans

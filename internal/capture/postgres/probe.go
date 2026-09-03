@@ -113,7 +113,7 @@ SELECT
     (SELECT array_agg(name ORDER BY name) FROM s),
     (SELECT array_agg(setting ORDER BY name) FROM s),
     to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL,
-    ` + genericPlanSQL + `,
+    current_setting('server_version_num')::int >= 160000,
     EXISTS (
         SELECT 1
           FROM pg_catalog.pg_attribute

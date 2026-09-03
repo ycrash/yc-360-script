@@ -52,10 +52,12 @@ const (
 	// plan counts nobody can reproduce from a bundle.
 	DefaultMaxExplains = 10
 
-	// ExplainTimeout bounds one candidate, applied server-side with
+	// ExplainTimeout bounds one statement, applied server-side with
 	// SET statement_timeout / RESET and never as a client context: pgx closes the
 	// connection when a context expires and this window never reconnects. Server-side,
-	// a timeout is an ordinary error= and the next candidate proceeds.
+	// a timeout is an ordinary error= and the next candidate proceeds. The generic
+	// tier sends five statements per candidate, and only its EXPLAIN plans anything;
+	// the other four are catalogue work that finishes in the round trip.
 	ExplainTimeout = 3 * time.Second
 
 	// ExplainBudget is the aggregate across candidates, deliberately under
@@ -106,9 +108,6 @@ const (
 	// track_activity_query_size, with no normalized form to fall back to.
 	reasonQueryTruncated = "query_truncated"
 
-	// reasonGenericPlanUnsupported: only parameterized text, and the server is below 16.
-	reasonGenericPlanUnsupported = "generic_plan_unsupported"
-
 	// reasonNoLoggedPlan: mode logged, and the store held no entry for this candidate.
 	reasonNoLoggedPlan = "no_logged_plan"
 
@@ -145,6 +144,21 @@ var setExplainTimeoutSQL = fmt.Sprintf("SET statement_timeout TO '%dms'",
 	ExplainTimeout.Milliseconds())
 
 const resetExplainTimeoutSQL = `RESET statement_timeout`
+
+// The generic tier's session setting. plan_cache_mode is consulted when a prepared
+// statement is executed, so forcing it makes the NULLs EXPLAIN EXECUTE binds unable to
+// select a custom plan: the plan keeps its $n symbols, on 14 and 15 as on 16 and later.
+// Measured on every version of the matrix: under the default auto, the same EXECUTE
+// folds the NULLs into "One-Time Filter: false". SET/RESET, as statement_timeout is.
+const (
+	forceGenericPlanSQL   = `SET plan_cache_mode TO force_generic_plan`
+	resetPlanCacheModeSQL = `RESET plan_cache_mode`
+)
+
+// preparedStatementPrefix names the agent's own prepared statements. The suffix is a
+// counter across the window, so a DEALLOCATE that failed cannot collide with the next
+// PREPARE, and the name says whose it is to anyone reading pg_prepared_statements.
+const preparedStatementPrefix = "yc_explain_"
 
 // activitySQL is one read per sample, carrying five facts that cost no extra
 // statement: search_path, the capture role's OID (self-exclusion), auto_explain
@@ -195,11 +209,29 @@ SELECT r.search_path,
           END DESC NULLS LAST
  LIMIT $1`
 
-// activityParameter marks text an extended-protocol execution left parameterized, which
-// plain EXPLAIN refuses with "there is no parameter $1". No parser is needed because the
-// scan errs one way only: a literal '$1' in a string downgrades one candidate to the
-// generic mode, while a real parameter can never hide.
-var activityParameter = regexp.MustCompile(`\$[0-9]+`)
+// parameterSymbol is a $n placeholder: what pg_stat_statements writes for every
+// constant, and what an extended-protocol execution leaves in pg_stat_activity, which
+// plain EXPLAIN refuses with "there is no parameter $1". No parser is needed because
+// the scan errs one way only: a literal '$1' in a string downgrades one candidate to
+// the generic mode, while a real parameter can never hide.
+var parameterSymbol = regexp.MustCompile(`\$([0-9]+)`)
+
+// inferredParameters is how many NULLs the generic tier binds: the highest $n in the
+// text. The normalized text numbers its placeholders without gaps, so the highest is
+// the count; where a stray '$9' in a comment inflates it, the server answers "wrong
+// number of parameters" and the block records that, not a plan for a different shape.
+func inferredParameters(query string) int {
+	highest := 0
+
+	for _, match := range parameterSymbol.FindAllStringSubmatch(query, -1) {
+		n, err := strconv.Atoi(match[1])
+		if err == nil && n > highest {
+			highest = n
+		}
+	}
+
+	return highest
+}
 
 // explainableKeywords is an allowlist, not a utility blocklist: a blocklist misses CALL,
 // COPY, DO, SET, PREPARE, FETCH, EXECUTE and EXPLAIN itself, each of which puts an error
@@ -239,6 +271,9 @@ type Explain struct {
 	// tailOpened records that the opening sample ran; false is the connect-failure path,
 	// where nothing was attempted.
 	tailOpened bool
+
+	// prepared counts the generic tier's PREPAREs, which is the statement name's suffix.
+	prepared int
 }
 
 // NewExplain panics on a nil SlowQueries or an unrecognised mode: both are wiring bugs
@@ -728,10 +763,15 @@ type explainCandidate struct {
 	// in the sample it was attempted, which the cap can put later.
 	firstSeen int
 
-	// literalText is submittable as-is; genericText carries $n placeholders and needs
-	// GENERIC_PLAN. Either may be empty.
+	// literalText is submittable as-is; genericText carries $n placeholders and goes
+	// through a prepared statement. Either may be empty.
 	literalText string
 	genericText string
+
+	// parameters is how many NULLs the generic tier bound, written as parameters= on
+	// every block whose attempt went through a prepared statement, succeeded or not.
+	parameters int
+	prepared   bool
 
 	// textReason says which cut left this candidate with nothing to submit.
 	textReason string
@@ -895,7 +935,7 @@ func attachText(candidates []*explainCandidate, activity []activityRow, facts ac
 			// Cut by activitySQL's own left() instead. Same consequence, different cap.
 			c.textReason = reasonTextTruncated
 
-		case activityParameter.MatchString(query):
+		case parameterSymbol.MatchString(query):
 			// Parameterized, so not literal-eligible, but better generic input than
 			// nothing when the statements view had none.
 			if c.genericText == "" {
@@ -1193,20 +1233,35 @@ func (e *Explain) submitAll(
 }
 
 // submitOne picks the mode from the text that is available, not from a rule, and sends it
-// over the protocol that mode requires.
+// down the path that mode requires.
 func (e *Explain) submitOne(
 	ctx context.Context, q RowQuerier, s SampleContext, c *explainCandidate,
 ) {
-	mode, generic, ok := choosePlanMode(c, s)
+	mode, ok := choosePlanMode(c)
 	if !ok {
 		c.reason = mode
 
 		return
 	}
 
-	statement := explainStatement(explainOptions(generic), submittableText(c, generic))
+	var (
+		plan      []byte
+		truncated bool
+		err       error
+	)
 
-	plan, truncated, err := submitExplain(ctx, q, statement, generic)
+	if mode == planModeEstimatedGeneric {
+		e.prepared++
+		c.prepared = true
+		c.parameters = inferredParameters(c.genericText)
+
+		plan, truncated, err = submitGenericPlan(ctx, q,
+			preparedStatementPrefix+strconv.Itoa(e.prepared), c.genericText)
+	} else {
+		plan, truncated, err = submitExplain(ctx, q,
+			explainStatement(explainOptions(), c.literalText))
+	}
+
 	if err != nil {
 		c.err = s.errorText(err)
 
@@ -1220,35 +1275,33 @@ func (e *Explain) submitOne(
 
 	// Only the literal mode can assert equality: the generic text jumbles a Param where
 	// the original jumbled a Const, so its identifier differs by construction.
-	if !generic && c.planQueryID != "" && c.queryid != nil {
+	if mode == planModeEstimatedLiteral && c.planQueryID != "" && c.queryid != nil {
 		c.queryIDMatch = strconv.FormatBool(c.planQueryID == strconv.FormatInt(*c.queryid, 10))
 	}
 }
 
-// choosePlanMode returns the mode, whether it needs GENERIC_PLAN, and false with a
-// reason in place of the mode when nothing can be submitted. An unusable literal text
-// does not end the candidate: the generic mode is still tried.
-func choosePlanMode(c *explainCandidate, s SampleContext) (mode string, generic, ok bool) {
+// choosePlanMode returns the mode, or false with a reason in its place when nothing can
+// be submitted. An unusable literal text does not end the candidate: the generic mode
+// is still tried. No version enters the choice: the generic tier is a prepared
+// statement, which every supported server has.
+func choosePlanMode(c *explainCandidate) (mode string, ok bool) {
 	if c.literalText != "" && !multiStatement(c.literalText) {
-		return planModeEstimatedLiteral, false, true
+		return planModeEstimatedLiteral, true
 	}
 
 	switch {
 	case c.genericText == "":
 		if c.literalText != "" {
-			return reasonMultiStatement, false, false
+			return reasonMultiStatement, false
 		}
 
-		return c.textReason, false, false
-
-	case !s.HasGenericPlan:
-		return reasonGenericPlanUnsupported, false, false
+		return c.textReason, false
 
 	case multiStatement(c.genericText):
-		return reasonMultiStatement, true, false
+		return reasonMultiStatement, false
 	}
 
-	return planModeEstimatedGeneric, true, true
+	return planModeEstimatedGeneric, true
 }
 
 // multiStatement reports whether text carries more than one command, ignoring a trailing
@@ -1258,30 +1311,37 @@ func multiStatement(query string) bool {
 	return strings.Contains(strings.TrimRight(strings.TrimSpace(query), ";"), ";")
 }
 
-func submittableText(c *explainCandidate, generic bool) string {
-	if generic {
-		return c.genericText
-	}
-
-	return c.literalText
-}
-
 // explainOptions is the only place an option is added, and ANALYZE is not in it: it
 // executes the statement, which here is the most expensive query on the server.
 // default_transaction_read_only is not the control - measured, it stops EXPLAIN ANALYZE
-// UPDATE and lets EXPLAIN ANALYZE SELECT count(*) run.
-func explainOptions(generic bool) []string {
-	options := []string{"VERBOSE", "SETTINGS"}
-
-	if generic {
-		options = append(options, "GENERIC_PLAN")
-	}
-
-	return options
+// UPDATE and lets EXPLAIN ANALYZE SELECT count(*) run. SETTINGS is what makes the
+// generic tier's blocks self-describing: the forced plan_cache_mode is printed in them.
+func explainOptions() []string {
+	return []string{"VERBOSE", "SETTINGS"}
 }
 
 func explainStatement(options []string, query string) string {
 	return "EXPLAIN (" + strings.Join(options, ", ") + ") " + query
+}
+
+// The generic tier's statements around one candidate. The name is the agent's own and
+// the text is the normalized query, spliced once, into PREPARE; nothing from the
+// customer's text is repeated in the EXECUTE, which carries only NULLs.
+func prepareStatement(name, query string) string {
+	return "PREPARE " + name + " AS " + query
+}
+
+func executeStatement(name string, parameters int) string {
+	if parameters == 0 {
+		// EXECUTE name() is a syntax error: the list, when present, is non-empty.
+		return "EXECUTE " + name
+	}
+
+	return "EXECUTE " + name + "(" + strings.Repeat("NULL, ", parameters-1) + "NULL)"
+}
+
+func deallocateStatement(name string) string {
+	return "DEALLOCATE " + name
 }
 
 // simpleQuerier is the raw simple query protocol, an optional interface so the shared
@@ -1294,33 +1354,65 @@ type simpleQuerier interface {
 // submitted over anything else.
 var errNoSimpleProtocol = errors.New("the generic plan mode needs the simple query protocol")
 
-// submitExplain returns the server's bytes verbatim, one plan line per row, bounded at
-// MaxPlanBytes; the second return is what the block records as plan_truncated=.
+// submitGenericPlan is the generic tier, one prepared-statement path on every version:
+// PREPARE the normalized text, force plan_cache_mode, EXPLAIN EXECUTE with one NULL per
+// parameter, then restore the setting and DEALLOCATE on every exit - the failed ones
+// included, in the reverse of the order they were made. Without ANALYZE, EXPLAIN
+// EXECUTE plans the statement and does not run it.
 //
-// The literal mode goes extended (QueryExecModeExec - one-shot, so customer SQL never
-// enters pgx's statement cache), whose refusals of a multi-statement string and of an
-// unbound $n are both features.
-//
-// The generic mode needs the raw simple query protocol: an unbound $1 fails at Bind
-// before the server sees the statement, and pgx's QueryExecModeSimpleProtocol substitutes
-// $n client-side and rejects it with "insufficient arguments" before the wire.
-func submitExplain(ctx context.Context, q RowQuerier, statement string, generic bool) (
-	[]byte, bool, error,
+// All five go over the raw simple query protocol. None carries an argument of its own,
+// and the extended protocol is the wrong tool twice over: an unbound $1 fails at Bind
+// before the server sees the statement, and pgx's QueryExecModeSimpleProtocol
+// substitutes $n client-side and rejects it with "insufficient arguments" before the
+// wire. The return is the server's bytes verbatim, one plan line per row, bounded at
+// MaxPlanBytes; the second is what the block records as plan_truncated=.
+func submitGenericPlan(ctx context.Context, q RowQuerier, name, query string) (
+	plan []byte, truncated bool, err error,
 ) {
-	if generic {
-		simple, ok := q.(simpleQuerier)
-		if !ok {
-			return nil, false, errNoSimpleProtocol
-		}
-
-		lines, truncated, err := simple.ExecSimple(ctx, statement, MaxPlanBytes)
-		if err != nil {
-			return nil, false, err
-		}
-
-		return planBytes(lines), truncated, nil
+	simple, ok := q.(simpleQuerier)
+	if !ok {
+		return nil, false, errNoSimpleProtocol
 	}
 
+	if err := execSimple(ctx, simple, prepareStatement(name, query)); err != nil {
+		return nil, false, err
+	}
+
+	// Best effort, as the RESET of statement_timeout is: a cleanup that fails here
+	// fails because the connection is gone, and the next candidate's error says so.
+	defer func() { _ = execSimple(ctx, simple, deallocateStatement(name)) }()
+
+	if err := execSimple(ctx, simple, forceGenericPlanSQL); err != nil {
+		return nil, false, err
+	}
+
+	defer func() { _ = execSimple(ctx, simple, resetPlanCacheModeSQL) }()
+
+	statement := explainStatement(explainOptions(), executeStatement(name, inferredParameters(query)))
+
+	lines, truncated, err := simple.ExecSimple(ctx, statement, MaxPlanBytes)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return planBytes(lines), truncated, nil
+}
+
+// execSimple runs one statement that returns nothing worth keeping.
+func execSimple(ctx context.Context, simple simpleQuerier, sql string) error {
+	_, _, err := simple.ExecSimple(ctx, sql, 0)
+
+	return err
+}
+
+// submitExplain is the literal tier's submission, returning the server's bytes
+// verbatim, one plan line per row, bounded at MaxPlanBytes; the second return is what
+// the block records as plan_truncated=.
+//
+// It goes extended (QueryExecModeExec - one-shot, so customer SQL never enters pgx's
+// statement cache), whose refusals of a multi-statement string and of an unbound $n
+// are both features.
+func submitExplain(ctx context.Context, q RowQuerier, statement string) ([]byte, bool, error) {
 	rows, err := q.Query(ctx, statement, pgx.QueryExecModeExec)
 	if err != nil {
 		return nil, false, err
@@ -1398,6 +1490,10 @@ func (e *Explain) writeCandidate(
 		{"queryid", int64Text(c.queryid)},
 		{"first_seen", strconv.Itoa(c.firstSeen)},
 		{"mode", c.mode},
+	}
+
+	if c.prepared {
+		fields = append(fields, headerField{"parameters", strconv.Itoa(c.parameters)})
 	}
 
 	if c.matchedBy != "" {
