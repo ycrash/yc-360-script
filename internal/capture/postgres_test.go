@@ -145,20 +145,23 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	}
 
 	postgresDataTypes := map[string]string{
-		"pgDTMetadata":    pgDTMetadata,
-		"pgDTBloat":       pgDTBloat,
-		"pgDTHealth":      pgDTHealth,
-		"pgDTCapacity":    pgDTCapacity,
-		"pgDTReplication": pgDTReplication,
-		"pgDTSessions":    pgDTSessions,
-		"pgDTSlowQueries": pgDTSlowQueries,
-		"pgDTDeadlocks":   pgDTDeadlocks,
-		"pgDTTimeouts":    pgDTTimeouts,
-		"pgDTExplain":     pgDTExplain,
+		"pgDTMetadata":      pgDTMetadata,
+		"pgDTBloat":         pgDTBloat,
+		"pgDTHealth":        pgDTHealth,
+		"pgDTCapacity":      pgDTCapacity,
+		"pgDTReplication":   pgDTReplication,
+		"pgDTSessions":      pgDTSessions,
+		"pgDTSlowQueries":   pgDTSlowQueries,
+		"pgDTDeadlocks":     pgDTDeadlocks,
+		"pgDTTimeouts":      pgDTTimeouts,
+		"pgDTExplain":       pgDTExplain,
+		"pgDTIndexUsage":    pgDTIndexUsage,
+		"pgDTTablespaces":   pgDTTablespaces,
+		"pgDTCheckpointLog": pgDTCheckpointLog,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
-		"one dt per artifact the run writes, less the ones still waiting on the server team: "+
+		"one dt per artifact the run writes, less any still waiting on the server team: "+
 			"those are written into the bundle, held back from upload, and the run says so")
 
 	for name, dt := range postgresDataTypes {
@@ -236,18 +239,19 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 		"pg_explain.txt has its assigned value - the tenth and last, which closes the gate "+
 			"this switch existed to hold open")
 
-	assert.Empty(t, pgSampledDataType(postgres.IndexUsage{}.Artifact()),
-		"pg_index_usage.txt is the gate's first occupant since pgExplain closed it: "+
-			"dt=pgIndexUsage is proposed, not assigned, so the artifact is written and held back")
+	assert.Equal(t, pgDTIndexUsage, pgSampledDataType(postgres.IndexUsage{}.Artifact()),
+		"pg_index_usage.txt uploads under the value the agent proposed, ahead of the server "+
+			"team's confirmation (Andy, 2026-09-03); the receiver's answer is in the run's message")
 
-	assert.Empty(t, pgSampledDataType(postgres.Tablespaces{}.Artifact()),
-		"pg_tablespaces.txt on the same terms: dt=pgTablespaces is proposed, not assigned")
+	assert.Equal(t, pgDTTablespaces, pgSampledDataType(postgres.Tablespaces{}.Artifact()),
+		"pg_tablespaces.txt on the same terms")
 
-	assert.Empty(t, pgSampledDataType(postgres.NewCheckpointLog().Artifact()),
-		"and pg_checkpoint_log.txt: dt=pgCheckpointLog is proposed, not assigned")
+	assert.Equal(t, pgDTCheckpointLog, pgSampledDataType(postgres.NewCheckpointLog().Artifact()),
+		"and pg_checkpoint_log.txt")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
-		"and an artifact with no assigned dt is still refused rather than guessed at")
+		"and an artifact with no dt at all is still refused rather than guessed at - the "+
+			"rule the deferred bundle marker (plan D8) lands under")
 }
 
 func pgMetadataCollector() *postgres.MetadataCollector {
@@ -503,13 +507,11 @@ var postgresArtifactFiles = []string{
 }
 
 // postgresArtifactsAwaitingDT are written into the bundle and held back from
-// upload until the server team assigns a value. Each is a one-line change in
-// pgSampledDataType and one here when its value arrives.
-var postgresArtifactsAwaitingDT = []string{
-	PostgresCheckpointLogFileName,
-	PostgresIndexUsageFileName,
-	PostgresTablespacesFileName,
-}
+// upload until a value exists. Empty since 2026-09-03, when the three spec v1.2
+// artifacts began uploading under their proposed values; the deferred bundle
+// marker (plan D8) is the next occupant. An entry here is one line in
+// pgSampledDataType when its value arrives.
+var postgresArtifactsAwaitingDT []string
 
 func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	dir := chdirToCaptureDir(t)
@@ -680,16 +682,19 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTExplain, "pg_explain.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
-		pgDTMetadata:    "source=pg_metadata",
-		pgDTHealth:      "source=pg_health",
-		pgDTBloat:       "source=pg_bloat",
-		pgDTCapacity:    "source=pg_capacity",
-		pgDTReplication: "source=pg_replication",
-		pgDTSessions:    "source=pg_sessions",
-		pgDTSlowQueries: "source=pg_slow_queries",
-		pgDTDeadlocks:   "source=pg_deadlocks",
-		pgDTTimeouts:    "source=pg_timeouts",
-		pgDTExplain:     "source=pg_explain",
+		pgDTMetadata:      "source=pg_metadata",
+		pgDTHealth:        "source=pg_health",
+		pgDTBloat:         "source=pg_bloat",
+		pgDTCapacity:      "source=pg_capacity",
+		pgDTReplication:   "source=pg_replication",
+		pgDTSessions:      "source=pg_sessions",
+		pgDTSlowQueries:   "source=pg_slow_queries",
+		pgDTDeadlocks:     "source=pg_deadlocks",
+		pgDTTimeouts:      "source=pg_timeouts",
+		pgDTExplain:       "source=pg_explain",
+		pgDTIndexUsage:    "source=pg_index_usage",
+		pgDTTablespaces:   "source=pg_tablespaces",
+		pgDTCheckpointLog: "source=pg_checkpoint_log",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -715,19 +720,15 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		"nothing posted under an empty dt: an invented value uploads and is then dropped "+
 			"silently at the far end, which is why the gate skips instead of guessing")
 
-	assert.Contains(t, result.Msg, PostgresIndexUsageFileName+" written (0/2 samples); postgres connect failed",
-		"the one artifact held back is in the run's record like the rest")
-	assert.Equal(t, len(postgresArtifactsAwaitingDT), strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
-		"and each says so rather than vanishing: dt=pgIndexUsage and dt=pgTablespaces are "+
-			"proposed to the server team, and an invented value would upload and be dropped silently")
-	assert.NotContains(t, byDT, "pgIndexUsage",
-		"and nothing is posted under a proposed value before it is assigned")
-	assert.NotContains(t, byDT, "pgTablespaces")
-	assert.NotContains(t, byDT, "pgCheckpointLog")
+	assert.Len(t, byDT, len(postgresArtifactFiles),
+		"every artifact the run writes goes up under a dt of its own, spec v1.2's three "+
+			"under the values the agent proposed (Andy, 2026-09-03)")
+	assert.Equal(t, len(postgresArtifactsAwaitingDT),
+		strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
+		"nothing is held back while no artifact lacks a value; the rule stays for one that does")
 
-	assert.False(t, result.Ok,
-		"the run's Ok is spent on the held-back artifact, deliberately: it is the one signal "+
-			"that reaches the completion record, and it clears the day the value is assigned")
+	assert.True(t, result.Ok,
+		"the run's Ok is spent only on an artifact held back or refused, and there is none")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {

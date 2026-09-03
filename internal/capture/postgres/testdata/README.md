@@ -66,9 +66,9 @@ The goldens:
 - `pg_bloat_empty_db.txt` — a complete capture of a database with no user
   tables. A column header with no rows: captured and found nothing, which is a
   different shape from could not be captured.
-- `pg_index_usage_full.txt` — the first artifact born under spec v1.2, and the
-  first written into the bundle without being uploaded: `dt=pgIndexUsage` is
-  proposed to the server team, not assigned. Four indexes on
+- `pg_index_usage_full.txt` — the first artifact born under spec v1.2. It
+  uploads under `dt=pgIndexUsage`, the agent's proposed value, ahead of the
+  server team's confirmation (held back from 2026-09-02 to 2026-09-03). Four indexes on
   `pg_bloat_full.txt`'s two tables, kept consistent with that fixture: each
   table's two `idx_scan` counts sum to the table's there on both samples, and
   each table's two sizes sum to its `index_size_bytes`. `orders_status_idx` is
@@ -84,8 +84,8 @@ The goldens:
   storage of its own (the one `pg_metadata_full.txt`'s tablespace block
   locates), and the two every cluster has — `pg_default`, which holds every
   database and is the row that moves between the samples, and `pg_global`, the
-  shared catalogues. Also held back from upload: `dt=pgTablespaces` is
-  proposed, not assigned.
+  shared catalogues. Uploads under `dt=pgTablespaces`, proposed and unconfirmed,
+  on the same terms.
 - `pg_tablespaces_least_privilege.txt` — a LOGIN-only role. `pg_tablespace_size`
   refuses a tablespace the role holds no CREATE on unless it is the database's
   own default tablespace or the role has `pg_read_all_stats`, and an error in a
@@ -427,8 +427,8 @@ The goldens:
   reason it is empty. Four causes produce this shape and each is written rather
   than summarised — `collector_off`, `unresolved`, `unreadable`, `settings_unread`.
 - `pg_checkpoint_log_full.txt` — the third log tail, born under spec v1.2 and
-  held back from upload like its two sampled siblings (`dt=pgCheckpointLog` is
-  proposed, not assigned). Two completion lines in one window, both one line:
+  uploading under `dt=pgCheckpointLog`, proposed and unconfirmed, like its two
+  sampled siblings. Two completion lines in one window, both one line:
   the one measured from the matrix's postgres:18 container on 2026-09-02, with
   18's SLRU and lsn fields, and the spec's own pre-18 example. Around each, the
   checkpoint's `starting:` line and an unrelated entry after it — the neighbours
