@@ -634,7 +634,7 @@ const currentDatabaseSQL = `SELECT current_database()::text,
 func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	sampleCtx := w.baseSampleContext()
 
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var database string

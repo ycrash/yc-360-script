@@ -492,8 +492,14 @@ artifact's closing block says `status=connection_lost` with the same error in
 written up to that point stays in the bundle; the run reports
 `connection lost: …` for each file and still uploads them. A statement that
 merely failed leaves the connection open and stops nothing: that artifact's
-closing block says `status=partial` and the next tick proceeds. There is no
-bundle-level marker file yet; each artifact carries its own status.
+closing block says `status=partial` and the next tick proceeds. A statement that
+runs to the server's `statement_timeout` (10s) is such a failure: the server
+cancels it and answers, and the agent's own deadline on the statement sits 5s
+above the server's so that the server's answer is the one that arrives. A
+capture stopped from the agent's side while a statement is in flight, by a kill
+or the window's deadline, reports `cancelled` or `deadline_exceeded`, not a lost
+connection. There is no bundle-level marker file yet; each artifact carries its
+own status.
 
 ## Where to run it
 

@@ -136,7 +136,7 @@ const logSettingsSQL = `SELECT
 const logLocationFormatSQL = `SELECT pg_current_logfile($1)`
 
 func readLogSettings(ctx context.Context, q Querier) (logSettings, error) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var dataDirectory, logDirectory, logFilename, loggingCollector, logDestination,
@@ -367,7 +367,7 @@ func resolveFromFunction(ctx context.Context, q Querier, s logSettings) (
 }
 
 func currentLogfile(ctx context.Context, q Querier, format string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var logfile *string

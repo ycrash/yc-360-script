@@ -166,7 +166,7 @@ type healthRow struct {
 
 // read returns the capped rows and the uncapped total.
 func (h Health) read(ctx context.Context, q RowQuerier, sql string, s SampleContext) ([]healthRow, int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, sql, h.maxDatabases(), connectedOID(s.DBID))

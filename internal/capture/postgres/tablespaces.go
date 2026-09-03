@@ -29,7 +29,7 @@ ORDER BY spcname`
 // location block, so the two can never disagree about which volumes are the
 // database's.
 func readTablespaces(ctx context.Context, q RowQuerier) ([]Tablespace, error) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(ctx, tablespaceSQL)
@@ -154,7 +154,7 @@ type tablespaceSize struct {
 }
 
 func readTablespaceSizes(ctx context.Context, q RowQuerier) ([]tablespaceSize, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, tablespaceSizesSQL)
