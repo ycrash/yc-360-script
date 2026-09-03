@@ -164,8 +164,8 @@ func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int
 	return results, sessions
 }
 
-// A backend terminated under the window is the mid-capture disconnect spec v1.2 §6
-// describes. What the driver reports for it, and that the window stops at the tick that
+// A backend terminated under the window is a mid-capture disconnect. What the driver
+// reports for it, and that the window stops at the tick that
 // found out rather than ticking against a closed connection to the end, are facts only
 // a server can give.
 func TestMatrixWindowStopsWhenTheBackendIsTerminated(t *testing.T) {
@@ -862,7 +862,7 @@ func (b sampleBlock) indexrelidOf(t *testing.T, name string) string {
 }
 
 // runMatrixIndexUsageWindow samples bloat alongside so relid can be checked
-// against the table it names, the join the spec designed the column for.
+// against the table it names, the join the column exists for.
 func runMatrixIndexUsageWindow(t *testing.T, target Target) []ArtifactResult {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -3712,7 +3712,7 @@ func TestMatrixLogTailTimeouts(t *testing.T) {
 
 // The third tail. log_checkpoints decides whether the server writes the line at
 // all: on by default from 15, off on 14, and the fixture sets nothing - so 14 is
-// the case W7 exists for, an empty file read against a metadata row that says
+// the case the metadata row exists for, an empty file read against a metadata row that says
 // why.
 func TestMatrixLogTailCheckpoints(t *testing.T) {
 	for _, server := range matrixServers {
@@ -4714,7 +4714,7 @@ func TestMatrixExplainLiteralTierFromTheLog(t *testing.T) {
 	}
 }
 
-// D7's gate reads the cap the agent's own connection observes, which a role-level
+// The literal tier's gate reads the cap the agent's own connection observes, which a role-level
 // setting changes without touching the cluster - the deployment's lever, not the
 // agent's, which sets nothing.
 func TestMatrixExplainLiteralGateReadsTheObservedCap(t *testing.T) {

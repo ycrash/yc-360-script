@@ -19,7 +19,7 @@ func withCleanGlobalConfig(t *testing.T) {
 	GlobalConfig = defaultConfig()
 }
 
-// validPostgres is a fully specified block. Frequency is set because the spec's
+// validPostgres is a fully specified block. Frequency is set because the
 // 5m default does not fit the default window and Validate says so; a fixture that
 // left it unset would carry that warning into every test that counts warnings.
 func validPostgres() *Postgres {
@@ -63,7 +63,7 @@ func TestPostgresValidateDefaults(t *testing.T) {
 		assert.Contains(t, warnings[0], "postgres.database not set")
 		assert.Contains(t, warnings[0], "pg_stat_statements")
 		assert.Contains(t, warnings[1], "postgres.frequency is unset and defaults to 5m0s",
-			"the spec's default does not fit the default window, and a block that set neither is told")
+			"the default does not fit the default window, and a block that set neither is told")
 	})
 
 	t.Run("explicit values untouched", func(t *testing.T) {
@@ -231,9 +231,9 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		assert.Contains(t, warnings[0], "2h0m0s", "the warning must name what was done")
 	})
 
-	t.Run("the ceiling is the spec's two-hour performance-test case", func(t *testing.T) {
+	t.Run("the ceiling is two hours", func(t *testing.T) {
 		assert.Equal(t, 2*time.Hour, MaxPostgresCaptureDuration,
-			"raised from 10m for spec v1.2 - the host files stretch with it, by decision")
+			"raised from 10m; the host files stretch with it")
 	})
 
 	t.Run("the ceiling itself is not clamped", func(t *testing.T) {
@@ -288,11 +288,11 @@ func TestPostgresValidateFrequency(t *testing.T) {
 			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
 	}
 
-	t.Run("absent takes the spec's 5m default, which the default window cannot fit", func(t *testing.T) {
+	t.Run("absent takes the 5m default, which the default window cannot fit", func(t *testing.T) {
 		p := withTarget(t, "")
 
 		warnings, err := p.Validate()
-		require.NoError(t, err, "the bookend is the spec's safety net, so this is a warning")
+		require.NoError(t, err, "the bookend still gives two samples, so this is a warning")
 
 		require.NotNil(t, p.Frequency)
 		assert.Equal(t, DefaultPostgresFrequency, p.Frequency.Duration())
@@ -302,7 +302,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 		assert.Contains(t, warnings[0], "not shorter than the 2m0s window")
 		assert.Contains(t, warnings[0], "only the opening and closing samples")
 		assert.Contains(t, warnings[0], "for example 30s",
-			"the spec's own incident value, named as the fix")
+			"a value that fits the window, named as the fix")
 	})
 
 	t.Run("absent on a window longer than the default takes it without warning", func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, DefaultPostgresFrequency, p.Frequency.Duration(),
-			"the spec's performance-test case: 2h at 5m, twenty-five samples")
+			"2h at 5m: twenty-five samples")
 		assert.Empty(t, warnings)
 	})
 
@@ -324,7 +324,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 
 		require.NotNil(t, p.Frequency)
 		assert.Equal(t, 30*time.Second, p.Frequency.Duration(),
-			"the spec's incident case: 30s on the 2m default window")
+			"30s on the 2m default window")
 		assert.Empty(t, warnings)
 	})
 
@@ -362,7 +362,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 				p := withTarget(t, body)
 
 				warnings, err := p.Validate()
-				require.NoError(t, err, "the bookend is the spec's safety net, so this is a warning")
+				require.NoError(t, err, "the bookend still gives two samples, so this is a warning")
 
 				require.NotEmpty(t, warnings)
 				assert.Contains(t, warnings[len(warnings)-1], "only the opening and closing samples")

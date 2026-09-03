@@ -1931,7 +1931,7 @@ func TestExplainTierPrecedence(t *testing.T) {
 	})
 }
 
-// D7: the literal tier runs only under a finite log_parameter_max_length, observed on
+// The literal tier runs only under a finite log_parameter_max_length, observed on
 // the agent's own connection and never set by it. Every case below has a usable record
 // in the log, so what the gate decides is whether the value is used or dropped.
 func TestExplainLiteralTierGate(t *testing.T) {

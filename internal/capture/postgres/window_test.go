@@ -587,7 +587,7 @@ func TestWindowModuleDeadlineOnADegenerateWindowCoversEveryCollector(t *testing.
 }
 
 func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
-	// Any Periodic cadence lands its last sample on the close; the spec's incident case.
+	// Any Periodic cadence lands its last sample on the close.
 	interval := 30 * time.Second
 
 	window := &Window{
@@ -606,7 +606,7 @@ func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
 }
 
 func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
-	// Any Periodic cadence lands its last sample on the close; the spec's incident case.
+	// Any Periodic cadence lands its last sample on the close.
 	interval := 30 * time.Second
 
 	real := []Collector{
@@ -725,8 +725,7 @@ func TestWindowWritesTheStubBlockForAFailedSample(t *testing.T) {
 	assert.Contains(t, headers[2], "status=partial samples_expected=2 samples_written=1")
 }
 
-// A lost connection is the mid-capture disconnect spec v1.2 §6 describes: what was
-// written stays, every artifact says why it stopped, and no tick runs against a
+// A lost connection mid-capture: what was written stays, every artifact says why it stopped, and no tick runs against a
 // connection the driver has closed.
 func TestWindowStopsWhenTheConnectionIsLost(t *testing.T) {
 	clock := newFakeClock()
@@ -1111,7 +1110,7 @@ func TestScheduleOffsets(t *testing.T) {
 			want: []time.Duration{0, 500 * ms, s, 1500 * ms},
 		},
 		{
-			name:     "the spec's own example: two minutes at thirty seconds is five samples",
+			name:     "two minutes at thirty seconds is five samples",
 			schedule: Periodic(30 * s), window: 120 * s,
 			want: []time.Duration{0, 30 * s, 60 * s, 90 * s, 120 * s},
 		},
@@ -1222,7 +1221,7 @@ func TestWindowPeriodicSamplesTheStepsAndTheClosingTick(t *testing.T) {
 
 	require.Len(t, results, 1)
 	assert.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 5, results[0].SamplesExpected, "the spec's own example: two minutes at thirty seconds")
+	assert.Equal(t, 5, results[0].SamplesExpected, "two minutes at thirty seconds")
 	assert.Equal(t, 5, results[0].SamplesWritten)
 
 	var at []time.Duration

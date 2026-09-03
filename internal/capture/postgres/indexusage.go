@@ -14,8 +14,7 @@ import (
 const DefaultMaxIndexes = 2 * DefaultMaxTables
 
 // indexrelid leads: it's the join key across samples. relid is the table's, the
-// key into pg_bloat.txt, which is where the schema and table names live - the
-// spec's column list, exactly.
+// key into pg_bloat.txt, which is where the schema and table names live.
 var indexUsageColumns = []string{
 	"indexrelid",
 	"relid",
@@ -26,7 +25,7 @@ var indexUsageColumns = []string{
 	"index_size_bytes",
 }
 
-// Two statements, the shape pg_bloat.txt settled on rather than the spec's one:
+// Two statements, the shape pg_bloat.txt settled on rather than one statement:
 // the size function stats every index's files on a filesystem that may itself
 // be sick, and as one statement a large schema could exceed statement_timeout
 // and lose the scan counts with it.

@@ -170,7 +170,7 @@ func TestIndexUsageColumnOrder(t *testing.T) {
 		"idx_tup_read",
 		"idx_tup_fetch",
 		"index_size_bytes",
-	}, indexUsageColumns, "the spec's column list, in the spec's order")
+	}, indexUsageColumns, "the column list, in this order")
 
 	assert.Equal(t, "indexrelid", indexUsageColumns[colIndexrelid], "the join key leads")
 }

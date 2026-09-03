@@ -27,7 +27,7 @@ const (
 
 	// StatusConnectionLost: the driver closed the connection mid-window. The timeline
 	// stopped at the sample that found out, every artifact keeps what it had written,
-	// and no reconnect is attempted: the capture is one connection (spec v1.2 §6), and
+	// and no reconnect is attempted: the capture is one connection for the whole window, and
 	// a second one would restart every delta baseline under the same artifact.
 	StatusConnectionLost = "connection_lost"
 
