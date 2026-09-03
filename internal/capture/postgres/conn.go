@@ -111,6 +111,64 @@ type Conn struct {
 	// connectDuration is the dial: TCP, TLS and authentication. Measured here
 	// because this is the only place that sees both ends of the attempt.
 	connectDuration time.Duration
+
+	loss loss
+}
+
+// loss keeps the first error observed as the driver closed the connection. A
+// lost connection surfaces through whichever statement runs first, and a
+// collector may fold that error into its own block header rather than return
+// it. pgx then invalidates that statement's cache entry, and every later
+// statement fails on the deallocation of the cached statement against the
+// closed socket - "failed to deallocate cached statement(s): conn closed" -
+// before it reaches the server. The first error is the server's own message,
+// or the deadline that fired, and it is what the window reports.
+type loss struct {
+	closed func() bool
+	err    error
+}
+
+func (l *loss) note(err error) {
+	if err == nil || l.err != nil || l.closed == nil || !l.closed() {
+		return
+	}
+
+	l.err = err
+}
+
+// lossRows reports a row set's terminal error to the connection's loss record.
+// pgx closes the rows itself when Next returns false, so both ends are watched.
+type lossRows struct {
+	pgx.Rows
+
+	loss *loss
+}
+
+func (r *lossRows) Next() bool {
+	next := r.Rows.Next()
+	if !next {
+		r.loss.note(r.Err())
+	}
+
+	return next
+}
+
+func (r *lossRows) Close() {
+	r.Rows.Close()
+	r.loss.note(r.Err())
+}
+
+type lossRow struct {
+	pgx.Row
+
+	loss *loss
+}
+
+func (r lossRow) Scan(dest ...any) error {
+	err := r.Row.Scan(dest...)
+	r.loss.note(err)
+
+	return err
 }
 
 // ConnectDuration is what the connection cost - the measurement an operator
@@ -133,7 +191,11 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 		return nil, classifyConnectError(err)
 	}
 
-	return &Conn{conn: conn, connectDuration: time.Since(dialedAt)}, nil
+	return &Conn{
+		conn:            conn,
+		connectDuration: time.Since(dialedAt),
+		loss:            loss{closed: conn.IsClosed},
+	}, nil
 }
 
 // ExecSimple runs sql over PostgreSQL's simple query protocol and returns the first
@@ -180,6 +242,8 @@ func (c *Conn) ExecSimple(ctx context.Context, sql string, maxBytes int) ([]stri
 
 	// Close drains to the end and returns the first error of the exchange.
 	if err := mrr.Close(); err != nil {
+		c.loss.note(err)
+
 		return nil, false, err
 	}
 
@@ -195,11 +259,18 @@ func statementContext(ctx context.Context) (context.Context, context.CancelFunc)
 // QueryRow's per-statement deadline is the caller's: Scan reads the row after
 // this returns. Same for Query.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return c.conn.QueryRow(ctx, sql, args...)
+	return lossRow{Row: c.conn.QueryRow(ctx, sql, args...), loss: &c.loss}
 }
 
 func (c *Conn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	return c.conn.Query(ctx, sql, args...)
+	rows, err := c.conn.Query(ctx, sql, args...)
+	if err != nil {
+		c.loss.note(err)
+
+		return rows, err
+	}
+
+	return &lossRows{Rows: rows, loss: &c.loss}, nil
 }
 
 func (c *Conn) Close(ctx context.Context) error {
@@ -208,9 +279,12 @@ func (c *Conn) Close(ctx context.Context) error {
 
 // Lost reports whether the driver has closed the connection underneath the window: a
 // terminated backend, a broken socket, or a context that expired mid-statement - pgx
-// closes on all three. Read after a failed sample, it is what tells a lost connection
+// closes on all three. Read after every sample, it is what tells a lost connection
 // from a failed statement, which leaves the connection open.
 func (c *Conn) Lost() bool { return c.conn.IsClosed() }
+
+// LossError is the error the driver closed the connection on; nil while it is open.
+func (c *Conn) LossError() error { return c.loss.err }
 
 func buildConfig(t Target) (*pgx.ConnConfig, error) {
 	cfg, err := parseConfigWithoutEnvironment(dsn(t))

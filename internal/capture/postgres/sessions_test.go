@@ -310,6 +310,10 @@ type fakeSessionsConn struct {
 	sessionsArgs [][]any
 	locksArgs    [][]any
 	deadlines    []time.Time
+
+	// setErr is the SET's terminal error, where the driver reports a statement that
+	// reached a closed socket.
+	setErr error
 }
 
 func newFakeSessionsConn() *fakeSessionsConn {
@@ -331,7 +335,10 @@ func (c *fakeSessionsConn) Query(ctx context.Context, sql string, args ...any) (
 	c.deadlines = append(c.deadlines, deadline)
 
 	switch sql {
-	case setSessionsTimeoutSQL, resetSessionsTimeoutSQL:
+	case setSessionsTimeoutSQL:
+		return &fakeRows{err: c.setErr}, nil
+
+	case resetSessionsTimeoutSQL:
 		return &fakeRows{}, nil
 
 	case sessionsSQL:
@@ -1146,13 +1153,30 @@ func TestSessionsFailedReadsAreStillACompleteSample(t *testing.T) {
 	assert.NotContains(t, artifactText(t, results[0]), "sample_error=", "so no stub was written")
 }
 
-func TestSessionsSampleErrorsOnlyOnAWriteFailure(t *testing.T) {
+func TestSessionsWriteFailureIsTheSamplesError(t *testing.T) {
 	sinkErr := errors.New("no space left on device")
 
 	err := Sessions{}.Sample(context.Background(), newFakeSessionsConn(),
 		failingWriter{err: sinkErr}, sessionsSampleContext())
 
 	require.ErrorIs(t, err, sinkErr, "which the window turns into IOErr rather than into a stub")
+}
+
+func TestSessionsFailedTimeoutSetIsTheSamplesError(t *testing.T) {
+	lost := errors.New("FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")
+
+	conn := newFakeSessionsConn()
+	conn.setErr = lost
+
+	var sample bytes.Buffer
+	err := Sessions{}.Sample(context.Background(), conn, &sample, sessionsSampleContext())
+
+	require.ErrorIs(t, err, lost,
+		"the driver's own error: the SET is the first statement of the sample, so on a "+
+			"connection the driver has closed it is the one that meets the loss")
+	assert.Empty(t, sample.String(), "nothing of this sample is written")
+	assert.Equal(t, []string{setSessionsTimeoutSQL}, conn.sql,
+		"no read runs at the default timeout, and there is nothing to RESET")
 }
 
 func TestSessionsGoldenFull(t *testing.T) {

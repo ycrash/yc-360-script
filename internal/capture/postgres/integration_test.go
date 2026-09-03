@@ -199,14 +199,65 @@ func TestMatrixWindowStopsWhenTheBackendIsTerminated(t *testing.T) {
 				"the timeline stopped at the tick that found the connection gone")
 			assert.GreaterOrEqual(t, results[0].SamplesWritten, 1, "what was written before stays")
 			assert.Less(t, results[0].SamplesWritten, results[0].SamplesExpected)
-			assert.NotEmpty(t, results[0].Err)
+			assert.Contains(t, results[0].Err, "SQLSTATE 57P01", "the server's own message")
+			assert.NotContains(t, results[0].Err, "deallocate",
+				"not pgx's cleanup of a cached statement against the closed socket")
 
 			t.Logf("pg%d: the driver reported %q", server.major, results[0].Err)
 
 			text := matrixArtifactText(t, results[0])
 			assert.Contains(t, text, "sample_error=")
 			assert.Contains(t, text, "status=connection_lost")
-			assert.Contains(t, text, "connection_error=")
+			assert.Contains(t, text, terminatedConnectionError)
+		})
+	}
+}
+
+const terminatedConnectionError = `connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"`
+
+// A capture's cadence leaves the connection idle between ticks, so the kill lands on
+// no statement and the next tick's first statement is what meets it: the sessions
+// collector's SET, whose error is the one every artifact must carry.
+func TestMatrixWindowStopsWhenTheBackendIsTerminatedBetweenTicks(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			window := &Window{
+				Duration: 6 * time.Second,
+				Target:   matrixTarget(server, matrixMonitor(t)),
+				Collectors: []Collector{
+					Sessions{Interval: 2 * time.Second},
+					Health{Interval: 2 * time.Second},
+				},
+			}
+
+			terminated := make(chan error, 1)
+
+			go func() {
+				time.Sleep(time.Second)
+
+				terminated <- matrixTerminateCaptureSessions(matrixTarget(server, matrixSuperuser(t)))
+			}()
+
+			results := window.Run(context.Background())
+
+			require.NoError(t, <-terminated, "pg_terminate_backend on the capture's session")
+			require.Len(t, results, 2)
+
+			for _, result := range results {
+				assert.Equal(t, StatusConnectionLost, result.Status, result.Artifact.Name)
+				assert.Equal(t, 1, result.SamplesWritten,
+					"%s: the opening sample, then the kill, then the tick that met it", result.Artifact.Name)
+				assert.Contains(t, result.Err, "SQLSTATE 57P01", result.Artifact.Name)
+				assert.NotContains(t, result.Err, "deallocate", result.Artifact.Name)
+
+				text := matrixArtifactText(t, result)
+				assert.Contains(t, text, terminatedConnectionError, result.Artifact.Name)
+				assert.NotContains(t, text, "deallocate", result.Artifact.Name)
+			}
+
+			t.Logf("pg%d: the driver reported %q", server.major, results[0].Err)
 		})
 	}
 }

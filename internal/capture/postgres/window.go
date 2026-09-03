@@ -271,6 +271,21 @@ func connectionLost(conn windowConn) bool {
 	return ok && state.Lost()
 }
 
+// lossReporter is the part of *Conn that kept the error the driver closed on.
+type lossReporter interface {
+	LossError() error
+}
+
+// connectionLossText is that error, redacted; empty for a connection that kept none.
+func connectionLossText(conn windowConn, password string) string {
+	reporter, ok := conn.(lossReporter)
+	if !ok {
+		return ""
+	}
+
+	return errorText(reporter.LossError(), password)
+}
+
 func connectDuration(conn windowConn) time.Duration {
 	if timer, ok := conn.(connectTimer); ok {
 		return timer.ConnectDuration()
@@ -564,7 +579,8 @@ func (w *Window) sample(
 		}
 
 		// A failed sample on a live connection is that sample's stub block and the next
-		// tick proceeds; on a connection the driver has closed, every later tick would
+		// tick proceeds; on a connection the driver has closed, whether the sample
+		// returned the error or folded it into its own block, every later tick would
 		// fail the same way, so the timeline stops here and the artifacts say why.
 		if lost, err := w.sampleOnce(ctx, conn, sampleCtx, results, event); lost {
 			// The driver also closes the connection when the window's context ends
@@ -581,7 +597,7 @@ func (w *Window) sample(
 }
 
 // sampleOnce runs one tick; lost reports a connection the driver has closed, with the
-// redacted error that revealed it.
+// redacted error it closed on - or, for a connection that kept none, the sample's.
 func (w *Window) sampleOnce(
 	ctx context.Context, conn windowConn, sampleCtx SampleContext, results []ArtifactResult, event sampleEvent,
 ) (lost bool, err string) {
@@ -597,13 +613,21 @@ func (w *Window) sampleOnce(
 
 	if sampleErr := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); sampleErr != nil {
 		w.writeSampleError(result, at, sampleErr)
-
-		return connectionLost(conn), result.Err
+	} else {
+		result.SamplesWritten++
 	}
 
-	result.SamplesWritten++
+	// Checked whatever the sample returned: a collector that localises failures to a
+	// block carries the loss on that block's header and reports nothing.
+	if !connectionLost(conn) {
+		return false, ""
+	}
 
-	return false, ""
+	if lossErr := connectionLossText(conn, w.Target.Password); lossErr != "" {
+		result.Err = lossErr
+	}
+
+	return true, result.Err
 }
 
 // writeSampleError records a failed sample so numbering doesn't gap silently; the block names the artifact, not a view.

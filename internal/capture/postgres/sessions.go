@@ -168,7 +168,13 @@ func (s Sessions) Sample(ctx context.Context, q RowQuerier, w io.Writer, sc Samp
 	// One buffer, one Write: a partial failure would otherwise leave a half-written sample.
 	var sample bytes.Buffer
 
-	setSessionsTimeout(ctx, q)
+	// A SET that fails is the sample's error, not two reads run at the default
+	// timeout. It is also the first statement of the sample, so on a connection the
+	// driver has closed it is the one that meets the loss, and its error is the
+	// driver's own.
+	if err := setSessionsTimeout(ctx, q); err != nil {
+		return err
+	}
 	defer resetSessionsTimeout(ctx, q)
 
 	if err := s.writeSessionsBlock(ctx, q, &sample, sc); err != nil {
@@ -471,30 +477,34 @@ func lockCells(rows []lockRow) [][]string {
 
 // setSessionsTimeout ignores its own failure: a failed SET just leaves the sample at the
 // package's slower timeout, and the reads beside it already report a lost connection.
-func setSessionsTimeout(ctx context.Context, q RowQuerier) {
-	runUtilityStatement(ctx, q, setSessionsTimeoutSQL)
+func setSessionsTimeout(ctx context.Context, q RowQuerier) error {
+	return runUtilityStatement(ctx, q, setSessionsTimeoutSQL)
 }
 
-// resetSessionsTimeout always runs, even after a failed read, so the shared connection is
-// handed back with its default. Uses the sample's own context, so an expired window skips it.
+// resetSessionsTimeout always runs after a SET that succeeded, even after a failed read, so
+// the shared connection is handed back with its default. Uses the sample's own context, so
+// an expired window skips it. Best effort: a RESET that fails has no block to report to.
 func resetSessionsTimeout(ctx context.Context, q RowQuerier) {
-	runUtilityStatement(ctx, q, resetSessionsTimeoutSQL)
+	_ = runUtilityStatement(ctx, q, resetSessionsTimeoutSQL)
 }
 
 // runUtilityStatement uses Query (RowQuerier has no Exec) and drains the result: an undrained
-// row leaves the connection "busy" and fails the next statement.
-func runUtilityStatement(ctx context.Context, q RowQuerier, sql string) {
+// row leaves the connection "busy" and fails the next statement. The error is the row set's
+// terminal one, which is where the driver reports a statement that reached a closed socket.
+func runUtilityStatement(ctx context.Context, q RowQuerier, sql string) error {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, sql)
 	if err != nil {
-		return
+		return err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 	}
+
+	return rows.Err()
 }
 
 func (s Sessions) maxSessions() int {

@@ -381,6 +381,47 @@ func TestTargetRedaction(t *testing.T) {
 	})
 }
 
+func TestLossKeepsTheErrorTheDriverClosedOn(t *testing.T) {
+	first := errors.New("FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")
+
+	closed := false
+	l := loss{closed: func() bool { return closed }}
+
+	l.note(errors.New("ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"))
+	assert.NoError(t, l.err, "a failed statement on an open connection is not a loss")
+
+	closed = true
+	l.note(first)
+	l.note(errors.New("failed to deallocate cached statement(s): conn closed"))
+	l.note(nil)
+	require.ErrorIs(t, l.err, first, "the first error seen on the closed connection, not the cleanup after it")
+
+	t.Run("a row set reports its terminal error from either end", func(t *testing.T) {
+		for name, finish := range map[string]func(*lossRows){
+			"Next": func(rows *lossRows) {
+				for rows.Next() {
+				}
+			},
+			"Close": func(rows *lossRows) { rows.Close() },
+		} {
+			t.Run(name, func(t *testing.T) {
+				l := loss{closed: func() bool { return true }}
+				finish(&lossRows{Rows: &fakeRows{err: first}, loss: &l})
+
+				require.ErrorIs(t, l.err, first)
+			})
+		}
+	})
+
+	t.Run("a row reports its scan error", func(t *testing.T) {
+		l := loss{closed: func() bool { return true }}
+
+		var value int
+		require.ErrorIs(t, lossRow{Row: fakeRow{err: first}, loss: &l}.Scan(&value), first)
+		require.ErrorIs(t, l.err, first)
+	})
+}
+
 func TestStatementDeadlineSitsAboveTheServerTimeout(t *testing.T) {
 	assert.Greater(t, StatementDeadline, StatementTimeout,
 		"the client-side deadline must fire after the server's statement_timeout: at "+

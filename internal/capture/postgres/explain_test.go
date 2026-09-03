@@ -224,10 +224,11 @@ func (c *fakeExplainConn) QueryRow(ctx context.Context, sql string, args ...any)
 // refuses it.
 func (c *fakeExplainConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	if sql == setExplainTimeoutSQL || sql == resetExplainTimeoutSQL {
-		c.utility = append(c.utility, sql)
 		c.sent = append(c.sent, sql)
 
-		return &fakeRows{}, nil
+		// A scripted failure is the row set's terminal error, where the driver reports
+		// a statement that reached a closed socket.
+		return &fakeRows{err: c.utilityStatement(sql)}, nil
 	}
 
 	return c.fakeLogQuerier.Query(ctx, sql, args...)
@@ -1731,6 +1732,42 @@ func TestExplainBudgetSkipReturnsTheShapeToTheQueue(t *testing.T) {
 	assert.Equal(t, "1", two[0].fields["first_seen"])
 	assert.Equal(t, planModeEstimatedGeneric, two[0].fields["mode"], "attempted, not written off")
 
+	assert.Len(t, q.submitted, 2)
+}
+
+func TestExplainFailedTimeoutSetIsTheSamplesErrorAndConsumesNoShape(t *testing.T) {
+	lost := errors.New("FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")
+
+	sq := NewSlowQueries()
+	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.utilityErr["SET statement_timeout"] = lost
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	var first bytes.Buffer
+	require.ErrorIs(t, e.Sample(context.Background(), q, &first, explainContext(1, 3)), lost,
+		"the driver's own error: the SET is the pass's first statement, so on a connection "+
+			"the driver has closed it is the one that meets the loss")
+	assert.Empty(t, first.String(), "no block is this sample's")
+	assert.Empty(t, q.submitted, "no candidate was attempted")
+	assert.Equal(t, []string{setExplainTimeoutSQL}, q.utility, "and there is nothing to RESET")
+
+	delete(q.utilityErr, "SET statement_timeout")
+
+	var second bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 3)))
+
+	two := parseTextArtifact(t, second.String())
+	require.Len(t, two, 3, "both shapes and the summary: neither was consumed by the sample that could not begin")
+
+	for _, block := range two[:2] {
+		assert.Equal(t, "1", block.fields["first_seen"], "back at the head of the queue, first seen where it was")
+		assert.Equal(t, planModeEstimatedGeneric, block.fields["mode"])
+	}
+
+	assert.Equal(t, "2", summaryOf(t, two).fields["candidates_written"])
 	assert.Len(t, q.submitted, 2)
 }
 
