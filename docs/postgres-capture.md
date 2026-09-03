@@ -66,7 +66,7 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 | --- | --- | --- |
 | *(omitted)* | nothing — `pg_explain.txt` is one `reason=explain_disabled` block | — |
 | `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
-| `all` | the above, plus plans the agent asks the server for | `EXPLAIN` statements built from captured query text are submitted back to your database, on every supported version |
+| `all` | the above, plus plans the agent asks the server for | captured query text is prepared on your database and its plan asked for, on every supported version; with the server log readable and the prerequisites below met, the values your application bound are planned too |
 
 Which queries get a plan is not a judgment the agent makes. Every distinct query
 shape in `pg_stat_statements` is attempted once, in the first sample it is seen
@@ -378,10 +378,11 @@ Three things follow:
   exception, `explain: all`.** For every other artifact the value is in your
   database, put there by whoever ran the statement, and the agent captures the
   column as the server returns it. Under `explain: all` the agent *submits*
-  statements it built from captured text, and a submission that errors can be
-  written into your own server log by `log_min_error_statement` (default
-  `error`), literals included. The exposure is small and your logging policy
-  governs it, but the agent is a party to it there and nowhere else.
+  statements it built from captured text — and, for the literal tier, the bind
+  values the server logged — and a submission that errors can be written into
+  your own server log by `log_min_error_statement` (default `error`), literals
+  included. The exposure is small and your logging policy governs it, but the
+  agent is a party to it there and nowhere else.
   `pg_metadata.txt` records `explain_mode=` and `explain_literals=verbatim` so
   the bundle says which.
 - **`pg_metadata.txt` records whether the exposure is possible.** The
@@ -410,6 +411,43 @@ plan, so the plan keeps its `$1`, `$2` symbols; the block records how many
 stood in as `parameters=`, and the plan's own `Settings:` line shows the forced
 mode. This is one path on PostgreSQL 14 through 18; nothing is version-gated.
 `EXPLAIN EXECUTE` without `ANALYZE` plans the statement and does not run it.
+
+**How an `ESTIMATED_LITERAL` plan is made, and what it needs from you.** The
+evidence is the server's own log. Under `log_min_duration_statement`, an
+execution your application sent with bound parameters is logged as an `execute`
+record whose `DETAIL` carries them: `Parameters: $1 = 'value', $2 = NULL`. The
+agent parses that record — never splicing the log text into SQL — prepares the
+record's own statement text under a name of its own, forces `plan_cache_mode` to
+`force_custom_plan`, asks for `EXPLAIN EXECUTE` with each decoded value as a
+literal, then resets and deallocates as above. The result is the server's custom
+plan for the values that actually ran, and its `Query Identifier:` is the
+statement's own, so `queryid_match=true` is expected. A block that fell to the
+generic tier says why in `literal_reason=`. Three things have to be true on the
+server side, none of which the agent will set for you:
+
+- **`log_parameter_max_length` must be finite.** The tier runs only when the
+  value the agent's connection observes is positive: `-1` (the default) means
+  values are logged whole and the agent will not retain them
+  (`literal_reason=parameter_cap_unbounded`); `0` means no parameters are logged
+  at all (`parameters_not_logged`); an unreadable setting counts as unbounded
+  (`parameter_cap_unread`). The agent never issues `SET log_parameter_max_length`
+  or `ALTER SYSTEM`. Choose a cap, apply it to every backend whose statements you
+  want planned, and prove it with a parameterized statement from the workload
+  role: a value the server clipped at the cap comes back marked, and the agent
+  refuses that record (`bind_record_truncated`) rather than planning a distorted
+  value. The value in `pg_metadata.txt` is what the agent's own session saw,
+  which is not proof for another role.
+- **The log record must prove its query identifier.** csvlog and jsonlog carry
+  it as a field; stderr carries it only if `log_line_prefix` contains `%Q`. A
+  record with no identifier is counted (`binds_unidentified=` on the summary)
+  and never attached — matching by query text is not a join.
+- **`log_min_duration_statement` must be low enough** for the execution to be
+  logged, and the agent must be able to read the log at all (`log_access=direct`).
+  A capture that runs away from the database host gets generic plans only.
+
+Each sample's summary counts what the log yielded (`binds_harvested=`, with
+`binds_unidentified=`, `binds_rejected=` and `binds_dropped=` when non-zero), and
+a block whose record was the slowest of several says `binds_seen=`.
 
 **A limitation of the estimated plans, worth knowing before you read one.**
 `pg_explain.txt`'s `ESTIMATED_LITERAL` and `ESTIMATED_GENERIC` blocks are plans

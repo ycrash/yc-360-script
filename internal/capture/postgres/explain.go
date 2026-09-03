@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // Explain modes, mirroring config.Postgres.Explain. This package does not import
@@ -55,7 +53,7 @@ const (
 	// ExplainTimeout bounds one statement, applied server-side with
 	// SET statement_timeout / RESET and never as a client context: pgx closes the
 	// connection when a context expires and this window never reconnects. Server-side,
-	// a timeout is an ordinary error= and the next candidate proceeds. The generic
+	// a timeout is an ordinary error= and the next candidate proceeds. Either estimated
 	// tier sends five statements per candidate, and only its EXPLAIN plans anything;
 	// the other four are catalogue work that finishes in the round trip.
 	ExplainTimeout = 3 * time.Second
@@ -74,11 +72,6 @@ const (
 	// MaxPlanBytes bounds one submitted plan; nothing else does, and VERBOSE over a
 	// heavily partitioned relation returns tens of megabytes.
 	MaxPlanBytes = 1 << 20
-
-	// MaxActivitySessions bounds the closing activity read; same view as Sessions, so
-	// the same cap. Without it a cluster at max_connections returns every backend's
-	// query text into one slice.
-	MaxActivitySessions = DefaultMaxSessions
 )
 
 // The plan mode that produced a block's body, written as mode=; none where nothing
@@ -103,10 +96,6 @@ const (
 	// the feed could not be walked. Rides statements_reason=, beside the extension's
 	// own reasons and a failed read's error text.
 	reasonStatementsUnread = "statements_unread"
-
-	// reasonQueryTruncated: the only text was cut mid-token and unmarked at
-	// track_activity_query_size, with no normalized form to fall back to.
-	reasonQueryTruncated = "query_truncated"
 
 	// reasonNoLoggedPlan: mode logged, and the store held no entry for this candidate.
 	reasonNoLoggedPlan = "no_logged_plan"
@@ -135,6 +124,41 @@ const (
 	reasonNoRankedReport = "no_ranked_report"
 )
 
+// Why the literal tier did not apply, written as literal_reason= on every block whose
+// attempt fell to the generic tier and on a sample's summary when the tier was off.
+// The first three are the source-side cap the agent observed (D7): the tier runs only
+// under a finite log_parameter_max_length, which is the deployment's to set and never
+// the agent's. The rest are about this candidate's evidence in the log.
+const (
+	// reasonParameterCapUnbounded: log_parameter_max_length is -1, the default. Values
+	// would arrive whole, and the agent must not retain what nothing bounds.
+	reasonParameterCapUnbounded = "parameter_cap_unbounded"
+
+	// reasonParametersNotLogged: log_parameter_max_length is 0, so the server writes
+	// no parameters at all.
+	reasonParametersNotLogged = "parameters_not_logged"
+
+	// reasonParameterCapUnread: the facts read failed or the setting was absent, so the
+	// cap is unknown, which is treated as unbounded.
+	reasonParameterCapUnread = "parameter_cap_unread"
+
+	// reasonNoBindRecord: the tier was on and the log yielded no execute record with
+	// parameters for this identifier.
+	reasonNoBindRecord = "no_bind_record"
+
+	// reasonBindClaimed: the same identifier under another role already took the
+	// record; the log names an identifier and nothing else.
+	reasonBindClaimed = "bind_record_claimed"
+
+	// reasonBindTruncated: the record's values carried the server's clip marker, so the
+	// set is incomplete.
+	reasonBindTruncated = "bind_record_truncated"
+
+	// reasonBindMalformed: the record did not parse - a missing or duplicate position,
+	// or quoting the parser could not follow.
+	reasonBindMalformed = "bind_record_malformed"
+)
+
 // planDuration reads the duration the entry declares; the slowest execution is the
 // pathological plan, and the one worth keeping.
 var planDuration = regexp.MustCompile(`duration:\s+([0-9.]+)\s+ms`)
@@ -145,13 +169,17 @@ var setExplainTimeoutSQL = fmt.Sprintf("SET statement_timeout TO '%dms'",
 
 const resetExplainTimeoutSQL = `RESET statement_timeout`
 
-// The generic tier's session setting. plan_cache_mode is consulted when a prepared
-// statement is executed, so forcing it makes the NULLs EXPLAIN EXECUTE binds unable to
-// select a custom plan: the plan keeps its $n symbols, on 14 and 15 as on 16 and later.
-// Measured on every version of the matrix: under the default auto, the same EXECUTE
-// folds the NULLs into "One-Time Filter: false". SET/RESET, as statement_timeout is.
+// The estimated tiers' session setting. plan_cache_mode is consulted when a prepared
+// statement is executed, so forcing it decides the plan EXPLAIN EXECUTE returns: under
+// force_generic_plan the NULLs the generic tier binds cannot select a custom plan and
+// the plan keeps its $n symbols, on 14 and 15 as on 16 and later; under
+// force_custom_plan the values the literal tier binds are planned as the values they
+// are, whatever the session's own plan_cache_mode says. Measured on every version of
+// the matrix: under the default auto, the generic EXECUTE folds the NULLs into
+// "One-Time Filter: false". SET/RESET, as statement_timeout is.
 const (
 	forceGenericPlanSQL   = `SET plan_cache_mode TO force_generic_plan`
+	forceCustomPlanSQL    = `SET plan_cache_mode TO force_custom_plan`
 	resetPlanCacheModeSQL = `RESET plan_cache_mode`
 )
 
@@ -160,60 +188,25 @@ const (
 // PREPARE, and the name says whose it is to anyone reading pg_prepared_statements.
 const preparedStatementPrefix = "yc_explain_"
 
-// activitySQL is one read per sample, carrying five facts that cost no extra
+// explainFactsSQL is one read per sample, carrying four facts that cost no extra
 // statement: search_path, the capture role's OID (self-exclusion), auto_explain
-// visibility, track_activity_query_size (the truncation gate) and the encoding's widest
-// character (which widens that gate). They come from pg_settings and pg_roles, never
-// current_setting() or ::regrole, both of which fail the whole statement - on the "1kB"
-// display form and on a role name needing quotes. A one-row CTE LEFT JOINs the view, so
-// they arrive even when no session matches. left() applies the agent's cap one rune past
-// it, so agentTruncated can tell a cut prefix from a statement that ended there, and
-// ORDER BY is activityElapsed's own expression, so a binding LIMIT sheds the
-// shortest-running work.
-const activitySQL = `WITH r AS (
-    SELECT current_setting('search_path') AS search_path,
-           (SELECT oid::text FROM pg_catalog.pg_roles
-             WHERE rolname = current_user) AS self_oid,
-           EXISTS (SELECT 1 FROM pg_catalog.pg_settings
-                    WHERE name = 'auto_explain.log_min_duration') AS auto_explain_visible,
-           (SELECT setting::int FROM pg_catalog.pg_settings
-             WHERE name = 'track_activity_query_size') AS activity_query_size,
-           pg_catalog.pg_encoding_max_length(
-               pg_catalog.pg_char_to_encoding(current_setting('server_encoding')))::int
-               AS max_char_bytes
-)
-SELECT r.search_path,
-       r.self_oid,
-       r.auto_explain_visible,
-       r.activity_query_size,
-       r.max_char_bytes,
-       a.pid,
-       a.query_id,
-       a.datid::text,
-       a.usesysid::text,
-       a.state,
-       left(a.query, $2),
-       octet_length(a.query),
-       a.query_start,
-       a.state_change,
-       EXTRACT(EPOCH FROM (now() - a.query_start))::float8,
-       EXTRACT(EPOCH FROM (a.state_change - a.query_start))::float8
-  FROM r
-  LEFT JOIN pg_catalog.pg_stat_activity a
-    ON a.datname = current_database()
-   AND a.backend_type = 'client backend'
-   AND a.pid <> pg_backend_pid()
- ORDER BY CASE WHEN a.state = 'active'
-               THEN EXTRACT(EPOCH FROM (now() - a.query_start))
-               ELSE EXTRACT(EPOCH FROM (a.state_change - a.query_start))
-          END DESC NULLS LAST
- LIMIT $1`
+// visibility and log_parameter_max_length, the source-side cap the literal tier is
+// gated on. They come from pg_settings and pg_roles, never current_setting() or
+// ::regrole, both of which fail the whole statement - on a role name needing quotes,
+// and on a name this role cannot see. The cap is NULL where the setting is absent,
+// which the gate treats as unread.
+const explainFactsSQL = `SELECT current_setting('search_path'),
+       (SELECT oid::text FROM pg_catalog.pg_roles
+         WHERE rolname = current_user),
+       EXISTS (SELECT 1 FROM pg_catalog.pg_settings
+                WHERE name = 'auto_explain.log_min_duration'),
+       (SELECT setting::bigint FROM pg_catalog.pg_settings
+         WHERE name = 'log_parameter_max_length')`
 
 // parameterSymbol is a $n placeholder: what pg_stat_statements writes for every
-// constant, and what an extended-protocol execution leaves in pg_stat_activity, which
-// plain EXPLAIN refuses with "there is no parameter $1". No parser is needed because
-// the scan errs one way only: a literal '$1' in a string downgrades one candidate to
-// the generic mode, while a real parameter can never hide.
+// constant it normalized, and what plain EXPLAIN refuses with "there is no parameter
+// $1". No parser is needed because the scan errs one way only: a stray '$9' in a
+// string inflates one candidate's count, while a real parameter can never hide.
 var parameterSymbol = regexp.MustCompile(`\$([0-9]+)`)
 
 // inferredParameters is how many NULLs the generic tier binds: the highest $n in the
@@ -254,8 +247,14 @@ type Explain struct {
 	tail logTail
 
 	// store keeps the log's plans across samples, so a shape the cap deferred can
-	// still claim the execution the server logged for it.
+	// still claim the execution the server logged for it; binds keeps the log's bind
+	// records the same way, for the literal tier.
 	store *planStore
+	binds *bindStore
+
+	// prefix is the stderr log_line_prefix compiled for %Q, built once the tail's
+	// settings are known.
+	prefix *linePrefix
 
 	// seen is every statement key the feed has shown, with the sample it first
 	// appeared in; queue holds the ones not yet attempted, in that order.
@@ -272,7 +271,8 @@ type Explain struct {
 	// where nothing was attempted.
 	tailOpened bool
 
-	// prepared counts the generic tier's PREPAREs, which is the statement name's suffix.
+	// prepared counts the estimated tiers' PREPAREs, which is the statement name's
+	// suffix.
 	prepared int
 }
 
@@ -293,6 +293,7 @@ func NewExplain(mode string, sq *SlowQueries) *Explain {
 		sq:    sq,
 		tail:  newLogTail("pg_explain", explainMatch),
 		store: newPlanStore(nil),
+		binds: newBindStore(),
 		seen:  map[statementKey]int{},
 		now:   time.Now,
 	}
@@ -325,7 +326,7 @@ func (e *Explain) sampleBudget() time.Duration {
 	}
 
 	// The aggregate, plus the one candidate that can start just under it and still run
-	// its full server-side timeout, plus the one pg_stat_activity read.
+	// its full server-side timeout, plus the one facts read.
 	return ExplainBudget + ExplainTimeout + StatementTimeout
 }
 
@@ -365,23 +366,28 @@ func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 	closing := s.Index == s.Total
 	e.reported = closing
 
+	// The facts come first: the literal tier's gate is one of them, and it decides
+	// whether this read's bind records are kept at all.
+	facts, factsErr := readExplainFacts(ctx, q)
+	gate := e.literalGate(facts)
+
 	events, read := e.tail.readEvents(ctx, q, time.Time{})
 	if closing {
 		e.tail.closeFile()
 	}
 
-	e.store.addAll(events)
-
-	activity, facts, activityErr := readActivity(ctx, q)
+	e.ingest(events, e.submits() && gate == "")
 
 	feed, fed := e.sq.feed(s)
-	selection := e.selectCandidates(s, feed, fed, activity, facts)
+	selection := e.selectCandidates(s, feed, fed, facts)
 
-	// Attachment runs before submission: the LOGGED mode is the plan for the execution
-	// that actually happened, so a candidate it claims is never also submitted.
+	// Attachment runs before submission, in tier order: the LOGGED mode is the plan for
+	// the execution that actually happened, so a candidate it claims is never also
+	// submitted, and a bind record makes the submission literal rather than generic.
 	e.store.attach(selection.candidates)
 
 	if e.submits() {
+		e.binds.attach(selection.candidates, gate)
 		e.submitAll(ctx, q, s, selection.candidates, &selection.counters)
 	}
 
@@ -402,7 +408,58 @@ func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 		e.store.written++
 	}
 
-	return e.writeSummary(w, s, selection, facts, e.store, read, s.errorText(activityErr))
+	return e.writeSummary(w, s, selection, facts, gate, read, s.errorText(factsErr))
+}
+
+// ingest sorts the tail's events into the two stores: a log_min_duration_statement
+// execute record carrying parameters is bind evidence, and everything else the matcher
+// passed is an auto_explain plan. retain is whether bind records are kept - the
+// literal tier on, and the source-side cap finite; otherwise they are counted and
+// their values dropped here.
+func (e *Explain) ingest(events [][]byte, retain bool) {
+	for _, event := range events {
+		if entry, ok := parseLogEntry(event, e.tail.source.format, e.linePrefix()); ok {
+			if record, ok := executeRecord(entry); ok {
+				e.binds.add(record, retain)
+
+				continue
+			}
+		}
+
+		e.store.add(event)
+	}
+}
+
+// linePrefix compiles the tail's log_line_prefix once it is known.
+func (e *Explain) linePrefix() *linePrefix {
+	if !e.tail.haveSettings {
+		return nil
+	}
+
+	if e.prefix == nil || e.prefix.template != e.tail.settings.logLinePrefix {
+		e.prefix = compileLinePrefix(e.tail.settings.logLinePrefix)
+	}
+
+	return e.prefix
+}
+
+// literalGate is D7 applied: the literal tier runs only under a finite
+// log_parameter_max_length observed on this connection, and the reason it does not is
+// written. The observed value is the agent session's, which the deployment's own
+// acceptance test proves for the workload role; the agent never sets it.
+func (e *Explain) literalGate(facts explainFacts) string {
+	switch {
+	case !facts.read || !facts.parameterCapRead:
+		return reasonParameterCapUnread
+
+	case facts.parameterCap < 0:
+		return reasonParameterCapUnbounded
+
+	case facts.parameterCap == 0:
+		return reasonParametersNotLogged
+	}
+
+	return ""
 }
 
 // requeueSkipped puts back, at the head of the queue and in order, every candidate the
@@ -448,7 +505,8 @@ func (e *Explain) WriteClosing(w io.Writer, s SampleContext) error {
 	events, read := e.tail.readEvents(context.Background(), nil, e.now().Add(LogDrainBudget))
 	e.tail.closeFile()
 
-	e.store.addAll(events)
+	// Nothing is attempted here, so a bind record has no use and is not kept.
+	e.ingest(events, false)
 
 	for _, plan := range e.store.takeAll() {
 		if err := e.writePlan(w, s, plan); err != nil {
@@ -461,7 +519,7 @@ func (e *Explain) WriteClosing(w io.Writer, s SampleContext) error {
 	selection := explainSelection{drain: true}
 	selection.counters.queued = len(e.queue)
 
-	return e.writeSummary(w, s, selection, activityFacts{}, e.store, read, "")
+	return e.writeSummary(w, s, selection, explainFacts{}, "", read, "")
 }
 
 // --- the logged-plan store --------------------------------------------------
@@ -755,7 +813,8 @@ type explainCandidate struct {
 	queryid *int64
 
 	// userid and dbid complete the identity: queryid alone is not unique across roles or
-	// databases, and the activity join needs all three.
+	// databases. The log's records name the identifier alone, which is why the first
+	// candidate to claim one keeps it.
 	userid string
 	dbid   string
 
@@ -763,15 +822,21 @@ type explainCandidate struct {
 	// in the sample it was attempted, which the cap can put later.
 	firstSeen int
 
-	// literalText is submittable as-is; genericText carries $n placeholders and goes
-	// through a prepared statement. Either may be empty.
-	literalText string
+	// genericText is the normalized text, $n placeholders and all; literal is the
+	// log's own record for this shape, whose text and values the literal tier
+	// prepares. Either may be absent.
 	genericText string
+	literal     *bindRecord
 
-	// parameters is how many NULLs the generic tier bound, written as parameters= on
-	// every block whose attempt went through a prepared statement, succeeded or not.
+	// parameters is how many arguments the attempt bound - one NULL per placeholder in
+	// the generic tier, one decoded value each in the literal - written as parameters=
+	// on every block whose attempt went through a prepared statement, succeeded or not.
 	parameters int
 	prepared   bool
+
+	// literalReason says why the literal tier did not apply, on every attempt that
+	// fell to the generic tier.
+	literalReason string
 
 	// textReason says which cut left this candidate with nothing to submit.
 	textReason string
@@ -783,9 +848,10 @@ type explainCandidate struct {
 	planQueryID  string
 	queryIDMatch string
 
-	// matchedBy and plansSeen ride the LOGGED mode only.
+	// matchedBy and plansSeen ride the LOGGED mode only; bindsSeen the literal.
 	matchedBy string
 	plansSeen int
+	bindsSeen int
 
 	plan []byte
 
@@ -810,7 +876,7 @@ type explainSelection struct {
 // which shapes matter is the server's judgment. The cap and the aggregate budget bound
 // each sample, and the summary says how many still wait.
 func (e *Explain) selectCandidates(
-	s SampleContext, feed statementFeed, fed bool, activity []activityRow, facts activityFacts,
+	s SampleContext, feed statementFeed, fed bool, facts explainFacts,
 ) explainSelection {
 	var selection explainSelection
 
@@ -853,7 +919,7 @@ func (e *Explain) selectCandidates(
 				dbid:        key.dbid,
 				firstSeen:   s.Index,
 				genericText: statementQueryText(row.query),
-				textReason:  statementTextReason(row.query),
+				textReason:  reasonTextTruncated,
 			})
 		}
 	}
@@ -870,8 +936,6 @@ func (e *Explain) selectCandidates(
 	counters.written = n
 	counters.queued = len(e.queue)
 
-	attachText(attempt, activity, facts)
-
 	selection.candidates = attempt
 
 	return selection
@@ -881,7 +945,7 @@ func (e *Explain) selectCandidates(
 // shape is first seen: a shape that cannot be planned from this connection is never
 // queued. The masked class is the caller's, since a masked row has no identity to
 // remember.
-func eligible(row statementRow, s SampleContext, facts activityFacts, counters *explainCounters) bool {
+func eligible(row statementRow, s SampleContext, facts explainFacts, counters *explainCounters) bool {
 	if s.DBID != "" && text(row.dbid) != s.DBID {
 		counters.excludedOtherDatabase++
 
@@ -911,111 +975,9 @@ func eligible(row statementRow, s SampleContext, facts activityFacts, counters *
 	return true
 }
 
-// attachText finds each candidate's submittable text and applies the two truncation
-// gates.
-func attachText(candidates []*explainCandidate, activity []activityRow, facts activityFacts) {
-	for _, c := range candidates {
-		row, ok := matchActivity(c, activity)
-		if !ok {
-			continue
-		}
-
-		query := text(row.query)
-		if query == "" {
-			continue
-		}
-
-		switch {
-		case truncatedActivityText(row, facts):
-			// Cut mid-token at track_activity_query_size: submitting it would be a
-			// syntax error in the customer's own log.
-			c.textReason = reasonQueryTruncated
-
-		case agentTruncated(query):
-			// Cut by activitySQL's own left() instead. Same consequence, different cap.
-			c.textReason = reasonTextTruncated
-
-		case parameterSymbol.MatchString(query):
-			// Parameterized, so not literal-eligible, but better generic input than
-			// nothing when the statements view had none.
-			if c.genericText == "" {
-				c.genericText = query
-			}
-
-		default:
-			c.literalText = query
-		}
-	}
-}
-
-// matchActivity picks one session per candidate: active first, then most recent
-// query_start.
-func matchActivity(c *explainCandidate, activity []activityRow) (activityRow, bool) {
-	var best activityRow
-
-	found := false
-
-	for _, row := range activity {
-		if row.pid == nil || !activityMatches(c, row) {
-			continue
-		}
-
-		if !found || betterActivityMatch(row, best) {
-			best, found = row, true
-		}
-	}
-
-	return best, found
-}
-
-func activityMatches(c *explainCandidate, row activityRow) bool {
-	// (query_id, datid, usesysid), never query_id alone: pg_stat_activity is cluster-wide
-	// and one queryid appears under several roles, so an integer-only join would hand this
-	// candidate another role's session text - the wrong plan, and that role's literals
-	// under this candidate's name. datid is redundant while identify succeeded, and
-	// checked anyway because a failed identify admits other-database candidates.
-	// toplevel is unprovable from the activity side and does not participate.
-	return c.queryid != nil && row.queryID != nil && *row.queryID == *c.queryid &&
-		text(row.usesysid) == c.userid &&
-		text(row.datid) == c.dbid
-}
-
-func betterActivityMatch(row, best activityRow) bool {
-	rowActive := text(row.state) == "active"
-	bestActive := text(best.state) == "active"
-
-	if rowActive != bestActive {
-		return rowActive
-	}
-
-	if row.queryStart == nil {
-		return false
-	}
-
-	return best.queryStart == nil || row.queryStart.After(*best.queryStart)
-}
-
-// truncatedActivityText applies the server's own cap. The cut is unmarked and not a
-// single length: pgstat_clip_activity trims to track_activity_query_size-1 bytes and then
-// back to a character boundary, so a truncated string lands anywhere in
-// [size - max_char_bytes, size - 1] (measured at 1020-1023 under the 1kB default).
-// The whole band counts as truncated; a genuine statement inside it downgrades to the
-// generic mode, which is the direction this has to fail in.
-func truncatedActivityText(row activityRow, facts activityFacts) bool {
-	if row.queryBytes == nil || facts.activityQuerySize <= 0 {
-		return false
-	}
-
-	slack := facts.maxCharBytes
-	if slack < 1 {
-		slack = 1
-	}
-
-	return *row.queryBytes >= facts.activityQuerySize-slack
-}
-
-// agentTruncated reports the cap+1 sentinel both text reads ask the server for: one rune
-// past DefaultMaxQueryText means the agent cut it, so the prefix ends mid-token.
+// agentTruncated reports the cap+1 sentinel the statements read asks the server for:
+// one rune past DefaultMaxQueryText means the agent cut it, so the prefix ends
+// mid-token.
 func agentTruncated(query string) bool {
 	return utf8.RuneCountInString(query) > DefaultMaxQueryText
 }
@@ -1028,16 +990,6 @@ func statementQueryText(query *string) string {
 	}
 
 	return ""
-}
-
-// statementTextReason names which cut applied - worth telling apart, since
-// track_activity_query_size is a GUC the reader can raise and DefaultMaxQueryText is not.
-func statementTextReason(query *string) string {
-	if agentTruncated(text(query)) {
-		return reasonTextTruncated
-	}
-
-	return reasonQueryTruncated
 }
 
 // explainable is the allowlist, applied to the leading keyword after comments and an
@@ -1108,93 +1060,49 @@ func skipBlockComment(s string) (string, bool) {
 	return "", false
 }
 
-// --- the activity read -------------------------------------------------------
+// --- the facts read ----------------------------------------------------------
 
-type activityRow struct {
-	pid         *int32
-	queryID     *int64
-	datid       *string
-	usesysid    *string
-	state       *string
-	query       *string
-	queryBytes  *int64
-	queryStart  *time.Time
-	stateChange *time.Time
-
-	// runningFor and ranFor are computed server-side, so the agent never subtracts its
-	// own clock from the server's.
-	runningFor *float64
-	ranFor     *float64
-}
-
-type activityFacts struct {
+type explainFacts struct {
 	read bool
 
 	searchPath         string
 	selfOID            string
 	autoExplainVisible bool
-	activityQuerySize  int64
 
-	// maxCharBytes is the server encoding's widest character; it widens the truncation
-	// gate, whose clip lands on a character boundary at or below the byte cap.
-	maxCharBytes int64
+	// parameterCap is log_parameter_max_length in bytes: -1 unbounded, 0 off, else a
+	// finite cap. parameterCapRead is false where the setting was absent.
+	parameterCap     int64
+	parameterCapRead bool
 }
 
-// readActivity takes the one read, under the ordinary statement bound. The error is
-// returned, not swallowed: a failure costs the literal mode its text, the ranking its
-// self-exclusion and the summary its facts, which would otherwise read as an idle
-// database.
-func readActivity(ctx context.Context, q RowQuerier) ([]activityRow, activityFacts, error) {
+// readExplainFacts takes the one read, under the ordinary statement bound. The error
+// is returned, not swallowed: a failure costs the selection its self-exclusion, the
+// literal tier its gate and the summary its facts, which would otherwise read as an
+// unbounded cap or an idle database.
+func readExplainFacts(ctx context.Context, q RowQuerier) (explainFacts, error) {
 	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
-	rows, err := q.Query(stmtCtx, activitySQL, MaxActivitySessions, DefaultMaxQueryText+1)
-	if err != nil {
-		return nil, activityFacts{}, err
-	}
-	defer rows.Close()
-
 	var (
-		activity []activityRow
-		facts    activityFacts
+		searchPath   *string
+		selfOID      *string
+		visible      *bool
+		parameterCap *int64
 	)
 
-	for rows.Next() {
-		var (
-			row               activityRow
-			searchPath        *string
-			selfOID           *string
-			visible           *bool
-			activityQuerySize *int64
-			maxCharBytes      *int64
-		)
-
-		if err := rows.Scan(
-			&searchPath, &selfOID, &visible, &activityQuerySize, &maxCharBytes,
-			&row.pid, &row.queryID, &row.datid, &row.usesysid, &row.state,
-			&row.query, &row.queryBytes, &row.queryStart, &row.stateChange,
-			&row.runningFor, &row.ranFor,
-		); err != nil {
-			return activity, facts, err
-		}
-
-		facts = activityFacts{
-			read:               true,
-			searchPath:         text(searchPath),
-			selfOID:            text(selfOID),
-			autoExplainVisible: visible != nil && *visible,
-			activityQuerySize:  int64Value(activityQuerySize),
-			maxCharBytes:       int64Value(maxCharBytes),
-		}
-
-		activity = append(activity, row)
+	err := q.QueryRow(stmtCtx, explainFactsSQL).Scan(&searchPath, &selfOID, &visible, &parameterCap)
+	if err != nil {
+		return explainFacts{}, err
 	}
 
-	if err := rows.Err(); err != nil {
-		return activity, facts, err
-	}
-
-	return activity, facts, nil
+	return explainFacts{
+		read:               true,
+		searchPath:         text(searchPath),
+		selfOID:            text(selfOID),
+		autoExplainVisible: visible != nil && *visible,
+		parameterCap:       int64Value(parameterCap),
+		parameterCapRead:   parameterCap != nil,
+	}, nil
 }
 
 // --- submission --------------------------------------------------------------
@@ -1232,8 +1140,9 @@ func (e *Explain) submitAll(
 	}
 }
 
-// submitOne picks the mode from the text that is available, not from a rule, and sends it
-// down the path that mode requires.
+// submitOne picks the mode from the evidence that is available, not from a rule, and
+// sends it down the one prepared-statement path with that mode's setting and
+// arguments.
 func (e *Explain) submitOne(
 	ctx context.Context, q RowQuerier, s SampleContext, c *explainCandidate,
 ) {
@@ -1244,22 +1153,32 @@ func (e *Explain) submitOne(
 		return
 	}
 
+	e.prepared++
+	c.prepared = true
+
+	name := preparedStatementPrefix + strconv.Itoa(e.prepared)
+
 	var (
 		plan      []byte
 		truncated bool
 		err       error
 	)
 
-	if mode == planModeEstimatedGeneric {
-		e.prepared++
-		c.prepared = true
+	if mode == planModeEstimatedLiteral {
+		arguments := make([]string, len(c.literal.values))
+		for i, v := range c.literal.values {
+			arguments[i] = renderArgument(v)
+		}
+
+		c.parameters = len(arguments)
+
+		plan, truncated, err = submitPreparedPlan(ctx, q, name, c.literal.query,
+			forceCustomPlanSQL, arguments)
+	} else {
 		c.parameters = inferredParameters(c.genericText)
 
-		plan, truncated, err = submitGenericPlan(ctx, q,
-			preparedStatementPrefix+strconv.Itoa(e.prepared), c.genericText)
-	} else {
-		plan, truncated, err = submitExplain(ctx, q,
-			explainStatement(explainOptions(), c.literalText))
+		plan, truncated, err = submitPreparedPlan(ctx, q, name, c.genericText,
+			forceGenericPlanSQL, nullArguments(c.parameters))
 	}
 
 	if err != nil {
@@ -1273,28 +1192,29 @@ func (e *Explain) submitOne(
 	c.planTruncated = truncated
 	c.planQueryID = planQueryIdentifier(plan)
 
-	// Only the literal mode can assert equality: the generic text jumbles a Param where
-	// the original jumbled a Const, so its identifier differs by construction.
+	// Only the literal mode can assert equality: its text is the one the server logged
+	// for this identifier, where the generic text jumbles a Param for every constant
+	// the original jumbled as a Const, so its identifier differs by construction.
 	if mode == planModeEstimatedLiteral && c.planQueryID != "" && c.queryid != nil {
 		c.queryIDMatch = strconv.FormatBool(c.planQueryID == strconv.FormatInt(*c.queryid, 10))
 	}
 }
 
 // choosePlanMode returns the mode, or false with a reason in its place when nothing can
-// be submitted. An unusable literal text does not end the candidate: the generic mode
-// is still tried. No version enters the choice: the generic tier is a prepared
+// be submitted. A bind record whose text cannot be used does not end the candidate: the
+// generic mode is still tried. No version enters the choice: both tiers are a prepared
 // statement, which every supported server has.
 func choosePlanMode(c *explainCandidate) (mode string, ok bool) {
-	if c.literalText != "" && !multiStatement(c.literalText) {
-		return planModeEstimatedLiteral, true
+	if c.literal != nil {
+		if !multiStatement(c.literal.query) {
+			return planModeEstimatedLiteral, true
+		}
+
+		c.literalReason = reasonMultiStatement
 	}
 
 	switch {
 	case c.genericText == "":
-		if c.literalText != "" {
-			return reasonMultiStatement, false
-		}
-
 		return c.textReason, false
 
 	case multiStatement(c.genericText):
@@ -1306,7 +1226,10 @@ func choosePlanMode(c *explainCandidate) (mode string, ok bool) {
 
 // multiStatement reports whether text carries more than one command, ignoring a trailing
 // separator. Deliberately crude: a ';' inside a string literal costs one candidate a plan,
-// while a false negative would hand the simple protocol a batch to execute.
+// while a false negative would hand the simple protocol a batch to execute. Neither
+// source should ever produce one - pg_stat_statements records each statement of a batch
+// as its own row (measured on 14 and 18), and the extended protocol refuses a batch at
+// Parse - so this is the guard behind the guards.
 func multiStatement(query string) bool {
 	return strings.Contains(strings.TrimRight(strings.TrimSpace(query), ";"), ";")
 }
@@ -1315,7 +1238,7 @@ func multiStatement(query string) bool {
 // executes the statement, which here is the most expensive query on the server.
 // default_transaction_read_only is not the control - measured, it stops EXPLAIN ANALYZE
 // UPDATE and lets EXPLAIN ANALYZE SELECT count(*) run. SETTINGS is what makes the
-// generic tier's blocks self-describing: the forced plan_cache_mode is printed in them.
+// estimated tiers' blocks self-describing: the forced plan_cache_mode is printed in them.
 func explainOptions() []string {
 	return []string{"VERBOSE", "SETTINGS"}
 }
@@ -1324,20 +1247,32 @@ func explainStatement(options []string, query string) string {
 	return "EXPLAIN (" + strings.Join(options, ", ") + ") " + query
 }
 
-// The generic tier's statements around one candidate. The name is the agent's own and
-// the text is the normalized query, spliced once, into PREPARE; nothing from the
-// customer's text is repeated in the EXECUTE, which carries only NULLs.
+// The estimated tiers' statements around one candidate. The name is the agent's own
+// and the text - normalized in the generic tier, the log's own in the literal - is
+// spliced once, into PREPARE; the EXECUTE carries only the arguments, which are NULLs
+// in the generic tier and the parser's decoded values in the literal, never a piece of
+// the log's DETAIL text.
 func prepareStatement(name, query string) string {
 	return "PREPARE " + name + " AS " + query
 }
 
-func executeStatement(name string, parameters int) string {
-	if parameters == 0 {
+func executeStatement(name string, arguments []string) string {
+	if len(arguments) == 0 {
 		// EXECUTE name() is a syntax error: the list, when present, is non-empty.
 		return "EXECUTE " + name
 	}
 
-	return "EXECUTE " + name + "(" + strings.Repeat("NULL, ", parameters-1) + "NULL)"
+	return "EXECUTE " + name + "(" + strings.Join(arguments, ", ") + ")"
+}
+
+// nullArguments is the generic tier's list: one NULL per inferred parameter.
+func nullArguments(parameters int) []string {
+	arguments := make([]string, parameters)
+	for i := range arguments {
+		arguments[i] = "NULL"
+	}
+
+	return arguments
 }
 
 func deallocateStatement(name string) string {
@@ -1350,25 +1285,25 @@ type simpleQuerier interface {
 	ExecSimple(ctx context.Context, sql string, maxBytes int) ([]string, bool, error)
 }
 
-// errNoSimpleProtocol is a wiring failure, not a server one: the generic mode cannot be
-// submitted over anything else.
-var errNoSimpleProtocol = errors.New("the generic plan mode needs the simple query protocol")
+// errNoSimpleProtocol is a wiring failure, not a server one: the estimated modes cannot
+// be submitted over anything else.
+var errNoSimpleProtocol = errors.New("the estimated plan modes need the simple query protocol")
 
-// submitGenericPlan is the generic tier, one prepared-statement path on every version:
-// PREPARE the normalized text, force plan_cache_mode, EXPLAIN EXECUTE with one NULL per
-// parameter, then restore the setting and DEALLOCATE on every exit - the failed ones
-// included, in the reverse of the order they were made. Without ANALYZE, EXPLAIN
-// EXECUTE plans the statement and does not run it.
+// submitPreparedPlan is both estimated tiers, one prepared-statement path on every
+// version: PREPARE the text, force plan_cache_mode to the tier's setting, EXPLAIN
+// EXECUTE with the tier's arguments, then restore the setting and DEALLOCATE on every
+// exit - the failed ones included, in the reverse of the order they were made. Without
+// ANALYZE, EXPLAIN EXECUTE plans the statement and does not run it.
 //
-// All five go over the raw simple query protocol. None carries an argument of its own,
-// and the extended protocol is the wrong tool twice over: an unbound $1 fails at Bind
+// All five go over the raw simple query protocol. None carries a bind of its own, and
+// the extended protocol is the wrong tool twice over: an unbound $1 fails at Bind
 // before the server sees the statement, and pgx's QueryExecModeSimpleProtocol
 // substitutes $n client-side and rejects it with "insufficient arguments" before the
 // wire. The return is the server's bytes verbatim, one plan line per row, bounded at
 // MaxPlanBytes; the second is what the block records as plan_truncated=.
-func submitGenericPlan(ctx context.Context, q RowQuerier, name, query string) (
-	plan []byte, truncated bool, err error,
-) {
+func submitPreparedPlan(
+	ctx context.Context, q RowQuerier, name, query, setting string, arguments []string,
+) (plan []byte, truncated bool, err error) {
 	simple, ok := q.(simpleQuerier)
 	if !ok {
 		return nil, false, errNoSimpleProtocol
@@ -1382,13 +1317,13 @@ func submitGenericPlan(ctx context.Context, q RowQuerier, name, query string) (
 	// fails because the connection is gone, and the next candidate's error says so.
 	defer func() { _ = execSimple(ctx, simple, deallocateStatement(name)) }()
 
-	if err := execSimple(ctx, simple, forceGenericPlanSQL); err != nil {
+	if err := execSimple(ctx, simple, setting); err != nil {
 		return nil, false, err
 	}
 
 	defer func() { _ = execSimple(ctx, simple, resetPlanCacheModeSQL) }()
 
-	statement := explainStatement(explainOptions(), executeStatement(name, inferredParameters(query)))
+	statement := explainStatement(explainOptions(), executeStatement(name, arguments))
 
 	lines, truncated, err := simple.ExecSimple(ctx, statement, MaxPlanBytes)
 	if err != nil {
@@ -1403,52 +1338,6 @@ func execSimple(ctx context.Context, simple simpleQuerier, sql string) error {
 	_, _, err := simple.ExecSimple(ctx, sql, 0)
 
 	return err
-}
-
-// submitExplain is the literal tier's submission, returning the server's bytes
-// verbatim, one plan line per row, bounded at MaxPlanBytes; the second return is what
-// the block records as plan_truncated=.
-//
-// It goes extended (QueryExecModeExec - one-shot, so customer SQL never enters pgx's
-// statement cache), whose refusals of a multi-statement string and of an unbound $n
-// are both features.
-func submitExplain(ctx context.Context, q RowQuerier, statement string) ([]byte, bool, error) {
-	rows, err := q.Query(ctx, statement, pgx.QueryExecModeExec)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-
-	var (
-		lines     []string
-		held      int
-		truncated bool
-	)
-
-	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
-			return nil, false, err
-		}
-
-		// Past the cap the rows are still scanned and dropped, never left unread: the
-		// statement has to finish on a connection nine other artifacts share.
-		if held >= MaxPlanBytes {
-			truncated = true
-
-			continue
-		}
-
-		held += len(line) + 1
-
-		lines = append(lines, line)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-
-	return planBytes(lines), truncated, nil
 }
 
 func planBytes(lines []string) []byte {
@@ -1483,7 +1372,7 @@ var planIdentifier = regexp.MustCompile(`Query Identifier:\s*(-?[0-9]+)`)
 // --- blocks ------------------------------------------------------------------
 
 func (e *Explain) writeCandidate(
-	w io.Writer, s SampleContext, c *explainCandidate, facts activityFacts,
+	w io.Writer, s SampleContext, c *explainCandidate, facts explainFacts,
 ) error {
 	fields := []headerField{
 		{"sample", strconv.Itoa(s.Index)},
@@ -1494,6 +1383,10 @@ func (e *Explain) writeCandidate(
 
 	if c.prepared {
 		fields = append(fields, headerField{"parameters", strconv.Itoa(c.parameters)})
+	}
+
+	if c.literalReason != "" {
+		fields = append(fields, headerField{"literal_reason", c.literalReason})
 	}
 
 	if c.matchedBy != "" {
@@ -1512,6 +1405,10 @@ func (e *Explain) writeCandidate(
 	// the slowest of them, and one is the uninteresting case.
 	if c.plansSeen > 1 {
 		fields = append(fields, headerField{"plans_seen", strconv.Itoa(c.plansSeen)})
+	}
+
+	if c.bindsSeen > 1 {
+		fields = append(fields, headerField{"binds_seen", strconv.Itoa(c.bindsSeen)})
 	}
 
 	if facts.read {
@@ -1567,8 +1464,8 @@ func (e *Explain) writePlan(w io.Writer, s SampleContext, plan *loggedPlan) erro
 // window's field set is fixed and has no hook for one, as with the log tails' drain
 // blocks.
 func (e *Explain) writeSummary(
-	w io.Writer, s SampleContext, selection explainSelection, facts activityFacts,
-	store *planStore, read *tailRead, activityErr string,
+	w io.Writer, s SampleContext, selection explainSelection, facts explainFacts,
+	gate string, read *tailRead, factsErr string,
 ) error {
 	fields := []headerField{{"summary", "true"}}
 
@@ -1586,14 +1483,20 @@ func (e *Explain) writeSummary(
 		fields = append(fields, headerField{"statements_reason", selection.feedReason})
 	}
 
-	fields = append(fields, selection.counters.fields()...)
-
-	if store.ambiguous > 0 {
-		fields = append(fields,
-			headerField{"plans_ambiguous", strconv.Itoa(store.ambiguous)})
+	// The tier's gate, on the sample rather than only on its candidates, so a quiet
+	// sample still says the literal tier was off and why.
+	if e.submits() && !selection.drain && gate != "" {
+		fields = append(fields, headerField{"literal_reason", gate})
 	}
 
-	fields = append(fields, e.logFields(store, read)...)
+	fields = append(fields, selection.counters.fields()...)
+
+	if e.store.ambiguous > 0 {
+		fields = append(fields,
+			headerField{"plans_ambiguous", strconv.Itoa(e.store.ambiguous)})
+	}
+
+	fields = append(fields, e.logFields(read)...)
 
 	if facts.read {
 		fields = append(fields,
@@ -1602,19 +1505,20 @@ func (e *Explain) writeSummary(
 
 	// Last, and only on failure: without it a read that never happened is
 	// indistinguishable from an idle database.
-	if activityErr != "" {
-		fields = append(fields, headerField{"activity_error", activityErr})
+	if factsErr != "" {
+		fields = append(fields, headerField{"facts_error", factsErr})
 	}
 
 	return e.writeBlock(w, s, fields, nil)
 }
 
-// logFields reports the plan store in the log-tail engine's own vocabulary. A tail that
+// logFields reports the two stores in the log-tail engine's own vocabulary. A tail that
 // never resolved gets its reason and log access and no count, as writeReasonBlock does:
 // a zero beside a reason renders an absence as a measurement. The reason rides
-// log_reason= because the ranking already owns reason=.
-func (e *Explain) logFields(store *planStore, read *tailRead) []headerField {
+// log_reason= because the selection already owns reason=.
+func (e *Explain) logFields(read *tailRead) []headerField {
 	source := e.tail.source
+	store := e.store
 
 	if source.reason != "" {
 		return []headerField{
@@ -1644,6 +1548,29 @@ func (e *Explain) logFields(store *planStore, read *tailRead) []headerField {
 
 	if store.dropped > 0 {
 		fields = append(fields, headerField{"plans_dropped", strconv.Itoa(store.dropped)})
+	}
+
+	// The bind records, under mode all only: mode logged submits nothing, so the count
+	// would describe evidence it has no tier for. binds_harvested= is a measurement
+	// like plans_harvested=; the rest separate "none in the log" from "none usable" -
+	// no identifier to join by, refused by the parser, or bounded by the caps.
+	if e.submits() {
+		binds := e.binds
+
+		fields = append(fields, headerField{"binds_harvested", strconv.Itoa(binds.total)})
+
+		for _, f := range []struct {
+			key   string
+			value int
+		}{
+			{"binds_unidentified", binds.unidentified},
+			{"binds_rejected", binds.rejected},
+			{"binds_dropped", binds.dropped},
+		} {
+			if f.value > 0 {
+				fields = append(fields, headerField{f.key, strconv.Itoa(f.value)})
+			}
+		}
 	}
 
 	return fields
@@ -1684,14 +1611,16 @@ func int64Value(v *int64) int64 {
 	return *v
 }
 
-// explainMatch selects auto_explain's entries and nothing else. auto_explain and
-// log_min_duration_statement both open "duration: <n> ms ", so only what ends the first
-// line separates them. 00000 is registered paired because it is every LOG line in the
-// file: without it the SQLSTATE match passes everything on csvlog and jsonlog, and the
-// message predicate never runs.
+// explainMatch selects the two kinds of evidence the tiers read: auto_explain's plan
+// entries, whose first line ends "plan:", and log_min_duration_statement's execute
+// records, whose first line carries "execute" after the duration - and nothing else
+// that opens "duration: <n> ms ", which is every statement the threshold logs. 00000 is
+// registered paired because it is every LOG line in the file: without it the SQLSTATE
+// match passes everything on csvlog and jsonlog, and the message predicate never runs.
 var explainMatch = eventMatch{
-	sqlstate:      []string{"00000"},
-	paired:        []string{"00000"},
-	message:       []string{"duration: "},
-	messageSuffix: []string{"plan:"},
+	sqlstate:        []string{"00000"},
+	paired:          []string{"00000"},
+	message:         []string{"duration: "},
+	messageSuffix:   []string{"plan:"},
+	messageContains: []string{" ms  execute "},
 }

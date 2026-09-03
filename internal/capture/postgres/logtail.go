@@ -106,6 +106,11 @@ type logSettings struct {
 	loggingCollector string
 	logDestination   string
 
+	// logLinePrefix is the stderr format's line prefix template. pg_explain.txt reads
+	// it for %Q, the one place a stderr entry carries a query identifier; the other
+	// tails ignore it.
+	logLinePrefix string
+
 	// serverAddr is host(inet_server_addr()); empty means a unix socket, which is
 	// itself proof the server is this host.
 	serverAddr string
@@ -123,6 +128,7 @@ const logSettingsSQL = `SELECT
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'log_filename'),
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'logging_collector'),
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'log_destination'),
+    (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'log_line_prefix'),
     host(inet_server_addr())`
 
 // logLocationFormatSQL always names a format: the no-arg pg_current_logfile()
@@ -133,10 +139,12 @@ func readLogSettings(ctx context.Context, q Querier) (logSettings, error) {
 	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
 	defer cancel()
 
-	var dataDirectory, logDirectory, logFilename, loggingCollector, logDestination, serverAddr *string
+	var dataDirectory, logDirectory, logFilename, loggingCollector, logDestination,
+		logLinePrefix, serverAddr *string
 
 	err := q.QueryRow(ctx, logSettingsSQL).Scan(
-		&dataDirectory, &logDirectory, &logFilename, &loggingCollector, &logDestination, &serverAddr)
+		&dataDirectory, &logDirectory, &logFilename, &loggingCollector, &logDestination,
+		&logLinePrefix, &serverAddr)
 	if err != nil {
 		return logSettings{}, err
 	}
@@ -147,6 +155,7 @@ func readLogSettings(ctx context.Context, q Querier) (logSettings, error) {
 		logFilename:      text(logFilename),
 		loggingCollector: text(loggingCollector),
 		logDestination:   text(logDestination),
+		logLinePrefix:    text(logLinePrefix),
 		serverAddr:       text(serverAddr),
 		read:             true,
 	}, nil
@@ -540,6 +549,11 @@ type eventMatch struct {
 	// messageSuffix additionally requires the message's *first line* to end with one of these.
 	// auto_explain and log_min_duration_statement both open "duration: <n> ms ", so only what follows tells a plan from a slow-query transcript.
 	messageSuffix []string
+
+	// messageContains is the other way past that requirement: a first line carrying one
+	// of these is accepted too. pg_explain.txt's tail takes auto_explain's "plan:" entries
+	// by suffix and log_min_duration_statement's "execute" records by this.
+	messageContains []string
 }
 
 // messageDecides is true when no code alone can match: every SQLSTATE the
@@ -572,7 +586,7 @@ func (m eventMatch) matchesMessage(s string) bool {
 		return false
 	}
 
-	if len(m.messageSuffix) == 0 {
+	if len(m.messageSuffix) == 0 && len(m.messageContains) == 0 {
 		return true
 	}
 
@@ -587,6 +601,8 @@ func (m eventMatch) matchesMessage(s string) bool {
 
 	return slices.ContainsFunc(m.messageSuffix, func(want string) bool {
 		return strings.HasSuffix(first, want)
+	}) || slices.ContainsFunc(m.messageContains, func(want string) bool {
+		return strings.Contains(first, want)
 	})
 }
 
@@ -1373,9 +1389,20 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 // matchStderrLine derives the report's prefix by finding the severity keyword.
 // Every line of a report shares the identical expanded prefix, so log_line_prefix itself never needs parsing.
 func (m eventMatch) matchStderrLine(line string) (prefix string, ok bool) {
-	at := -1
+	at, message := stderrSeverity(line)
 
-	var message string
+	if at < 0 || !m.matchesMessage(message) {
+		return "", false
+	}
+
+	return line[:at], true
+}
+
+// stderrSeverity finds the earliest severity keyword in a line and returns where it
+// starts - everything before it is the expanded log_line_prefix - and the message
+// after it. -1 when the line opens no entry.
+func stderrSeverity(line string) (at int, message string) {
+	at = -1
 
 	for _, keyword := range severityKeywords {
 		i := strings.Index(line, keyword+":")
@@ -1391,11 +1418,7 @@ func (m eventMatch) matchStderrLine(line string) (prefix string, ok bool) {
 		at, message = i, rest
 	}
 
-	if at < 0 || !m.matchesMessage(message) {
-		return "", false
-	}
-
-	return line[:at], true
+	return at, message
 }
 
 // isNewStderrEntry: a line without the report's prefix is a different entry by construction (the prefix holds a timestamp), judged by scanning the whole line.
@@ -1432,6 +1455,10 @@ func isNewStderrEntry(line, prefix string) bool {
 const (
 	csvStateIndex   = 12
 	csvMessageIndex = 13
+	csvDetailIndex  = 14
+
+	// csvQueryIDIndex is the 26th column, added in 14 with leader_pid before it.
+	csvQueryIDIndex = 25
 )
 
 // matchCSVLog reads records, not lines (a deadlock's quoted DETAIL field spans several physical lines with real newlines).
@@ -1470,8 +1497,15 @@ func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 
 // jsonEntry: jsonlog is one line per event, the only format with no boundary problem.
 type jsonEntry struct {
+	// StateCode is absent from the line when the code is 00000 - every LOG entry -
+	// where csvlog writes the column; matchJSONLog supplies it.
 	StateCode string `json:"state_code"`
 	Message   string `json:"message"`
+	Detail    string `json:"detail"`
+
+	// QueryID is a JSON number in the file; zero is what the server writes when none
+	// was computed.
+	QueryID int64 `json:"query_id"`
 }
 
 func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
@@ -1491,6 +1525,15 @@ func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
 		var entry jsonEntry
 		if err := json.Unmarshal(data[lineStart:lineEnd-1], &entry); err != nil {
 			continue
+		}
+
+		// The writer omits state_code when the code is successful completion
+		// (measured on 15 through 18: no LOG line carries the key), so an absent code
+		// is 00000 here as it is in csvlog's column. Without this a matcher that pairs
+		// 00000 with its message - the explain and checkpoint tails - never fires on
+		// jsonlog.
+		if entry.StateCode == "" {
+			entry.StateCode = "00000"
 		}
 
 		if m.matches(entry.StateCode, entry.Message) {
