@@ -1747,3 +1747,65 @@ func TestWindowConnectFailureKeepsTheDetailForTheLog(t *testing.T) {
 	// took zero samples.
 	assert.Contains(t, results[0].Err, `too many connections for role "yc_limited"`)
 }
+
+// A window stopped by its own context mid-statement says so. The driver closes the
+// connection when a context expires during a statement, so the connection is lost
+// too, but the stop is the cause and its status is the one written.
+func TestWindowStoppedMidSampleReportsTheStop(t *testing.T) {
+	t.Run("cancelled", func(t *testing.T) {
+		clock := newFakeClock()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		conn := newFakeWindowConn()
+
+		collector := newFakeCollector("pg_fake")
+		collector.sample = func(sampleCtx context.Context, s SampleContext, w io.Writer) error {
+			cancel()
+			conn.lost = true
+
+			return sampleCtx.Err()
+		}
+
+		window := newTestWindow(t, clock, collector)
+		window.connect = func(context.Context, Target) (windowConn, error) { return conn, nil }
+
+		results := window.Run(ctx)
+
+		assert.Equal(t, StatusCancelled, results[0].Status)
+		assert.Equal(t, 0, results[0].SamplesWritten)
+		assert.Len(t, collector.seen, 1)
+
+		text := artifactText(t, results[0])
+		assert.Contains(t, text, "sample_error=", "the failed sample keeps its block")
+		assert.Contains(t, text, "status=cancelled samples_expected=2 samples_written=0")
+		assert.NotContains(t, text, "connection_error=")
+	})
+
+	t.Run("deadline exceeded", func(t *testing.T) {
+		clock := newFakeClock()
+
+		conn := newFakeWindowConn()
+
+		collector := newFakeCollector("pg_fake")
+		collector.sample = func(sampleCtx context.Context, s SampleContext, w io.Writer) error {
+			<-sampleCtx.Done()
+			conn.lost = true
+
+			return sampleCtx.Err()
+		}
+
+		window := newTestWindow(t, clock, collector)
+		window.connect = func(context.Context, Target) (windowConn, error) { return conn, nil }
+		window.Duration = 10 * time.Millisecond
+		window.grace = 200 * time.Millisecond
+
+		results := window.Run(context.Background())
+
+		assert.Equal(t, StatusDeadlineExceeded, results[0].Status)
+		assert.Equal(t, 0, results[0].SamplesWritten)
+		assert.Contains(t, artifactText(t, results[0]),
+			"status=deadline_exceeded samples_expected=2 samples_written=0")
+	})
+}
