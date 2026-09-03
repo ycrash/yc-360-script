@@ -149,11 +149,15 @@ type fakeWindowConn struct {
 	closed bool
 
 	// lost is what the driver would report once it has closed the connection
-	// underneath the window; a collector's failing sample flips it.
-	lost bool
+	// underneath the window; a collector's failing sample flips it. lossErr is the
+	// error the connection kept from that moment, if the fake kept one.
+	lost    bool
+	lossErr error
 }
 
 func (c *fakeWindowConn) Lost() bool { return c.lost }
+
+func (c *fakeWindowConn) LossError() error { return c.lossErr }
 
 func newFakeWindowConn() *fakeWindowConn {
 	return &fakeWindowConn{database: "orders_db", dbid: ptr("16401")}
@@ -773,6 +777,82 @@ func TestWindowStopsWhenTheConnectionIsLost(t *testing.T) {
 	assert.Contains(t, failingHeaders[2], "status=connection_lost samples_expected=2 samples_written=0")
 
 	assert.True(t, conn.closed, "the dead connection is still closed on the way out")
+}
+
+// The loss may surface inside a collector that localises failures to a block: the error
+// rides that block's header and the sample returns nil. Or it may surface as a later
+// statement's error, after the driver has already closed on an earlier one. Either way
+// the window stops there and reports the error the connection kept.
+func TestWindowReportsTheErrorTheConnectionClosedOn(t *testing.T) {
+	const (
+		lost    = "FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"
+		cleanup = "failed to deallocate cached statement(s): conn closed"
+	)
+
+	t.Run("folded into the sample's own block", func(t *testing.T) {
+		clock := newFakeClock()
+		conn := newFakeWindowConn()
+
+		absorbing := newFakeCollector("pg_absorbing")
+		absorbing.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+			conn.lost = true
+			conn.lossErr = errors.New(lost)
+
+			return writeBlockHeader(w, "fake_view", "database", []headerField{
+				{"sample", strconv.Itoa(s.Index)},
+				{"error", lost},
+			}, s.At)
+		}
+
+		later := newFakeCollector("pg_later")
+
+		window := newTestWindow(t, clock, absorbing, later)
+		window.connect = func(ctx context.Context, target Target) (windowConn, error) { return conn, nil }
+
+		results := window.Run(context.Background())
+		require.Len(t, results, 2)
+
+		assert.Equal(t, StatusConnectionLost, results[0].Status)
+		assert.Equal(t, StatusConnectionLost, results[1].Status)
+		assert.Equal(t, 1, results[0].SamplesWritten, "the block it wrote is a sample")
+		assert.Empty(t, later.seen, "no statement ran on the closed connection")
+
+		assert.Equal(t, lost, results[0].Err)
+		assert.Equal(t, lost, results[1].Err)
+
+		headers := headersOf(t, results[0])
+		require.Len(t, headers, 3, "preamble, the sample that met the loss, the closing block")
+		assert.NotContains(t, artifactText(t, results[0]), "sample_error=", "the sample reported nothing to stub")
+		assert.Contains(t, headers[2],
+			`status=connection_lost samples_expected=2 samples_written=1 connection_error="`+lost+`"`)
+	})
+
+	t.Run("returned as a later statement's cleanup error", func(t *testing.T) {
+		clock := newFakeClock()
+		conn := newFakeWindowConn()
+
+		failing := newFakeCollector("pg_failing")
+		failing.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+			conn.lost = true
+			conn.lossErr = errors.New(lost)
+
+			return errors.New(cleanup)
+		}
+
+		window := newTestWindow(t, clock, failing)
+		window.connect = func(ctx context.Context, target Target) (windowConn, error) { return conn, nil }
+
+		results := window.Run(context.Background())
+		require.Len(t, results, 1)
+
+		assert.Equal(t, StatusConnectionLost, results[0].Status)
+		assert.Equal(t, lost, results[0].Err, "the connection's own error, not the cleanup that followed it")
+
+		headers := headersOf(t, results[0])
+		require.Len(t, headers, 3)
+		assert.Contains(t, headers[1], `sample_error="`+cleanup+`"`, "the stub records what the sample met")
+		assert.Contains(t, headers[2], `connection_error="`+lost+`"`)
+	})
 }
 
 func TestWindowAFailedSampleOnALiveConnectionDoesNotStop(t *testing.T) {

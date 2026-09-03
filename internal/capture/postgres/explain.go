@@ -388,7 +388,15 @@ func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 
 	if e.submits() {
 		e.binds.attach(selection.candidates, gate)
-		e.submitAll(ctx, q, s, selection.candidates, &selection.counters)
+
+		// The pass could not begin, so no candidate is this sample's: each goes back
+		// to the queue with what it carries, and the error is the sample's. On a
+		// connection the driver has closed, that error is the driver's own.
+		if err := e.submitAll(ctx, q, s, selection.candidates, &selection.counters); err != nil {
+			e.requeueAll(&selection)
+
+			return err
+		}
 	}
 
 	for _, c := range e.requeueSkipped(&selection) {
@@ -488,6 +496,14 @@ func (e *Explain) requeueSkipped(selection *explainSelection) []*explainCandidat
 	selection.candidates = attempted
 
 	return attempted
+}
+
+// requeueAll puts every candidate back at the head of the queue, in order, when the
+// submission pass could not begin: none is this sample's, and each keeps a plan or bind
+// record it claimed for the sample that attempts it.
+func (e *Explain) requeueAll(selection *explainSelection) {
+	e.queue = append(slices.Clone(selection.candidates), e.queue...)
+	selection.candidates = nil
 }
 
 // WriteClosing acts only where the closing sample did not, so a cancelled or
@@ -1108,17 +1124,22 @@ func readExplainFacts(ctx context.Context, q RowQuerier) (explainFacts, error) {
 // --- submission --------------------------------------------------------------
 
 // submitAll runs the explain pass under a server-side timeout, reset afterwards even
-// when a candidate failed, so the shared connection is handed back at its default.
+// when a candidate failed, so the shared connection is handed back at its default. A
+// SET that fails is returned before any candidate is attempted.
 func (e *Explain) submitAll(
 	ctx context.Context, q RowQuerier, s SampleContext,
 	candidates []*explainCandidate, counters *explainCounters,
-) {
+) error {
 	if len(candidates) == 0 {
-		return
+		return nil
 	}
 
-	runUtilityStatement(ctx, q, setExplainTimeoutSQL)
-	defer runUtilityStatement(ctx, q, resetExplainTimeoutSQL)
+	if err := runUtilityStatement(ctx, q, setExplainTimeoutSQL); err != nil {
+		return err
+	}
+
+	// Best effort, as the deallocation of each prepared statement is.
+	defer func() { _ = runUtilityStatement(ctx, q, resetExplainTimeoutSQL) }()
 
 	started := e.now()
 
@@ -1138,6 +1159,8 @@ func (e *Explain) submitAll(
 
 		e.submitOne(ctx, q, s, c)
 	}
+
+	return nil
 }
 
 // submitOne picks the mode from the evidence that is available, not from a rule, and
