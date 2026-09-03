@@ -89,7 +89,7 @@ func TestCheckpointLogMatchesByMessageInTheStructuredFormats(t *testing.T) {
 	assert.Zero(t, matched, "the starting line carries the same 00000 and is not matched")
 
 	completeJSON := `{"timestamp":"2026-09-02 15:20:25.938 UTC","pid":31,"error_severity":"LOG",` +
-		`"state_code":"00000","message":"checkpoint complete: wrote 20 buffers (0.1%)","backend_type":"checkpointer"}` + "\n"
+		`"message":"checkpoint complete: wrote 20 buffers (0.1%)","backend_type":"checkpointer"}` + "\n"
 
 	body, matched = matchBody(logFormatJSON, checkpointMatch, unrelatedJSON+completeJSON)
 	require.Equal(t, 1, matched, "jsonlog, on the same terms")

@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,21 +25,23 @@ const (
 	explainSelfOID    = "16385"
 	explainSearchPath = `"$user", public`
 
-	// explainOwnerOID owns the statement fixtures; the activity join compares it.
-	explainOwnerOID = "10"
+	// explainParameterCap is the fake's log_parameter_max_length: finite, so the
+	// literal tier's gate is open unless a test closes it.
+	explainParameterCap = int64(1024)
 
-	// explainMaxCharBytes is UTF-8's widest character, what pg_encoding_max_length returns.
-	explainMaxCharBytes = int64(4)
+	// explainQueryIDPrefix is a log_line_prefix carrying %Q, the one way a stderr
+	// entry proves its identifier; testLogLinePrefix, the server's default, does not.
+	explainQueryIDPrefix = "%m [%p] qid=%Q "
 )
 
-// fakeExplainConn answers the log tail's resolution, the one activity read, the
-// SET/RESET pair, each submitted EXPLAIN and the generic tier's prepared-statement
-// exchange around its EXPLAIN EXECUTE.
+// fakeExplainConn answers the log tail's resolution, the one facts read, the SET/RESET
+// pair and the estimated tiers' prepared-statement exchange around each EXPLAIN
+// EXECUTE.
 type fakeExplainConn struct {
 	*fakeLogQuerier
 
-	activity     []fakeResult
-	activityArgs [][]any
+	// facts answers explainFactsSQL, one row per read.
+	facts []fakeRow
 
 	// plans is keyed by a substring of the candidate text, so submission order is free.
 	// An EXPLAIN EXECUTE resolves through prepared to the text it was prepared from,
@@ -60,24 +63,15 @@ type fakeExplainConn struct {
 	submitted []string
 	utility   []string
 	sent      []string
-
-	// protocols records how each EXPLAIN was sent: the two modes must not swap.
-	protocols []string
 }
 
-// exchange is everything the agent sent, for the assertions that say a text never
-// reached the server: the generic tier's text rides PREPARE, not EXPLAIN.
+// exchange is everything the agent sent, for the assertions that say a text or a
+// value never reached the server.
 func (c *fakeExplainConn) exchange() string {
 	return strings.Join(c.sent, "\n")
 }
 
-// protocolExtended and protocolSimple are what the fake records per statement.
-const (
-	protocolExtended = "extended"
-	protocolSimple   = "simple"
-)
-
-// ExecSimple is the raw simple query protocol, which only the generic tier uses: its
+// ExecSimple is the raw simple query protocol, which both estimated tiers use: the
 // EXPLAIN EXECUTE and the four statements around it. Rows past maxBytes are drained and
 // dropped and the cut reported, as the real one does.
 func (c *fakeExplainConn) ExecSimple(ctx context.Context, sql string, maxBytes int) (
@@ -90,7 +84,6 @@ func (c *fakeExplainConn) ExecSimple(ctx context.Context, sql string, maxBytes i
 	}
 
 	c.submitted = append(c.submitted, sql)
-	c.protocols = append(c.protocols, protocolSimple)
 
 	result := c.planFor(c.resolveExecute(sql))
 	if result.err != nil {
@@ -186,7 +179,7 @@ func (c *fakeExplainConn) planFor(sql string) fakeResult {
 func newFakeExplainConn(q *fakeLogQuerier) *fakeExplainConn {
 	return &fakeExplainConn{
 		fakeLogQuerier: q,
-		activity:       repeat(rowsResult(activityValues())),
+		facts:          repeatRow(rowResult(explainFactsRow(ptr(explainParameterCap))...)),
 		plans:          map[string]fakeResult{},
 		defaultPlan: rowsResult(planRows(
 			"Seq Scan on public.orders  (cost=0.00..8420.00 rows=3 width=64)")),
@@ -195,41 +188,27 @@ func newFakeExplainConn(q *fakeLogQuerier) *fakeExplainConn {
 	}
 }
 
+// QueryRow answers the facts read; everything else is the log tail's.
+func (c *fakeExplainConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if sql == explainFactsSQL {
+		return answerRow(&c.facts)
+	}
+
+	return c.fakeLogQuerier.QueryRow(ctx, sql, args...)
+}
+
+// Query carries the statement_timeout pair and nothing else: an EXPLAIN arriving here
+// would be the extended protocol, which neither tier uses, and the embedded fake
+// refuses it.
 func (c *fakeExplainConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	switch {
-	case sql == activitySQL:
-		c.activityArgs = append(c.activityArgs, args)
-
-		return answer(&c.activity)
-
-	case sql == setExplainTimeoutSQL || sql == resetExplainTimeoutSQL:
+	if sql == setExplainTimeoutSQL || sql == resetExplainTimeoutSQL {
 		c.utility = append(c.utility, sql)
 		c.sent = append(c.sent, sql)
 
 		return &fakeRows{}, nil
-
-	case strings.HasPrefix(sql, "EXPLAIN "):
-		c.submitted = append(c.submitted, sql)
-		c.sent = append(c.sent, sql)
-
-		for _, arg := range args {
-			if mode, ok := arg.(pgx.QueryExecMode); ok && mode == pgx.QueryExecModeExec {
-				c.protocols = append(c.protocols, protocolExtended)
-			}
-		}
-
-		return answerOne(c.planFor(sql))
 	}
 
 	return c.fakeLogQuerier.Query(ctx, sql, args...)
-}
-
-func answerOne(result fakeResult) (pgx.Rows, error) {
-	if result.err != nil {
-		return nil, result.err
-	}
-
-	return &fakeRows{values: result.rows}, nil
 }
 
 func planRows(lines ...string) [][]any {
@@ -241,63 +220,15 @@ func planRows(lines ...string) [][]any {
 	return values
 }
 
-type activityFixture struct {
-	pid        int32
-	queryID    *int64
-	usesysid   string
-	state      string
-	query      string
-	queryBytes int64
-	runningFor float64
-	ranFor     float64
+// explainFactsRow is explainFactsSQL's one row; cap is log_parameter_max_length, nil
+// where the setting is absent.
+func explainFactsRow(cap *int64) []any {
+	return []any{ptr(explainSearchPath), ptr(explainSelfOID), ptr(true), cap}
 }
 
-// activityValue builds one row of activitySQL's result, facts included.
-func activityValue(f activityFixture) []any {
-	queryStart := testWindowStart
-	stateChange := queryStart.Add(time.Second)
-
-	bytesRead := f.queryBytes
-	if bytesRead == 0 {
-		bytesRead = int64(len(f.query))
-	}
-
-	usesysid := f.usesysid
-	if usesysid == "" {
-		usesysid = explainOwnerOID
-	}
-
-	return []any{
-		ptr(explainSearchPath), ptr(explainSelfOID), ptr(true), ptr(int64(1024)),
-		ptr(explainMaxCharBytes),
-		ptr(f.pid), f.queryID, ptr("16401"), ptr(usesysid), ptr(f.state),
-		ptr(f.query), ptr(bytesRead), ptr(queryStart), ptr(stateChange),
-		ptr(f.runningFor), ptr(f.ranFor),
-	}
-}
-
-// activityValues is the default read: one idle session holding the top candidate's
-// literal text.
-func activityValues() [][]any {
-	return [][]any{activityValue(activityFixture{
-		pid:     4021,
-		queryID: ptr(ordersItemsEnd.queryid),
-		state:   "idle",
-		query:   "SELECT * FROM order_items WHERE order_id = 4021",
-		ranFor:  4.2,
-	})}
-}
-
-// factsOnlyActivity is the LEFT JOIN's no-session shape: facts present, every
-// activity column NULL.
-func factsOnlyActivity() [][]any {
-	return [][]any{{
-		ptr(explainSearchPath), ptr(explainSelfOID), ptr(true), ptr(int64(1024)),
-		ptr(explainMaxCharBytes),
-		(*int32)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), (*string)(nil),
-		(*string)(nil), (*int64)(nil), (*time.Time)(nil), (*time.Time)(nil),
-		(*float64)(nil), (*float64)(nil),
-	}}
+// factsWithCap scripts every facts read with the given cap.
+func factsWithCap(q *fakeExplainConn, cap *int64) {
+	q.facts = repeatRow(rowResult(explainFactsRow(cap)...))
 }
 
 func explainFeed() *SlowQueries { return NewSlowQueries() }
@@ -320,9 +251,9 @@ func feedAt(sq *SlowQueries, sample int, rows []statementRow) {
 
 func explainContext(index, total int) SampleContext {
 	return SampleContext{
-		At:             testWindowStart.Add(time.Duration(index) * time.Second),
-		Index:          index,
-		Total:          total,
+		At:       testWindowStart.Add(time.Duration(index) * time.Second),
+		Index:    index,
+		Total:    total,
 		Database: "orders_db",
 		DBID:     "16401",
 		redact:   func(err error) string { return errorText(err, "") },
@@ -409,7 +340,7 @@ func TestExplainSampleBudgetIsModeDependent(t *testing.T) {
 		assert.Equal(t, ExplainBudget+ExplainTimeout+StatementTimeout,
 			NewExplain(mode, explainFeed()).Artifact().SampleBudget,
 			"the aggregate, plus the candidate that can start just under it and still "+
-				"run its full server-side timeout, plus the one pg_stat_activity read, "+
+				"run its full server-side timeout, plus the one facts read, "+
 				"for mode %q", mode)
 	}
 
@@ -465,10 +396,7 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 			name: "log unresolved speaks the engine's own vocabulary",
 			mode: ExplainModeLogged,
 			querier: func(t *testing.T) *fakeExplainConn {
-				q := newFakeExplainConn(deniedQuerier(logSettings{loggingCollector: "off", read: true}))
-				q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-				return q
+				return newFakeExplainConn(deniedQuerier(logSettings{loggingCollector: "off", read: true}))
 			},
 			assert: func(t *testing.T, block textBlock) {
 				assert.Equal(t, reasonCollectorOff, block.fields["log_reason"])
@@ -479,17 +407,14 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 						"measurement; the engine's own reason blocks omit matched= for this reason")
 
 				assert.Equal(t, "true", block.fields["auto_explain_visible"],
-					"the facts come through a LEFT JOIN, so they arrive even with no session to report")
+					"the facts are read on every sample, whatever the log yielded")
 			},
 		},
 		{
 			name: "log readable and nothing matched is an observation, not a cause",
 			mode: ExplainModeLogged,
 			querier: func(t *testing.T) *fakeExplainConn {
-				q := newFakeExplainConn(readableLog(t, measuredStatement+unrelatedTraffic))
-				q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-				return q
+				return newFakeExplainConn(readableLog(t, measuredStatement+unrelatedTraffic))
 			},
 			assert: func(t *testing.T, block textBlock) {
 				assert.Equal(t, "0", block.fields["plans_harvested"],
@@ -499,16 +424,18 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 			},
 		},
 		{
-			name: "a failed activity read drops every fact rather than defaulting one",
+			name: "a failed facts read drops every fact rather than defaulting one",
 			mode: ExplainModeAll,
 			querier: func(t *testing.T) *fakeExplainConn {
 				q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-				q.activity = repeat(errResult(errors.New("ERROR: permission denied")))
+				q.facts = repeatRow(errRow(errors.New("ERROR: permission denied")))
 
 				return q
 			},
 			assert: func(t *testing.T, block textBlock) {
 				assert.False(t, block.has("auto_explain_visible"))
+				assert.Equal(t, reasonParameterCapUnread, block.fields["literal_reason"],
+					"an unread cap is treated as unbounded, and the summary says so")
 			},
 		},
 	} {
@@ -529,7 +456,6 @@ func TestExplainNoPlanOutcomes(t *testing.T) {
 
 func TestExplainOpensTheTailPastTheAgentsOwnFirstBurst(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, measuredPlan))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeLogged, explainFeed())
 
@@ -543,7 +469,6 @@ func TestExplainOpensTheTailPastTheAgentsOwnFirstBurst(t *testing.T) {
 
 func TestExplainOnAOneTickWindowStillReports(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, measuredPlan))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeLogged, explainFeed())
 
@@ -579,7 +504,6 @@ func TestExplainPrefilterCountsEachClass(t *testing.T) {
 	})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	summary := summaryOf(t, runExplainSamples(t, NewExplain(ExplainModeAll, sq), q))
 
@@ -633,33 +557,6 @@ func TestExplainAllowlist(t *testing.T) {
 
 // --- the two estimated modes -------------------------------------------------
 
-func TestExplainLiteralTierUsesTheExtendedProtocol(t *testing.T) {
-	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
-
-	require.Len(t, blocks, 2)
-	block := blocks[0]
-
-	assert.Equal(t, planModeEstimatedLiteral, block.fields["mode"])
-	assert.Equal(t, "2", block.fields["first_seen"], "the sample the feed first showed it")
-	assert.Equal(t, explainSearchPath, block.fields["search_path"])
-	assert.NotEmpty(t, block.body)
-
-	require.Len(t, q.submitted, 1)
-	assert.Contains(t, q.submitted[0], "SELECT * FROM order_items WHERE order_id = 4021",
-		"the activity text, which is the only place literal values exist")
-
-	require.Len(t, q.protocols, 1)
-	assert.Equal(t, protocolExtended, q.protocols[0],
-		"one-shot, so customer SQL never enters pgx's statement cache, and it refuses "+
-			"the multi-statement batch a simple-protocol client's activity text can be")
-
-	assert.Equal(t, []string{setExplainTimeoutSQL, resetExplainTimeoutSQL}, q.utility,
-		"the bound is server-side: a client-context expiry would close the shared connection")
-}
-
 // The generic tier's exchange for ordersUpdateEnd, whose normalized text carries $1
 // and $2, as the first candidate of a window.
 var genericExchange = []string{
@@ -676,7 +573,6 @@ func TestExplainGenericTierIsOnePreparedStatementExchange(t *testing.T) {
 	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
 
@@ -685,14 +581,14 @@ func TestExplainGenericTierIsOnePreparedStatementExchange(t *testing.T) {
 	assert.Equal(t, "2", blocks[0].fields["parameters"],
 		"one NULL per $n in the normalized text, and the block says how many")
 
+	assert.Equal(t, reasonNoBindRecord, blocks[0].fields["literal_reason"],
+		"the tier was on and the log held no record for this shape: the block says which")
+
 	assert.Equal(t, genericExchange, q.sent,
 		"PREPARE the normalized text, force the generic plan, EXPLAIN EXECUTE with NULLs, "+
 			"then restore the setting and DEALLOCATE: the customer's text is spliced once "+
 			"and the EXECUTE carries none of it")
 
-	require.Len(t, q.protocols, 1)
-	assert.Equal(t, protocolSimple, q.protocols[0],
-		"extended protocol fails an unbound $1 at Bind, before the server sees the statement")
 	assert.Empty(t, q.prepared, "nothing of the agent's outlives the candidate in the session")
 
 	for _, statement := range q.sent {
@@ -706,8 +602,6 @@ func TestExplainGenericTierIsOnePreparedStatementExchange(t *testing.T) {
 func TestExplainGenericTierCleansUpAfterEveryFailure(t *testing.T) {
 	run := func(t *testing.T, q *fakeExplainConn) textBlock {
 		t.Helper()
-
-		q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 		blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
 			feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})), q)
@@ -779,7 +673,8 @@ func TestExplainGenericTierBindsOneNullPerInferredParameter(t *testing.T) {
 		{"SELECT '$99999999999999999999'", 0, "EXECUTE yc_explain_1"},
 	} {
 		assert.Equal(t, tc.parameters, inferredParameters(tc.query), tc.query)
-		assert.Equal(t, tc.execute, executeStatement("yc_explain_1", inferredParameters(tc.query)),
+		assert.Equal(t, tc.execute,
+			executeStatement("yc_explain_1", nullArguments(inferredParameters(tc.query))),
 			"the highest $n is the count, and a list is either non-empty or absent")
 	}
 }
@@ -788,7 +683,6 @@ func TestExplainGenericTierNamesEachPreparedStatementOnce(t *testing.T) {
 	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd), pg18Statement(ordersInventoryEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
 
@@ -802,73 +696,28 @@ func TestExplainGenericTierNamesEachPreparedStatementOnce(t *testing.T) {
 	assert.Empty(t, q.prepared)
 }
 
-func TestExplainParameterizedActivityTextReroutesToGeneric(t *testing.T) {
-	sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-		pid:     4021,
-		queryID: ptr(ordersItemsEnd.queryid),
-		state:   "active",
-
-		query:      "SELECT * FROM order_items WHERE order_id = $1",
-		runningFor: 9.5,
-	})}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
-
-	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"])
-	assert.Equal(t, protocolSimple, q.protocols[0])
-}
-
-func TestExplainTruncatedActivityTextIsNotSubmitted(t *testing.T) {
-	end := pg18Statement(ordersItemsEnd)
-	end.query = ptr("SELECT * FROM order_items WHERE order_id = $1")
-
-	sq := feedWith([]statementRow{end})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-		pid:     4021,
-		queryID: ptr(ordersItemsEnd.queryid),
-		state:   "active",
-		query:   strings.Repeat("x", 1023),
-
-		queryBytes: 1023,
-		runningFor: 9.5,
-	})}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
-
-	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
-		"truncated activity text falls through to the normalized form, which is intact")
-	assert.NotContains(t, q.exchange(), "xxxx",
-		"the bytes the server cut mid-token are never submitted")
-}
-
 func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 	t.Run("literal asserts equality", func(t *testing.T) {
-		sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
-
-		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q := newFakeExplainConn(readableLogWithQueryID(t))
 		q.defaultPlan = rowsResult(planRows(
 			"Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)",
 			"Query Identifier: "+strconv.FormatInt(ordersItemsEnd.queryid, 10),
 		))
 
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			itemsBindEntry("4.2", "$1 = '4021'"))
 
+		assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"])
 		assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), blocks[0].fields["plan_queryid"])
 		assert.Equal(t, "true", blocks[0].fields["queryid_match"])
 	})
 
 	t.Run("a mismatch is flagged, not hidden", func(t *testing.T) {
-		sq := feedWith([]statementRow{pg18Statement(ordersItemsEnd)})
-
-		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q := newFakeExplainConn(readableLogWithQueryID(t))
 		q.defaultPlan = rowsResult(planRows("Query Identifier: 42"))
 
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			itemsBindEntry("4.2", "$1 = '4021'"))
 
 		assert.Equal(t, "42", blocks[0].fields["plan_queryid"])
 		assert.Equal(t, "false", blocks[0].fields["queryid_match"],
@@ -879,7 +728,6 @@ func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
 		sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult(factsOnlyActivity()))
 		q.defaultPlan = rowsResult(planRows("Query Identifier: 3310092847719224551"))
 
 		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
@@ -897,7 +745,6 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 	})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 	q.plans = map[string]fakeResult{
 		ordersItemsEnd.query: errResult(errors.New(
 			"ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")),
@@ -920,8 +767,6 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 		"a server-side timeout is a per-candidate error; the connection is still usable")
 }
 
-// --- the activity fallback ---------------------------------------------------
-
 // --- the invariant -----------------------------------------------------------
 
 func TestExplainOptionListNeverContainsAnalyze(t *testing.T) {
@@ -934,10 +779,12 @@ func TestExplainOptionListNeverContainsAnalyze(t *testing.T) {
 	assert.NotContains(t, options, "GENERIC_PLAN",
 		"the generic tier is a prepared statement on every version, not the PostgreSQL 16 option")
 
-	assert.Equal(t, "EXPLAIN (VERBOSE, SETTINGS) SELECT analyze_runs FROM audit",
-		explainStatement(options, "SELECT analyze_runs FROM audit"))
 	assert.Equal(t, "EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_7(NULL)",
-		explainStatement(options, executeStatement("yc_explain_7", 1)))
+		explainStatement(options, executeStatement("yc_explain_7", nullArguments(1))))
+	assert.Equal(t, "EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_8(E'4021', NULL)",
+		explainStatement(options, executeStatement("yc_explain_8",
+			[]string{renderArgument(bindValue{text: "4021"}), renderArgument(bindValue{null: true})})),
+		"the literal tier's arguments are the parser's values, rendered as literals")
 }
 
 func TestExplainSubmitsNoStatementUnderModeLogged(t *testing.T) {
@@ -1078,13 +925,15 @@ func TestExplainGoldenFull(t *testing.T) {
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.defaultPlan = rowsResult(planRows(
 		" Index Scan using inventory_sku_idx on public.inventory  (cost=0.42..8.44 rows=1 width=48)",
-		"   Index Cond: (inventory.sku = 'SKU-88291'::text)",
+		"   Index Cond: (inventory.sku = $1)",
+		" Settings: plan_cache_mode = 'force_generic_plan'",
 	))
 	q.plans = map[string]fakeResult{
 		"order_items": rowsResult(planRows(
 			" Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)",
-			"   Filter: (order_id = 4021)",
-			" Query Identifier: "+strconv.FormatInt(ordersItemsEnd.queryid, 10),
+			"   Filter: (order_items.order_id = $1)",
+			" Settings: plan_cache_mode = 'force_generic_plan'",
+			" Query Identifier: 3310092847719224551",
 		)),
 		ordersUpdateEnd.query: errResult(errors.New("ERROR: permission denied for table orders")),
 	}
@@ -1515,53 +1364,6 @@ func TestExplainGoldenLoggedNoIdentifier(t *testing.T) {
 //
 // Each test below pins one defect found in the implementation review of 2026-08-23.
 
-func TestExplainLiteralTierJoinsOnTheFullIdentity(t *testing.T) {
-	other := activityValue(activityFixture{
-		pid:      9001,
-		queryID:  ptr(ordersItemsEnd.queryid),
-		usesysid: "99", // same statement shape, a different role's values
-		state:    "idle",
-		query:    "SELECT * FROM order_items WHERE order_id = 777777",
-		ranFor:   1,
-	})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{other}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
-
-	assert.NotContains(t, q.exchange(), "777777",
-		"another role's literal values were submitted under this candidate's queryid")
-	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
-		"with no session of its own the candidate falls to the normalized text")
-}
-
-func TestExplainLiteralTierRefusesAnotherDatabasesSession(t *testing.T) {
-	elsewhere := activityValue(activityFixture{
-		pid:     9002,
-		queryID: ptr(ordersItemsEnd.queryid),
-		state:   "idle",
-		query:   "SELECT * FROM order_items WHERE order_id = 555",
-		ranFor:  1,
-	})
-	elsewhere[7] = ptr("16999")
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{elsewhere}))
-
-	e := NewExplain(ExplainModeAll, itemsFeed())
-
-	var buf bytes.Buffer
-	unidentified := explainContext(2, 2)
-	unidentified.DBID = ""
-
-	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
-	require.NoError(t, e.Sample(context.Background(), q, &buf, unidentified))
-
-	assert.NotContains(t, q.exchange(), "555",
-		"a session in another database cannot carry this candidate's text")
-}
-
 func TestExplainNeverSubmitsTextTheAgentsOwnCapCut(t *testing.T) {
 	full := "SELECT " + strings.Repeat("a", DefaultMaxQueryText) + " FROM t WHERE x = $1"
 	cut := string([]rune(full)[:DefaultMaxQueryText+1])
@@ -1570,7 +1372,6 @@ func TestExplainNeverSubmitsTextTheAgentsOwnCapCut(t *testing.T) {
 	end.query = ptr(cut)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
 		feedWith([]statementRow{end})), q)
@@ -1578,59 +1379,8 @@ func TestExplainNeverSubmitsTextTheAgentsOwnCapCut(t *testing.T) {
 	assert.Empty(t, q.submitted, "a cap+1 prefix ends mid-token and is not submittable")
 	assert.Equal(t, reasonTextTruncated, blocks[0].fields["reason"],
 		"and the block says which cap cut it: this one is the agent's, not the server's")
-}
-
-func TestExplainNeverSubmitsActivityTextTheAgentsOwnCapCut(t *testing.T) {
-	long := "SELECT * FROM order_items WHERE note = '" +
-		strings.Repeat("z", DefaultMaxQueryText) + "'"
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-		pid:        4021,
-		queryID:    ptr(ordersItemsEnd.queryid),
-		state:      "idle",
-		query:      string([]rune(long)[:DefaultMaxQueryText+1]),
-		queryBytes: 512,
-		ranFor:     4.2,
-	})}))
-
-	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
-
-	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
-		"the cut activity text is refused and the normalized text carries the candidate")
-
-	assert.NotContains(t, q.exchange(), "zzz", "the agent-cut activity text was submitted")
-}
-
-func TestExplainServerTruncationGateCoversTheMultibyteBand(t *testing.T) {
-	for _, octets := range []int64{1020, 1021, 1022, 1023} {
-		t.Run(fmt.Sprintf("octets=%d", octets), func(t *testing.T) {
-			q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-			q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-				pid:        4021,
-				queryID:    ptr(ordersItemsEnd.queryid),
-				state:      "idle",
-				query:      "SELECT * FROM order_items WHERE order_id = 4021",
-				queryBytes: octets,
-				ranFor:     4.2,
-			})}))
-
-			blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
-
-			assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
-				"text at %d octets under a 1024-byte cap may be a clipped prefix, and "+
-					"a gate pinned to size-1 alone would submit it", octets)
-		})
-	}
-
-	t.Run("well under the cap is still literal", func(t *testing.T) {
-		blocks := runExplainSamples(t,
-			NewExplain(ExplainModeAll, itemsFeed()),
-			newFakeExplainConn(readableLog(t, unrelatedTraffic)))
-
-		assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"],
-			"the widened band must not swallow ordinary text")
-	})
+	assert.Equal(t, reasonNoBindRecord, blocks[0].fields["literal_reason"],
+		"the log's own text would have carried the candidate, had the log held a record")
 }
 
 func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
@@ -1638,7 +1388,6 @@ func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
 	b.userid = ptr("99")
 
 	q := newFakeExplainConn(readableLog(t, ""))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeLogged, feedWith([]statementRow{a, b}))
 
@@ -1683,22 +1432,23 @@ func TestExplainSummaryCarriesTheLogReadsOwnState(t *testing.T) {
 }
 
 func TestExplainRefusesAMultiStatementText(t *testing.T) {
-	batch := "SET application_name = 'x'; SELECT count(*) FROM order_items"
+	batch := "SET application_name = 'x'; SELECT count(*) FROM order_items WHERE order_id = $1"
 
-	t.Run("literal text falls through to the normalized form", func(t *testing.T) {
-		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-			pid: 4021, queryID: ptr(ordersItemsEnd.queryid), state: "idle",
-			query: batch, ranFor: 4.2,
-		})}))
+	// Neither source produces a batch - the extended protocol refuses one at Parse, and
+	// the statements view records each statement of one as its own row - so the record
+	// below is synthetic, and the guard is the one behind the guards.
+	t.Run("a bind record's text falls through to the normalized form", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
 
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			bindEntry(strconv.FormatInt(ordersItemsEnd.queryid, 10), "4.2", batch, "$1 = '4021'"))
 
 		require.Len(t, q.submitted, 1)
 		assert.NotContains(t, q.exchange(), "SET application_name",
 			"the batch must never reach the server, as one EXPLAIN or inside a PREPARE")
 		assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
-			"a literal text this cannot use does not end the candidate")
+			"a record this cannot use does not end the candidate")
+		assert.Equal(t, reasonMultiStatement, blocks[0].fields["literal_reason"])
 	})
 
 	t.Run("with no normalized form to fall back to", func(t *testing.T) {
@@ -1706,17 +1456,15 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 		end.query = ptr(string([]rune("SELECT " +
 			strings.Repeat("a", DefaultMaxQueryText))[:DefaultMaxQueryText+1]))
 
-		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult([][]any{activityValue(activityFixture{
-			pid: 4021, queryID: ptr(ordersItemsEnd.queryid), state: "idle",
-			query: batch, ranFor: 4.2,
-		})}))
+		q := newFakeExplainConn(readableLogWithQueryID(t))
 
-		blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
-			feedWith([]statementRow{end})), q)
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, feedWith([]statementRow{end})), q,
+			bindEntry(strconv.FormatInt(ordersItemsEnd.queryid, 10), "4.2", batch, "$1 = '4021'"))
 
 		assert.Empty(t, q.submitted)
-		assert.Equal(t, reasonMultiStatement, blocks[0].fields["reason"])
+		assert.Equal(t, reasonMultiStatement, blocks[0].fields["literal_reason"])
+		assert.Equal(t, reasonTextTruncated, blocks[0].fields["reason"],
+			"each refusal names its own cause")
 	})
 
 	t.Run("the allowlist refuses a batch whose first keyword is a utility", func(t *testing.T) {
@@ -1724,7 +1472,6 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 		utility.query = ptr(batch)
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 		summary := summaryOf(t, runExplainSamples(t,
 			NewExplain(ExplainModeAll, feedWith([]statementRow{utility})), q))
@@ -1786,18 +1533,21 @@ func TestExplainClosingStillReportsAnArmedTailThatNeverResolved(t *testing.T) {
 		"but no count, because nothing was ever read")
 }
 
-func TestExplainReportsAFailedActivityRead(t *testing.T) {
-	readErr := errors.New("permission denied for function pg_encoding_max_length")
+func TestExplainReportsAFailedFactsRead(t *testing.T) {
+	readErr := errors.New("permission denied for function current_setting")
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(fakeResult{err: readErr})
+	q.facts = repeatRow(errRow(readErr))
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	summary := summaryOf(t, blocks)
-	assert.Contains(t, summary.fields["activity_error"], "permission denied")
+	assert.Contains(t, summary.fields["facts_error"], "permission denied")
 	assert.False(t, summary.has("auto_explain_visible"),
 		"a fact nobody read is dropped, not defaulted")
+	assert.Equal(t, reasonParameterCapUnread, summary.fields["literal_reason"],
+		"and the literal tier is off, since the cap it is gated on was not read")
+	assert.Equal(t, reasonParameterCapUnread, blocks[0].fields["literal_reason"])
 }
 
 func TestExplainWritesEachBlockAsOneWrite(t *testing.T) {
@@ -1826,21 +1576,11 @@ func TestExplainReadsTheLastQueryIdentifier(t *testing.T) {
 	assert.Empty(t, planQueryIdentifier([]byte(" Seq Scan on public.t\n")))
 }
 
-func TestExplainActivityReadIsBounded(t *testing.T) {
-	assert.Contains(t, activitySQL, "LIMIT $1")
-	assert.Contains(t, activitySQL, "left(a.query, $2)")
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	require.NoError(t, NewExplain(ExplainModeAll, itemsFeed()).
-		Sample(context.Background(), q, &bytes.Buffer{}, explainContext(2, 2)))
-
-	require.NotEmpty(t, q.activityArgs)
-	assert.Equal(t, []any{MaxActivitySessions, DefaultMaxQueryText + 1}, q.activityArgs[0])
-}
-
 func TestExplainReadsItsOwnOIDFromTheCatalogue(t *testing.T) {
-	assert.Contains(t, activitySQL, "FROM pg_catalog.pg_roles")
-	assert.NotContains(t, activitySQL, "regrole")
+	assert.Contains(t, explainFactsSQL, "FROM pg_catalog.pg_roles")
+	assert.NotContains(t, explainFactsSQL, "regrole")
+	assert.Contains(t, explainFactsSQL, "'log_parameter_max_length'",
+		"the literal tier's gate is read with the other facts, in the same statement")
 }
 
 // --- the selection -----------------------------------------------------------
@@ -1851,7 +1591,6 @@ func TestExplainAttemptsEachShapeOnceAcrossSamples(t *testing.T) {
 	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -1895,7 +1634,6 @@ func TestExplainDefersBeyondTheCapToTheNextSample(t *testing.T) {
 	feedAt(sq, 2, fifteenShapes())
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -1932,7 +1670,6 @@ func TestExplainBudgetSkipReturnsTheShapeToTheQueue(t *testing.T) {
 	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -1980,7 +1717,6 @@ func TestExplainSummaryNamesTheFeedsReason(t *testing.T) {
 		sq.retainReason(SampleContext{Index: 2}, reasonExtensionAbsent)
 
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 		summary := summaryOf(t, runExplainSamples(t, NewExplain(ExplainModeAll, sq), q))
 
@@ -1992,7 +1728,6 @@ func TestExplainSummaryNamesTheFeedsReason(t *testing.T) {
 
 	t.Run("no read at all", func(t *testing.T) {
 		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-		q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 		summary := summaryOf(t, runExplainSamples(t, NewExplain(ExplainModeAll, explainFeed()), q))
 
@@ -2006,7 +1741,6 @@ func TestExplainEverySampleWritesItsOwnSummary(t *testing.T) {
 	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -2030,7 +1764,6 @@ func TestExplainClosingPassSaysWhatWasLeftQueued(t *testing.T) {
 	feedAt(sq, 1, fifteenShapes())
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -2043,4 +1776,482 @@ func TestExplainClosingPassSaysWhatWasLeftQueued(t *testing.T) {
 	assert.Equal(t, "true", summary.fields["drain"])
 	assert.Equal(t, "5", summary.fields["candidates_queued"],
 		"a cancelled window says how many shapes it never reached")
+}
+
+// --- the literal tier --------------------------------------------------------
+
+// bindEntry is log_min_duration_statement's execute record as the matrix measured it
+// on stderr, under a log_line_prefix carrying %Q: the LOG line names the statement and
+// the DETAIL line the parameters, each under the same expanded prefix.
+func bindEntry(queryID, duration, query, parameters string) string {
+	return bindEntryWithPrefix("2026-08-17 02:01:31.480 UTC [13031] qid="+queryID+" ",
+		duration, query, parameters)
+}
+
+func bindEntryWithPrefix(prefix, duration, query, parameters string) string {
+	return prefix + "LOG:  duration: " + duration + " ms  execute <unnamed>: " + query + "\n" +
+		prefix + "DETAIL:  Parameters: " + parameters + "\n"
+}
+
+// itemsBindEntry is a record for the ordersItemsEnd shape, whose log text is its
+// normalized text: the statement carried one parameter and no constant.
+func itemsBindEntry(duration, parameters string) string {
+	return bindEntry(strconv.FormatInt(ordersItemsEnd.queryid, 10), duration,
+		"SELECT * FROM order_items WHERE order_id = $1", parameters)
+}
+
+const itemsExecuteMessage = "duration: 4.2 ms  execute <unnamed>: SELECT * FROM order_items WHERE order_id = $1"
+
+// csvBindEntry is the execute record on csvlog: message and detail as two quoted
+// fields, and the identifier as the 26th column.
+func csvBindEntry(message, detail, queryID string) string {
+	quote := func(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
+	return `2026-08-17 02:01:31.480 UTC,"postgres","orders_db",13031,"[local]",6a803945.71,5,"SELECT",` +
+		`2026-08-17 02:01:31.200 UTC,3/13,0,LOG,00000,` + quote(message) + "," + quote(detail) +
+		`,,,,,,,,"psql","client backend",,` + queryID + "\n"
+}
+
+// jsonBindEntryLine is the execute record on jsonlog: detail and query_id are fields.
+func jsonBindEntryLine(t *testing.T, message, detail string, queryID int64) string {
+	t.Helper()
+
+	encoded, err := json.Marshal(map[string]any{
+		"timestamp":      "2026-08-17 02:01:31.480 UTC",
+		"pid":            13031,
+		"error_severity": "LOG",
+		"message":        message,
+		"detail":         detail,
+		"backend_type":   "client backend",
+		"query_id":       queryID,
+	})
+	require.NoError(t, err)
+
+	return string(encoded) + "\n"
+}
+
+// readableLogWithQueryID is an empty readableLog under a log_line_prefix that carries %Q.
+func readableLogWithQueryID(t *testing.T) *fakeLogQuerier {
+	t.Helper()
+
+	q := readableLog(t, "")
+	q.settings.logLinePrefix = explainQueryIDPrefix
+
+	return q
+}
+
+// runLiteralSamples opens the tail on the first sample, grows the log, and returns the
+// second sample's blocks: the log's evidence arrives between two ticks, as it does.
+func runLiteralSamples(t *testing.T, e *Explain, q *fakeExplainConn, entries string) []textBlock {
+	t.Helper()
+
+	var buf bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
+
+	appendFile(t, currentLogPath(t, q), entries+unrelatedTraffic)
+
+	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
+
+	return parseTextArtifact(t, buf.String())
+}
+
+// The literal tier's exchange for ordersItemsEnd with the value 4021 logged for it, as
+// the first candidate of a window.
+var literalExchange = []string{
+	setExplainTimeoutSQL,
+	"PREPARE yc_explain_1 AS SELECT * FROM order_items WHERE order_id = $1",
+	forceCustomPlanSQL,
+	"EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_1(E'4021')",
+	resetPlanCacheModeSQL,
+	"DEALLOCATE yc_explain_1",
+	resetExplainTimeoutSQL,
+}
+
+func TestExplainLiteralTierIsOnePreparedStatementExchange(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+		itemsBindEntry("4.2", "$1 = '4021'"))
+
+	require.Len(t, blocks, 2)
+
+	block := blocks[0]
+	assert.Equal(t, planModeEstimatedLiteral, block.fields["mode"])
+	assert.Equal(t, "1", block.fields["parameters"], "one decoded value bound, and the block says so")
+	assert.False(t, block.has("literal_reason"), "the tier applied, so there is nothing to explain")
+	assert.False(t, block.has("binds_seen"), "one record is the uninteresting case")
+	assert.NotEmpty(t, block.body)
+
+	assert.Equal(t, literalExchange, q.sent,
+		"PREPARE the log's own text, force the custom plan, EXPLAIN EXECUTE with the "+
+			"decoded value as a literal, then restore the setting and DEALLOCATE: the "+
+			"DETAIL text itself is never spliced into anything")
+	assert.Empty(t, q.prepared, "nothing of the agent's outlives the candidate in the session")
+
+	summary := summaryOf(t, blocks)
+	assert.Equal(t, "1", summary.fields["binds_harvested"])
+	assert.False(t, summary.has("literal_reason"))
+}
+
+func TestExplainTierPrecedence(t *testing.T) {
+	t.Run("a logged plan beats a bind record", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			itemsPlanEntry("0.9")+itemsBindEntry("4.2", "$1 = '4021'"))
+
+		assert.Equal(t, planModeLogged, blocks[0].fields["mode"])
+		assert.Empty(t, q.submitted,
+			"the server's own plan for the execution that happened is never also estimated")
+
+		summary := summaryOf(t, blocks)
+		assert.Equal(t, "1", summary.fields["plans_written"])
+		assert.Equal(t, "1", summary.fields["binds_harvested"], "seen, and not needed")
+	})
+
+	t.Run("a bind record beats the normalized text", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			itemsBindEntry("4.2", "$1 = '4021'"))
+
+		assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"])
+		assert.NotContains(t, q.exchange(), "(NULL)", "the generic tier was not tried")
+	})
+
+	t.Run("nothing in the log is the generic tier", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q, "")
+
+		assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"])
+		assert.Equal(t, reasonNoBindRecord, blocks[0].fields["literal_reason"])
+		assert.Equal(t, "0", summaryOf(t, blocks).fields["binds_harvested"],
+			"a measured zero: the log was read and held no record")
+	})
+}
+
+// D7: the literal tier runs only under a finite log_parameter_max_length, observed on
+// the agent's own connection and never set by it. Every case below has a usable record
+// in the log, so what the gate decides is whether the value is used or dropped.
+func TestExplainLiteralTierGate(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cap    *int64
+		reason string
+	}{
+		{name: "a finite cap opens it", cap: ptr(int64(1024))},
+		{name: "-1 is unbounded", cap: ptr(int64(-1)), reason: reasonParameterCapUnbounded},
+		{name: "0 logs no parameters", cap: ptr(int64(0)), reason: reasonParametersNotLogged},
+		{name: "an absent setting is unread", cap: nil, reason: reasonParameterCapUnread},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newFakeExplainConn(readableLogWithQueryID(t))
+			factsWithCap(q, tc.cap)
+
+			blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+				itemsBindEntry("4.2", "$1 = '4021'"))
+
+			summary := summaryOf(t, blocks)
+
+			if tc.reason == "" {
+				assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"])
+				assert.False(t, summary.has("literal_reason"))
+
+				return
+			}
+
+			assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
+				"the tier is off and the candidate continues to the generic tier")
+			assert.Equal(t, tc.reason, blocks[0].fields["literal_reason"])
+			assert.Equal(t, tc.reason, summary.fields["literal_reason"],
+				"on the sample too, so a quiet sample still says the tier was off")
+
+			assert.NotContains(t, q.exchange(), "4021",
+				"a value the cap does not bound is never retained, let alone sent")
+			assert.Equal(t, "1", summary.fields["binds_harvested"],
+				"counted: the log held it, and the summary says why it was not used")
+			assert.False(t, summary.has("binds_rejected"), "dropped by the gate, not refused by the parser")
+		})
+	}
+}
+
+func TestExplainLiteralTierRefusesAnUnusableRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		parameters string
+		reason     string
+	}{
+		{name: "clipped at the cap", parameters: "$1 = 'abcdefgh...'", reason: reasonBindTruncated},
+		{name: "a position missing", parameters: "$2 = '4021'", reason: reasonBindMalformed},
+		{name: "a position twice", parameters: "$1 = '1', $1 = '2'", reason: reasonBindMalformed},
+		{name: "an unterminated quote", parameters: "$1 = 'abc", reason: reasonBindMalformed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newFakeExplainConn(readableLogWithQueryID(t))
+
+			blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+				itemsBindEntry("4.2", tc.parameters))
+
+			assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
+				"unusable evidence is no evidence, not a partial literal plan")
+			assert.Equal(t, tc.reason, blocks[0].fields["literal_reason"])
+
+			for _, fragment := range []string{"abcdefgh", "4021", "E'1'", "E'2'", "abc"} {
+				assert.NotContains(t, q.exchange(), fragment)
+			}
+
+			summary := summaryOf(t, blocks)
+			assert.Equal(t, "1", summary.fields["binds_harvested"])
+			assert.Equal(t, "1", summary.fields["binds_rejected"])
+		})
+	}
+}
+
+func TestExplainLiteralTierOnEveryLogFormat(t *testing.T) {
+	detail := "Parameters: $1 = '4021'"
+	id := strconv.FormatInt(ordersItemsEnd.queryid, 10)
+
+	for _, tc := range []struct {
+		format logFormat
+		body   func(t *testing.T) string
+	}{
+		{format: logFormatStderr, body: func(*testing.T) string { return itemsBindEntry("4.2", "$1 = '4021'") }},
+		{format: logFormatCSV, body: func(*testing.T) string { return csvBindEntry(itemsExecuteMessage, detail, id) }},
+		{format: logFormatJSON, body: func(t *testing.T) string {
+			return jsonBindEntryLine(t, itemsExecuteMessage, detail, ordersItemsEnd.queryid)
+		}},
+	} {
+		t.Run(string(tc.format), func(t *testing.T) {
+			log := readableLogAs(t, tc.format, "")
+			log.settings.logLinePrefix = explainQueryIDPrefix
+
+			q := newFakeExplainConn(log)
+
+			blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q, tc.body(t))
+
+			assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"], "the %s path", tc.format)
+			assert.Contains(t, q.exchange(), "EXECUTE yc_explain_1(E'4021')")
+		})
+	}
+}
+
+func TestExplainLiteralTierNeedsAProvenIdentifier(t *testing.T) {
+	assertUnidentified := func(t *testing.T, q *fakeExplainConn, blocks []textBlock) {
+		t.Helper()
+
+		assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"])
+		assert.Equal(t, reasonNoBindRecord, blocks[0].fields["literal_reason"])
+		assert.NotContains(t, q.exchange(), "4021", "a record no identifier proves is not attached by its text")
+
+		summary := summaryOf(t, blocks)
+		assert.Equal(t, "1", summary.fields["binds_harvested"])
+		assert.Equal(t, "1", summary.fields["binds_unidentified"])
+	}
+
+	t.Run("stderr without %Q in the prefix", func(t *testing.T) {
+		q := newFakeExplainConn(readableLog(t, ""))
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			bindEntryWithPrefix("2026-08-17 02:01:31.480 UTC [13031] ", "4.2",
+				"SELECT * FROM order_items WHERE order_id = $1", "$1 = '4021'"))
+
+		assertUnidentified(t, q, blocks)
+	})
+
+	t.Run("csvlog with a zero identifier", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogAs(t, logFormatCSV, ""))
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			csvBindEntry(itemsExecuteMessage, "Parameters: $1 = '4021'", "0"))
+
+		assertUnidentified(t, q, blocks)
+	})
+}
+
+func TestExplainLiteralTierKeepsTheSlowestPerIdentifier(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+		itemsBindEntry("0.9", "$1 = '1'")+itemsBindEntry("412.5", "$1 = '2'")+itemsBindEntry("7.25", "$1 = '3'"))
+
+	assert.Contains(t, q.exchange(), "EXECUTE yc_explain_1(E'2')",
+		"the pathological execution's values are the evidence")
+	assert.NotContains(t, q.exchange(), "E'1'")
+	assert.NotContains(t, q.exchange(), "E'3'")
+	assert.Equal(t, "3", blocks[0].fields["binds_seen"])
+
+	summary := summaryOf(t, blocks)
+	assert.Equal(t, "3", summary.fields["binds_harvested"])
+	assert.Equal(t, "2", summary.fields["binds_dropped"])
+}
+
+func TestExplainBindRecordIsClaimedOnce(t *testing.T) {
+	a, b := pg18Statement(ordersItemsEnd), pg18Statement(ordersItemsEnd)
+	b.userid = ptr("99")
+
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, feedWith([]statementRow{a, b})), q,
+		itemsBindEntry("4.2", "$1 = '4021'"))
+
+	require.Len(t, blocks, 3, "two candidates and the summary")
+	assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"], "the first claimant keeps it")
+	assert.Equal(t, planModeEstimatedGeneric, blocks[1].fields["mode"])
+	assert.Equal(t, reasonBindClaimed, blocks[1].fields["literal_reason"],
+		"the log names an identifier and no role, so the values are not attached twice")
+	assert.Equal(t, 1, strings.Count(q.exchange(), "E'4021'"))
+}
+
+func TestExplainLiteralTierCleansUpAfterEveryFailure(t *testing.T) {
+	run := func(t *testing.T, q *fakeExplainConn) textBlock {
+		t.Helper()
+
+		blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+			itemsBindEntry("4.2", "$1 = '4021'"))
+		require.Len(t, blocks, 2)
+
+		return blocks[0]
+	}
+
+	t.Run("PREPARE refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+		q.utilityErr["PREPARE"] = errors.New(
+			"ERROR: could not determine data type of parameter $1 (SQLSTATE 42P18)")
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "42P18")
+		assert.Equal(t, planModeNone, block.fields["mode"])
+		assert.Equal(t, "1", block.fields["parameters"], "the count the attempt was made with")
+		assert.Equal(t, []string{literalExchange[0], literalExchange[1], literalExchange[6]}, q.sent,
+			"nothing was prepared, so there is nothing to deallocate and no setting was touched")
+		assert.NotContains(t, q.exchange(), "4021", "and the value never left")
+	})
+
+	t.Run("the setting refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+		q.utilityErr["SET plan_cache_mode"] = errors.New("FATAL: terminating connection")
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "terminating connection")
+		assert.Equal(t, []string{
+			literalExchange[0], literalExchange[1], literalExchange[2],
+			literalExchange[5], literalExchange[6],
+		}, q.sent, "no EXPLAIN under a setting that did not take, and the statement is still deallocated")
+		assert.Empty(t, q.prepared)
+	})
+
+	t.Run("EXPLAIN refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLogWithQueryID(t))
+		q.defaultPlan = errResult(errors.New(
+			`ERROR: invalid input syntax for type integer: "4021x" (SQLSTATE 22P02)`))
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "22P02")
+		assert.Equal(t, planModeNone, block.fields["mode"])
+		assert.Equal(t, "1", block.fields["parameters"])
+		assert.Equal(t, literalExchange, q.sent,
+			"the setting is restored and the statement deallocated after a failed EXPLAIN "+
+				"exactly as after a good one; there is no second attempt through the generic tier")
+		assert.Empty(t, q.prepared)
+	})
+}
+
+func TestExplainBudgetSkipKeepsTheClaimedBindRecord(t *testing.T) {
+	sq := NewSlowQueries()
+	feedAt(sq, 2, []statementRow{pg18Statement(ordersInventoryEnd), pg18Statement(ordersItemsEnd)})
+
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	// The second sample's budget is spent after its first candidate; the third sample's
+	// clock stands still, so the shape that waited is attempted there.
+	ticks := []time.Time{
+		testWindowStart,
+		testWindowStart,
+		testWindowStart.Add(ExplainBudget + time.Second),
+	}
+	e.now = func() time.Time {
+		next := ticks[0]
+		if len(ticks) > 1 {
+			ticks = ticks[1:]
+		}
+
+		return next
+	}
+
+	var second, third bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 3)))
+	appendFile(t, currentLogPath(t, q), itemsBindEntry("4.2", "$1 = '4021'"))
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 3)))
+	require.NoError(t, e.Sample(context.Background(), q, &third, explainContext(3, 3)))
+
+	two := parseTextArtifact(t, second.String())
+	require.Len(t, two, 2, "the one attempted shape and the summary")
+	assert.Equal(t, strconv.FormatInt(ordersInventoryEnd.queryid, 10), two[0].fields["queryid"])
+	assert.Equal(t, "1", summaryOf(t, two).fields["candidates_skipped_budget"])
+
+	three := parseTextArtifact(t, third.String())
+	require.Len(t, three, 2)
+	assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), three[0].fields["queryid"])
+	assert.Equal(t, planModeEstimatedLiteral, three[0].fields["mode"],
+		"the record it claimed before the budget ran out is still its own")
+	assert.Equal(t, "2", three[0].fields["first_seen"])
+	assert.Contains(t, q.exchange(), "EXECUTE yc_explain_2(E'4021')")
+}
+
+// The agent observes log_parameter_max_length and never sets it: not on its own
+// session, and not through ALTER SYSTEM. Checked twice - against what a window with
+// the literal tier firing actually sent, and against the package's sources, where
+// neither statement is spelled at all.
+func TestExplainNeverChangesTheServersParameterCap(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+		itemsBindEntry("4.2", "$1 = '4021'"))
+	require.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"], "the tier fired")
+
+	for _, statement := range append(append([]string{}, q.sent...), q.sql...) {
+		upper := strings.ToUpper(statement)
+
+		assert.NotContains(t, upper, "ALTER SYSTEM")
+		assert.NotContains(t, upper, "SET LOG_PARAMETER_MAX_LENGTH")
+	}
+
+	sources, err := filepath.Glob("*.go")
+	require.NoError(t, err)
+
+	for _, path := range sources {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+
+		src, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(src), "ALTER SYSTEM", path)
+		assert.NotContains(t, string(src), "SET log_parameter_max_length", path)
+	}
+}
+
+func TestExplainGoldenLiteral(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+	q.plans = map[string]fakeResult{
+		"order_items": rowsResult(planRows(
+			" Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)",
+			"   Filter: (order_items.order_id = 4021)",
+			" Settings: plan_cache_mode = 'force_custom_plan'",
+			" Query Identifier: "+strconv.FormatInt(ordersItemsEnd.queryid, 10),
+		)),
+	}
+
+	results := explainLoggedWindow(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+		itemsBindEntry("0.9", "$1 = '17'")+itemsBindEntry("412.5", "$1 = '4021'")+unrelatedTraffic)
+
+	require.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, bloatGolden(t, "pg_explain_literal.txt"), artifactText(t, results[0]))
 }

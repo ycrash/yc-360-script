@@ -528,8 +528,15 @@ identity and its clock read are readable without parsing the middle.
   connection exists. It is not the same as the key being absent.
 - Header keys, unlike body keys, may be **conditional**: `sizes=`, `reason=`,
   `queries_truncated=`, `error=`, `connect_error=` and `pg_explain.txt`'s
-  `parameters=` appear only when the thing they describe happened, and in each
-  case absence is itself the value.
+  `parameters=`, `literal_reason=`, `binds_seen=`, `binds_unidentified=`,
+  `binds_rejected=` and `binds_dropped=` appear only when the thing they
+  describe happened, and in each case absence is itself the value.
+  `pg_explain.txt`'s `binds_harvested=` is a measurement like
+  `plans_harvested=`, present on every summary under `explain: all` and absent
+  under `logged`, where no tier reads bind records; `facts_error=` replaced the
+  failure-only `activity_error=` when the read it described stopped being an
+  activity read (Phase 4, slice 3), a rename of a key that appears only when a
+  read failed.
   `pg_sessions.txt`'s is the one to read as a distinction rather than a warning:
   its absence means every `query` cell is the server's own text, and its presence
   means the agent cut that many of them at its own 8192-rune cap, marking each
