@@ -533,7 +533,8 @@ func TestServerFactsCarryTheGenericPlanCapability(t *testing.T) {
 		q.serverFacts.values[colHasGenericPlan] = ptr(present)
 
 		assert.Equal(t, strconv.FormatBool(present), collect(t, q).HasGenericPlan,
-			"recorded as a semantic flag, so nobody re-derives it from server_version_num")
+			"a server fact the row keeps reporting; the generic tier is a prepared statement "+
+				"on every version and no longer branches on it")
 	}
 }
 

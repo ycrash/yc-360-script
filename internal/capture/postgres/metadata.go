@@ -158,8 +158,9 @@ type Metadata struct {
 	HasSessionFatalStats    string
 	ComputeQueryID          string
 
-	// HasGenericPlan is EXPLAIN (GENERIC_PLAN)'s PostgreSQL 16 floor as a flag, so a
-	// bundle full of reason=generic_plan_unsupported has a row corroborating it.
+	// HasGenericPlan says whether EXPLAIN (GENERIC_PLAN) exists, which is PostgreSQL
+	// 16. A server fact the row keeps reporting; nothing branches on it any more, since
+	// the generic tier is a prepared statement on every version.
 	HasGenericPlan string
 
 	ReplicationConfigured string

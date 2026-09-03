@@ -144,7 +144,6 @@ type fakeWindowConn struct {
 	database              string
 	dbid                  *string
 	hasPgStatCheckpointer bool
-	hasGenericPlan        bool
 	identifyErr           error
 
 	closed bool
@@ -163,7 +162,7 @@ func (c *fakeWindowConn) QueryRow(ctx context.Context, sql string, args ...any) 
 		return fakeRow{err: c.identifyErr}
 	}
 
-	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer, c.hasGenericPlan}}
+	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer}}
 }
 
 func (c *fakeWindowConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -885,9 +884,6 @@ func TestWindowFallsBackToTheConfiguredDatabaseWhenIdentifyFails(t *testing.T) {
 	assert.False(t, collector.seen[0].HasPgStatCheckpointer,
 		"and the capability is false, which on a PostgreSQL 17 server is the pre-17 statement "+
 			"and an error the collector records rather than a silent wrong answer")
-	assert.False(t, collector.seen[0].HasGenericPlan,
-		"false skips the generic mode; true on an unidentified server would attempt it and get "+
-			`"there is no parameter $1", which names neither the version nor the option`)
 }
 
 func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
@@ -918,43 +914,6 @@ func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestWindowIdentifyCarriesTheGenericPlanCapability(t *testing.T) {
-	for _, present := range []bool{true, false} {
-		t.Run(fmt.Sprintf("has_generic_plan=%v", present), func(t *testing.T) {
-			clock := newFakeClock()
-
-			collector := newFakeCollector("pg_first")
-
-			window := newTestWindow(t, clock, collector)
-			window.connect = func(ctx context.Context, target Target) (windowConn, error) {
-				conn := newFakeWindowConn()
-				conn.hasGenericPlan = present
-
-				return conn, nil
-			}
-
-			window.Run(context.Background())
-
-			require.Len(t, collector.seen, 2)
-
-			for _, s := range collector.seen {
-				assert.Equal(t, present, s.HasGenericPlan)
-			}
-		})
-	}
-}
-
-func TestGenericPlanExpressionIsSharedBetweenStatements(t *testing.T) {
-	assert.Contains(t, currentDatabaseSQL, genericPlanSQL,
-		"the flag the collectors branch on comes from the shared constant")
-
-	if strings.Contains(serverFactsSQL, "160000") {
-		assert.Contains(t, serverFactsSQL, genericPlanSQL,
-			"pg_metadata.txt must report the same expression the collectors branch on, or the "+
-				"bundle explains a skipped mode with a fact that disagrees with it")
 	}
 }
 
