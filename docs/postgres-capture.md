@@ -605,6 +605,18 @@ to read it carries a `reason=` — `collector_off`, `unresolved`, `unreadable` o
 was read and held no event; a `reason=` means there was nothing to read, and
 there is no zero for a report to render as "no deadlocks occurred".
 
+A matched record is written on the first sample after the log proves it has
+ended. In the stderr format that proof is the next record's `log_line_prefix`:
+a record may continue on indented `DETAIL`, `HINT` or `CONTEXT` lines, and only
+the next prefix says it has stopped. So on a quiet server the last record in
+the file — a `checkpoint complete:` line with nothing logged after it — stays
+held, and the samples in between read `matched=0`, until something else is
+logged or the window closes; the closing `drain=true` read flushes whatever is
+still held, marked `partial_event=true` when its end was never proven. csvlog
+and jsonlog records carry their own end and are not held this way. Nothing is
+lost and nothing is written twice; which sample a record appears in is governed
+by what the server logged after it, not by when it happened.
+
 Two more keys carry the same distinction inside a block that *did* read
 something. `scan_truncated=true skipped_bytes=<n>` says the log outgrew what one
 sample reads, so an event may have occurred in the gap. `resolved_late=true`
