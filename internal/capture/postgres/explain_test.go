@@ -63,6 +63,13 @@ type fakeExplainConn struct {
 	submitted []string
 	utility   []string
 	sent      []string
+
+	// ticks scripts the statements collector's read for each sample, offered to sq
+	// as that sample's facts read arrives - the tick's own moment, ahead of the feed
+	// being asked for - because the collector holds one read at a time.
+	sq         *SlowQueries
+	ticks      map[int][]statementRow
+	factsReads int
 }
 
 // exchange is everything the agent sent, for the assertions that say a text or a
@@ -185,12 +192,27 @@ func newFakeExplainConn(q *fakeLogQuerier) *fakeExplainConn {
 			"Seq Scan on public.orders  (cost=0.00..8420.00 rows=3 width=64)")),
 		prepared:   map[string]string{},
 		utilityErr: map[string]error{},
+		ticks:      map[int][]statementRow{},
 	}
+}
+
+// offerOnTick scripts one sample's statements read. It reaches sq on that sample's
+// tick, as the real collector's read does, rather than ahead of the window: the
+// collector holds one read at a time, so two offered up front would leave one.
+func (c *fakeExplainConn) offerOnTick(sq *SlowQueries, sample int, rows []statementRow) {
+	c.sq = sq
+	c.ticks[sample] = rows
 }
 
 // QueryRow answers the facts read; everything else is the log tail's.
 func (c *fakeExplainConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if sql == explainFactsSQL {
+		c.factsReads++
+
+		if rows, ok := c.ticks[c.factsReads]; ok {
+			c.sq.retain(SampleContext{Index: c.factsReads}, rows, false)
+		}
+
 		return answerRow(&c.facts)
 	}
 
@@ -243,8 +265,9 @@ func feedWith(rows []statementRow) *SlowQueries {
 	return sq
 }
 
-// feedAt offers one read for one sample, the way the real collector does on a shared
-// tick.
+// feedAt offers one read for one sample ahead of the window; it waits untaken until
+// its tick. The collector holds one read at a time, so a fixture that needs more
+// than one sample's read scripts them on the conn with offerOnTick instead.
 func feedAt(sq *SlowQueries, sample int, rows []statementRow) {
 	sq.retain(SampleContext{Index: sample}, rows, false)
 }
@@ -919,10 +942,10 @@ func TestExplainGoldenFull(t *testing.T) {
 	// Both samples read the same four rows, as the real collector would on a shared
 	// tick: the opening sample attempts every shape, the closing one finds nothing new.
 	sq := NewSlowQueries()
-	feedAt(sq, 1, rows)
-	feedAt(sq, 2, rows)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, rows)
+	q.offerOnTick(sq, 2, rows)
 	q.defaultPlan = rowsResult(planRows(
 		" Index Scan using inventory_sku_idx on public.inventory  (cost=0.42..8.44 rows=1 width=48)",
 		"   Index Cond: (inventory.sku = $1)",
@@ -949,10 +972,10 @@ func TestExplainGoldenLeastPrivilege(t *testing.T) {
 	rows := []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)}
 
 	sq := NewSlowQueries()
-	feedAt(sq, 1, rows)
-	feedAt(sq, 2, rows)
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, rows)
+	q.offerOnTick(sq, 2, rows)
 	q.defaultPlan = errResult(errors.New("ERROR: permission denied for table order_items"))
 
 	results := runExplainWindow(t, NewExplain(ExplainModeAll, sq), explainGoldenClock(t),
@@ -1587,10 +1610,10 @@ func TestExplainReadsItsOwnOIDFromTheCatalogue(t *testing.T) {
 
 func TestExplainAttemptsEachShapeOnceAcrossSamples(t *testing.T) {
 	sq := NewSlowQueries()
-	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
-	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
+	q.offerOnTick(sq, 2, []statementRow{pg18Statement(ordersItemsEnd), pg18Statement(ordersInventoryEnd)})
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -1630,10 +1653,10 @@ func fifteenShapes() []statementRow {
 
 func TestExplainDefersBeyondTheCapToTheNextSample(t *testing.T) {
 	sq := NewSlowQueries()
-	feedAt(sq, 1, fifteenShapes())
-	feedAt(sq, 2, fifteenShapes())
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, fifteenShapes())
+	q.offerOnTick(sq, 2, fifteenShapes())
 
 	e := NewExplain(ExplainModeAll, sq)
 
@@ -1737,10 +1760,10 @@ func TestExplainSummaryNamesTheFeedsReason(t *testing.T) {
 
 func TestExplainEverySampleWritesItsOwnSummary(t *testing.T) {
 	sq := NewSlowQueries()
-	feedAt(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
-	feedAt(sq, 2, []statementRow{pg18Statement(ordersItemsEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, []statementRow{pg18Statement(ordersItemsEnd)})
+	q.offerOnTick(sq, 2, []statementRow{pg18Statement(ordersItemsEnd)})
 
 	e := NewExplain(ExplainModeAll, sq)
 

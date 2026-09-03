@@ -231,11 +231,12 @@ type SlowQueries struct {
 	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
 	MaxStatements int
 
-	// feeds holds each sample's read until Explain takes it on the same tick, keyed by
-	// sample so a read is offered to its own sample and no other. Never written to any
-	// file by this collector: it is the feed the explain selection walks, not a
+	// pending is the latest sample's read, held until Explain takes it on the same
+	// tick. The next sample's read replaces it, so a read nobody takes - explain
+	// off - costs one sample's rows, never the window's. Never written to any file
+	// by this collector: it is the feed the explain selection walks, not a
 	// measurement.
-	feeds map[int]statementFeed
+	pending *statementFeed
 }
 
 // NewSlowQueries constructs the collector. A pointer because Sample retains across
@@ -271,20 +272,20 @@ type statementFeed struct {
 // the two collectors. False means no read was offered for the sample, so a tick that
 // never reached the view is not walked as if it had.
 func (sq *SlowQueries) feed(s SampleContext) (statementFeed, bool) {
-	feed, ok := sq.feeds[s.Index]
-	if ok {
-		delete(sq.feeds, s.Index)
+	if sq.pending == nil || sq.pending.sample != s.Index {
+		return statementFeed{}, false
 	}
 
-	return feed, ok
+	feed := *sq.pending
+	sq.pending = nil
+
+	return feed, true
 }
 
+// offer replaces whatever the last sample left: a read is only ever asked for by
+// its own tick, so an older one has no taker.
 func (sq *SlowQueries) offer(feed statementFeed) {
-	if sq.feeds == nil {
-		sq.feeds = map[int]statementFeed{}
-	}
-
-	sq.feeds[feed.sample] = feed
+	sq.pending = &feed
 }
 
 func statementRowKey(row statementRow) (statementKey, bool) {
@@ -492,7 +493,7 @@ type infoRow struct {
 }
 
 func readInfo(ctx context.Context, q RowQuerier) (*infoRow, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var row infoRow
@@ -612,7 +613,7 @@ func (r *statementRow) dest() []any {
 
 // readStatements returns the capped rows and the uncapped total.
 func (sq *SlowQueries) readStatements(ctx context.Context, q RowQuerier) ([]statementRow, int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	// One rune past the cap: lets the render pass distinguish a cell the agent cut from one that arrived exactly at the limit.
@@ -739,7 +740,7 @@ func (e extensionFacts) reason() string {
 }
 
 func readExtension(ctx context.Context, q RowQuerier) (extensionFacts, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var facts extensionFacts
