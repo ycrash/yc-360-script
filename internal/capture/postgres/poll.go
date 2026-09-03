@@ -403,7 +403,7 @@ func (r *pollRow) dest() []any {
 
 // readPollRow returns the row and its round trip, which is query_ms.
 func readPollRow(ctx context.Context, q Querier) (pollRow, time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	ctx, cancel := statementContext(ctx)
 	defer cancel()
 
 	sent := time.Now()

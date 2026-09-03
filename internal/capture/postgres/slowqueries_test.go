@@ -784,7 +784,7 @@ func TestSlowQueriesPreflightPassesTheOptionalColumnList(t *testing.T) {
 
 	require.Len(t, conn.deadlines, 3, "the preflight and both reads")
 	for _, deadline := range conn.deadlines {
-		assert.False(t, deadline.IsZero(), "every read runs under StatementTimeout")
+		assert.False(t, deadline.IsZero(), "every read runs under StatementDeadline")
 	}
 }
 

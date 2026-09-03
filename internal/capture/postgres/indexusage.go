@@ -142,7 +142,7 @@ func (u IndexUsage) readStats(ctx context.Context, q RowQuerier) ([]indexUsageRo
 		limit = DefaultMaxIndexes
 	}
 
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, indexUsageStatsSQL, limit)
@@ -194,7 +194,7 @@ func readIndexSizes(ctx context.Context, q RowQuerier, rows []indexUsageRow) err
 		indexrelids[i] = rows[i].indexrelid
 	}
 
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	sized, err := q.Query(stmtCtx, indexUsageSizesSQL, indexrelids)

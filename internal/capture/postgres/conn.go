@@ -26,12 +26,21 @@ const (
 	// ConnectTimeout bounds TCP connect plus authentication.
 	ConnectTimeout = 5 * time.Second
 
-	// StatementTimeout is the client-side per-statement deadline, backstopping
-	// the server-side one. It is also the floor config puts under postgres.frequency
+	// StatementTimeout is the server-side statement_timeout, sent in the startup
+	// packet. A statement that reaches it fails with SQLSTATE 57014 and the
+	// connection stays open. It is also the floor config puts under postgres.frequency
 	// (MinPostgresFrequency, pinned equal by a test in internal/capture), so a
 	// maxed-out sample consumes at most its whole interval - the timeline can't
 	// catch up under load.
 	StatementTimeout = 10 * time.Second
+
+	// StatementDeadline is the client-side bound on the same statement, the
+	// backstop for a server that never answers. It sits above StatementTimeout so
+	// the server's error is what arrives: pgx closes the connection when a context
+	// expires mid-statement, and at equal values the client's timer fires first
+	// every time (measured on 14 and 17), which turns one slow statement into a
+	// lost connection and ends the window. The margin covers the error's trip back.
+	StatementDeadline = StatementTimeout + 5*time.Second
 
 	// ModuleDeadline bounds the one-shot metadata capture; a sampled capture
 	// derives its own (see Window.moduleDeadline).
@@ -175,6 +184,12 @@ func (c *Conn) ExecSimple(ctx context.Context, sql string, maxBytes int) ([]stri
 	}
 
 	return lines, truncated, nil
+}
+
+// statementContext bounds one statement on the client side, at StatementDeadline;
+// the server's own statement_timeout is the bound expected to fire.
+func statementContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, StatementDeadline)
 }
 
 // QueryRow's per-statement deadline is the caller's: Scan reads the row after

@@ -209,7 +209,7 @@ type checkpointRow struct {
 }
 
 func readCheckpoint(ctx context.Context, q RowQuerier, hasPgStatCheckpointer bool) (*checkpointRow, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var row checkpointRow
@@ -275,7 +275,7 @@ type connectionRow struct {
 }
 
 func (c Capacity) readConnections(ctx context.Context, q RowQuerier) ([]connectionRow, int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, connectionsSQL, c.maxConnectionGroups())
@@ -322,7 +322,7 @@ func connectionCells(rows []connectionRow) [][]string {
 
 // readWAL's sum is NULL on a directory with no files - see writeWALBlock.
 func readWAL(ctx context.Context, q RowQuerier) (*int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	var walBytes *int64

@@ -271,7 +271,7 @@ type sessionRow struct {
 }
 
 func (s Sessions) readSessions(ctx context.Context, q RowQuerier) ([]sessionRow, int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	// left() is asked for one rune past the cap so sessionCells can tell the two apart:
@@ -393,7 +393,7 @@ type lockRow struct {
 }
 
 func (s Sessions) readLocks(ctx context.Context, q RowQuerier) ([]lockRow, int64, error) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, locksSQL, s.maxLocks())
@@ -484,7 +484,7 @@ func resetSessionsTimeout(ctx context.Context, q RowQuerier) {
 // runUtilityStatement uses Query (RowQuerier has no Exec) and drains the result: an undrained
 // row leaves the connection "busy" and fails the next statement.
 func runUtilityStatement(ctx context.Context, q RowQuerier, sql string) {
-	stmtCtx, cancel := context.WithTimeout(ctx, StatementTimeout)
+	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	rows, err := q.Query(stmtCtx, sql)
