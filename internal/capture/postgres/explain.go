@@ -126,7 +126,7 @@ const (
 
 // Why the literal tier did not apply, written as literal_reason= on every block whose
 // attempt fell to the generic tier and on a sample's summary when the tier was off.
-// The first three are the source-side cap the agent observed (D7): the tier runs only
+// The first three are the source-side cap the agent observed: the tier runs only
 // under a finite log_parameter_max_length, which is the deployment's to set and never
 // the agent's. The rest are about this candidate's evidence in the log.
 const (
@@ -443,7 +443,7 @@ func (e *Explain) linePrefix() *linePrefix {
 	return e.prefix
 }
 
-// literalGate is D7 applied: the literal tier runs only under a finite
+// literalGate: the literal tier runs only under a finite
 // log_parameter_max_length observed on this connection, and the reason it does not is
 // written. The observed value is the agent session's, which the deployment's own
 // acceptance test proves for the workload role; the agent never sets it.

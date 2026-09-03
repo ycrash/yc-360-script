@@ -144,7 +144,7 @@ func TestTablespacesArtifact(t *testing.T) {
 
 func TestTablespacesColumnOrder(t *testing.T) {
 	assert.Equal(t, []string{"spcname", "pg_reported_size_bytes"}, tablespaceColumns,
-		"the spec's pair, in the spec's order")
+		"the pair, in this order")
 	assert.Equal(t, "spcname", tablespaceColumns[colSpcName], "the key leads: unique in pg_tablespace")
 }
 

@@ -373,7 +373,7 @@ func TestSlowQueriesColumnSpecsDriveTheDerivedLists(t *testing.T) {
 	}
 
 	assert.Equal(t, names, statementColumns,
-		"the CSV header is the spec list in order, so it cannot drift from the select list built beside it")
+		"the CSV header is the column list in order, so it cannot drift from the select list built beside it")
 	assert.Len(t, optionalStatementColumns, optional)
 	assert.Equal(t, "queryid", statementColumns[0], "the first component of the merge key leads")
 	assert.Equal(t, "query", statementColumns[len(statementColumns)-1], "the only unbounded column closes")

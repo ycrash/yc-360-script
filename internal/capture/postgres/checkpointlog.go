@@ -45,8 +45,8 @@ func (c *CheckpointLog) WriteClosing(w io.Writer, s SampleContext) error {
 // translate the message, the blind spot the two siblings have on stderr only;
 // this one has it everywhere, and a translated cluster yields matched=0 rather
 // than a mis-attributed line. "checkpoint starting:" is deliberately not matched,
-// and nor is a standby's "restartpoint complete:": the spec names the completion
-// line, whose numbers are the finding. The line is one line, so none of the
+// and nor is a standby's "restartpoint complete:": only the completion line
+// carries the numbers that are the finding. The line is one line, so none of the
 // multi-line event handling applies. The server writes it only under
 // log_checkpoints = on, which pg_metadata.txt records.
 var checkpointMatch = eventMatch{

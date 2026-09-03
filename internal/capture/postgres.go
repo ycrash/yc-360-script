@@ -58,12 +58,11 @@ const PostgresTimeoutsFileName = "pg_timeouts.txt"
 
 const pgDTTimeouts = "pgTimeouts"
 
-// The three spec v1.2 artifacts upload under the dt values the agent proposed,
-// ahead of the server team's confirmation (Andy, 2026-09-03; they were held back
-// from 2026-09-02 until then). Until the receiver knows the names it accepts the
-// upload and throws the file away with no error at either end (plan §4.0), so a
-// reported success for these three is not yet proof of arrival; the bundle
-// carries the files regardless.
+// The three newest artifacts upload under dt values the agent proposed, ahead of
+// the receiver having them. A receiver that does not know a dt accepts the upload
+// and throws the file away with no error at either end, so a reported success for
+// these three is not yet proof of arrival; the bundle carries the files
+// regardless.
 const PostgresIndexUsageFileName = "pg_index_usage.txt"
 
 const pgDTIndexUsage = "pgIndexUsage"
@@ -79,8 +78,8 @@ const pgDTCheckpointLog = "pgCheckpointLog"
 // pgSampledDataType returns "" for an artifact with no dt at all: an invented
 // value would upload and drop silently, so the caller writes the artifact but
 // skips the upload with an explicit reason instead. No shipped artifact takes
-// that path today; it is the rule a future one (the deferred bundle marker,
-// plan D8) lands under until its value exists.
+// that path today; it is the rule a future one lands under until its value
+// exists.
 func pgSampledDataType(artifact postgres.Artifact) string {
 	switch artifact.Name {
 	case "pg_metadata":

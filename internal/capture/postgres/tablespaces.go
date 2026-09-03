@@ -58,7 +58,7 @@ func readTablespaces(ctx context.Context, q RowQuerier) ([]Tablespace, error) {
 	return tablespaces, rows.Err()
 }
 
-// tablespaceColumns is the spec's pair. spcname is the key across samples - it
+// tablespaceColumns is two columns. spcname is the key across samples - it
 // is unique in pg_tablespace - and pg_reported_size_bytes is what the server
 // sets against df.out's mounts, through the locations pg_metadata.txt carries.
 var tablespaceColumns = []string{

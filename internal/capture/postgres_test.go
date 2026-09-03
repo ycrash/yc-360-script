@@ -240,8 +240,8 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 			"this switch existed to hold open")
 
 	assert.Equal(t, pgDTIndexUsage, pgSampledDataType(postgres.IndexUsage{}.Artifact()),
-		"pg_index_usage.txt uploads under the value the agent proposed, ahead of the server "+
-			"team's confirmation (Andy, 2026-09-03); the receiver's answer is in the run's message")
+		"pg_index_usage.txt uploads under the value the agent proposed, ahead of the "+
+			"receiver knowing it")
 
 	assert.Equal(t, pgDTTablespaces, pgSampledDataType(postgres.Tablespaces{}.Artifact()),
 		"pg_tablespaces.txt on the same terms")
@@ -251,7 +251,7 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no dt at all is still refused rather than guessed at - the "+
-			"rule the deferred bundle marker (plan D8) lands under")
+			"rule a future artifact lands under until its value exists")
 }
 
 func pgMetadataCollector() *postgres.MetadataCollector {
@@ -309,8 +309,8 @@ func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 }
 
 func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
-	// The spec's incident case: 2m at 30s, five samples. The 5m default on the
-	// default window is the bookend alone, and Validate warns about it.
+	// Two minutes at 30s, five samples. The 5m default on the default window is
+	// the bookend alone, and Validate warns about it.
 	interval := 30 * time.Second
 
 	for name, schedule := range map[string]postgres.Schedule{
@@ -507,10 +507,8 @@ var postgresArtifactFiles = []string{
 }
 
 // postgresArtifactsAwaitingDT are written into the bundle and held back from
-// upload until a value exists. Empty since 2026-09-03, when the three spec v1.2
-// artifacts began uploading under their proposed values; the deferred bundle
-// marker (plan D8) is the next occupant. An entry here is one line in
-// pgSampledDataType when its value arrives.
+// upload until a value exists. Empty: every shipped artifact has one. An entry
+// here is one line in pgSampledDataType when its value arrives.
 var postgresArtifactsAwaitingDT []string
 
 func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
@@ -538,7 +536,7 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"a connect failure waited out the window instead of failing fast")
 
 	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/2 samples)",
-		"the spec's 5m default on the 2m window is the bookend alone, none taken - and it "+
+		"the 5m default on the 2m window is the bookend alone, none taken - and it "+
 			"reports a refusal like every other; Validate is what warns a deployment about "+
 			"the two samples, since the capture itself takes what it is given")
 	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/2 samples)",
@@ -721,8 +719,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 			"silently at the far end, which is why the gate skips instead of guessing")
 
 	assert.Len(t, byDT, len(postgresArtifactFiles),
-		"every artifact the run writes goes up under a dt of its own, spec v1.2's three "+
-			"under the values the agent proposed (Andy, 2026-09-03)")
+		"every artifact the run writes goes up under a dt of its own, the three newest "+
+			"under the values the agent proposed")
 	assert.Equal(t, len(postgresArtifactsAwaitingDT),
 		strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
 		"nothing is held back while no artifact lacks a value; the rule stays for one that does")
@@ -967,7 +965,7 @@ func TestPostgresCaptureDefaultsTheFrequencyWhenUnvalidated(t *testing.T) {
 	require.Nil(t, task.Target.Frequency)
 
 	assert.Equal(t, config.DefaultPostgresFrequency, task.frequency(),
-		"omitted takes the spec's 5m, the same value Validate would have filled in")
+		"omitted takes 5m, the same value Validate would have filled in")
 
 	frequency := config.Duration(30 * time.Second)
 	task.Target.Frequency = &frequency
@@ -997,7 +995,7 @@ func TestPostgresCaptureHonoursTheConfiguredFrequency(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/5 samples)",
-		"the spec's own incident case, 2m at 30s: four steps and the close, where the "+
+		"2m at 30s: four steps and the close, where the "+
 			"5m default would have been the bookend alone")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/5 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/5 samples)",
