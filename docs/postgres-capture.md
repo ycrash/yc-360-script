@@ -482,6 +482,19 @@ the database — pointing it at the database instead would be worse, since manag
 endpoints do not answer ICMP at all and would report 100% packet loss next to a
 database report during an incident.
 
+**A connection lost mid-capture.** The capture is one connection for the whole
+window, and the agent does not reconnect: a second connection would restart every
+delta baseline under the same artifact. When the driver reports the connection
+closed — a terminated backend, a broken network, a failover — the sample that
+found out writes its `sample_error=` block, the timeline stops there, and every
+artifact's closing block says `status=connection_lost` with the same error in
+`connection_error=` and a `samples_written` below `samples_expected`. Everything
+written up to that point stays in the bundle; the run reports
+`connection lost: …` for each file and still uploads them. A statement that
+merely failed leaves the connection open and stops nothing: that artifact's
+closing block says `status=partial` and the next tick proceeds. There is no
+bundle-level marker file yet; each artifact carries its own status.
+
 ## Where to run it
 
 Run it anywhere with network reachability to the database and you get every

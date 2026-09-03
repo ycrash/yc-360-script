@@ -164,6 +164,78 @@ func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int
 	return results, sessions
 }
 
+// A backend terminated under the window is the mid-capture disconnect spec v1.2 §6
+// describes. What the driver reports for it, and that the window stops at the tick that
+// found out rather than ticking against a closed connection to the end, are facts only
+// a server can give.
+func TestMatrixWindowStopsWhenTheBackendIsTerminated(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			window := &Window{
+				Duration:   6 * time.Second,
+				Target:     matrixTarget(server, matrixMonitor(t)),
+				Collectors: []Collector{Health{Interval: time.Second}},
+			}
+
+			terminated := make(chan error, 1)
+
+			go func() {
+				time.Sleep(1500 * time.Millisecond)
+
+				terminated <- matrixTerminateCaptureSessions(matrixTarget(server, matrixSuperuser(t)))
+			}()
+
+			started := time.Now()
+			results := window.Run(context.Background())
+			elapsed := time.Since(started)
+
+			require.NoError(t, <-terminated, "pg_terminate_backend on the capture's session")
+			require.Len(t, results, 1)
+
+			assert.Equal(t, StatusConnectionLost, results[0].Status)
+			assert.Less(t, elapsed, window.Duration,
+				"the timeline stopped at the tick that found the connection gone")
+			assert.GreaterOrEqual(t, results[0].SamplesWritten, 1, "what was written before stays")
+			assert.Less(t, results[0].SamplesWritten, results[0].SamplesExpected)
+			assert.NotEmpty(t, results[0].Err)
+
+			t.Logf("pg%d: the driver reported %q", server.major, results[0].Err)
+
+			text := matrixArtifactText(t, results[0])
+			assert.Contains(t, text, "sample_error=")
+			assert.Contains(t, text, "status=connection_lost")
+			assert.Contains(t, text, "connection_error=")
+		})
+	}
+}
+
+// matrixTerminateCaptureSessions is the DBA's kill, from another connection.
+func matrixTerminateCaptureSessions(target Target) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		_ = conn.Close(closeCtx)
+	}()
+
+	var terminated int64
+
+	return conn.QueryRow(ctx,
+		`SELECT count(pg_terminate_backend(pid)) FROM pg_catalog.pg_stat_activity
+		  WHERE application_name = $1 AND pid <> pg_backend_pid()`, ApplicationName).
+		Scan(&terminated)
+}
+
 func matrixCountCaptureSessions(target Target) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 	defer cancel()

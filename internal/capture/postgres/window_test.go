@@ -147,7 +147,13 @@ type fakeWindowConn struct {
 	identifyErr           error
 
 	closed bool
+
+	// lost is what the driver would report once it has closed the connection
+	// underneath the window; a collector's failing sample flips it.
+	lost bool
 }
+
+func (c *fakeWindowConn) Lost() bool { return c.lost }
 
 func newFakeWindowConn() *fakeWindowConn {
 	return &fakeWindowConn{database: "orders_db", dbid: ptr("16401")}
@@ -717,6 +723,73 @@ func TestWindowWritesTheStubBlockForAFailedSample(t *testing.T) {
 		"driver text is quoted, so it cannot break k=v tokenisation")
 
 	assert.Contains(t, headers[2], "status=partial samples_expected=2 samples_written=1")
+}
+
+// A lost connection is the mid-capture disconnect spec v1.2 §6 describes: what was
+// written stays, every artifact says why it stopped, and no tick runs against a
+// connection the driver has closed.
+func TestWindowStopsWhenTheConnectionIsLost(t *testing.T) {
+	clock := newFakeClock()
+	conn := newFakeWindowConn()
+
+	healthy := newFakeCollector("pg_healthy")
+
+	failing := newFakeCollector("pg_failing")
+	failing.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		conn.lost = true
+
+		return errors.New("FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")
+	}
+
+	window := newTestWindow(t, clock, healthy, failing)
+	window.connect = func(ctx context.Context, target Target) (windowConn, error) { return conn, nil }
+
+	results := window.Run(context.Background())
+
+	require.Len(t, results, 2)
+
+	assert.Equal(t, StatusConnectionLost, results[0].Status,
+		"the artifact whose sample succeeded ends on the same status: the window is one connection")
+	assert.Equal(t, StatusConnectionLost, results[1].Status)
+	assert.Equal(t, 1, results[0].SamplesWritten)
+	assert.Equal(t, 0, results[1].SamplesWritten)
+
+	assert.Len(t, healthy.seen, 1, "the second tick never ran")
+	assert.Len(t, failing.seen, 1)
+
+	assert.Equal(t, results[1].Err, results[0].Err,
+		"the error that revealed the loss reaches every artifact, not only the one that hit it")
+	assert.Contains(t, results[0].Err, "57P01")
+
+	healthyHeaders := headersOf(t, results[0])
+	require.Len(t, healthyHeaders, 3, "preamble, the one sample, the closing block")
+	assert.Contains(t, healthyHeaders[2],
+		`status=connection_lost samples_expected=2 samples_written=1 `+
+			`connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"`,
+		"each file says on its own what ended it")
+
+	failingHeaders := headersOf(t, results[1])
+	require.Len(t, failingHeaders, 3, "preamble, the stub, and the closing block")
+	assert.Contains(t, failingHeaders[1], `sample=1 sample_error="FATAL: terminating connection`)
+	assert.Contains(t, failingHeaders[2], "status=connection_lost samples_expected=2 samples_written=0")
+
+	assert.True(t, conn.closed, "the dead connection is still closed on the way out")
+}
+
+func TestWindowAFailedSampleOnALiveConnectionDoesNotStop(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_fake")
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		return errors.New("ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")
+	}
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	assert.Equal(t, StatusPartial, results[0].Status,
+		"a statement that failed leaves the connection open, and the next tick proceeds")
+	assert.Len(t, collector.seen, 2)
+	assert.NotContains(t, artifactText(t, results[0]), "connection_error=")
 }
 
 func threeBlockSample(w io.Writer, s SampleContext) error {
