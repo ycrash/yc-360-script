@@ -28,7 +28,9 @@ const (
 	// StatusConnectionLost: the driver closed the connection mid-window. The timeline
 	// stopped at the sample that found out, every artifact keeps what it had written,
 	// and no reconnect is attempted: the capture is one connection for the whole window, and
-	// a second one would restart every delta baseline under the same artifact.
+	// a second one would restart every delta baseline under the same artifact. A window
+	// stopped by its own context reports the stop instead: the driver closes the
+	// connection then too, but the stop is the cause.
 	StatusConnectionLost = "connection_lost"
 
 	// StatusConnectFailed: the file still exists, the only record the run tried.
@@ -565,6 +567,12 @@ func (w *Window) sample(
 		// tick proceeds; on a connection the driver has closed, every later tick would
 		// fail the same way, so the timeline stops here and the artifacts say why.
 		if lost, err := w.sampleOnce(ctx, conn, sampleCtx, results, event); lost {
+			// The driver also closes the connection when the window's context ends
+			// mid-statement. That is a cancel or a deadline, and it says so.
+			if ctx.Err() != nil {
+				return stoppedStatus(ctx), ""
+			}
+
 			return StatusConnectionLost, err
 		}
 	}
