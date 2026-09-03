@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,7 +32,8 @@ const (
 )
 
 // fakeExplainConn answers the log tail's resolution, the one activity read, the
-// SET/RESET pair and each submitted EXPLAIN.
+// SET/RESET pair, each submitted EXPLAIN and the generic tier's prepared-statement
+// exchange around its EXPLAIN EXECUTE.
 type fakeExplainConn struct {
 	*fakeLogQuerier
 
@@ -41,17 +41,34 @@ type fakeExplainConn struct {
 	activityArgs [][]any
 
 	// plans is keyed by a substring of the candidate text, so submission order is free.
+	// An EXPLAIN EXECUTE resolves through prepared to the text it was prepared from,
+	// as the server's would.
 	plans map[string]fakeResult
 
 	// defaultPlan answers any statement plans has no entry for.
 	defaultPlan fakeResult
 
+	// prepared is the session's prepared statements, name to text, as PREPARE and
+	// DEALLOCATE leave them.
+	prepared map[string]string
+
+	// utilityErr fails the utility statement carrying the given prefix.
+	utilityErr map[string]error
+
+	// submitted is every EXPLAIN; utility is every other statement; sent is both, in
+	// the order the agent sent them.
 	submitted []string
+	utility   []string
+	sent      []string
 
-	// protocols records how each statement was sent: the two modes must not swap.
+	// protocols records how each EXPLAIN was sent: the two modes must not swap.
 	protocols []string
+}
 
-	utility []string
+// exchange is everything the agent sent, for the assertions that say a text never
+// reached the server: the generic tier's text rides PREPARE, not EXPLAIN.
+func (c *fakeExplainConn) exchange() string {
+	return strings.Join(c.sent, "\n")
 }
 
 // protocolExtended and protocolSimple are what the fake records per statement.
@@ -60,15 +77,22 @@ const (
 	protocolSimple   = "simple"
 )
 
-// ExecSimple is the raw simple query protocol, which only the generic mode uses. Rows
-// past maxBytes are drained and dropped and the cut reported, as the real one does.
+// ExecSimple is the raw simple query protocol, which only the generic tier uses: its
+// EXPLAIN EXECUTE and the four statements around it. Rows past maxBytes are drained and
+// dropped and the cut reported, as the real one does.
 func (c *fakeExplainConn) ExecSimple(ctx context.Context, sql string, maxBytes int) (
 	[]string, bool, error,
 ) {
+	c.sent = append(c.sent, sql)
+
+	if !strings.HasPrefix(sql, "EXPLAIN ") {
+		return nil, false, c.utilityStatement(sql)
+	}
+
 	c.submitted = append(c.submitted, sql)
 	c.protocols = append(c.protocols, protocolSimple)
 
-	result := c.planFor(sql)
+	result := c.planFor(c.resolveExecute(sql))
 	if result.err != nil {
 		return nil, false, result.err
 	}
@@ -96,6 +120,59 @@ func (c *fakeExplainConn) ExecSimple(ctx context.Context, sql string, maxBytes i
 	return lines, truncated, nil
 }
 
+// utilityStatement records the statement and keeps the prepared-statement table the
+// way the server does: a name prepared twice or deallocated twice is an error.
+func (c *fakeExplainConn) utilityStatement(sql string) error {
+	c.utility = append(c.utility, sql)
+
+	for prefix, err := range c.utilityErr {
+		if strings.HasPrefix(sql, prefix) {
+			return err
+		}
+	}
+
+	switch {
+	case strings.HasPrefix(sql, "PREPARE "):
+		name, text, _ := strings.Cut(strings.TrimPrefix(sql, "PREPARE "), " AS ")
+
+		if _, exists := c.prepared[name]; exists {
+			return fmt.Errorf("ERROR: prepared statement %q already exists (SQLSTATE 42P05)", name)
+		}
+
+		c.prepared[name] = text
+
+	case strings.HasPrefix(sql, "DEALLOCATE "):
+		name := strings.TrimPrefix(sql, "DEALLOCATE ")
+
+		if _, exists := c.prepared[name]; !exists {
+			return fmt.Errorf("ERROR: prepared statement %q does not exist (SQLSTATE 26000)", name)
+		}
+
+		delete(c.prepared, name)
+	}
+
+	return nil
+}
+
+// resolveExecute maps an EXPLAIN ... EXECUTE name(...) to the text prepared under that
+// name, so plans keyed by candidate text answer it; anything else is returned as is.
+func (c *fakeExplainConn) resolveExecute(sql string) string {
+	_, name, ok := strings.Cut(sql, " EXECUTE ")
+	if !ok {
+		return sql
+	}
+
+	if at := strings.IndexAny(name, "( "); at >= 0 {
+		name = name[:at]
+	}
+
+	if text, ok := c.prepared[name]; ok {
+		return text
+	}
+
+	return sql
+}
+
 func (c *fakeExplainConn) planFor(sql string) fakeResult {
 	for text, result := range c.plans {
 		if strings.Contains(sql, text) {
@@ -113,6 +190,8 @@ func newFakeExplainConn(q *fakeLogQuerier) *fakeExplainConn {
 		plans:          map[string]fakeResult{},
 		defaultPlan: rowsResult(planRows(
 			"Seq Scan on public.orders  (cost=0.00..8420.00 rows=3 width=64)")),
+		prepared:   map[string]string{},
+		utilityErr: map[string]error{},
 	}
 }
 
@@ -125,11 +204,13 @@ func (c *fakeExplainConn) Query(ctx context.Context, sql string, args ...any) (p
 
 	case sql == setExplainTimeoutSQL || sql == resetExplainTimeoutSQL:
 		c.utility = append(c.utility, sql)
+		c.sent = append(c.sent, sql)
 
 		return &fakeRows{}, nil
 
 	case strings.HasPrefix(sql, "EXPLAIN "):
 		c.submitted = append(c.submitted, sql)
+		c.sent = append(c.sent, sql)
 
 		for _, arg := range args {
 			if mode, ok := arg.(pgx.QueryExecMode); ok && mode == pgx.QueryExecModeExec {
@@ -242,10 +323,9 @@ func explainContext(index, total int) SampleContext {
 		At:             testWindowStart.Add(time.Duration(index) * time.Second),
 		Index:          index,
 		Total:          total,
-		Database:       "orders_db",
-		DBID:           "16401",
-		HasGenericPlan: true,
-		redact:         func(err error) string { return errorText(err, "") },
+		Database: "orders_db",
+		DBID:     "16401",
+		redact:   func(err error) string { return errorText(err, "") },
 	}
 }
 
@@ -580,7 +660,19 @@ func TestExplainLiteralTierUsesTheExtendedProtocol(t *testing.T) {
 		"the bound is server-side: a client-context expiry would close the shared connection")
 }
 
-func TestExplainGenericTierUsesTheSimpleProtocol(t *testing.T) {
+// The generic tier's exchange for ordersUpdateEnd, whose normalized text carries $1
+// and $2, as the first candidate of a window.
+var genericExchange = []string{
+	setExplainTimeoutSQL,
+	"PREPARE yc_explain_1 AS " + ordersUpdateEnd.query,
+	forceGenericPlanSQL,
+	"EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_1(NULL, NULL)",
+	resetPlanCacheModeSQL,
+	"DEALLOCATE yc_explain_1",
+	resetExplainTimeoutSQL,
+}
+
+func TestExplainGenericTierIsOnePreparedStatementExchange(t *testing.T) {
 	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
@@ -590,14 +682,124 @@ func TestExplainGenericTierUsesTheSimpleProtocol(t *testing.T) {
 
 	require.Len(t, blocks, 2)
 	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"])
+	assert.Equal(t, "2", blocks[0].fields["parameters"],
+		"one NULL per $n in the normalized text, and the block says how many")
 
-	require.Len(t, q.submitted, 1)
-	assert.Contains(t, q.submitted[0], "GENERIC_PLAN")
-	assert.Contains(t, q.submitted[0], ordersUpdateEnd.query, "the normalized text, $n and all")
+	assert.Equal(t, genericExchange, q.sent,
+		"PREPARE the normalized text, force the generic plan, EXPLAIN EXECUTE with NULLs, "+
+			"then restore the setting and DEALLOCATE: the customer's text is spliced once "+
+			"and the EXECUTE carries none of it")
 
 	require.Len(t, q.protocols, 1)
 	assert.Equal(t, protocolSimple, q.protocols[0],
 		"extended protocol fails an unbound $1 at Bind, before the server sees the statement")
+	assert.Empty(t, q.prepared, "nothing of the agent's outlives the candidate in the session")
+
+	for _, statement := range q.sent {
+		assert.NotContains(t, statement, "ANALYZE")
+		assert.NotContains(t, strings.ToUpper(statement), "ALTER SYSTEM")
+		assert.NotContains(t, statement, "log_parameter_max_length",
+			"the agent never changes a server setting, its own session's plan_cache_mode aside")
+	}
+}
+
+func TestExplainGenericTierCleansUpAfterEveryFailure(t *testing.T) {
+	run := func(t *testing.T, q *fakeExplainConn) textBlock {
+		t.Helper()
+
+		q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+		blocks := runExplainSamples(t, NewExplain(ExplainModeAll,
+			feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})), q)
+		require.Len(t, blocks, 2)
+
+		return blocks[0]
+	}
+
+	t.Run("PREPARE refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q.utilityErr["PREPARE"] = errors.New(
+			"ERROR: could not determine data type of parameter $1 (SQLSTATE 42P18)")
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "42P18")
+		assert.Equal(t, planModeNone, block.fields["mode"])
+		assert.Equal(t, "2", block.fields["parameters"], "the count the attempt was made with")
+		assert.Equal(t, []string{genericExchange[0], genericExchange[1], genericExchange[6]}, q.sent,
+			"nothing was prepared, so there is nothing to deallocate and no setting was touched")
+		assert.Empty(t, q.submitted)
+	})
+
+	t.Run("the setting refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q.utilityErr["SET plan_cache_mode"] = errors.New("FATAL: terminating connection")
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "terminating connection")
+		assert.Equal(t, []string{
+			genericExchange[0], genericExchange[1], genericExchange[2],
+			genericExchange[5], genericExchange[6],
+		}, q.sent, "no EXPLAIN under a setting that did not take - under the default the NULLs "+
+			"select a custom plan, which is a wrong answer under the right mode= - and the "+
+			"statement is still deallocated")
+		assert.Empty(t, q.submitted)
+		assert.Empty(t, q.prepared)
+	})
+
+	t.Run("EXPLAIN refused", func(t *testing.T) {
+		q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+		q.defaultPlan = errResult(errors.New(
+			"ERROR: permission denied for table orders (SQLSTATE 42501)"))
+
+		block := run(t, q)
+
+		assert.Contains(t, block.fields["error"], "42501")
+		assert.Equal(t, planModeNone, block.fields["mode"])
+		assert.Equal(t, genericExchange, q.sent,
+			"the setting is restored and the statement deallocated after a failed EXPLAIN "+
+				"exactly as after a good one")
+		assert.Empty(t, q.prepared)
+	})
+}
+
+func TestExplainGenericTierBindsOneNullPerInferredParameter(t *testing.T) {
+	for _, tc := range []struct {
+		query      string
+		parameters int
+		execute    string
+	}{
+		{"SELECT count(*) FROM orders", 0, "EXECUTE yc_explain_1"},
+		{"SELECT * FROM order_items WHERE order_id = $1", 1, "EXECUTE yc_explain_1(NULL)"},
+		{"UPDATE orders SET status = $1 WHERE id = $2", 2, "EXECUTE yc_explain_1(NULL, NULL)"},
+		{"SELECT * FROM orders WHERE id = $3 AND status = $1 OR note = $2", 3,
+			"EXECUTE yc_explain_1(NULL, NULL, NULL)"},
+		{"SELECT * FROM orders WHERE note = '$0'", 0, "EXECUTE yc_explain_1"},
+		{"SELECT '$99999999999999999999'", 0, "EXECUTE yc_explain_1"},
+	} {
+		assert.Equal(t, tc.parameters, inferredParameters(tc.query), tc.query)
+		assert.Equal(t, tc.execute, executeStatement("yc_explain_1", inferredParameters(tc.query)),
+			"the highest $n is the count, and a list is either non-empty or absent")
+	}
+}
+
+func TestExplainGenericTierNamesEachPreparedStatementOnce(t *testing.T) {
+	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd), pg18Statement(ordersInventoryEnd)})
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.activity = repeat(rowsResult(factsOnlyActivity()))
+
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
+
+	require.Len(t, blocks, 3)
+	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"])
+	assert.Equal(t, planModeEstimatedGeneric, blocks[1].fields["mode"])
+
+	assert.Contains(t, q.exchange(), "PREPARE yc_explain_1 AS "+ordersUpdateEnd.query)
+	assert.Contains(t, q.exchange(), "PREPARE yc_explain_2 AS "+ordersInventoryEnd.query,
+		"a counter across the window, so a DEALLOCATE that failed cannot collide with the next")
+	assert.Empty(t, q.prepared)
 }
 
 func TestExplainParameterizedActivityTextReroutesToGeneric(t *testing.T) {
@@ -640,31 +842,8 @@ func TestExplainTruncatedActivityTextIsNotSubmitted(t *testing.T) {
 
 	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 		"truncated activity text falls through to the normalized form, which is intact")
-	assert.NotContains(t, q.submitted[0], "xxxx",
+	assert.NotContains(t, q.exchange(), "xxxx",
 		"the bytes the server cut mid-token are never submitted")
-}
-
-func TestExplainGenericTierIsAbsentBelowPostgres16(t *testing.T) {
-	sq := feedWith([]statementRow{pg18Statement(ordersUpdateEnd)})
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	e := NewExplain(ExplainModeAll, sq)
-
-	s := explainContext(2, 2)
-	s.HasGenericPlan = false
-
-	var buf bytes.Buffer
-	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
-	require.NoError(t, e.Sample(context.Background(), q, &buf, s))
-
-	blocks := parseTextArtifact(t, buf.String())
-
-	assert.Equal(t, reasonGenericPlanUnsupported, blocks[0].fields["reason"])
-	assert.Empty(t, q.submitted,
-		"the gate is a capability decided before the statement is built: on 14/15 the "+
-			"error would be the same one an unbound parameter produces")
 }
 
 func TestExplainRecordsThePlanIdentifierPerTier(t *testing.T) {
@@ -746,19 +925,19 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 // --- the invariant -----------------------------------------------------------
 
 func TestExplainOptionListNeverContainsAnalyze(t *testing.T) {
-	for _, generic := range []bool{false, true} {
-		options := explainOptions(generic)
+	options := explainOptions()
 
-		assert.NotContains(t, options, "ANALYZE",
-			"EXPLAIN ANALYZE executes the statement, and the top-ranked candidate is by "+
-				"construction the most expensive query on the server")
-		assert.Contains(t, options, "VERBOSE")
-		assert.Contains(t, options, "SETTINGS")
-		assert.Equal(t, generic, slices.Contains(options, "GENERIC_PLAN"))
-	}
+	assert.NotContains(t, options, "ANALYZE",
+		"EXPLAIN ANALYZE executes the statement, which is one the server found expensive")
+	assert.Contains(t, options, "VERBOSE")
+	assert.Contains(t, options, "SETTINGS")
+	assert.NotContains(t, options, "GENERIC_PLAN",
+		"the generic tier is a prepared statement on every version, not the PostgreSQL 16 option")
 
 	assert.Equal(t, "EXPLAIN (VERBOSE, SETTINGS) SELECT analyze_runs FROM audit",
-		explainStatement(explainOptions(false), "SELECT analyze_runs FROM audit"))
+		explainStatement(options, "SELECT analyze_runs FROM audit"))
+	assert.Equal(t, "EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_7(NULL)",
+		explainStatement(options, executeStatement("yc_explain_7", 1)))
 }
 
 func TestExplainSubmitsNoStatementUnderModeLogged(t *testing.T) {
@@ -877,13 +1056,10 @@ func (c *explainWindowConn) ExecSimple(ctx context.Context, sql string, maxBytes
 	return c.q.ExecSimple(ctx, sql, maxBytes)
 }
 
-func explainConnFor(t *testing.T, q *fakeExplainConn, hasGenericPlan bool) *explainWindowConn {
+func explainConnFor(t *testing.T, q *fakeExplainConn) *explainWindowConn {
 	t.Helper()
 
-	window := newFakeWindowConn()
-	window.hasGenericPlan = hasGenericPlan
-
-	return &explainWindowConn{fakeWindowConn: window, q: q}
+	return &explainWindowConn{fakeWindowConn: newFakeWindowConn(), q: q}
 }
 
 func TestExplainGoldenFull(t *testing.T) {
@@ -914,7 +1090,7 @@ func TestExplainGoldenFull(t *testing.T) {
 	}
 
 	results := runExplainWindow(t, NewExplain(ExplainModeAll, sq), explainGoldenClock(t),
-		explainConnFor(t, q, true))
+		explainConnFor(t, q))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_explain_full.txt"), artifactText(t, results[0]))
@@ -931,27 +1107,10 @@ func TestExplainGoldenLeastPrivilege(t *testing.T) {
 	q.defaultPlan = errResult(errors.New("ERROR: permission denied for table order_items"))
 
 	results := runExplainWindow(t, NewExplain(ExplainModeAll, sq), explainGoldenClock(t),
-		explainConnFor(t, q, true))
+		explainConnFor(t, q))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_explain_least_privilege.txt"), artifactText(t, results[0]))
-}
-
-func TestExplainGoldenPre16(t *testing.T) {
-	rows := []statementRow{pre17Statement(ordersUpdateEnd)}
-
-	sq := NewSlowQueries()
-	feedAt(sq, 1, rows)
-	feedAt(sq, 2, rows)
-
-	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
-	q.activity = repeat(rowsResult(factsOnlyActivity()))
-
-	results := runExplainWindow(t, NewExplain(ExplainModeAll, sq), explainGoldenClock(t),
-		explainConnFor(t, q, false))
-
-	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, bloatGolden(t, "pg_explain_pre16.txt"), artifactText(t, results[0]))
 }
 
 // --- the LOGGED mode ---------------------------------------------------------
@@ -1326,7 +1485,7 @@ func explainLoggedWindow(t *testing.T, e *Explain, q *fakeExplainConn, entries s
 		Collectors: []Collector{e, writer},
 		now:        clock.now,
 		after:      clock.after,
-		connect:    connectTo(explainConnFor(t, q, true)),
+		connect:    connectTo(explainConnFor(t, q)),
 	}
 
 	return window.Run(context.Background())
@@ -1371,7 +1530,7 @@ func TestExplainLiteralTierJoinsOnTheFullIdentity(t *testing.T) {
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
-	assert.NotContains(t, strings.Join(q.submitted, "\n"), "777777",
+	assert.NotContains(t, q.exchange(), "777777",
 		"another role's literal values were submitted under this candidate's queryid")
 	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 		"with no session of its own the candidate falls to the normalized text")
@@ -1399,7 +1558,7 @@ func TestExplainLiteralTierRefusesAnotherDatabasesSession(t *testing.T) {
 	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
 	require.NoError(t, e.Sample(context.Background(), q, &buf, unidentified))
 
-	assert.NotContains(t, strings.Join(q.submitted, "\n"), "555",
+	assert.NotContains(t, q.exchange(), "555",
 		"a session in another database cannot carry this candidate's text")
 }
 
@@ -1440,9 +1599,7 @@ func TestExplainNeverSubmitsActivityTextTheAgentsOwnCapCut(t *testing.T) {
 	assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 		"the cut activity text is refused and the normalized text carries the candidate")
 
-	for _, statement := range q.submitted {
-		assert.NotContains(t, statement, "zzz", "the agent-cut activity text was submitted")
-	}
+	assert.NotContains(t, q.exchange(), "zzz", "the agent-cut activity text was submitted")
 }
 
 func TestExplainServerTruncationGateCoversTheMultibyteBand(t *testing.T) {
@@ -1538,8 +1695,8 @@ func TestExplainRefusesAMultiStatementText(t *testing.T) {
 		blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 		require.Len(t, q.submitted, 1)
-		assert.NotContains(t, q.submitted[0], "SET application_name",
-			"the batch must never reach the server as one EXPLAIN")
+		assert.NotContains(t, q.exchange(), "SET application_name",
+			"the batch must never reach the server, as one EXPLAIN or inside a PREPARE")
 		assert.Equal(t, planModeEstimatedGeneric, blocks[0].fields["mode"],
 			"a literal text this cannot use does not end the candidate")
 	})

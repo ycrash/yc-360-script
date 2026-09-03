@@ -205,11 +205,6 @@ type SampleContext struct {
 	// HasPgStatCheckpointer: capability check (not version) for PostgreSQL 17's moved columns; false when identify fails.
 	HasPgStatCheckpointer bool
 
-	// HasGenericPlan: EXPLAIN (GENERIC_PLAN) exists from PostgreSQL 16. A version test, not a
-	// capability one - the option has no catalogue entry. False when identify fails, which
-	// skips the generic-plan mode rather than attempting it.
-	HasGenericPlan bool
-
 	// ConnectDuration is the dial's cost. The window owns the connection, so this
 	// is where a collector learns it. Zero on every path that never dialled.
 	ConnectDuration time.Duration
@@ -574,16 +569,11 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 	}
 }
 
-// genericPlanSQL is shared with serverFactsSQL's has_generic_plan row, pinned equal by a
-// test, so the flag collectors branch on and the fact the bundle reports cannot disagree.
-const genericPlanSQL = `current_setting('server_version_num')::int >= 160000`
-
 // OID comes from pg_database, not a name cast: survives mid-run renames.
 // Capability expressions must match serverFactsSQL's exactly.
 const currentDatabaseSQL = `SELECT current_database()::text,
        (SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database()),
-       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL,
-       ` + genericPlanSQL
+       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL`
 
 // identify reads the database, OID and capability flags once for every collector.
 // On failure, HasPgStatCheckpointer stays false, so a PG17 server gets the pre-17 statement and errors.
@@ -596,10 +586,9 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	var database string
 	var dbid *string
 	var hasPgStatCheckpointer bool
-	var hasGenericPlan bool
 
 	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).
-		Scan(&database, &dbid, &hasPgStatCheckpointer, &hasGenericPlan); err != nil {
+		Scan(&database, &dbid, &hasPgStatCheckpointer); err != nil {
 		return sampleCtx
 	}
 
@@ -608,7 +597,6 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 		sampleCtx.DBID = *dbid
 	}
 	sampleCtx.HasPgStatCheckpointer = hasPgStatCheckpointer
-	sampleCtx.HasGenericPlan = hasGenericPlan
 
 	return sampleCtx
 }

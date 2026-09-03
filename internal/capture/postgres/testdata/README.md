@@ -527,8 +527,9 @@ identity and its clock read are readable without parsing the middle.
 - A key written with an empty value means "not read" — `dbid=` before a
   connection exists. It is not the same as the key being absent.
 - Header keys, unlike body keys, may be **conditional**: `sizes=`, `reason=`,
-  `queries_truncated=`, `error=` and `connect_error=` appear only when the thing
-  they describe happened, and in each case absence is itself the value.
+  `queries_truncated=`, `error=`, `connect_error=` and `pg_explain.txt`'s
+  `parameters=` appear only when the thing they describe happened, and in each
+  case absence is itself the value.
   `pg_sessions.txt`'s is the one to read as a distinction rather than a warning:
   its absence means every `query` cell is the server's own text, and its presence
   means the agent cut that many of them at its own 8192-rune cap, marking each
