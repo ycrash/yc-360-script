@@ -52,13 +52,13 @@ const (
 	DefaultPostgresCaptureDuration = 120 * time.Second
 
 	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a
-	// shared database. Two hours is the spec's performance-test case; the host
+	// shared database. Two hours is the longest window supported; the host
 	// files stretch with it, so a long window's netstat and ps readings are far apart.
 	MaxPostgresCaptureDuration = 2 * time.Hour
 
-	// DefaultPostgresFrequency is the spec's: 5m. Longer than the default window, so
-	// an incident capture that wants samples between the endpoints sets frequency
-	// itself (the spec's own example is 30s), and one that does not is warned.
+	// DefaultPostgresFrequency is 5m. Longer than the default window, so an
+	// incident capture that wants samples between the endpoints sets frequency
+	// itself (30s, for example), and one that does not is warned.
 	DefaultPostgresFrequency = 5 * time.Minute
 
 	// MinPostgresFrequency floors frequency. It equals the capture's per-statement

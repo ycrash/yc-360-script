@@ -240,7 +240,7 @@ func TestHealthArtifact(t *testing.T) {
 
 	assert.Len(t,
 		Health{Interval: 30 * time.Second}.Artifact().Schedule.offsets(120*time.Second), 5,
-		"the spec's incident case, 2m at 30s: four steps and the close")
+		"2m at 30s: four steps and the close")
 
 	assert.Equal(t, Periodic(time.Second), Health{Interval: time.Second}.Artifact().Schedule,
 		"a test can lower the cadence without waiting out a window")

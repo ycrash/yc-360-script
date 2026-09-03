@@ -16,8 +16,8 @@ const measuredCheckpoint = "2026-09-02 15:20:25.938 UTC [31] LOG:  checkpoint co
 	"total=0.015 s; sync files=21, longest=0.005 s, average=0.001 s; distance=98 kB, estimate=1288 kB; " +
 	"lsn=0/42D5018, redo lsn=0/42D4FC0\n"
 
-// specCheckpoint is the spec's own example, the pre-18 shape without those fields.
-const specCheckpoint = "2026-07-25 14:33:47.220 UTC [412] LOG:  checkpoint complete: wrote 1204 buffers (7.3%); " +
+// pre18Checkpoint is the pre-18 shape, without those fields.
+const pre18Checkpoint = "2026-07-25 14:33:47.220 UTC [412] LOG:  checkpoint complete: wrote 1204 buffers (7.3%); " +
 	"0 WAL file(s) added, 0 removed, 2 recycled; write=4.812 s, sync=1.940 s, total=6.901 s; sync files=18, " +
 	"longest=0.612 s, average=0.108 s; distance=48210 kB, estimate=52104 kB\n"
 
@@ -72,10 +72,10 @@ func TestCheckpointLogEventEndsAtTheNextEntryFromTheSamePID(t *testing.T) {
 }
 
 func TestCheckpointLogSpecShapeMatchesToo(t *testing.T) {
-	body, matched := matchBody(logFormatStderr, checkpointMatch, specCheckpoint+checkpointFollower)
+	body, matched := matchBody(logFormatStderr, checkpointMatch, pre18Checkpoint+checkpointFollower)
 
 	require.Equal(t, 1, matched)
-	assert.Equal(t, specCheckpoint, body, "the pre-18 line, without the SLRU and lsn fields")
+	assert.Equal(t, pre18Checkpoint, body, "the pre-18 line, without the SLRU and lsn fields")
 }
 
 func TestCheckpointLogMatchesByMessageInTheStructuredFormats(t *testing.T) {
@@ -135,7 +135,7 @@ func TestCheckpointLogTranslatedLineMatchesNothingAndBreaksNothing(t *testing.T)
 var checkpointGoldenWrites = []string{
 	checkpointStarting + measuredCheckpoint + checkpointFollower,
 	checkpointFollower,
-	checkpointStarting + specCheckpoint + checkpointFollower,
+	checkpointStarting + pre18Checkpoint + checkpointFollower,
 }
 
 func TestCheckpointLogGoldenFull(t *testing.T) {
