@@ -28,11 +28,6 @@ const (
 	// and writes it out on its own, and nothing tells us when that write
 	// finished, so this is the margin that covers it.
 	jfrDumpGrace = 5 * time.Second
-
-	// jfrThreadDumpPeriod is how often the recording samples a full thread
-	// dump (the jdk.ThreadDump event) via JFR itself, independent of the
-	// separate jstack-based thread dump capture elsewhere in this package.
-	jfrThreadDumpPeriod = 10 * time.Second
 )
 
 // jfrFailurePhrases are substrings JFR/jcmd print in a diagnostic command's
@@ -172,12 +167,11 @@ func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error
 		return fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", jvmPath)
 	}
 
-	// duration= and the jdk.ThreadDump#period= event setting need no quoting:
-	// jfrTimespan can only produce digits and 's'. settings=profile is a
-	// bare identifier (one of the JDK's built-in .jfc names), so it needs no
-	// quoting either.
-	cmd := fmt.Sprintf("JFR.start %s %s duration=%s settings=profile jdk.ThreadDump#period=%s",
-		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration), jfrTimespan(jfrThreadDumpPeriod))
+	// duration= needs no quoting: jfrTimespan can only produce digits and
+	// 's'. settings=profile is a bare identifier (one of the JDK's built-in
+	// .jfc names), so it needs no quoting either.
+	cmd := fmt.Sprintf("JFR.start %s %s duration=%s settings=profile",
+		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
 	if _, err := t.runJcmd(cmd); err != nil {
 		return fmt.Errorf("failed to start JFR recording: %w", err)
 	}
