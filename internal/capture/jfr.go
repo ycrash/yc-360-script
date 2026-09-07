@@ -2,6 +2,7 @@ package capture
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,11 +24,15 @@ const (
 	jfrMinDuration     = 10 * time.Second
 	jfrMaxDuration     = 5 * time.Minute
 
-	// jfrDumpGrace is how long we wait past the end of the recording window
-	// before opening the file. The JVM's duration= timer stops the recording
-	// and writes it out on its own, and nothing tells us when that write
-	// finished, so this is the margin that covers it.
-	jfrDumpGrace = 5 * time.Second
+	// The JVM's duration= timer stops the recording and writes it out on its
+	// own, and nothing announces when that write finished. Asking the JVM is
+	// the only reliable answer: once the recording window is over we poll
+	// JFR.check every jfrCheckInterval, for at most jfrCheckTimeout, until
+	// its listing shows the recording closed or gone. A fixed grace period
+	// used to stand in for this, and on a busy machine it was routinely too
+	// short - which staged the empty file JFR.start creates up front.
+	jfrCheckInterval = 2 * time.Second
+	jfrCheckTimeout  = 20 * time.Second
 )
 
 // jfrFailurePhrases are substrings JFR/jcmd print in a diagnostic command's
@@ -43,11 +48,12 @@ var jfrFailurePhrases = []string{
 
 // JFR captures a JVM Flight Recorder recording for a running Java process.
 // The recording is started with duration=, so the JVM stops it and writes it
-// out on its own after Duration - the agent never sends JFR.stop. The JVM
-// writes to the temp directory (jfrRecordingPath); yc then stages the result
-// into the capture directory as jfrFileName. FullCapture reads its result last, so
-// the recording window overlaps the rest of the capture instead of adding to
-// it.
+// out on its own after Duration - the agent never sends JFR.stop, and waits
+// for JFR.check to report the recording finished before it touches the file.
+// The JVM writes to the temp directory (jfrRecordingPath); yc then stages the
+// result into the capture directory as jfrFileName. FullCapture reads its
+// result last, so the recording window overlaps the rest of the capture
+// instead of adding to it.
 type JFR struct {
 	Capture
 	Pid      int
@@ -67,7 +73,8 @@ func (t *JFR) Run() (Result, error) {
 }
 
 // CaptureToFile starts a JFR recording that runs for the configured duration,
-// waits for the JVM's own timer to stop it and write it out, then opens the
+// waits for the JVM's own timer to stop it and write it out - confirmed by
+// JFR.check rather than assumed from a fixed grace period - then opens the
 // resulting recording file.
 func (t *JFR) CaptureToFile() (*os.File, error) {
 	if !IsProcessExists(t.Pid) {
@@ -89,17 +96,41 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	}
 
 	// DeferDelete only cleans the capture directory, so this file is ours to
-	// remove. Reassigned below if the recording is in the target's namespace.
+	// remove - but only once the JVM is finished with it. At the end of the
+	// window the JVM reopens the path it was given at JFR.start and appends
+	// the recording there; it does not recreate the file, so taking the file
+	// away while the recording is still running destroys the recording
+	// outright. Reassigned below if the recording is in the target's namespace.
 	sourcePath := jvmPath
+	finished := false
 	defer func() {
+		if !finished {
+			return
+		}
 		if err := os.Remove(sourcePath); err != nil && !os.IsNotExist(err) {
 			logger.Log("WARNING: could not remove the JVM's JFR recording %s: %v", sourcePath, err)
 		}
 	}()
 
-	wait := duration + jfrDumpGrace
-	logger.Log("JFR recording %s started, running for %s; reading it in %s", name, duration, wait)
-	time.Sleep(wait)
+	logger.Log("JFR recording %s started, running for %s; then checking every %s, for up to %s, that the JVM has written it",
+		name, duration, jfrCheckInterval, jfrCheckTimeout)
+	time.Sleep(duration)
+
+	if err := t.waitForRecording(name); err != nil {
+		if !errors.Is(err, errJVMGone) {
+			logger.Log("WARNING: leaving %s alone; the JVM may still be writing the recording there", jvmPath)
+			return nil, err
+		}
+		// Nobody can be writing the file once the JVM is gone: an empty one
+		// is the stub JFR.start created, anything else is the recording.
+		finished = true
+		info, statErr := os.Stat(jvmPath)
+		if statErr != nil || info.Size() == 0 {
+			return nil, fmt.Errorf("the target JVM exited before it wrote JFR recording %s", name)
+		}
+		logger.Log("the JVM exited before JFR.check could confirm recording %s; staging the %d bytes it wrote", name, info.Size())
+	}
+	finished = true
 
 	resolved, err := resolveRecordingPath(t.Pid, jvmPath)
 	if err != nil {
@@ -177,6 +208,101 @@ func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error
 	}
 
 	return nil
+}
+
+// errJVMGone reports that the target process no longer exists, so no JFR.check
+// can ever answer and nobody can be writing the recording.
+var errJVMGone = errors.New("the target JVM is gone")
+
+// waitForRecording blocks until JFR.check confirms the JVM has finished with
+// the named recording, or jfrCheckTimeout passes without that confirmation.
+// Unknown is not finished: a check that fails, or answers with something other
+// than a listing, keeps polling, and if nothing confirms the recording before
+// the deadline the caller leaves the file to the JVM. A check that fails
+// because the JVM is gone ends the wait at once with errJVMGone.
+func (t *JFR) waitForRecording(name string) error {
+	return waitForRecording(name, jfrCheckTimeout, jfrCheckInterval, func() (string, error) {
+		out, err := t.runJcmd("JFR.check")
+		if err != nil && !IsProcessExists(t.Pid) {
+			return "", errJVMGone
+		}
+		return out, err
+	})
+}
+
+// waitForRecording is the loop behind JFR.waitForRecording, with the check
+// call and the timing pluggable for tests.
+func waitForRecording(name string, timeout, interval time.Duration, check func() (string, error)) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+
+	for {
+		out, err := check()
+		if errors.Is(err, errJVMGone) {
+			return err
+		}
+		if err != nil {
+			last = fmt.Sprintf("the last JFR.check failed: %v", err)
+			logger.Log("WARNING: could not check on JFR recording %s: %v", name, err)
+		} else if finished, listErr := jfrRecordingFinished(out, name); listErr != nil {
+			last = fmt.Sprintf("the last JFR.check did not return a recording listing: %v", listErr)
+			logger.Log("WARNING: JFR.check did not return a recording listing (%v): %s", listErr, strings.TrimSpace(out))
+		} else if finished {
+			return nil
+		} else {
+			last = "the last JFR.check still listed it as unfinished"
+			logger.Log("JFR recording %s has not finished writing yet; checking again in %s", name, interval)
+		}
+
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(interval)
+	}
+
+	return fmt.Errorf("could not confirm within %s that the JVM had finished writing JFR recording %s; %s", timeout, name, last)
+}
+
+// jfrRecordingFinished reports whether JFR.check's listing shows the JVM done
+// with the named recording, or an error if checkOutput is not a listing at all
+// (a killed jcmd leaves only its "<pid>:" header; a JVM without JFR answers
+// with an error message). A listing has one line per recording,
+//
+//	Recording 2: name=ycJFR-4321-1788156788942701200 duration=60s (running)
+//
+// with the name quoted on older Oracle JDKs, or a "No available recordings."
+// line. The JVM closes a written recording and drops it from the listing, so
+// only "(closed)" or absence means finished. "(stopped)" does not: the JVM
+// stops the recording before it writes the file.
+func jfrRecordingFinished(checkOutput, name string) (bool, error) {
+	bare, quoted := "name="+name, "name=\""+name+"\""
+	isListing := false
+
+	for _, line := range strings.Split(checkOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "No available recordings") {
+			isListing = true
+			continue
+		}
+		if !strings.HasPrefix(line, "Recording") {
+			continue
+		}
+		isListing = true
+
+		// Field-by-field so that a recording whose name merely starts with
+		// name - jfrRecordingPath's timestamps are not fixed width - can't be
+		// mistaken for this one.
+		for _, f := range strings.Fields(line) {
+			if f == bare || f == quoted {
+				return strings.Contains(line, "(closed)"), nil
+			}
+		}
+	}
+
+	if !isListing {
+		return false, errors.New("no recording listing in the response")
+	}
+	return true, nil
 }
 
 func resolveRecordingPath(pid int, jvmPath string) (string, error) {
