@@ -199,9 +199,10 @@ func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error
 	}
 
 	// duration= needs no quoting: jfrTimespan can only produce digits and
-	// 's'. settings=profile is a bare identifier (one of the JDK's built-in
-	// .jfc names), so it needs no quoting either.
-	cmd := fmt.Sprintf("JFR.start %s %s duration=%s settings=profile",
+	// 's'. No settings= - this uses the JDK's default.jfc (its built-in
+	// low-overhead template) rather than profile.jfc, pending a test of CPU
+	// behavior without profile's higher-frequency sampling.
+	cmd := fmt.Sprintf("JFR.start %s %s duration=%s",
 		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
 	if _, err := t.runJcmd(cmd); err != nil {
 		return fmt.Errorf("failed to start JFR recording: %w", err)
