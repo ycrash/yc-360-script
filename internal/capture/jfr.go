@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 )
 
@@ -79,6 +80,14 @@ func (t *JFR) Run() (Result, error) {
 func (t *JFR) CaptureToFile() (*os.File, error) {
 	if !IsProcessExists(t.Pid) {
 		return nil, fmt.Errorf("process %d does not exist", t.Pid)
+	}
+
+	// Skip in MinimalTouch mode, same as the jstat/jattach GC capture and
+	// hdsub: a JFR.start recording runs on the target JVM for t.Duration
+	// (default 60s), so even at default.jfc's lower sampling rate it's more
+	// touch than a point-in-time capture.
+	if config.GlobalConfig.MinimalTouch {
+		return nil, errors.New("MinimalTouch mode: skipping JFR capture (uses jcmd JFR.start, which is CPU-intensive)")
 	}
 
 	// Unique per invocation (pid + timestamp), not a fixed constant: back to
