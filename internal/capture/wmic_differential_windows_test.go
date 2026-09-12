@@ -193,6 +193,19 @@ func holdFreeSpaceConstant(t *testing.T, out string) string {
 //	YC_RECORD_WMIC_FIXTURES=1 go test ./internal/capture/ -run TestRecordWMICFixtures
 //
 // Run only where wmic still exists, and review the diff.
+//
+// It skips logicaldisk_unmeasurable_drive.txt, which needs a drive the OS
+// cannot measure. To make one without admin rights or special hardware, point
+// a subst drive at a directory and delete the directory - it lingers as
+// DriveType 1, which wmic lists with Size and FreeSpace blank:
+//
+//	mkdir %TEMP%\dangling
+//	subst Y: %TEMP%\dangling
+//	rmdir /s /q %TEMP%\dangling
+//	wmic logicaldisk get size,freespace,caption > testdata\wmic\logicaldisk_unmeasurable_drive.txt
+//	subst Y: /D
+//
+// Redirect from cmd, not PowerShell, which would re-encode the bytes.
 func TestRecordWMICFixtures(t *testing.T) {
 	if os.Getenv("YC_RECORD_WMIC_FIXTURES") == "" {
 		t.Skip("set YC_RECORD_WMIC_FIXTURES=1 to re-record the wmic fixtures")

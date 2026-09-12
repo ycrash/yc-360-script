@@ -133,6 +133,48 @@ func TestWMICCharacterization(t *testing.T) {
 	}
 }
 
+// hasUnmeasurableDriveFixture reports whether a recorded logical disk table
+// has a drive with a blank Size - the empty optical or card reader slot that
+// gopsutil dropped and logicalDisks keeps.
+func hasUnmeasurableDriveFixture(t *testing.T) bool {
+	t.Helper()
+
+	fixtures, err := filepath.Glob(filepath.Join(wmicFixtureDir(), "logicaldisk_*.txt"))
+	require.NoError(t, err)
+
+	for _, fixture := range fixtures {
+		raw, err := os.ReadFile(fixture)
+		require.NoError(t, err)
+
+		table, err := parseWMICTable(string(raw))
+		require.NoError(t, err, fixture)
+
+		caption, size := indexOfHeader(table.Headers, "Caption"), indexOfHeader(table.Headers, "Size")
+		if caption < 0 || size < 0 {
+			continue
+		}
+
+		for _, row := range table.Rows {
+			if row[caption] != "" && row[size] == "" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// indexOfHeader returns the column index of name, or -1.
+func indexOfHeader(headers []string, name string) int {
+	for i, header := range headers {
+		if header == name {
+			return i
+		}
+	}
+
+	return -1
+}
+
 // TestWMICCharacterizationCoversItsEdges guards the fixture set: a re-record
 // that lost the interesting shapes would still pass the suite above.
 func TestWMICCharacterizationCoversItsEdges(t *testing.T) {
@@ -188,6 +230,9 @@ func TestWMICCharacterizationCoversItsEdges(t *testing.T) {
 	}
 
 	assert.GreaterOrEqual(t, maxRows, 100, "no large multi-row table recorded")
+	assert.True(t, hasUnmeasurableDriveFixture(t),
+		"no blank-size drive recorded, and it cannot be re-recorded once wmic is gone; "+
+			"see TestRecordWMICFixtures to reproduce the drive")
 	assert.GreaterOrEqual(t, maxCols, 4, "no wide table recorded")
 	assert.True(t, sawBlankCell, "no table with a blank cell recorded (the empty-drive shape)")
 	assert.True(t, sawValueWider, "no column whose widest value exceeds its header")
