@@ -953,38 +953,10 @@ var getOutboundIP = capture.GetOutboundIP
 var goCapture = capture.GoCapture
 
 func GetGCLogFile(pid int) (result string, err error) {
-	var cmdLine []byte
-	var command executils.Command
-	dynamicArg := strconv.Itoa(pid)
-	if runtime.GOOS == "windows" {
-		dynamicArg = fmt.Sprintf("ProcessId=%d", pid)
-	}
-
-	command, _ = executils.GC.AddDynamicArg(dynamicArg)
-	cmdLine, err = executils.CommandCombinedOutput(command)
-
+	cmdLine, err := processCmdline(pid)
 	if err != nil {
-		logger.Log("GetGCLogFile: err in getting process cmdline: %s, output: %s", err.Error(), string(cmdLine))
-		logger.Log("GetGCLogFile: falling back to gopsutil")
-
-		// Try fallback with gopsutil library
-		p, errFallback := ps.NewProcess(int32(pid))
-		if errFallback != nil {
-			logger.Log("GetGCLogFile: fallback gopsutil err in getting process: %s", errFallback.Error())
-			return
-		}
-
-		cmdLineStr, errFallbackCmdline := p.Cmdline()
-		if errFallbackCmdline != nil {
-			logger.Log("GetGCLogFile: fallback gopsutil err in getting process cmdline: %s", errFallbackCmdline.Error())
-			return
-		}
-
-		// Fallback success
-		if cmdLineStr != "" {
-			cmdLine = []byte(cmdLineStr)
-			err = nil
-		}
+		logger.Log("GetGCLogFile: err in getting process cmdline: %s", err.Error())
+		return
 	}
 
 	logFile := ExtractGCLogPathFromCmdline(string(cmdLine))
@@ -1005,6 +977,73 @@ func GetGCLogFile(pid int) (result string, err error) {
 	}
 
 	return
+}
+
+// processCmdline returns the full command line of pid, which GetGCLogFile
+// scans for the -Xloggc and -Xlog:gc flags.
+func processCmdline(pid int) ([]byte, error) {
+	if runtime.GOOS == "windows" {
+		cmdLine, err := cmdlineFromGopsutil(pid)
+		if err == nil {
+			return cmdLine, nil
+		}
+
+		logger.Log("GetGCLogFile: gopsutil err in getting process cmdline: %s", err.Error())
+		logger.Log("GetGCLogFile: falling back to the CIM query")
+
+		return cmdlineFromCommand(pid)
+	}
+
+	cmdLine, err := cmdlineFromCommand(pid)
+	if err == nil {
+		return cmdLine, nil
+	}
+
+	logger.Log("GetGCLogFile: err in getting process cmdline: %s", err.Error())
+	logger.Log("GetGCLogFile: falling back to gopsutil")
+
+	return cmdlineFromGopsutil(pid)
+}
+
+// cmdlineFromCommand reads the command line by running executils.GC.
+func cmdlineFromCommand(pid int) ([]byte, error) {
+	var command executils.Command
+	var err error
+
+	if runtime.GOOS == "windows" {
+		command, err = executils.GC.ExpandDynamicArgs(strconv.Itoa(pid))
+	} else {
+		command, err = executils.GC.AddDynamicArg(strconv.Itoa(pid))
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	cmdLine, err := executils.CommandCombinedOutput(command)
+	if err != nil {
+		return nil, fmt.Errorf("%w, output: %s", err, cmdLine)
+	}
+
+	return cmdLine, nil
+}
+
+// cmdlineFromGopsutil reads the command line straight from the OS, with no
+// subprocess involved.
+func cmdlineFromGopsutil(pid int) ([]byte, error) {
+	p, err := ps.NewProcess(int32(pid))
+	if err != nil {
+		return nil, fmt.Errorf("gopsutil failed to find process %d: %w", pid, err)
+	}
+
+	cmdLine, err := p.Cmdline()
+	if err != nil {
+		return nil, fmt.Errorf("gopsutil failed to read cmdline of process %d: %w", pid, err)
+	}
+	if cmdLine == "" {
+		return nil, fmt.Errorf("gopsutil returned an empty cmdline for process %d", pid)
+	}
+
+	return []byte(cmdLine), nil
 }
 
 const metaInfoTemplate = `hostName=%s

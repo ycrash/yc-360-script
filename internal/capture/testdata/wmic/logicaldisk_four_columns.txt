@@ -1,0 +1,4 @@
+Caption  Compressed  FileSystem  VolumeName  
+C:       FALSE       NTFS                    
+X:       FALSE       NTFS                    
+

@@ -13,16 +13,22 @@ var (
 	PS       = Command{"tasklist"}
 	PS2      = Command{"tasklist"}
 
-	Disk                = Command{"wmic", "logicaldisk", "get", "size,freespace,caption"}
-	Top                 = NopCommand
-	Top2                = NopCommand
-	TopH                = NopCommand
-	TopH2               = NopCommand
-	Top4M3              = NopCommand
-	VMState             = Command{WaitCommand, "PowerShell.exe", "-Command", "& {typeperf -sc 10 -si 5 '\\System\\Processor Queue Length' '\\PhysicalDisk(_Total)\\Current Disk Queue Length' '\\Process(_Total)\\Page File Bytes' '\\Memory\\Available KBytes' '\\Memory\\Modified Page List Bytes' '\\Memory\\Cache Bytes' '\\Memory\\Pages Input/sec' '\\Memory\\Pages Output/sec' '\\PhysicalDisk(_Total)\\Disk Transfers/sec' '\\PhysicalDisk(_Total)\\Disk Writes/sec' '\\Processor(_Total)\\Interrupts/sec' '\\System\\Context Switches/sec' '\\Processor(_Total)\\% User Time' '\\Processor(_Total)\\% Privileged Time' '\\Processor(_Total)\\% Idle Time' '\\Processor(_Total)\\% Interrupt Time' '\\Processor(_Total)\\% DPC Time'}"}
-	DMesg               = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning | Select-Object TimeGenerated, EntryType, Message | ForEach-Object { Write-Host \"$($_.TimeGenerated) [$($_.EntryType)]: $($_.Message)\" }}"}
-	DMesg2              = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
-	GC                  = Command{"wmic", "process", "where", DynamicArg, "get", "ProcessId,Commandline"}
+	// Was `wmic logicaldisk get size,freespace,caption`, which Windows 11
+	// 24H2/25H2 no longer ships. capture/disk_windows.go now builds the table
+	// from the Win32 API, byte-identical to wmic's output and with no command.
+	Disk    = NopCommand
+	Top     = NopCommand
+	Top2    = NopCommand
+	TopH    = NopCommand
+	TopH2   = NopCommand
+	Top4M3  = NopCommand
+	VMState = Command{WaitCommand, "PowerShell.exe", "-Command", "& {typeperf -sc 10 -si 5 '\\System\\Processor Queue Length' '\\PhysicalDisk(_Total)\\Current Disk Queue Length' '\\Process(_Total)\\Page File Bytes' '\\Memory\\Available KBytes' '\\Memory\\Modified Page List Bytes' '\\Memory\\Cache Bytes' '\\Memory\\Pages Input/sec' '\\Memory\\Pages Output/sec' '\\PhysicalDisk(_Total)\\Disk Transfers/sec' '\\PhysicalDisk(_Total)\\Disk Writes/sec' '\\Processor(_Total)\\Interrupts/sec' '\\System\\Context Switches/sec' '\\Processor(_Total)\\% User Time' '\\Processor(_Total)\\% Privileged Time' '\\Processor(_Total)\\% Idle Time' '\\Processor(_Total)\\% Interrupt Time' '\\Processor(_Total)\\% DPC Time'}"}
+	DMesg   = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-EventLog -LogName System -Newest 20 -EntryType Error,FailureAudit,Warning | Select-Object TimeGenerated, EntryType, Message | ForEach-Object { Write-Host \"$($_.TimeGenerated) [$($_.EntryType)]: $($_.Message)\" }}"}
+	DMesg2  = Command{"wevtutil", "qe", "System", "/c:20", "/rd:true", "/f:text"}
+	// Was `wmic process where <pid> get ProcessId,Commandline`, replaced by the
+	// CIM equivalent for the same reason as Disk.
+	GC = Command{"PowerShell.exe", "-NoProfile", "-NonInteractive", "-Command",
+		`Get-CimInstance Win32_Process -Filter "ProcessId=` + DynamicArg + `" | Select-Object -ExpandProperty CommandLine`}
 	AppendJavaCoreFiles = Command{"cmd.exe", "/c", "type javacore.* > threaddump.out"}
 	AppendTopHFiles     = Command{"cmd.exe", "/c", "type topdashH.* >> threaddump.out"}
 	ProcessTopCPU       = Command{WaitCommand, "PowerShell.exe", "-Command", "& {Get-WmiObject Win32_PerfFormattedData_PerfProc_Process | Select-Object -Property Name, IDProcess, @{Name=\"PercentProcessorTime\"; Expression={(\"{0:P1}\" -f ($_.PercentProcessorTime/100))}}, @{Name=\"WSP(MB)\"; Expression={[int]($_.WorkingSetPrivate/1mb)}} | Where-Object {$_.Name -notmatch \"^(idle|_total|system)$\"} | Sort-Object -Property PercentProcessorTime -Descending | Format-Table @{Label=\"Name\"; Expression={$_.Name}}, @{Label=\"ID\"; Expression={$_.IDProcess}}, User, @{Label=\"CPU\"; Expression={$_.PercentProcessorTime}}, @{Label=\"Memory\"; Expression={$_.\"WSP(MB)\"}} -AutoSize}"}

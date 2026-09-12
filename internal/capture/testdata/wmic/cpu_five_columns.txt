@@ -1,0 +1,4 @@
+DeviceID  Name                                NumberOfCores  Status  StatusInfo  
+CPU0      AMD Ryzen 7 7700X 8-Core Processor  1              OK      3           
+CPU1      AMD Ryzen 7 7700X 8-Core Processor  1              OK      3           
+

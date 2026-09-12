@@ -3,7 +3,6 @@ package capture
 import (
 	"fmt"
 	"os"
-	"yc-agent/internal/capture/executils"
 )
 
 const outputFile = "disk.out"
@@ -23,16 +22,6 @@ func (d *Disk) Run() (Result, error) {
 	defer file.Close()
 
 	return d.UploadCapturedFile(file)
-}
-
-// CaptureToFile executes the disk metrics collection command and saves output to a file.
-func (d *Disk) CaptureToFile() (*os.File, error) {
-	file, err := executils.CommandCombinedOutputToFile(outputFile, executils.Disk)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute disk command: %w", err)
-	}
-
-	return file, nil
 }
 
 // UploadCapturedFile sends the collected disk metrics to the configured endpoint.

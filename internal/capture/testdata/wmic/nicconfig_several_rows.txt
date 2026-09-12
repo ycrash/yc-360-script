@@ -1,0 +1,12 @@
+DHCPEnabled  Index  IPEnabled  
+TRUE         0      FALSE      
+TRUE         1      TRUE       
+FALSE        2      FALSE      
+FALSE        3      FALSE      
+FALSE        4      FALSE      
+FALSE        5      FALSE      
+FALSE        6      FALSE      
+FALSE        7      FALSE      
+FALSE        8      FALSE      
+FALSE        9      FALSE      
+

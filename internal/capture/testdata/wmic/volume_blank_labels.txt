@@ -1,0 +1,5 @@
+Capacity      DriveLetter  FileSystem  Label  
+136464822272  C:           NTFS               
+849342464                  NTFS               
+100663296                  FAT32              
+

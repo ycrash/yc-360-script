@@ -74,6 +74,45 @@ func (cmd *Command) AddDynamicArg(args ...string) (result Command, err error) {
 	return
 }
 
+// ExpandDynamicArgs returns a copy of cmd with every DynamicArg placeholder
+// replaced by the matching value from args, keeping the command as a plain
+// argv slice.
+func (cmd Command) ExpandDynamicArgs(args ...string) (Command, error) {
+	if len(cmd) < 1 {
+		return NopCommand, nil
+	}
+
+	n := 0
+	for _, c := range cmd {
+		n += strings.Count(c, DynamicArg)
+	}
+	if n != len(args) {
+		return nil, fmt.Errorf("command has %d dynamic arg placeholders but got %d args", n, len(args))
+	}
+
+	result := make(Command, len(cmd))
+	i := 0
+	for j, c := range cmd {
+		// Walk the original text: rescanning would expand a placeholder that
+		// arrived inside an arg and run off the end of args.
+		var expanded strings.Builder
+		for {
+			k := strings.Index(c, DynamicArg)
+			if k < 0 {
+				expanded.WriteString(c)
+				break
+			}
+			expanded.WriteString(c[:k])
+			expanded.WriteString(args[i])
+			i++
+			c = c[k+len(DynamicArg):]
+		}
+		result[j] = expanded.String()
+	}
+
+	return result, nil
+}
+
 var Env []string
 
 func NewCommand(cmd Command, hookers ...Hooker) CmdManager {

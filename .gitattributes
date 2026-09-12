@@ -1,0 +1,3 @@
+# Recorded wmic output. Every line ends "\r\r\n" and the characterization
+# tests compare exact bytes; autocrlf would rewrite them to "\r\r\r\n".
+internal/capture/testdata/wmic/** -text
