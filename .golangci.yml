@@ -32,3 +32,10 @@ linters:
         - name: var-naming
           disabled: true  # Would require significant refactoring (ApiKey -> APIKey, etc)
 
+  exclusions:
+    rules:
+      # Test stubs must match the signature of the func-typed field they are
+      # assigned to, so unused params/results there are not actionable.
+      - path: '_test\.go'
+        linters:
+          - unparam
