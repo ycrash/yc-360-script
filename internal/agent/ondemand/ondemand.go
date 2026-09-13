@@ -136,7 +136,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 					Wg.Add(1)
 					defer func() {
 						defer Wg.Done()
-						err := os.RemoveAll(captureDir)
+						err := RemoveDirWithRetry(captureDir)
 						if err != nil {
 							logger.Log("WARNING: Can not remove the current directory: %s", err)
 							return
@@ -288,6 +288,7 @@ Ignored errors: %v
 	var gc chan capture.Result
 	var threadDump chan capture.Result
 	var hdsubLog chan capture.Result
+	var jfr chan capture.Result
 	var nodeCPUProfile chan capture.Result
 	// nodeExtraCaptures collects the Node.js artifacts that don't map onto the
 	// shared gc/threadDump/hdsub/cpuprofile channels.
@@ -376,6 +377,19 @@ Ignored errors: %v
 		// ------------------------------------------------------------------------------
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
+
+		// Capture a JFR (Java Flight Recorder) recording. It's started now with
+		// duration=jfrCaptureDuration, so the JVM stops it and writes it out on
+		// its own; its result is read last so the recording window overlaps the
+		// rest of the capture instead of adding to it.
+		if config.GlobalConfig.JFREnabled {
+			jfr = goCapture(endpoint, capture.WrapRun(&capture.JFR{
+				Pid:      pid,
+				JavaHome: config.GlobalConfig.JavaHomePath,
+				Duration: config.GlobalConfig.JFRCaptureDuration.Duration(),
+			}))
+		}
+
 		// Capture gc
 		gc = goCapture(endpoint, capture.WrapRun(&capture.GC{
 			Pid:      pid,
@@ -895,6 +909,22 @@ Resp: %s
 	}
 	logger.Log("Executed custom commands")
 
+	// -------------------------------
+	//     Transmit JFR recording
+	// -------------------------------
+	if jfr != nil {
+		// Read last to let the JFR window overlap the rest of the capture.
+		logger.Log("Reading result from JFR channel")
+		result := <-jfr
+		logger.Log(
+			`JFR RECORDING DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
 	if config.GlobalConfig.OnlyCapture {
 		return
 	}
@@ -1160,11 +1190,16 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	}
 
 	var ov string
-	osVersion, e := executils.CommandCombinedOutput(executils.OSVersion)
+	var osVersion bytes.Buffer
+	// Uses the timeout-bounded writer variant (CmdTimeout, default 60s):
+	// on Windows this shells out to `systeminfo`, which is known to hang
+	// or run very slowly on some machines, and would otherwise block the
+	// whole capture indefinitely.
+	e = executils.CommandCombinedOutputToWriter(&osVersion, executils.OSVersion)
 	if e != nil {
 		err = fmt.Errorf("osVersion err: %v, previous err: %v", e, err)
 	} else {
-		ov = strings.ReplaceAll(string(osVersion), "\r\n", ", ")
+		ov = strings.ReplaceAll(osVersion.String(), "\r\n", ", ")
 		ov = strings.ReplaceAll(ov, "\n", ", ")
 	}
 	var un string
@@ -1295,6 +1330,44 @@ Resp: %s
 		}
 	}
 	return
+}
+
+// RemoveDirWithRetry removes dir, backing off between attempts (1s, 2s, 4s,
+// 8s, 8s - about 23s in total) before giving up.
+//
+// On Windows a directory can't be removed while another process holds it open.
+func RemoveDirWithRetry(dir string) (err error) {
+	const attempts = 6
+	const maxDelay = 8 * time.Second
+	delay := 1 * time.Second
+
+	for i := 0; i < attempts; i++ {
+		err = os.RemoveAll(dir)
+		if err == nil {
+			return nil
+		}
+		if i < attempts-1 {
+			time.Sleep(delay)
+			if delay < maxDelay {
+				delay *= 2
+			}
+		}
+	}
+
+	// Say whether anything is still in there.
+	if entries, readErr := os.ReadDir(dir); readErr == nil {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		if len(names) == 0 {
+			logger.Log("%s is empty; the directory itself is held open by another process", dir)
+		} else {
+			logger.Log("%s still contains %d entries: %s", dir, len(names), strings.Join(names, ", "))
+		}
+	}
+
+	return err
 }
 
 func removeDuplicate[T comparable](sliceList []T) []T {
