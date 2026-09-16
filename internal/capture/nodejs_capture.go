@@ -239,14 +239,15 @@ func (t *NodeCPUProfile) Run() (Result, error) {
 // Hook-only and asynchronous over its window; non-yielding workers may
 // appear only in unresponsiveCount.
 //
-// Customer-process overhead (dt=nodewcpu): NOT continuous and NOT used in M3.
-// Only on-demand/onlyCapture. During the profile window (same default as
-// dumpCPUProfile, typically ~30s) the hook runs V8's sampling Profiler in up
-// to MAX_WORKERS_TO_PROFILE (100, same as MAX_WORKER_REPORTS in the hook)
-// worker isolates in parallel — roughly the cost of one main-thread
-// dumpCPUProfile per profiled worker, not a tax on every worker beyond the
-// cap. Sampling (not instrumenting); non-yielding busy loops never start the
-// profiler so they add no sampling overhead.
+// Customer-process overhead (dt=nodewcpu): NOT continuous and NOT part of the
+// M3 steady cycle. Opt-in via -nodejsWorkerCPUProfile (default false) for
+// on-demand/onlyCapture and M3 incident FullCapture. When enabled, during the
+// profile window (same default as dumpCPUProfile, typically ~30s) the hook
+// runs V8's sampling Profiler in up to -nodejsWorkerProfileCount (default 10,
+// max 100) worker isolates in parallel — roughly the cost of one main-thread
+// dumpCPUProfile per profiled worker. Sampling (not instrumenting);
+// non-yielding busy loops never start the profiler so they add no sampling
+// overhead.
 type NodeWorkerCPUProfiles struct {
 	Capture
 	Pid    int
@@ -271,7 +272,8 @@ func (t *NodeWorkerCPUProfiles) Run() (Result, error) {
 	}
 
 	windowSeconds := nodeCPUProfileWindowSeconds()
-	if _, err := t.Ctx.Client.DumpWorkerCPUProfiles(outPath, windowSeconds); err != nil {
+	maxWorkers := nodeWorkerProfileCount()
+	if _, err := t.Ctx.Client.DumpWorkerCPUProfiles(outPath, windowSeconds, maxWorkers); err != nil {
 		return Result{Msg: err.Error(), Ok: false}, nil
 	}
 
@@ -610,6 +612,20 @@ func nodeCPUProfileWindowSeconds() int {
 		seconds = nodeMaxCPUProfileSeconds
 	}
 	return seconds
+}
+
+// nodeWorkerProfileCount returns how many worker isolates to CPU-profile.
+// Honors -nodejsWorkerProfileCount; clamps to [1, 100] and falls back to 10
+// when unset or out of range (same pattern as nodeCPUProfileWindowSeconds).
+func nodeWorkerProfileCount() int {
+	n := config.GlobalConfig.NodejsWorkerProfileCount
+	if n < nodeMinWorkerProfileCount {
+		return nodeDefaultWorkerProfileCount
+	}
+	if n > nodeMaxWorkerProfileCount {
+		return nodeMaxWorkerProfileCount
+	}
+	return n
 }
 
 func nodeDiagnosticWindowSeconds() int {

@@ -38,6 +38,11 @@ const (
 	nodeMinWindowSeconds = 1
 	nodeMaxWindowSeconds = 300
 
+	// Worker CPU-profile cap bounds (must match the hook's validateMaxWorkers).
+	nodeMinWorkerProfileCount = 1
+	nodeMaxWorkerProfileCount = 100
+	nodeDefaultWorkerProfileCount = 10
+
 	nodeMinCPUProfileSeconds = nodeMinWindowSeconds
 	nodeMaxCPUProfileSeconds = nodeMaxWindowSeconds
 )
@@ -174,17 +179,25 @@ type NodeWorkerCPUProfilesResult struct {
 // windowSeconds+15s for non-yielding workers, so the client read deadline must
 // include that margin.
 //
-// Overhead note: this is a bounded, on-demand/onlyCapture diagnostic — not M3.
-// Each targeted worker runs V8's sampling CPU profiler for windowSeconds
-// (same mechanism as DumpCPUProfile). Cap and hottest-first selection live in
-// the hook so a large worker leak does not multiply profiler cost unbounded.
-func (c *NodeHookClient) DumpWorkerCPUProfiles(outPath string, windowSeconds int) (*NodeWorkerCPUProfilesResult, error) {
+// Overhead note: this is a bounded, opt-in diagnostic (-nodejsWorkerCPUProfile;
+// default off in all modes including M3 incident FullCapture). Each targeted
+// worker runs V8's sampling CPU profiler for windowSeconds (same mechanism as
+// DumpCPUProfile). maxWorkers caps how many isolates are profiled (hottest
+// first); the hook also enforces [1, 100].
+func (c *NodeHookClient) DumpWorkerCPUProfiles(outPath string, windowSeconds, maxWorkers int) (*NodeWorkerCPUProfilesResult, error) {
 	if windowSeconds < nodeMinCPUProfileSeconds || windowSeconds > nodeMaxCPUProfileSeconds {
 		return nil, fmt.Errorf("dumpWorkerCPUProfiles windowSeconds must be between %d and %d, got %d", nodeMinCPUProfileSeconds, nodeMaxCPUProfileSeconds, windowSeconds)
 	}
+	if maxWorkers < nodeMinWorkerProfileCount || maxWorkers > nodeMaxWorkerProfileCount {
+		return nil, fmt.Errorf("dumpWorkerCPUProfiles maxWorkers must be between %d and %d, got %d", nodeMinWorkerProfileCount, nodeMaxWorkerProfileCount, maxWorkers)
+	}
 	// Hook finish() hardTimeout is (windowSeconds + 15)s; keep agent deadline above that.
 	timeout := time.Duration(windowSeconds+15)*time.Second + nodeAsyncMargin
-	resp, err := c.call("dumpWorkerCPUProfiles", map[string]any{"outPath": outPath, "windowSeconds": windowSeconds}, timeout)
+	resp, err := c.call("dumpWorkerCPUProfiles", map[string]any{
+		"outPath":       outPath,
+		"windowSeconds": windowSeconds,
+		"maxWorkers":    maxWorkers,
+	}, timeout)
 	if err != nil {
 		return nil, err
 	}

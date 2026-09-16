@@ -365,18 +365,18 @@ Ignored errors: %v
 			Ctx: nodeCtx,
 		}))
 
-		// Per-worker CPU profiles (hook-only; runs in parallel with main-thread
-		// profile — separate isolates). Non-yielding workers surface as
-		// unresponsiveCount rather than hanging the capture.
-		//
-		// Overhead: short-lived only (this capture path). Bounded sampling
-		// window on ≤100 hottest workers (hook MAX_WORKERS_TO_PROFILE); same
-		// class of cost as NodeCPUProfile, not an always-on customer tax.
-		// Kept out of M3 steady cycle with other windowed RPCs.
-		nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"WORKER CPU PROFILES", goCapture(endpoint, capture.WrapRun(&capture.NodeWorkerCPUProfiles{
-			Pid: pid,
-			Ctx: nodeCtx,
-		}))})
+		// Per-worker CPU profiles: opt-in only (-nodejsWorkerCPUProfile). Off by
+		// default in all modes (on-demand, onlyCapture, and M3 incident FullCapture)
+		// because concurrent V8 sampling across many worker isolates is a major
+		// CPU-spike source. When enabled, caps via -nodejsWorkerProfileCount.
+		if config.GlobalConfig.NodejsWorkerCPUProfile {
+			nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"WORKER CPU PROFILES", goCapture(endpoint, capture.WrapRun(&capture.NodeWorkerCPUProfiles{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))})
+		} else {
+			logger.Log("node worker CPU profiles skipped for pid %d: -nodejsWorkerCPUProfile not set", pid)
+		}
 
 		// Diagnostic Report page artifacts (hook-only).
 		nodeExtraCaptures = append(nodeExtraCaptures,

@@ -123,6 +123,8 @@ type Options struct {
 	NodejsGCCaptureDuration  Duration `yaml:"nodejsGCCaptureDuration" usage:"Node.js on-demand dumpGC window when continuous --trace-gc is not configured (e.g. 30s). Capped at 60s."`
 	NodejsGCLogPath          string   `yaml:"nodejsGCLogPath" usage:"Path to the file the target Node.js process's stdout is redirected to (where --trace-gc writes). Overrides auto-discovery, which has no implementation on Windows; required there for GC log capture to work at all."`
 	NodejsCPUProfileDuration Duration `yaml:"nodejsCPUProfileDuration" usage:"Node.js hook-mode V8 CPU profile window (1s-300s, default 30s)."`
+	NodejsWorkerCPUProfile   bool     `yaml:"nodejsWorkerCPUProfile" usage:"Enable per-worker_threads V8 CPU profiles (dt=nodewcpu). Default false — off in all modes including M3 incident FullCapture; set true to capture."`
+	NodejsWorkerProfileCount int      `yaml:"nodejsWorkerProfileCount" usage:"Node.js hook-mode: max worker_threads isolates to CPU-profile when -nodejsWorkerCPUProfile is set (1-100, default 10). Hottest workers first."`
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
 }
 
@@ -306,6 +308,8 @@ func defaultConfig() Config {
 			NodejsGCCaptureDuration:  Duration(30 * time.Second),
 			NodejsGCLogPath:          "", // Empty falls through to platform auto-discovery (resolveNodeStdoutFile)
 			NodejsCPUProfileDuration: Duration(30 * time.Second),
+			NodejsWorkerCPUProfile:   false,
+			NodejsWorkerProfileCount: 10,
 			NodejsDiagnosticWindow:   Duration(30 * time.Second),
 		},
 	}

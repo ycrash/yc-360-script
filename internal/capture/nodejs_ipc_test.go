@@ -381,6 +381,18 @@ func TestNodeHookCPUProfileValidation(t *testing.T) {
 	}
 }
 
+func TestNodeHookWorkerCPUProfileValidation(t *testing.T) {
+	fh := startFakeHook(t, 34594, "tok")
+	client, _ := NewNodeHookClient(fh.dir, fh.pid)
+	out := filepath.Join(fh.dir, "w")
+	if _, err := client.DumpWorkerCPUProfiles(out, 1, 0); err == nil {
+		t.Errorf("DumpWorkerCPUProfiles maxWorkers=0 should be rejected")
+	}
+	if _, err := client.DumpWorkerCPUProfiles(out, 1, 101); err == nil {
+		t.Errorf("DumpWorkerCPUProfiles maxWorkers=101 should be rejected")
+	}
+}
+
 // TestNodeReportValid covers the JSON well-formedness guard that a process
 // overview (or signal-mode report) must pass before it is treated as a success:
 // a report truncated mid-write by a crash is the exact case it must reject.
