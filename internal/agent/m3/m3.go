@@ -890,10 +890,13 @@ func (m3 *M3App) captureNodeM3(endpoint string, pid int) string {
 	nodeGC.SetEndpointParam("pid", pidParam)
 	runNodeM3Capture(endpoint, "GC LOG", nodeGC)
 
-	// Process overview
-	nodePO := &capture.NodeProcessOverview{Pid: pid, Ctx: nodeCtx, OutDir: outDir}
-	nodePO.SetEndpointParam("pid", pidParam)
-	runNodeM3Capture(endpoint, "PROCESS OVERVIEW", nodePO)
+	// Process overview is intentionally skipped in the M3 steady cycle:
+	// yCrash does not analyze this artifact from M3 samples, and
+	// process.report.getReport() is relatively expensive (especially with
+	// many worker_threads). Kept for on-demand/onlyCapture / incident FullCapture.
+	// nodePO := &capture.NodeProcessOverview{Pid: pid, Ctx: nodeCtx, OutDir: outDir}
+	// nodePO.SetEndpointParam("pid", pidParam)
+	// runNodeM3Capture(endpoint, "PROCESS OVERVIEW", nodePO)
 
 	// Heap summary (safe every cycle).
 	nodeHS := &capture.NodeHeapSummary{Pid: pid, Ctx: nodeCtx, OutDir: outDir}

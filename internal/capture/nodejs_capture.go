@@ -242,10 +242,11 @@ func (t *NodeCPUProfile) Run() (Result, error) {
 // Customer-process overhead (dt=nodewcpu): NOT continuous and NOT used in M3.
 // Only on-demand/onlyCapture. During the profile window (same default as
 // dumpCPUProfile, typically ~30s) the hook runs V8's sampling Profiler in up
-// to MAX_WORKERS_TO_PROFILE (10) worker isolates in parallel — roughly the
-// cost of one main-thread dumpCPUProfile per profiled worker, not a tax on
-// every worker in a leak. Sampling (not instrumenting); non-yielding busy
-// loops never start the profiler so they add no sampling overhead.
+// to MAX_WORKERS_TO_PROFILE (100, same as MAX_WORKER_REPORTS in the hook)
+// worker isolates in parallel — roughly the cost of one main-thread
+// dumpCPUProfile per profiled worker, not a tax on every worker beyond the
+// cap. Sampling (not instrumenting); non-yielding busy loops never start the
+// profiler so they add no sampling overhead.
 type NodeWorkerCPUProfiles struct {
 	Capture
 	Pid    int

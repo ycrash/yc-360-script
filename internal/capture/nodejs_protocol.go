@@ -32,8 +32,9 @@ const (
 	NodeCPUProfileFileName      = "cpuprofile.out"
 	// Per-worker CPU profiles (dumpWorkerCPUProfiles). Must match
 	// YCrashDataType.NODEJS_WORKER_CPU_PROFILES agentFileName exactly.
-	// Captured only in on-demand/onlyCapture (not M3). See NodeWorkerCPUProfiles
-	// for customer-process overhead notes (bounded sampling window, ≤10 workers).
+	// Captured only in on-demand/onlyCapture (not M3 steady cycle). See
+	// NodeWorkerCPUProfiles for customer-process overhead notes (bounded
+	// sampling window, ≤100 workers — hook MAX_WORKERS_TO_PROFILE).
 	NodeWorkerCPUProfilesFileName = "workercpuprofiles.out"
 	// Diagnostic Report page artifacts and GC stats.
 	NodeEventLoopLagFileName        = "eventlooplag.out"

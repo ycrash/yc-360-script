@@ -32,11 +32,12 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 		return true
 	})
 
-	// Exactly the three lightweight tasks — no more, no fewer.
+	// Exactly the lightweight M3 steady-cycle tasks — no more, no fewer.
+	// Process overview is deliberately omitted: not analyzed from M3 samples
+	// on the yCrash side, and getReport() is relatively expensive.
 	want := map[string]bool{
-		"NodeGC":              true,
-		"NodeProcessOverview": true,
-		"NodeHeapSummary":     true,
+		"NodeGC":          true,
+		"NodeHeapSummary": true,
 	}
 	for name := range want {
 		if _, ok := constructed[name]; !ok {
@@ -44,17 +45,18 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 		}
 	}
 	forbidden := []string{
+		"NodeProcessOverview", // skipped in M3 steady cycle (not analyzed; costly getReport)
 		"NodeCPUProfile", "NodeWorkerCPUProfiles", "NodeEventLoopLag", "NodeUnhandledRejections",
 		"NodeModuleInventory", "NodeHandleGrowth", "NodeGCStats",
 	}
 	for _, name := range forbidden {
 		if _, ok := constructed[name]; ok {
-			t.Errorf("captureNodeM3 constructs capture.%s — heavy/windowed tasks must stay out of the M3 cycle", name)
+			t.Errorf("captureNodeM3 constructs capture.%s — heavy/windowed (or unused) tasks must stay out of the M3 cycle", name)
 		}
 	}
 	for name := range constructed {
 		if !want[name] {
-			t.Errorf("captureNodeM3 constructs an unexpected capture.%s; the M3 cycle must stay limited to the 3 lightweight tasks", name)
+			t.Errorf("captureNodeM3 constructs an unexpected capture.%s; the M3 cycle must stay limited to the lightweight tasks", name)
 		}
 	}
 
