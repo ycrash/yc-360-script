@@ -41,6 +41,7 @@ const (
 	nodeDTUnhandledRejections = "nodeur"
 	nodeDTModuleInventory     = "nodemi"
 	nodeDTHandleGrowth        = "nodehg"
+	nodeDTPendingPromises     = "nodepp"
 	nodeDTGCStats             = "nodegcs"
 	nodeDTWorkerCPUProfiles   = "nodewcpu"
 )
@@ -382,6 +383,24 @@ func (t *NodeHandleGrowth) Run() (Result, error) {
 	interval := nodeHandleGrowthIntervalSeconds(window)
 	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeHandleGrowthFileName, "handle growth", nodeDTHandleGrowth, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpHandleGrowth(outPath, window, interval)
+		return err
+	})
+}
+
+// NodePendingPromises captures pending Promise count samples to
+// pendingpromises.out (window-only async_hooks PROMISE tracking).
+type NodePendingPromises struct {
+	Capture
+	Pid    int
+	Ctx    *NodeCaptureContext
+	OutDir string
+}
+
+func (t *NodePendingPromises) Run() (Result, error) {
+	window := nodeDiagnosticWindowSeconds()
+	interval := nodeHandleGrowthIntervalSeconds(window)
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodePendingPromisesFileName, "pending promises", nodeDTPendingPromises, func(outPath string) error {
+		_, err := t.Ctx.Client.DumpPendingPromises(outPath, window, interval)
 		return err
 	})
 }

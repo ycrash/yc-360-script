@@ -39,8 +39,8 @@ const (
 	nodeMaxWindowSeconds = 300
 
 	// Worker CPU-profile cap bounds (must match the hook's validateMaxWorkers).
-	nodeMinWorkerProfileCount = 1
-	nodeMaxWorkerProfileCount = 100
+	nodeMinWorkerProfileCount     = 1
+	nodeMaxWorkerProfileCount     = 100
 	nodeDefaultWorkerProfileCount = 10
 
 	nodeMinCPUProfileSeconds = nodeMinWindowSeconds
@@ -166,11 +166,11 @@ func (c *NodeHookClient) DumpCPUProfile(outPath string, windowSeconds int) (*Nod
 
 // NodeWorkerCPUProfilesResult is the (post-window) response of dumpWorkerCPUProfiles.
 type NodeWorkerCPUProfilesResult struct {
-	Path               string  `json:"path"`
-	WorkerCount        int     `json:"workerCount"`
-	TotalWorkerCount   int     `json:"totalWorkerCount"`
-	UnresponsiveCount  int     `json:"unresponsiveCount"`
-	WindowSeconds      float64 `json:"windowSeconds"`
+	Path              string  `json:"path"`
+	WorkerCount       int     `json:"workerCount"`
+	TotalWorkerCount  int     `json:"totalWorkerCount"`
+	UnresponsiveCount int     `json:"unresponsiveCount"`
+	WindowSeconds     float64 `json:"windowSeconds"`
 }
 
 // DumpWorkerCPUProfiles profiles the hottest live worker_threads isolates for
@@ -351,6 +351,45 @@ func (c *NodeHookClient) DumpHandleGrowth(outPath string, windowSeconds, interva
 	var r NodeHandleGrowthResult
 	if err := json.Unmarshal(resp.Result, &r); err != nil {
 		return nil, fmt.Errorf("node dumpHandleGrowth result decode failed pid=%d: %w", c.PID, err)
+	}
+	return &r, nil
+}
+
+// NodePendingPromisesResult is the (post-window) response of dumpPendingPromises.
+type NodePendingPromisesResult struct {
+	Path            string  `json:"path"`
+	SampleCount     int     `json:"sampleCount"`
+	WindowSeconds   float64 `json:"windowSeconds"`
+	IntervalSeconds float64 `json:"intervalSeconds"`
+	TrackingCapped  bool    `json:"trackingCapped"`
+	FirstPending    int     `json:"firstPending"`
+	LastPending     int     `json:"lastPending"`
+}
+
+// DumpPendingPromises samples net pending Promise count every intervalSeconds
+// for windowSeconds via window-only async_hooks PROMISE tracking. Async.
+// intervalSeconds MUST be >= 1 and strictly less than windowSeconds.
+func (c *NodeHookClient) DumpPendingPromises(outPath string, windowSeconds, intervalSeconds int) (*NodePendingPromisesResult, error) {
+	if err := validateNodeWindow("dumpPendingPromises", windowSeconds); err != nil {
+		return nil, err
+	}
+	if intervalSeconds < 1 {
+		return nil, fmt.Errorf("dumpPendingPromises intervalSeconds must be >= 1, got %d", intervalSeconds)
+	}
+	if intervalSeconds >= windowSeconds {
+		return nil, fmt.Errorf("dumpPendingPromises intervalSeconds (%d) must be smaller than windowSeconds (%d)", intervalSeconds, windowSeconds)
+	}
+	timeout := time.Duration(windowSeconds)*time.Second + nodeAsyncMargin
+	resp, err := c.call("dumpPendingPromises", map[string]any{"outPath": outPath, "windowSeconds": windowSeconds, "intervalSeconds": intervalSeconds}, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("node dumpPendingPromises failed pid=%d: %s", c.PID, resp.Error)
+	}
+	var r NodePendingPromisesResult
+	if err := json.Unmarshal(resp.Result, &r); err != nil {
+		return nil, fmt.Errorf("node dumpPendingPromises result decode failed pid=%d: %w", c.PID, err)
 	}
 	return &r, nil
 }

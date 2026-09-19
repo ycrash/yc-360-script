@@ -22,6 +22,7 @@ func TestNodeDataTypeConstants(t *testing.T) {
 		"nodeDTUnhandledRejections": "nodeur",
 		"nodeDTModuleInventory":     "nodemi",
 		"nodeDTHandleGrowth":        "nodehg",
+		"nodeDTPendingPromises":     "nodepp",
 		"nodeDTGCStats":             "nodegcs",
 		"nodeDTWorkerCPUProfiles":   "nodewcpu",
 	}
@@ -31,6 +32,7 @@ func TestNodeDataTypeConstants(t *testing.T) {
 		"nodeDTUnhandledRejections": nodeDTUnhandledRejections,
 		"nodeDTModuleInventory":     nodeDTModuleInventory,
 		"nodeDTHandleGrowth":        nodeDTHandleGrowth,
+		"nodeDTPendingPromises":     nodeDTPendingPromises,
 		"nodeDTGCStats":             nodeDTGCStats,
 		"nodeDTWorkerCPUProfiles":   nodeDTWorkerCPUProfiles,
 	}

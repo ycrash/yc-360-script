@@ -209,6 +209,10 @@ func (fh *fakeHook) handle(conn net.Conn) {
 		outPath, _ := req.Params["outPath"].(string)
 		os.WriteFile(outPath, []byte(`[{"statesCount":{"Timeout":1},"totalCount":1,"epochMs":1}]`), 0o644)
 		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "sampleCount": 1, "windowSeconds": req.Params["windowSeconds"], "intervalSeconds": req.Params["intervalSeconds"]}, "")
+	case "dumpPendingPromises":
+		outPath, _ := req.Params["outPath"].(string)
+		os.WriteFile(outPath, []byte(`{"schemaVersion":1,"windowSeconds":4,"intervalSeconds":2,"samples":[{"epochMs":1,"pendingCount":0,"heapUsed":1000,"external":10,"heapSizeLimit":2000},{"epochMs":2,"pendingCount":12,"heapUsed":1100,"external":11,"heapSizeLimit":2000}]}`), 0o644)
+		writeFakeResp(conn, req.ID, true, map[string]any{"path": outPath, "sampleCount": 2, "windowSeconds": req.Params["windowSeconds"], "intervalSeconds": req.Params["intervalSeconds"], "firstPending": 0, "lastPending": 12}, "")
 	case "dumpGCStats":
 		outPath, _ := req.Params["outPath"].(string)
 		os.WriteFile(outPath, []byte(`[{"kind":"minor","durationMs":0.3,"epochMs":1}]`), 0o644)
@@ -321,6 +325,14 @@ func TestNodeHookCaptureRPCsRoundTrip(t *testing.T) {
 		t.Errorf("handle growth sampleCount = %d, want 1", hgRes.SampleCount)
 	}
 
+	ppRes, err := client.DumpPendingPromises(filepath.Join(fh.dir, "pendingpromises.out"), 4, 2)
+	if err != nil {
+		t.Fatalf("DumpPendingPromises: %v", err)
+	}
+	if ppRes.SampleCount != 2 || ppRes.LastPending != 12 {
+		t.Errorf("unexpected pending-promises result: %+v", ppRes)
+	}
+
 	gcsRes, err := client.DumpGCStats(filepath.Join(fh.dir, "gcstats.out"), 1)
 	if err != nil {
 		t.Fatalf("DumpGCStats: %v", err)
@@ -349,12 +361,21 @@ func TestNodeDiagnosticWindowValidation(t *testing.T) {
 		t.Errorf("DumpGCStats(0) should be rejected")
 	}
 
-	// Handle growth: interval must be >= 1 and strictly less than the window.
+	// Handle growth / pending promises: interval must be >= 1 and strictly less than the window.
 	if _, err := client.DumpHandleGrowth(x, 10, 0); err == nil {
 		t.Errorf("DumpHandleGrowth interval 0 should be rejected")
 	}
 	if _, err := client.DumpHandleGrowth(x, 5, 10); err == nil {
 		t.Errorf("DumpHandleGrowth interval >= window should be rejected")
+	}
+	if _, err := client.DumpPendingPromises(x, 10, 0); err == nil {
+		t.Errorf("DumpPendingPromises interval 0 should be rejected")
+	}
+	if _, err := client.DumpPendingPromises(x, 5, 10); err == nil {
+		t.Errorf("DumpPendingPromises interval >= window should be rejected")
+	}
+	if _, err := client.DumpPendingPromises(x, 0, 1); err == nil {
+		t.Errorf("DumpPendingPromises(0) should be rejected")
 	}
 }
 

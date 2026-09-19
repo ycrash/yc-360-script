@@ -384,6 +384,7 @@ Ignored errors: %v
 			nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
 			nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
 			nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
+			nodeNamedCapture{"PENDING PROMISES", goCapture(endpoint, capture.WrapRun(&capture.NodePendingPromises{Pid: pid, Ctx: nodeCtx}))},
 		)
 	default:
 		// ------------------------------------------------------------------------------

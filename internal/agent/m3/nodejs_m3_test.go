@@ -47,7 +47,7 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 	forbidden := []string{
 		"NodeProcessOverview", // skipped in M3 steady cycle (not analyzed; costly getReport)
 		"NodeCPUProfile", "NodeWorkerCPUProfiles", "NodeEventLoopLag", "NodeUnhandledRejections",
-		"NodeModuleInventory", "NodeHandleGrowth", "NodeGCStats",
+		"NodeModuleInventory", "NodeHandleGrowth", "NodePendingPromises", "NodeGCStats",
 	}
 	for _, name := range forbidden {
 		if _, ok := constructed[name]; ok {

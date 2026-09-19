@@ -41,7 +41,9 @@ const (
 	NodeUnhandledRejectionsFileName = "rejections.out"
 	NodeModuleInventoryFileName     = "modules.out"
 	NodeHandleGrowthFileName        = "handlegrowth.out"
-	NodeGCStatsFileName             = "gcstats.out"
+	// Must match YCrashDataType.NODEJS_PENDING_PROMISES agentFileName exactly.
+	NodePendingPromisesFileName = "pendingpromises.out"
+	NodeGCStatsFileName         = "gcstats.out"
 	// NodeAppLogFileName is the on-disk / bundled filename for the non-GC
 	// lines separated out of a shared stdout file. Only produced when GC and
 	// app output share a file.
