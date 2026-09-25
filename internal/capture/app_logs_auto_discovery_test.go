@@ -426,15 +426,27 @@ func TestDiscoverOpenedLogFilesByProcess(t *testing.T) {
 		openedFiles = append(openedFiles, f)
 	}
 
+	// Second descriptor to the first log file
+	duplicatePath := filepath.Join(dir, testCases[0].name)
+	duplicate, err := os.Open(duplicatePath)
+	require.NoError(t, err, "failed to open file %q a second time", testCases[0].name)
+	openedFiles = append(openedFiles, duplicate)
+
 	// Run the discovery function
 	discoveredFiles, err := DiscoverOpenedLogFilesByProcess(pid)
 	require.NoError(t, err, "DiscoverOpenedLogFilesByProcess failed")
 
 	// Convert results to a map for easier verification
 	discoveredSet := make(map[string]bool)
+	discoveredCount := make(map[string]int)
 	for _, path := range discoveredFiles {
 		discoveredSet[path] = true
+		discoveredCount[path]++
 	}
+
+	// A file opened through several descriptors must be discovered once
+	assert.Equal(t, 1, discoveredCount[duplicatePath],
+		"file %q: opened twice, expected to be discovered once", testCases[0].name)
 
 	// Verify each test case
 	for _, tc := range testCases {

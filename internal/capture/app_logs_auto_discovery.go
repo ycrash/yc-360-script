@@ -56,6 +56,8 @@ const tailSampleLen = 1000
 // - its name matches any of the precompiled log patterns and has no known binary/archive extension,
 // - its content looks like a text log (see looksLikeTextLog).
 //
+// Each path is returned at most once, even if the process holds several descriptors to it.
+//
 // If the runtime is not Linux, it returns an empty slice with no error.
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
@@ -69,8 +71,16 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 		return nil, err
 	}
 
+	// One entry per descriptor, already resolved to a path.
+	seen := make(map[string]struct{}, len(openedFiles))
+
 	for _, filePath := range openedFiles {
 		logger.Debug().Msgf("DiscoverOpenedLogFilesByProcess: opened file by process (pid=%d): %s", pid, filePath)
+
+		if _, ok := seen[filePath]; ok {
+			continue
+		}
+		seen[filePath] = struct{}{}
 
 		fileBaseName := filepath.Base(filePath)
 		if !isLogFileName(fileBaseName) {
