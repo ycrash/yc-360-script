@@ -27,6 +27,8 @@ func TestIsRegularFile(t *testing.T) {
 	assert.False(t, isRegularFile(fifo), "a FIFO must not be sampled")
 	assert.False(t, isRegularFile(dir), "a directory must not be sampled")
 	assert.False(t, isRegularFile(filepath.Join(dir, "missing.log")))
+
+	assert.Equal(t, "not a regular file", rejectReason(fifo), "the reason must name the rule, before any read")
 }
 
 func TestDiscoverOpenedLogFilesByProcess_FIFO(t *testing.T) {

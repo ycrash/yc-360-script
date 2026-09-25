@@ -95,36 +95,54 @@ func TestMatchLogPattern(t *testing.T) {
 	}
 }
 
-// TestIsLogFileName verifies that library jars and other binary/archive files are rejected
-// even when their names match a log pattern.
-func TestIsLogFileName(t *testing.T) {
+func TestNameRejectReason(t *testing.T) {
+	const (
+		noPattern = "name matches no log pattern"
+		binaryExt = "binary or archive extension"
+	)
 	tests := []struct {
 		filename string
-		expected bool
+		reason   string
 	}{
-		{"example.log", true},
-		{"example-rotated.log.1", true},
-		{"mylog.txt", true},
-		{"log4j-core-2.19.0.jar", false},      // matches *log*.*, rejected by extension
-		{"logback-classic-1.2.11.jar", false}, // matches *log*.*, rejected by extension
-		{"commons-logging-1.2.jar", false},    // matches *log*.*, rejected by extension
-		{"jboss-logging-3.5.0.jar", false},    // matches *log*.*, rejected by extension
-		{"LOG4J-CORE-2.19.0.JAR", false},      // log patterns are case-sensitive: never reaches the extension check
-		{"log4j-core-2.19.0.JAR", false},      // extension check is case-insensitive
-		{"slf4j-api-1.7.36.jar", false},       // no "log" substring
-		{"app.log.gz", false},                 // compressed rotated logs are never auto-discovered
-		{"catalog.zip", false},
-		{"logging.so", false},
+		{"example.log", ""},
+		{"example-rotated.log.1", ""},
+		{"mylog.txt", ""},
+		{"log4j-core-2.19.0.jar", binaryExt},      // matches *log*.*, rejected by extension
+		{"logback-classic-1.2.11.jar", binaryExt}, // matches *log*.*, rejected by extension
+		{"commons-logging-1.2.jar", binaryExt},    // matches *log*.*, rejected by extension
+		{"jboss-logging-3.5.0.jar", binaryExt},    // matches *log*.*, rejected by extension
+		{"LOG4J-CORE-2.19.0.JAR", noPattern},      // log patterns are case-sensitive: never reaches the extension check
+		{"log4j-core-2.19.0.JAR", binaryExt},      // extension check is case-insensitive
+		{"slf4j-api-1.7.36.jar", noPattern},       // no "log" substring
+		{"app.log.gz", binaryExt},                 // compressed rotated logs are never auto-discovered
+		{"catalog.zip", binaryExt},
+		{"logging.so", binaryExt},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.filename, func(t *testing.T) {
-			got := isLogFileName(tt.filename)
-			assert.Equal(t, tt.expected, got,
-				"isLogFileName(%q): got %v, want %v",
-				tt.filename, got, tt.expected)
+			assert.Equal(t, tt.reason, nameRejectReason(tt.filename))
 		})
 	}
+}
+
+func TestRejectReason(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, content []byte) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, content, 0644))
+		return path
+	}
+
+	assert.Equal(t, "", rejectReason(write("app.log", []byte("2026-09-25 10:00:00 INFO started\n"))))
+	assert.Equal(t, "binary or archive extension", rejectReason(write("log4j-core-2.19.0.jar", []byte("text tail"))),
+		"the extension must reject a jar before its content is read")
+	assert.Equal(t, "starts with a binary signature", rejectReason(write("backup-log.bak", buildZip(t, ""))))
+	logDir := filepath.Join(dir, "logs.d")
+	require.NoError(t, os.Mkdir(logDir, 0755))
+	assert.Equal(t, "not a regular file", rejectReason(logDir), "a directory named like a log must not be sampled")
+	assert.Equal(t, "not a regular file", rejectReason(filepath.Join(dir, "missing.log")))
 }
 
 func buildZip(t *testing.T, comment string) []byte {
@@ -149,19 +167,17 @@ func headAndTail(b []byte) ([]byte, []byte) {
 	return b[:min(int(headSampleLen), len(b))], b[max(0, len(b)-tailSampleLen):]
 }
 
-// TestLooksLikeTextLog verifies that archives are rejected by content even when their tail
-// passes the ASCII threshold, while genuine logs are accepted.
-func TestLooksLikeTextLog(t *testing.T) {
+func TestContentRejectReason(t *testing.T) {
 	t.Run("TextLog", func(t *testing.T) {
 		head, tail := headAndTail([]byte("2026-09-22 14:45:23 INFO  Application started\n"))
-		assert.True(t, looksLikeTextLog(head, tail))
+		assert.Equal(t, "", contentRejectReason(head, tail))
 	})
 
 	// copytruncate rotation leaves a NUL run at the head of a genuine log
 	t.Run("TextLogWithNULHead", func(t *testing.T) {
 		content := append(make([]byte, 4096), []byte(strings.Repeat("2026-09-22 14:45:23 INFO  request served\n", 50))...)
 		head, tail := headAndTail(content)
-		assert.True(t, looksLikeTextLog(head, tail), "NUL bytes at the head must not reject a log")
+		assert.Equal(t, "", contentRejectReason(head, tail), "NUL bytes at the head must not reject a log")
 	})
 
 	// A few stray NULs in a log line must not hide the log
@@ -177,7 +193,13 @@ func TestLooksLikeTextLog(t *testing.T) {
 		}
 		head, tail := headAndTail(content)
 		require.Equal(t, 5, bytes.Count(tail, []byte{0}), "precondition: the sampled tail holds the five stray NULs")
-		assert.True(t, looksLikeTextLog(head, tail), "a few stray NUL bytes must not reject a log")
+		assert.Equal(t, "", contentRejectReason(head, tail), "a few stray NUL bytes must not reject a log")
+	})
+
+	// Name matches, content is not ASCII
+	t.Run("NonASCIIText", func(t *testing.T) {
+		head, tail := headAndTail([]byte("абвгд Пример не-ASCII"))
+		assert.Equal(t, "tail is not mostly ASCII", contentRejectReason(head, tail))
 	})
 
 	// log4j-core-2.19.0.jar: tail passes the ASCII check, head signature rejects it
@@ -185,7 +207,7 @@ func TestLooksLikeTextLog(t *testing.T) {
 		head, tail := headAndTail(buildZip(t, ""))
 		require.True(t, IsMostlyASCII(tail), "precondition: the jar tail must pass the ASCII check")
 		require.True(t, hasManyNULs(tail), "precondition: the jar tail must be dense with NUL bytes")
-		assert.False(t, looksLikeTextLog(head, tail))
+		assert.Equal(t, "starts with a binary signature", contentRejectReason(head, tail))
 	})
 
 	// ASCII archive comment hides the NULs: only the head signature rejects it
@@ -193,7 +215,7 @@ func TestLooksLikeTextLog(t *testing.T) {
 		head, tail := headAndTail(buildZip(t, strings.Repeat("A", 2000)))
 		require.NotContains(t, string(tail), "\x00", "precondition: the tail must contain no NUL byte")
 		require.True(t, IsMostlyASCII(tail), "precondition: the tail must pass the ASCII check")
-		assert.False(t, looksLikeTextLog(head, tail))
+		assert.Equal(t, "starts with a binary signature", contentRejectReason(head, tail))
 	})
 
 	// Executable jar starts with a script: only the tail NULs reject it
@@ -202,12 +224,11 @@ func TestLooksLikeTextLog(t *testing.T) {
 		head, tail := headAndTail(content)
 		require.False(t, hasBinarySignature(head), "precondition: the head must not carry a signature")
 		require.True(t, IsMostlyASCII(tail), "precondition: the tail must pass the ASCII check")
-		require.True(t, hasManyNULs(tail), "precondition: the tail must be dense with NUL bytes")
-		assert.False(t, looksLikeTextLog(head, tail))
+		assert.Equal(t, "tail is dense with NUL bytes", contentRejectReason(head, tail))
 	})
 
 	t.Run("Empty", func(t *testing.T) {
-		assert.False(t, looksLikeTextLog(nil, nil))
+		assert.Equal(t, "tail is not mostly ASCII", contentRejectReason(nil, nil))
 	})
 }
 

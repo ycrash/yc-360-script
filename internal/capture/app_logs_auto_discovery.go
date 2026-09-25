@@ -52,14 +52,10 @@ var headSampleLen = func() int64 {
 const tailSampleLen = 1000
 
 // DiscoverOpenedLogFilesByProcess returns a list of file paths for log files that are
-// opened by the given process identified by pid. A file is considered a log file if:
-// - its name matches any of the precompiled log patterns and has no known binary/archive extension,
-// - it is a regular file (see isRegularFile),
-// - its content looks like a text log (see looksLikeTextLog).
-//
-// Each path is returned at most once, even if the process holds several descriptors to it.
-//
-// On platforms other than Linux and macOS it returns an empty slice with no error.
+// opened by the given process identified by pid. A file is considered a log file if
+// rejectReason finds no reason to skip it. Each path is returned once.
+// Discovered files are logged at Info level, skipped ones at Debug level with the reason.
+// On platforms other than Linux and macOS it returns an empty slice.
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return []string{}, nil
@@ -76,35 +72,47 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	seen := make(map[string]struct{}, len(openedFiles))
 
 	for _, filePath := range openedFiles {
-		logger.Debug().Msgf("DiscoverOpenedLogFilesByProcess: opened file by process (pid=%d): %s", pid, filePath)
-
 		if _, ok := seen[filePath]; ok {
 			continue
 		}
 		seen[filePath] = struct{}{}
 
-		fileBaseName := filepath.Base(filePath)
-		if !isLogFileName(fileBaseName) || !isRegularFile(filePath) {
+		if reason := rejectReason(filePath); reason != "" {
+			logger.Debug().Msgf("App logs Auto discovery: skipped %s (pid=%d): %s", filePath, pid, reason)
 			continue
 		}
 
-		head, tail, err := sampleFile(filePath, headSampleLen, tailSampleLen)
-		if err != nil {
-			continue
-		}
-
-		if looksLikeTextLog(head, tail) {
-			openedLogFiles = append(openedLogFiles, filePath)
-		}
+		logger.Log("App logs Auto discovery: discovered %s (pid=%d)", filePath, pid)
+		openedLogFiles = append(openedLogFiles, filePath)
 	}
 
 	return openedLogFiles, nil
 }
 
-// isLogFileName checks if the filename looks like a log file: it matches a log pattern and
-// does not have a known binary/archive extension.
-func isLogFileName(s string) bool {
-	return matchLogPattern(s) && !hasBinaryFileExtension(s)
+// rejectReason returns why the open file at path is not treated as an app log, or "" if it is one.
+func rejectReason(path string) string {
+	if reason := nameRejectReason(filepath.Base(path)); reason != "" {
+		return reason
+	}
+	if !isRegularFile(path) {
+		return "not a regular file"
+	}
+	head, tail, err := sampleFile(path, headSampleLen, tailSampleLen)
+	if err != nil {
+		return "cannot sample: " + err.Error()
+	}
+	return contentRejectReason(head, tail)
+}
+
+// nameRejectReason returns why name is not a log file name, or "" if it is one.
+func nameRejectReason(name string) string {
+	switch {
+	case !matchLogPattern(name):
+		return "name matches no log pattern"
+	case hasBinaryFileExtension(name):
+		return "binary or archive extension"
+	}
+	return ""
 }
 
 // hasBinaryFileExtension checks s against binaryFileExtensions, ignoring case.
@@ -127,15 +135,18 @@ func matchLogPattern(s string) bool {
 // per 1000 bytes (a one-entry zip 54), while a log may carry a few stray NULs.
 const maxNULShare = 0.01
 
-// looksLikeTextLog checks if a file's content looks like a text log, given its first bytes (head) and last bytes (tail):
-//   - head does not start with a known binary signature,
-//   - tail is not dense with NUL bytes (see maxNULShare): every zip ends with central directory headers and an
-//     end-of-central-directory record full of zero fields,
-//   - tail is mostly ASCII.
-//
-// NUL bytes are checked in the tail only: copytruncate rotation leaves NUL runs at the head of genuine logs.
-func looksLikeTextLog(head, tail []byte) bool {
-	return !hasBinarySignature(head) && !hasManyNULs(tail) && IsMostlyASCII(tail)
+// contentRejectReason returns why content with the given head and tail is not a text log, or "".
+// NULs are checked in the tail only: copytruncate rotation leaves NUL runs at the head of logs.
+func contentRejectReason(head, tail []byte) string {
+	switch {
+	case hasBinarySignature(head):
+		return "starts with a binary signature"
+	case hasManyNULs(tail):
+		return "tail is dense with NUL bytes"
+	case !IsMostlyASCII(tail):
+		return "tail is not mostly ASCII"
+	}
+	return ""
 }
 
 // hasManyNULs reports whether more than maxNULShare of b is NUL bytes.
