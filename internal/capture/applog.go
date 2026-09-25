@@ -205,15 +205,26 @@ func summarizeResults(results []Result, errs []error) (Result, error) {
 }
 
 // expandPaths takes a slice of paths and expands directories to individual files
-// while preserving existing file and glob pattern functionality
+// while preserving existing file and glob pattern functionality.
+// Each file is returned once (see fileIdentity), under the first spelling seen.
 func expandPaths(paths []string) ([]string, error) {
 	var expandedPaths []string
-	var errors []error
+	var errs []error
+
+	seen := make(map[string]struct{})
+	addPath := func(p string) {
+		id := fileIdentity(p)
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		expandedPaths = append(expandedPaths, p)
+	}
 
 	for _, path := range paths {
 		matches, err := zglob.Glob(path)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid glob pattern %s: %w", path, err))
+			errs = append(errs, fmt.Errorf("invalid glob pattern %s: %w", path, err))
 			continue
 		}
 
@@ -221,24 +232,40 @@ func expandPaths(paths []string) ([]string, error) {
 		for _, match := range matches {
 			fileInfo, err := os.Stat(match)
 			if err != nil {
-				errors = append(errors, fmt.Errorf("cannot access %s: %w", match, err))
+				errs = append(errs, fmt.Errorf("cannot access %s: %w", match, err))
 				continue
 			}
 
 			if fileInfo.IsDir() {
 				dirFiles, err := expandDirectory(match)
 				if err != nil {
-					errors = append(errors, err)
+					errs = append(errs, err)
 					continue
 				}
-				expandedPaths = append(expandedPaths, dirFiles...)
+				for _, dirFile := range dirFiles {
+					addPath(dirFile)
+				}
 			} else {
-				expandedPaths = append(expandedPaths, match)
+				addPath(match)
 			}
 		}
 	}
 
-	return expandedPaths, combineErrors(errors)
+	return expandedPaths, combineErrors(errs)
+}
+
+// fileIdentity returns the same key for every spelling of one file, resolved by the filesystem.
+// It avoids filepath.Abs and Clean, which resolve ".." lexically and would skip over symlinks.
+func fileIdentity(p string) string {
+	if !filepath.IsAbs(p) {
+		if wd, err := os.Getwd(); err == nil {
+			p = wd + string(filepath.Separator) + p // not filepath.Join, which cleans
+		}
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }
 
 // expandDirectory reads a directory and returns all regular files within it
