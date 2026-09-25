@@ -59,7 +59,7 @@ const tailSampleLen = 1000
 //
 // Each path is returned at most once, even if the process holds several descriptors to it.
 //
-// If the runtime is not Linux, it returns an empty slice with no error.
+// On platforms other than Linux and macOS it returns an empty slice with no error.
 func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return []string{}, nil

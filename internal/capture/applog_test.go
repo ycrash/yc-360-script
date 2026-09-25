@@ -28,18 +28,13 @@ func TestBuildPostData(t *testing.T) {
 
 // TestGenerateUniqueLogPath verifies that generateUniqueLogPath returns a filename that does not exist.
 func TestGenerateUniqueLogPath(t *testing.T) {
-	// Create a temporary directory and change working directory into it.
+	// Captured copies are written to the working directory.
 	tmpDir := t.TempDir()
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(originalWd)
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
+	t.Chdir(tmpDir)
 
 	// Create initial file to force unique name generation
 	existingFile := "1.appLogs.test.log"
-	err = os.WriteFile(existingFile, []byte("dummy"), 0644)
+	err := os.WriteFile(existingFile, []byte("dummy"), 0644)
 	require.NoError(t, err)
 
 	uniquePath := generateUniqueLogPath("test.log")
@@ -72,19 +67,14 @@ func TestSummarizeResults(t *testing.T) {
 
 // TestCaptureSingleAppLog_NonCompressed tests capturing a non-compressed log file.
 func TestCaptureSingleAppLog_NonCompressed(t *testing.T) {
-	// Create a temporary directory and change working directory into it.
+	// Captured copies are written to the working directory.
 	tmpDir := t.TempDir()
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(originalWd)
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
+	t.Chdir(tmpDir)
 
 	// Create test log file with sample content
 	inputFileName := "test.log"
 	inputContent := "line1\nline2\nline3\n"
-	err = os.WriteFile(inputFileName, []byte(inputContent), 0644)
+	err := os.WriteFile(inputFileName, []byte(inputContent), 0644)
 	require.NoError(t, err, "failed to create input file")
 
 	appLog := &AppLog{LineLimit: 2}
@@ -107,19 +97,14 @@ func TestCaptureSingleAppLog_NonCompressed(t *testing.T) {
 
 // TestCaptureSingleAppLog_Compressed tests capturing a compressed log file.
 func TestCaptureSingleAppLog_Compressed(t *testing.T) {
-	// Change working directory to a temporary directory.
+	// Captured copies are written to the working directory.
 	tmpDir := t.TempDir()
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(originalWd)
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
+	t.Chdir(tmpDir)
 
 	// Create a sample compressed test file
 	inputFileName := "test.gz"
 	inputContent := "compressed data here"
-	err = os.WriteFile(inputFileName, []byte(inputContent), 0644)
+	err := os.WriteFile(inputFileName, []byte(inputContent), 0644)
 	require.NoError(t, err, "failed to create compressed input file")
 
 	// For a compressed file, the code will not call PositionLastLines.
@@ -207,17 +192,12 @@ func TestExpandPaths_FileIdentity(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	t.Run("should process multiple log files matching glob pattern", func(t *testing.T) {
-		// Change working directory to a temporary directory.
+		// Captured copies are written to the working directory.
 		tmpDir := t.TempDir()
-		originalWd, err := os.Getwd()
-		require.NoError(t, err)
-		defer os.Chdir(originalWd)
-
-		err = os.Chdir(tmpDir)
-		require.NoError(t, err)
+		t.Chdir(tmpDir)
 
 		// Create test log files
-		err = os.WriteFile("log1.log", []byte("content1"), 0644)
+		err := os.WriteFile("log1.log", []byte("content1"), 0644)
 		require.NoError(t, err)
 		err = os.WriteFile("log2.log", []byte("content2"), 0644)
 		require.NoError(t, err)

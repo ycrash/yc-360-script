@@ -335,9 +335,8 @@ func TestReadTail(t *testing.T) {
 }
 
 func TestDiscoverOpenedLogFilesByProcess(t *testing.T) {
-	// Skip test on non-Linux platforms since the functionality is Linux-specific
 	if runtime.GOOS != "linux" {
-		return
+		t.Skip("DiscoverOpenedLogFilesByProcess is verified through /proc on Linux only")
 	}
 
 	// Test setup
@@ -346,58 +345,53 @@ func TestDiscoverOpenedLogFilesByProcess(t *testing.T) {
 	require.NoError(t, err, "failed to create temp directory")
 	defer os.RemoveAll(dir)
 
-	// Test cases define different types of files we want to verify
-	// Each case tests a specific aspect of log file detection
+	// Each case keeps one file open; the comment names the deciding rule.
 	testCases := []struct {
 		name           string // Name of the test file
 		content        []byte // Content to write to the file
-		shouldBeASCII  bool   // Whether content meets ASCII threshold
-		shouldMatchLog bool   // Whether filename matches log patterns
+		wantDiscovered bool
 	}{
 		{
+			// Name matches *.log, content is text
 			name:           "test1.log",
 			content:        []byte("This is a mostly ASCII log file."),
-			shouldBeASCII:  true,
-			shouldMatchLog: true,
+			wantDiscovered: true,
 		},
 		{
+			// Name matches, content fails the ASCII check
 			name:           "test2.log",
 			content:        []byte("абвгд Пример не-ASCII"),
-			shouldBeASCII:  false,
-			shouldMatchLog: true,
+			wantDiscovered: false,
 		},
 		{
+			// Content is text, name matches no log pattern
 			name:           "test3.txt",
 			content:        []byte("Some ASCII content but not a .log"),
-			shouldBeASCII:  true,
-			shouldMatchLog: false,
+			wantDiscovered: false,
 		},
 		{
+			// Name matches *log*.*, content is text
 			name:           "testlog.out",
 			content:        []byte("Another ASCII log-like file."),
-			shouldBeASCII:  true,
-			shouldMatchLog: true,
+			wantDiscovered: true,
 		},
 		{
-			// Library jar whose tail passes the ASCII check: rejected by extension
+			// Name matches *log*.* and the tail passes the ASCII check: rejected by extension
 			name:           "log4j-core-2.19.0.jar",
 			content:        []byte("org/apache/logging/log4j/core/appender/FileAppender.class"),
-			shouldBeASCII:  true,
-			shouldMatchLog: false,
+			wantDiscovered: false,
 		},
 		{
 			// Compressed rotated log whose tail passes the ASCII check: rejected by extension
 			name:           "app.log.gz",
 			content:        []byte("A stored gzip can look like plain text in its tail."),
-			shouldBeASCII:  true,
-			shouldMatchLog: false,
+			wantDiscovered: false,
 		},
 		{
 			// Zip under a name without a binary extension: rejected by content
 			name:           "backup-log.bak",
 			content:        buildZip(t, ""),
-			shouldBeASCII:  false,
-			shouldMatchLog: true,
+			wantDiscovered: false,
 		},
 	}
 
@@ -436,11 +430,8 @@ func TestDiscoverOpenedLogFilesByProcess(t *testing.T) {
 	discoveredFiles, err := DiscoverOpenedLogFilesByProcess(pid)
 	require.NoError(t, err, "DiscoverOpenedLogFilesByProcess failed")
 
-	// Convert results to a map for easier verification
-	discoveredSet := make(map[string]bool)
 	discoveredCount := make(map[string]int)
 	for _, path := range discoveredFiles {
-		discoveredSet[path] = true
 		discoveredCount[path]++
 	}
 
@@ -448,18 +439,9 @@ func TestDiscoverOpenedLogFilesByProcess(t *testing.T) {
 	assert.Equal(t, 1, discoveredCount[duplicatePath],
 		"file %q: opened twice, expected to be discovered once", testCases[0].name)
 
-	// Verify each test case
 	for _, tc := range testCases {
 		fullPath := filepath.Join(dir, tc.name)
-
-		// A file should be discovered only if it matches both conditions:
-		// 1. Filename matches log pattern
-		// 2. Content is mostly ASCII
-		expectedDiscovery := tc.shouldMatchLog && tc.shouldBeASCII
-		actuallyDiscovered := discoveredSet[fullPath]
-
-		assert.Equal(t, expectedDiscovery, actuallyDiscovered,
-			"file %q: unexpected discovery status (expected=%v, actual=%v)",
-			tc.name, expectedDiscovery, actuallyDiscovered)
+		assert.Equal(t, tc.wantDiscovered, discoveredCount[fullPath] > 0,
+			"file %q: discovered %d times, want discovered=%v", tc.name, discoveredCount[fullPath], tc.wantDiscovered)
 	}
 }
