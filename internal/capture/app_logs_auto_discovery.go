@@ -54,6 +54,7 @@ const tailSampleLen = 1000
 // DiscoverOpenedLogFilesByProcess returns a list of file paths for log files that are
 // opened by the given process identified by pid. A file is considered a log file if:
 // - its name matches any of the precompiled log patterns and has no known binary/archive extension,
+// - it is a regular file (see isRegularFile),
 // - its content looks like a text log (see looksLikeTextLog).
 //
 // Each path is returned at most once, even if the process holds several descriptors to it.
@@ -83,7 +84,7 @@ func DiscoverOpenedLogFilesByProcess(pid int) ([]string, error) {
 		seen[filePath] = struct{}{}
 
 		fileBaseName := filepath.Base(filePath)
-		if !isLogFileName(fileBaseName) {
+		if !isLogFileName(fileBaseName) || !isRegularFile(filePath) {
 			continue
 		}
 
@@ -150,6 +151,12 @@ func hasBinarySignature(b []byte) bool {
 		}
 	}
 	return false
+}
+
+// isRegularFile reports whether path is a regular file. Opening or reading a FIFO can block.
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // sampleFile returns up to the first headLen and last tailLen bytes of filename, read through one descriptor.
