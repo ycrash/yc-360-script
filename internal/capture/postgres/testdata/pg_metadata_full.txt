@@ -25,6 +25,7 @@ inet_server_addr,10.0.4.7
 inet_server_port,5432
 is_in_recovery,false
 postmaster_start_time,2026-07-30T02:11:09.482Z
+uptime_seconds,457295
 stats_reset,2026-07-01T04:00:00.000Z
 version,"PostgreSQL 17.4 on x86_64-pc-linux-gnu, compiled by gcc 12.2.0"
 server_version_num,170004
@@ -68,6 +69,7 @@ agent_on_db_host_by,backend_pid
 agent_on_db_host_evidence,"log_file,server_addr_match"
 agent_on_db_host_reason,
 host_artifacts,captured
+host_metrics_available,true
 has_pg_monitor_role,true
 has_pg_read_all_stats,true
 has_pg_stat_statements,true

@@ -104,6 +104,7 @@ SELECT
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'server_version_num'),
     pg_is_in_recovery(),
     pg_postmaster_start_time(),
+    EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint,
     pg_backend_pid(),
     host(inet_server_addr()),
     inet_server_port(),
@@ -144,6 +145,7 @@ type serverFactsRow struct {
 	serverVersionNum *string
 	isInRecovery     *bool
 	postmasterStart  *time.Time
+	uptimeSeconds    *int64
 	backendPID       *int32
 	inetServerAddr   *string
 	inetServerPort   *int32
@@ -171,6 +173,7 @@ func (r *serverFactsRow) dest() []any {
 		&r.serverVersionNum,
 		&r.isInRecovery,
 		&r.postmasterStart,
+		&r.uptimeSeconds,
 		&r.backendPID,
 		&r.inetServerAddr,
 		&r.inetServerPort,
