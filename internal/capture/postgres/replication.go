@@ -77,8 +77,17 @@ func optionalSlotColumnNames() []string {
 	return names
 }
 
+// retainedBytesColumn is computed, not read from the view: the WAL a slot holds
+// back, placed next to the restart_lsn it is measured from.
+const retainedBytesColumn = "retained_bytes"
+
 // slices.Concat, not append: append would alias stableSlotColumns' backing array.
-var slotColumns = slices.Concat(stableSlotColumns, optionalSlotColumnNames())
+var slotColumns = func() []string {
+	after := slices.Index(stableSlotColumns, "restart_lsn") + 1
+
+	return slices.Concat(stableSlotColumns[:after], []string{retainedBytesColumn},
+		stableSlotColumns[after:], optionalSlotColumnNames())
+}()
 
 // Column-identical on PG 14-18. usesysid casts to text since pgx can't scan oid into
 // *int32 mid-scan; client_addr uses host() to avoid /32 CIDR rendering. Ordered by pid, never a lag column, uncapped since max_wal_senders bounds it.
@@ -106,7 +115,9 @@ FROM pg_catalog.pg_stat_replication
 ORDER BY pid`
 
 // Shared by every version; casts datoid, xmin, catalog_xmin and the two LSN
-// columns to text for sendersSQL's pgx scan-plan reason.
+// columns to text for sendersSQL's pgx scan-plan reason. pg_current_wal_lsn()
+// raises during recovery and would cost the whole statement, so a standby measures
+// retained_bytes against the WAL it has received. numeric, so cast to text too.
 const stableSlotsSelect = `SELECT s.slot_name::text,
        s.plugin::text,
        s.slot_type::text,
@@ -118,6 +129,9 @@ const stableSlotsSelect = `SELECT s.slot_name::text,
        s.xmin::text,
        s.catalog_xmin::text,
        s.restart_lsn::text,
+       pg_wal_lsn_diff(CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn()
+                            ELSE pg_current_wal_lsn() END,
+                       s.restart_lsn)::text,
        s.confirmed_flush_lsn::text,
        s.wal_status::text,
        s.safe_wal_size,
@@ -352,6 +366,7 @@ func senderCells(rows []senderRow) [][]string {
 
 // slotRow: pointer fields' NULLs are meaningful - plugin/datoid/database/
 // confirmed_flush_lsn are NULL by definition for a physical slot; safe_wal_size is NULL cluster-wide while max_slot_wal_keep_size sits at its -1 default.
+// retained_bytes is NULL with restart_lsn, and on a standby that isn't streaming.
 type slotRow struct {
 	slotName          string
 	plugin            *string
@@ -364,6 +379,7 @@ type slotRow struct {
 	xmin              *string
 	catalogXmin       *string
 	restartLSN        *string
+	retainedBytes     *string
 	confirmedFlushLSN *string
 	walStatus         *string
 	safeWALSize       *int64
@@ -411,6 +427,7 @@ func readSlots(ctx context.Context, q RowQuerier) ([]slotRow, *string, error) {
 			&row.xmin,
 			&row.catalogXmin,
 			&row.restartLSN,
+			&row.retainedBytes,
 			&row.confirmedFlushLSN,
 			&row.walStatus,
 			&row.safeWALSize,
@@ -452,6 +469,7 @@ func slotCells(rows []slotRow) [][]string {
 			text(row.xmin),
 			text(row.catalogXmin),
 			text(row.restartLSN),
+			text(row.retainedBytes),
 			text(row.confirmedFlushLSN),
 			text(row.walStatus),
 			int64Text(row.safeWALSize),

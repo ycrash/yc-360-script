@@ -145,8 +145,14 @@ The goldens:
   because it is a cluster GUC rather than a per-slot property, so a fixture
   showing one populated cell beside an empty one would depict something the
   server cannot produce.
-  The block carries **21 columns on every supported version**, the last six read
+  The block carries **22 columns on every supported version**, the last six read
   through `to_jsonb(s) ->> '...'` because 16, 17 and 18 each added some of them.
+  `retained_bytes`, beside `restart_lsn`, is the one column the view doesn't have:
+  the WAL each slot holds back, measured against the current WAL position, or on a
+  standby against the WAL received so far, because `pg_current_wal_lsn()` raises
+  during recovery. The fixture's figures are each `restart_lsn` against the
+  sender's `sent_lsn` in the same sample, and the abandoned logical slot's grows
+  every sample, which is the urgency `active=false` alone can't show.
   `optional_columns=` in the header is which of the six the *server* has, read
   from `pg_attribute` in the same statement — not which are populated:
   `conflicting` is empty on the physical slot because it does not apply, and

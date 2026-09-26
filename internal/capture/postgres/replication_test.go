@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,7 @@ const (
 	colSlotXmin
 	colSlotCatalogXmin
 	colSlotRestartLSN
+	colSlotRetainedBytes
 	colSlotConfirmedFlushLSN
 	colSlotWALStatus
 	colSlotSafeWALSize
@@ -102,7 +104,9 @@ func ordersSenders3() [][]any {
 // testSlotConfirmedFlushLSN stays put while restart_lsn advances: the logical slot is not consuming.
 const testSlotConfirmedFlushLSN = "2A/A1002000"
 
-func ordersSlots(restartLSN string, safeWALSize int64,
+// The retained figures are each slot's restart_lsn measured against the senders'
+// sent_lsn in the same sample, so the fixture's numbers agree with its LSNs.
+func ordersSlots(restartLSN, logicalRetained, physicalRetained string, safeWALSize int64,
 	inactiveSince *time.Time, optionalColumns string,
 ) [][]any {
 	present := func(v any) any {
@@ -122,7 +126,8 @@ func ordersSlots(restartLSN string, safeWALSize int64,
 		{
 			"orders_cdc_slot", ptr("pgoutput"), ptr("logical"), ptr("16401"), ptr("orders_db"),
 			ptr(false), ptr(false), nil, nil, ptr("5518821"),
-			ptr(testSlotConfirmedFlushLSN), ptr(testSlotConfirmedFlushLSN), ptr("extended"), ptr(safeWALSize), ptr(true),
+			ptr(testSlotConfirmedFlushLSN), ptr(logicalRetained), ptr(testSlotConfirmedFlushLSN),
+			ptr("extended"), ptr(safeWALSize), ptr(true),
 			present(ptr(false)), present(ptr(false)), present(inactiveSince), nil,
 			present(ptr(false)), nil,
 			probe,
@@ -130,15 +135,16 @@ func ordersSlots(restartLSN string, safeWALSize int64,
 		{
 			"replica_01_slot", nil, ptr("physical"), nil, nil,
 			ptr(false), ptr(true), ptr(int32(4021)), nil, nil,
-			ptr(restartLSN), nil, ptr("reserved"), ptr(int64(3221225472)), ptr(false),
+			ptr(restartLSN), ptr(physicalRetained), nil, ptr("reserved"), ptr(int64(3221225472)), ptr(false),
 			nil, present(ptr(false)), nil, nil, present(ptr(false)), nil,
 			probe,
 		},
 	}
 }
 
-func ordersSlotsPG18(restartLSN string, safeWALSize int64) [][]any {
-	return ordersSlots(restartLSN, safeWALSize, &testSlotInactiveSince, pg18OptionalColumns)
+func ordersSlotsPG18(restartLSN, logicalRetained, physicalRetained string, safeWALSize int64) [][]any {
+	return ordersSlots(restartLSN, logicalRetained, physicalRetained, safeWALSize,
+		&testSlotInactiveSince, pg18OptionalColumns)
 }
 
 type fakeReplicationConn struct {
@@ -160,9 +166,9 @@ func newFakeReplicationConn() *fakeReplicationConn {
 			rowsResult(ordersSenders3()),
 		),
 		slots: queue(
-			rowsResult(ordersSlotsPG18("2A/B3FF0000", 1073741824)),
-			rowsResult(ordersSlotsPG18("2A/B41C0000", 1071644672)),
-			rowsResult(ordersSlotsPG18("2A/B4370000", 1069547520)),
+			rowsResult(ordersSlotsPG18("2A/B3FF0000", "318763520", "70144", 1073741824)),
+			rowsResult(ordersSlotsPG18("2A/B41C0000", "320612480", "18560", 1071644672)),
+			rowsResult(ordersSlotsPG18("2A/B4370000", "322429248", "65856", 1069547520)),
 		),
 	}
 }
@@ -288,6 +294,7 @@ func TestReplicationColumnOrder(t *testing.T) {
 		"xmin",
 		"catalog_xmin",
 		"restart_lsn",
+		"retained_bytes",
 		"confirmed_flush_lsn",
 		"wal_status",
 		"safe_wal_size",
@@ -304,10 +311,17 @@ func TestReplicationColumnOrder(t *testing.T) {
 		"the join key leads here too, and it is a better one than pid: slot names are unique "+
 			"and survive a restart")
 
-	assert.Equal(t, stableSlotColumns, slotColumns[:len(stableSlotColumns)],
+	viewColumns := slices.Delete(slices.Clone(slotColumns), colSlotRetainedBytes, colSlotRetainedBytes+1)
+
+	assert.Equal(t, stableSlotColumns, viewColumns[:len(stableSlotColumns)],
 		"the optional names are appended to the stable set rather than restated, so the column "+
 			"header cannot promise a column the body does not carry")
-	assert.Equal(t, optionalSlotColumnNames(), slotColumns[len(stableSlotColumns):])
+	assert.Equal(t, optionalSlotColumnNames(), viewColumns[len(stableSlotColumns):])
+
+	assert.Equal(t, retainedBytesColumn, slotColumns[colSlotRestartLSN+1],
+		"the one computed column, next to the restart_lsn it is measured from")
+	assert.NotContains(t, stableSlotColumns, retainedBytesColumn,
+		"and not a view column, so the matrix's check of the view's columns leaves it out")
 }
 
 func TestReplicationOptionalColumnsAreOneDeclaration(t *testing.T) {
@@ -345,12 +359,12 @@ func TestReplicationOptionalColumnsHeaderKey(t *testing.T) {
 	}{
 		{
 			name:  "PostgreSQL 18 has all six, and the header says so",
-			slots: ordersSlotsPG18("2A/B3FF0000", 1073741824),
+			slots: ordersSlotsPG18("2A/B3FF0000", "318763520", "70144", 1073741824),
 			want:  "optional_columns=" + pg18OptionalColumns,
 		},
 		{
 			name:  "PostgreSQL 16 has one",
-			slots: ordersSlots("2A/B3FF0000", 1073741824, nil, "conflicting"),
+			slots: ordersSlots("2A/B3FF0000", "318763520", "70144", 1073741824, nil, "conflicting"),
 			want:  "optional_columns=conflicting",
 		},
 	} {
@@ -366,7 +380,7 @@ func TestReplicationOptionalColumnsHeaderKey(t *testing.T) {
 
 	t.Run("PostgreSQL 14 and 15 have none, so the key is absent rather than empty", func(t *testing.T) {
 		conn := newFakeReplicationConn()
-		conn.slots = repeat(rowsResult(ordersSlots("2A/B3FF0000", 1073741824, nil, "")))
+		conn.slots = repeat(rowsResult(ordersSlots("2A/B3FF0000", "318763520", "70144", 1073741824, nil, "")))
 
 		block := capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"]
 
@@ -670,6 +684,41 @@ func TestReplicationSlotNullsAreMeaningfulAndNeverZero(t *testing.T) {
 		"the bytes remaining before this slot is lost")
 }
 
+func TestReplicationRetainedBytesIsMeasuredPerSlot(t *testing.T) {
+	rows := capacityBlocks(t, takeReplicationSample(t, newFakeReplicationConn()))["pg_replication_slots"].
+		rows(t, slotColumns)
+	require.Len(t, rows, 2)
+
+	assert.Equal(t, "318763520", rows[0][colSlotRetainedBytes],
+		"the abandoned logical slot's hold on WAL: its urgency, which active=false alone can't show")
+	assert.Equal(t, "70144", rows[1][colSlotRetainedBytes])
+}
+
+func TestReplicationRetainedBytesEmptyWithoutRestartLSNAndZeroIsAReading(t *testing.T) {
+	slots := ordersSlotsPG18("2A/B3FF0000", "318763520", "70144", 1073741824)
+	slots[0][colSlotRetainedBytes] = ptr("0")
+	slots[1][colSlotRestartLSN] = nil
+	slots[1][colSlotRetainedBytes] = nil
+
+	conn := newFakeReplicationConn()
+	conn.slots = repeat(rowsResult(slots))
+
+	rows := capacityBlocks(t, takeReplicationSample(t, conn))["pg_replication_slots"].
+		rows(t, slotColumns)
+	require.Len(t, rows, 2)
+
+	assert.Equal(t, "0", rows[0][colSlotRetainedBytes], "a caught-up slot retains nothing, and says so")
+	assert.Empty(t, rows[1][colSlotRetainedBytes],
+		"a slot that reserved no WAL has nothing to measure, which is not zero")
+}
+
+func TestReplicationRetainedBytesSurvivesAStandby(t *testing.T) {
+	assert.Contains(t, slotsSQL, "CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn()")
+	assert.Contains(t, slotsSQL, "ELSE pg_current_wal_lsn() END")
+	assert.NotContains(t, slotsSQL, "pg_wal_lsn_diff(pg_current_wal_lsn()",
+		"pg_current_wal_lsn() raises during recovery, which would cost a standby its whole slots block")
+}
+
 func TestReplicationStatementsAreOrderedOnAKeyAndUncapped(t *testing.T) {
 	conn := newFakeReplicationConn()
 
@@ -709,6 +758,7 @@ func TestReplicationCastsEveryColumnTheDriverHasNoPlanFor(t *testing.T) {
 		"s.xmin::text",
 		"s.catalog_xmin::text",
 		"s.restart_lsn::text",
+		"s.restart_lsn)::text",
 		"s.confirmed_flush_lsn::text",
 	} {
 		assert.Contains(t, slotsSQL, cast)
@@ -735,9 +785,9 @@ func TestReplicationGoldenFull(t *testing.T) {
 func TestReplicationGoldenPre16(t *testing.T) {
 	conn := newFakeReplicationConn()
 	conn.slots = queue(
-		rowsResult(ordersSlots("2A/B3FF0000", 1073741824, nil, "")),
-		rowsResult(ordersSlots("2A/B41C0000", 1071644672, nil, "")),
-		rowsResult(ordersSlots("2A/B4370000", 1069547520, nil, "")),
+		rowsResult(ordersSlots("2A/B3FF0000", "318763520", "70144", 1073741824, nil, "")),
+		rowsResult(ordersSlots("2A/B41C0000", "320612480", "18560", 1071644672, nil, "")),
+		rowsResult(ordersSlots("2A/B4370000", "322429248", "65856", 1069547520, nil, "")),
 	)
 
 	results := runReplicationWindow(t, replicationGoldenClock(t), connectTo(conn))
