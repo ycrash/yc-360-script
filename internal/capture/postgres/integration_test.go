@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1362,6 +1363,121 @@ WHERE source != 'default' AND source != 'override'`)
 				}
 			})
 		}
+	}
+}
+
+func runMatrixCatalogMapWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{CatalogMap{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+// matrixCatalogMap runs a capture and returns its pg_class, pg_namespace and
+// pg_database blocks, each checked for its scope and columns.
+func matrixCatalogMap(t *testing.T, target Target) (classes, namespaces, databases capacityMatrixBlock) {
+	t.Helper()
+
+	results := runMatrixCatalogMapWindow(t, target)
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].IOErr)
+
+	require.Equal(t, StatusComplete, results[0].Status, "complete for every role: the catalogs need no grant")
+	require.Equal(t, 1, results[0].SamplesWritten, "read once")
+
+	artifact := matrixArtifactText(t, results[0])
+	assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+	blocks := make([]capacityMatrixBlock, len(catalogBlocks))
+
+	for i, want := range catalogBlocks {
+		found := parseCapacityBlocks(t, artifact, want.source)
+		require.Len(t, found, 1, "one %s block", want.source)
+
+		blocks[i] = found[0]
+		assert.Equal(t, want.scope, blocks[i].header["scope"], want.source)
+		assert.Equal(t, want.columns, blocks[i].columns, want.source)
+		assert.NotContains(t, blocks[i].header, "error", want.source)
+		assert.Equal(t, target.Database, blocks[i].header["db"], want.source)
+		assert.Equal(t, "1", blocks[i].header["sample"], want.source)
+	}
+
+	return blocks[0], blocks[1], blocks[2]
+}
+
+func catalogNamesByOID(block capacityMatrixBlock) map[string]string {
+	names := map[string]string{}
+
+	for _, row := range block.rows {
+		names[row[0]] = row[1]
+	}
+
+	return names
+}
+
+func TestMatrixCatalogMap(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				want := matrixQuery(t, target, `SELECT
+    (SELECT count(*) FROM pg_catalog.pg_class WHERE relkind IN ('r', 'i', 'm', 'p'))::text,
+    (SELECT count(*) FROM pg_catalog.pg_namespace)::text,
+    (SELECT string_agg(datname::text, ',' ORDER BY datname COLLATE "C") FROM pg_catalog.pg_database)`)
+
+				classes, namespaces, databases := matrixCatalogMap(t, target)
+
+				assert.Equal(t, *want[0], strconv.Itoa(len(classes.rows)), "every table, index, materialized view and partitioned table")
+				assert.Equal(t, *want[1], strconv.Itoa(len(namespaces.rows)), "every schema")
+
+				databaseNames := slices.Sorted(maps.Values(catalogNamesByOID(databases)))
+				assert.Equal(t, *want[2], strings.Join(databaseNames, ","), "every database in the cluster")
+				assert.Equal(t, "postgres", catalogNamesByOID(databases)[classes.header["dbid"]],
+					"the connected database is among them, under the oid the header gives")
+
+				schemas := catalogNamesByOID(namespaces)
+				byName := map[string][]string{}
+
+				for _, row := range classes.rows {
+					assert.Contains(t, []string{"r", "i", "m", "p"}, row[3], "%s's relkind", row[1])
+					assert.Contains(t, schemas, row[2], "%s's schema is in the namespace block", row[1])
+
+					byName[schemas[row[2]]+"."+row[1]] = row
+				}
+
+				require.Contains(t, byName, "public.yc_bloat_parted")
+				assert.Equal(t, "p", byName["public.yc_bloat_parted"][3], "a partitioned table")
+				require.Contains(t, byName, "public.yc_bloat_parted_p1")
+				assert.Equal(t, "r", byName["public.yc_bloat_parted_p1"][3], "and its partition")
+				assert.Contains(t, byName, "yc_bulk.t001", "a table in a schema of its own")
+				assert.Contains(t, byName, "pg_catalog.pg_class_oid_index", "the system catalogs too")
+			})
+		}
+	}
+}
+
+func TestMatrixCatalogMapNamesOnlyTheConnectedDatabasesObjects(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			classes, namespaces, databases := matrixCatalogMap(t,
+				matrixTargetDB(server, matrixRoles[len(matrixRoles)-1], matrixSecondDB))
+
+			for _, row := range classes.rows {
+				assert.NotEqual(t, "yc_bloat_parted", row[1], "postgres' tables are not in %s's pg_class", matrixSecondDB)
+			}
+
+			assert.NotContains(t, slices.Collect(maps.Values(catalogNamesByOID(namespaces))), "yc_bulk",
+				"nor its schemas in pg_namespace")
+			assert.Contains(t, slices.Collect(maps.Values(catalogNamesByOID(databases))), "postgres",
+				"while pg_database is the cluster's, from any database")
+		})
 	}
 }
 

@@ -119,6 +119,19 @@ The goldens:
 - `pg_nondefault_settings_connect_failure.txt` and
   `pg_nondefault_settings_sample_error.txt` — the two regimes, on the same clock
   as the `pg_bloat_*` counterparts.
+- `pg_catalog_map_full.txt` — read once, at the start: three blocks naming the
+  OIDs `pg_locks` holds. `pg_class` (tables, indexes, materialized views and
+  partitioned tables), `pg_namespace` and `pg_database`, every row in the
+  catalog's own order, with no sort and no cap. The first two are
+  `scope=database`: they are the connected database's own catalogs, so a lock in
+  another database keeps its OIDs. `pg_database` is `scope=cluster`. Blocks carry
+  `sample=1`, as `pg_metadata.txt`'s server block does. Uploads under
+  `dt=pgCatalogMap`, proposed and unconfirmed.
+- `pg_catalog_map_connect_failure.txt` — two lines, `samples_expected=1`.
+- `pg_catalog_map_block_error.txt` — the `pg_class` read timed out: its block
+  carries `error=` and the column header with no rows, the other two blocks are
+  whole, and the artifact is `status=complete`, as `pg_capacity.txt` is with a
+  refused block.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -636,7 +649,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `nondefaultsettings_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `nondefaultsettings_test.go`, `catalogmap_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 

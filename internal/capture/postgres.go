@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the fourteen below must equal
+// PostgresMetadataFileName and the fifteen below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -83,6 +83,10 @@ const PostgresNonDefaultSettingsFileName = "pg_nondefault_settings.txt"
 
 const pgDTNonDefaultSettings = "pgSettings"
 
+const PostgresCatalogMapFileName = "pg_catalog_map.txt"
+
+const pgDTCatalogMap = "pgCatalogMap"
+
 // pgSampledDataType returns "" for an artifact with no dt at all: an invented
 // value would upload and drop silently, so the caller writes the artifact but
 // skips the upload with an explicit reason instead. No shipped artifact takes
@@ -134,6 +138,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_nondefault_settings":
 		return pgDTNonDefaultSettings
+
+	case "pg_catalog_map":
+		return pgDTCatalogMap
 	}
 
 	return ""
@@ -212,6 +219,9 @@ func (p *PostgresCapture) Run() (Result, error) {
 		// tablespaces, slow queries), so a tick that runs long is late with the
 		// expensive reading rather than the cheap ones.
 		//
+		// The catalog map is read once, at t0, straight after pg_metadata and
+		// before the whole-table reads.
+		//
 		// pg_explain goes last on both counts: on every tick it walks slowQueries'
 		// read of that tick, and at t0 its log tail then opens past the agent's own
 		// first plans.
@@ -225,6 +235,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.Replication{Interval: interval},
 			postgres.NonDefaultSettings{Interval: interval},
 			metadata,
+			postgres.CatalogMap{},
 			postgres.Capacity{Interval: interval},
 			postgres.Bloat{Interval: interval},
 			postgres.IndexUsage{Interval: interval},
