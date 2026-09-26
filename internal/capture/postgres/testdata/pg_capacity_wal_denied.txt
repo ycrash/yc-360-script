@@ -13,7 +13,7 @@ application_name,backend_type,active_connections
 inventory-service,client backend,31
 orders-service,client backend,86
 reporting-worker,client backend,14
-yc-360-postgres-capture,client backend,1
+yCrash-DB-Agent,client backend,1
 # engine=postgres source=pg_ls_waldir v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 error="ERROR: permission denied for function pg_ls_waldir (SQLSTATE 42501)" ts=2026-08-07T14:32:05.061Z
 wal_bytes
 # engine=postgres source=pg_checkpointer v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 views=pg_stat_checkpointer,pg_stat_bgwriter ts=2026-08-07T14:34:05.055Z
@@ -30,7 +30,7 @@ application_name,backend_type,active_connections
 inventory-service,client backend,31
 orders-service,client backend,86
 reporting-worker,client backend,14
-yc-360-postgres-capture,client backend,1
+yCrash-DB-Agent,client backend,1
 # engine=postgres source=pg_ls_waldir v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 error="ERROR: permission denied for function pg_ls_waldir (SQLSTATE 42501)" ts=2026-08-07T14:34:05.055Z
 wal_bytes
 # engine=postgres source=pg_capacity v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.070Z

@@ -197,7 +197,7 @@ The goldens:
   it slightly after a wait begins.
 
   Row 1116 is the capture's own backend, identifiable by
-  `application_name=yc-360-postgres-capture` and captured like every other
+  `application_name=yCrash-DB-Agent` and captured like every other
   session: the requirements document asks for `WHERE pid <> pg_backend_pid()`
   and this statement has no `WHERE` clause at all, so the row count agrees with
   `pg_capacity.txt`'s and the server drops the row if it wants to. `datid`,
