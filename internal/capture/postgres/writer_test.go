@@ -44,6 +44,7 @@ func fullArtifactMetadata() Metadata {
 		InetServerPort:      "5432",
 		IsInRecovery:        "false",
 		PostmasterStartTime: timestamp(testPostmasterStart),
+		UptimeSeconds:       "457295",
 		StatsReset:          timestamp(testStatsReset),
 		Version:             "PostgreSQL 17.4 on x86_64-pc-linux-gnu, compiled by gcc 12.2.0",
 		ServerVersionNum:    "170004",
@@ -471,6 +472,21 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 	assert.Equal(t, ExplainModeAll, values["explain_mode"],
 		"the run's intent, in the block written before dialling")
 	assert.Equal(t, "verbatim", values["explain_literals"])
+}
+
+func TestHostMetricsAvailableRestatesHostArtifacts(t *testing.T) {
+	for artifacts, want := range map[string]string{
+		HostArtifactsCaptured: "true",
+		HostArtifactsSkipped:  "false",
+		"":                    "false",
+	} {
+		m := fullArtifactMetadata()
+		m.HostArtifacts = artifacts
+
+		_, values, _ := parseArtifact(t, writeArtifact(t, m))
+		assert.Equal(t, want, values["host_metrics_available"],
+			"host_artifacts=%q: true only when the host files describe the database's machine", artifacts)
+	}
 }
 
 type failingWriter struct{ err error }

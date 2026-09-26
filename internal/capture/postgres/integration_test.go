@@ -406,6 +406,16 @@ func assertServerFacts(t *testing.T, server matrixServer, role matrixRole, value
 	assert.GreaterOrEqual(t, versionNum, server.major*10000)
 	assert.Less(t, versionNum, (server.major+1)*10000)
 
+	uptime, err := strconv.ParseInt(values["uptime_seconds"], 10, 64)
+	require.NoError(t, err, "uptime_seconds is a whole number, for every role")
+
+	started, err := time.Parse(timestampLayout, values["postmaster_start_time"])
+	require.NoError(t, err)
+	serverNow, err := time.Parse(timestampLayout, values["server_now"])
+	require.NoError(t, err)
+	assert.InDelta(t, serverNow.Sub(started).Seconds(), float64(uptime), 1,
+		"now() less the start, read in the same statement and rounded to the second")
+
 	for _, key := range []string{
 		"backend_pid",
 		"postmaster_start_time",
@@ -512,6 +522,8 @@ func assertSameHost(t *testing.T, server matrixServer, role matrixRole, values m
 
 	require.Contains(t, []string{HostArtifactsCaptured, HostArtifactsSkipped}, values["host_artifacts"],
 		"the gate always records what it did")
+	assert.Equal(t, strconv.FormatBool(values["host_artifacts"] == HostArtifactsCaptured), values["host_metrics_available"],
+		"host_metrics_available says the same as host_artifacts")
 
 	if verdict == OnDBHostYes {
 		assert.Empty(t, reason, "a yes carries no reason")

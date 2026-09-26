@@ -76,6 +76,7 @@ func serverFields(m Metadata) []field {
 		{"inet_server_port", m.InetServerPort},
 		{"is_in_recovery", m.IsInRecovery},
 		{"postmaster_start_time", m.PostmasterStartTime},
+		{"uptime_seconds", m.UptimeSeconds},
 		{"stats_reset", m.StatsReset},
 		{"version", m.Version},
 		{"server_version_num", m.ServerVersionNum},
@@ -122,6 +123,11 @@ func serverFields(m Metadata) []field {
 		{"agent_on_db_host_evidence", m.AgentOnDBHostEvidence},
 		{"agent_on_db_host_reason", m.AgentOnDBHostReason},
 		{"host_artifacts", m.HostArtifacts},
+
+		// host_artifacts said again as a true|false flag: whether this capture's
+		// host files describe the database's machine. Derived here, so the two
+		// cannot disagree.
+		{"host_metrics_available", strconv.FormatBool(m.HostArtifacts == HostArtifactsCaptured)},
 
 		{"has_pg_monitor_role", m.HasPgMonitorRole},
 		{"has_pg_read_all_stats", m.HasPgReadAllStats},

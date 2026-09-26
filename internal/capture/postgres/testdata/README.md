@@ -14,7 +14,9 @@ The goldens:
   block's `target_tls_*` rows are the `tls:` settings the connection uses, and
   `target_sslmode` the libpq mode they amount to; `target_tls_ca_file` is
   `system` when the certificate is verified against the system's trust store,
-  and empty when nothing is verified. The split is
+  and empty when nothing is verified. The server block's `uptime_seconds` is
+  the server's `now()` less `postmaster_start_time`, and
+  `host_metrics_available` restates `host_artifacts` as true or false. The split is
   the seam the capture already had — what was configured is knowable before
   the network, what the server said is not — so the block a reader can rely on
   is the one that is always there. **The tablespace block (2026-09-02) is the

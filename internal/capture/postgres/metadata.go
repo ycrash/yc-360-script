@@ -80,9 +80,14 @@ type Metadata struct {
 	InetClientPort      string
 	IsInRecovery        string
 	PostmasterStartTime string
-	StatsReset          string
-	Version             string
-	ServerVersionNum    string
+
+	// UptimeSeconds is now() less postmaster_start_time, in whole seconds, on the
+	// server's clock.
+	UptimeSeconds string
+
+	StatsReset       string
+	Version          string
+	ServerVersionNum string
 
 	// Unavailable settings (no permission, or not in this version) are empty and named in
 	// SettingsUnavailable.
@@ -465,6 +470,7 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 	m.InetClientPort = int32Text(row.inetClientPort)
 	m.IsInRecovery = boolText(row.isInRecovery)
 	m.PostmasterStartTime = timeText(row.postmasterStart)
+	m.UptimeSeconds = int64Text(row.uptimeSeconds)
 	m.StatsReset = timeText(row.statsReset)
 	m.Version = text(row.version)
 	m.ServerVersionNum = text(row.serverVersionNum)

@@ -21,6 +21,7 @@ const (
 	colServerVersionNum
 	colIsInRecovery
 	colPostmasterStart
+	colUptimeSeconds
 	colBackendPID
 	colInetServerAddr
 	colInetServerPort
@@ -129,6 +130,7 @@ func serverFactsValues() []any {
 	v[colServerVersionNum] = ptr("150004")
 	v[colIsInRecovery] = ptr(false)
 	v[colPostmasterStart] = ptr(testPostmasterStart)
+	v[colUptimeSeconds] = ptr(int64(457295))
 	v[colBackendPID] = ptr(int32(48211))
 	v[colInetServerAddr] = ptr("10.0.4.7")
 	v[colInetServerPort] = ptr(int32(5432))
@@ -271,6 +273,16 @@ func collect(t *testing.T, q RowQuerier) Metadata {
 	t.Helper()
 
 	return Collect(context.Background(), q, testTarget(), testAgentNow)
+}
+
+func TestServerFactsReadsUptimeAsWholeSeconds(t *testing.T) {
+	assert.Contains(t, serverFactsSQL, "EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint",
+		"the server's clock at the statement, less its start")
+
+	q := healthyQuerier()
+	q.serverFacts.values[colUptimeSeconds] = (*int64)(nil)
+
+	assert.Empty(t, collect(t, q).UptimeSeconds, "NULL is an empty cell, never 0")
 }
 
 func TestServerFactsColumnAlignment(t *testing.T) {
