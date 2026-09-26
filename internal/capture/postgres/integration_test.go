@@ -2260,12 +2260,19 @@ func assertMatrixSlotsRoundTrip(t *testing.T, block capacityMatrixBlock) {
 			"this is not a lost slot, it is a slot that has reserved nothing")
 	assert.Empty(t, block.cell(t, plain, "plugin"),
 		"NULL for a physical slot by definition, never an empty plugin name")
+	assert.Empty(t, block.cell(t, plain, "retained_bytes"),
+		"with no restart_lsn there is nothing to measure, which is not zero")
 
 	reserved := block.rowWhere(t, "slot_name", matrixReservedSlot)
 
 	assert.Equal(t, "reserved", block.cell(t, reserved, "wal_status"))
 	assert.NotEmpty(t, block.cell(t, reserved, "restart_lsn"),
 		"immediately_reserve is what puts a value in both columns")
+
+	retained, err := strconv.ParseInt(block.cell(t, reserved, "retained_bytes"), 10, 64)
+	require.NoError(t, err, "retained_bytes is a whole number of bytes")
+	assert.GreaterOrEqual(t, retained, int64(0),
+		"on a primary the current WAL position is never behind a slot's restart_lsn")
 
 	for _, row := range [][]string{plain, reserved} {
 		assert.Empty(t, block.cell(t, row, "safe_wal_size"),
