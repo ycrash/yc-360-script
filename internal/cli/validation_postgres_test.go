@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"yc-agent/internal/config"
@@ -93,6 +96,38 @@ func TestValidatePostgres(t *testing.T) {
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
 	})
 
+	t.Run("a config file open to group or others stops the run", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no owner, group and other bits to check on Windows")
+		}
+
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			Host:     "db-prod-01.internal",
+			Username: "ycrash_monitor",
+		})
+		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o644)
+
+		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(),
+			"whatever the password holds: the file carries the host, port and user name")
+	})
+
+	t.Run("an owner-only config file passes", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			Host:     "db-prod-01.internal",
+			Username: "ycrash_monitor",
+		})
+		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o600)
+
+		require.NoError(t, validate())
+	})
+
+	t.Run("an application capture's config file keeps whatever mode it has", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(nil)
+		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o644)
+
+		require.NoError(t, validate(), "no postgres block, no check")
+	})
+
 	t.Run("invalid sslmode stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
@@ -102,4 +137,14 @@ func TestValidatePostgres(t *testing.T) {
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
 	})
+}
+
+func configFileWithMode(t *testing.T, mode os.FileMode) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "db.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("options:\n"), 0o600))
+	require.NoError(t, os.Chmod(path, mode), "explicitly, since WriteFile's mode is masked by the umask")
+
+	return path
 }

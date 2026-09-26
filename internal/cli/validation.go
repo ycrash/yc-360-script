@@ -83,6 +83,13 @@ func validate() error {
 	}
 
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
+		// Only with a postgres block: a config file for an application capture holds
+		// no database settings, and keeps whatever mode it has.
+		if err := config.CheckConfigFilePermissions(config.GlobalConfig.ConfigPath); err != nil {
+			logger.Error().Msgf("%v", err)
+			return ErrInvalidArgumentCantContinue
+		}
+
 		warnings, err := pg.Validate()
 
 		for _, w := range warnings {
