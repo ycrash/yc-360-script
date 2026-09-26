@@ -225,7 +225,7 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	assert.Equal(t, want, keys)
 	assert.Len(t, serverBlockFields(full), 68,
 		"log_access and log_access_reason plus serverFields' sixty-six, and no connect_error row")
-	assert.Len(t, targetFields(full), 9)
+	assert.Len(t, targetFields(full), 13)
 
 	assert.Equal(t, LogAccessDirect, values["log_access"])
 	assert.Equal(t, "3.6.1", values["yc360_version"])
@@ -393,6 +393,10 @@ func TestCollect(t *testing.T) {
 	assert.Equal(t, "orders_db", m.TargetDatabase)
 	assert.Equal(t, "ycrash_monitor", m.TargetUsername)
 	assert.Equal(t, "require", m.TargetSSLMode)
+	assert.Equal(t, "true", m.TargetTLSEnabled)
+	assert.Equal(t, "false", m.TargetTLSVerify)
+	assert.Empty(t, m.TargetTLSCAFile)
+	assert.Empty(t, m.TargetTLSServerName)
 	assert.Equal(t, testAgentNow, m.AgentTS)
 
 	assert.Equal(t, "orders_db", m.CurrentDatabase)

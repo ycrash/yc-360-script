@@ -77,7 +77,7 @@ func matrixTarget(server matrixServer, role matrixRole) Target {
 		Username: role.user,
 		Password: role.password,
 
-		SSLMode: "disable",
+		TLS: TLS{Disabled: true},
 	}
 }
 
@@ -2284,7 +2284,7 @@ func matrixStartWALSender(t *testing.T, server matrixServer) (stop func()) {
 	config, err := pgconn.ParseConfig(fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
 		target.Host, target.Port, target.Username, target.Password,
-		target.Database, target.SSLMode))
+		target.Database, target.TLS.SSLMode()))
 	require.NoError(t, err)
 
 	config.RuntimeParams["replication"] = "database"
@@ -2809,7 +2809,7 @@ func matrixWritableConn(t *testing.T, server matrixServer) *pgconn.PgConn {
 	config, err := pgconn.ParseConfig(fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
 		target.Host, target.Port, target.Username, target.Password,
-		target.Database, target.SSLMode))
+		target.Database, target.TLS.SSLMode()))
 	require.NoError(t, err)
 
 	config.RuntimeParams["application_name"] = matrixChainAppName
@@ -3152,7 +3152,7 @@ func matrixDDL(t *testing.T, server matrixServer, database string, statements ..
 	config, err := pgconn.ParseConfig(fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
 		target.Host, target.Port, target.Username, target.Password,
-		target.Database, target.SSLMode))
+		target.Database, target.TLS.SSLMode()))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
@@ -3901,7 +3901,7 @@ func matrixLogConn(t *testing.T, server matrixServer, database string) *pgconn.P
 	config, err := pgconn.ParseConfig(fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
 		target.Host, target.Port, target.Username, target.Password,
-		target.Database, target.SSLMode))
+		target.Database, target.TLS.SSLMode()))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
@@ -5444,7 +5444,7 @@ func sameHostTarget(t *testing.T) Target {
 		Database: envOrDefault("YC_PG_SAME_HOST_DATABASE", "postgres"),
 		Username: envOrDefault("YC_PG_SAME_HOST_USER", "yc_monitor"),
 		Password: envOrDefault("YC_PG_SAME_HOST_PASSWORD", "yc-monitor-pw"),
-		SSLMode:  "disable",
+		TLS:      TLS{Disabled: true},
 	}
 }
 
