@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the twelve below must equal
+// PostgresMetadataFileName and the thirteen below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -58,10 +58,10 @@ const PostgresTimeoutsFileName = "pg_timeouts.txt"
 
 const pgDTTimeouts = "pgTimeouts"
 
-// The three newest artifacts upload under dt values the agent proposed, ahead of
-// the receiver having them. A receiver that does not know a dt accepts the upload
-// and throws the file away with no error at either end, so a reported success for
-// these three is not yet proof of arrival; the bundle carries the files
+// The newest artifacts, from here down, upload under dt values the agent proposed,
+// ahead of the receiver having them. A receiver that does not know a dt accepts
+// the upload and throws the file away with no error at either end, so a reported
+// success for these is not yet proof of arrival; the bundle carries the files
 // regardless.
 const PostgresIndexUsageFileName = "pg_index_usage.txt"
 
@@ -74,6 +74,10 @@ const pgDTTablespaces = "pgTablespaces"
 const PostgresCheckpointLogFileName = "pg_checkpoint_log.txt"
 
 const pgDTCheckpointLog = "pgCheckpointLog"
+
+const PostgresXIDAgeFileName = "pg_xid_age.txt"
+
+const pgDTXIDAge = "pgXidAge"
 
 // pgSampledDataType returns "" for an artifact with no dt at all: an invented
 // value would upload and drop silently, so the caller writes the artifact but
@@ -120,6 +124,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_checkpoint_log":
 		return pgDTCheckpointLog
+
+	case "pg_xid_age":
+		return pgDTXIDAge
 	}
 
 	return ""
@@ -207,6 +214,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.NewCheckpointLog(),
 			postgres.Sessions{Interval: interval},
 			postgres.Health{Interval: interval},
+			postgres.XIDAge{Interval: interval},
 			postgres.Replication{Interval: interval},
 			metadata,
 			postgres.Capacity{Interval: interval},
