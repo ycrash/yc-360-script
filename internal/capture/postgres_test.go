@@ -160,6 +160,7 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTCheckpointLog":      pgDTCheckpointLog,
 		"pgDTXIDAge":             pgDTXIDAge,
 		"pgDTNonDefaultSettings": pgDTNonDefaultSettings,
+		"pgDTCatalogMap":         pgDTCatalogMap,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
@@ -193,6 +194,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_checkpoint_log.txt", PostgresCheckpointLogFileName)
 	assert.Equal(t, "pg_xid_age.txt", PostgresXIDAgeFileName)
 	assert.Equal(t, "pg_nondefault_settings.txt", PostgresNonDefaultSettingsFileName)
+	assert.Equal(t, "pg_catalog_map.txt", PostgresCatalogMapFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -206,7 +208,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 15, "every artifact the run writes is named here")
+	assert.Len(t, seen, 16, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -258,6 +260,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Equal(t, pgDTNonDefaultSettings, pgSampledDataType(postgres.NonDefaultSettings{}.Artifact()),
 		"and pg_nondefault_settings.txt")
+
+	assert.Equal(t, pgDTCatalogMap, pgSampledDataType(postgres.CatalogMap{}.Artifact()),
+		"and pg_catalog_map.txt")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no dt at all is still refused rather than guessed at - the "+
@@ -314,6 +319,10 @@ func TestPostgresXIDAgeFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresNonDefaultSettingsFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresNonDefaultSettingsFileName, postgres.NonDefaultSettings{}.Artifact().FileName)
+}
+
+func TestPostgresCatalogMapFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresCatalogMapFileName, postgres.CatalogMap{}.Artifact().FileName)
 }
 
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
@@ -536,6 +545,7 @@ var postgresArtifactFiles = []string{
 	PostgresReplicationFileName,
 	PostgresNonDefaultSettingsFileName,
 	PostgresMetadataFileName,
+	PostgresCatalogMapFileName,
 	PostgresCapacityFileName,
 	PostgresBloatFileName,
 	PostgresIndexUsageFileName,
@@ -594,6 +604,8 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and pg_xid_age.txt, on the cadence")
 	assert.Contains(t, result.Msg, PostgresNonDefaultSettingsFileName+" written (0/2 samples); postgres connect failed",
 		"and pg_nondefault_settings.txt")
+	assert.Contains(t, result.Msg, PostgresCatalogMapFileName+" written (0/1 samples); postgres connect failed",
+		"and pg_catalog_map.txt, read once")
 	assert.Equal(t, len(postgresArtifactsAwaitingDT), strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
 		"and exactly the held-back ones say why, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
@@ -606,6 +618,12 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		strings.Index(result.Msg, PostgresBloatFileName),
 		"capacity samples before bloat on every shared tick: registration order is sampling "+
 			"order, and the run's message lists the artifacts in it")
+	assert.Less(t, strings.Index(result.Msg, PostgresMetadataFileName),
+		strings.Index(result.Msg, PostgresCatalogMapFileName),
+		"the catalog map is read at the start, right after pg_metadata")
+	assert.Less(t, strings.Index(result.Msg, PostgresCatalogMapFileName),
+		strings.Index(result.Msg, PostgresCapacityFileName),
+		"and before the whole-table reads")
 	assert.Less(t, strings.Index(result.Msg, PostgresBloatFileName),
 		strings.Index(result.Msg, PostgresIndexUsageFileName),
 		"and bloat before index usage: the table reading before the reading that joins to it")
@@ -736,6 +754,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		pgDTCheckpointLog:      "source=pg_checkpoint_log",
 		pgDTXIDAge:             "source=pg_xid_age",
 		pgDTNonDefaultSettings: "source=pg_nondefault_settings",
+		pgDTCatalogMap:         "source=pg_catalog_map",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",

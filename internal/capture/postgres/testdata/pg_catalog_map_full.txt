@@ -1,0 +1,31 @@
+# engine=postgres source=pg_catalog_map v=1 format=csv scope=database db=orders_db dbid= status=started window=120s schedule=once interval= samples_expected=1 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_class v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.112Z
+oid,relname,relnamespace,relkind
+16412,orders,2200,r
+16419,orders_pkey,2200,i
+16421,orders_customer_id_idx,2200,i
+16430,order_items,2200,r
+16437,order_items_pkey,2200,i
+16450,invoices,16410,p
+16455,invoices_2026_07,16410,r
+16460,invoices_2026_08,16410,r
+16470,daily_revenue,16410,m
+2619,pg_statistic,11,r
+1247,pg_type,11,r
+2703,pg_type_oid_index,11,i
+1259,pg_class,11,r
+2662,pg_class_oid_index,11,i
+# engine=postgres source=pg_namespace v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.112Z
+oid,nspname
+99,pg_toast
+11,pg_catalog
+2200,public
+13283,information_schema
+16410,billing
+# engine=postgres source=pg_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.112Z
+oid,datname
+5,postgres
+16401,orders_db
+1,template1
+4,template0
+# engine=postgres source=pg_catalog_map v=1 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=1 samples_written=1 ts=2026-08-07T14:32:05.131Z
