@@ -26,6 +26,21 @@ jobs:
         with:
           version: latest
 
+  gitleaks:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # Scans the checked-out tree rather than history: old commits still
+      # contain keys that were revoked server-side and cannot be rewritten.
+      - name: Run gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
+            dir /repo --config /repo/.gitleaks.toml --redact --no-banner
+
   resolve-go-version:
     name: Resolve Go version
     runs-on: ubuntu-latest

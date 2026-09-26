@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "ycrash-api-key"
+description = "yCrash API key"
+regex = '''\b[A-Za-z0-9_.-]+@[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'''
+
+# Test fixtures must use the all-zero UUID placeholder instead of a real key.
+[[rules.allowlists]]
+regexes = ['''@00000000-0000-0000-0000-000000000000''']
+
