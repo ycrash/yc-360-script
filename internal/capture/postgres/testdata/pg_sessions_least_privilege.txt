@@ -4,7 +4,7 @@ pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,stat
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
 1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
-1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+1116,16401,orders_db,,16386,yc_restricted,yCrash-DB-Agent,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,2026-08-07T14:32:05.061Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
 # engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:05.061Z
 pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
 1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,
@@ -29,7 +29,7 @@ pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,stat
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
 1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
-1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+1116,16401,orders_db,,16386,yc_restricted,yCrash-DB-Agent,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,2026-08-07T14:32:07.055Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
 # engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:07.055Z
 pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
 1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,
@@ -54,7 +54,7 @@ pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,stat
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
 1106,16401,orders_db,,10,postgres,psql,,,,,,,,,791,789,,,,,<insufficient privilege>
-1116,16401,orders_db,,16386,yc_restricted,yc-360-postgres-capture,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
+1116,16401,orders_db,,16386,yc_restricted,yCrash-DB-Agent,client backend,active,,,2026-08-07T14:32:04.990Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,2026-08-07T14:32:09.052Z,,789,-7710234988821003345,10.0.4.30,,54502,"SELECT pid, datid::text, datname::text, leader_pid, usesysid::text, ..."
 # engine=postgres source=pg_locks v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 locks_written=17 locks_total=17 truncated=false ts=2026-08-07T14:32:09.052Z
 pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,mode,granted,fastpath,waitstart
 1093,relation,16401,16432,,,,,,,,4/1052,RowExclusiveLock,true,true,

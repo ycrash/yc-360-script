@@ -21,7 +21,7 @@ import (
 
 const (
 	// ApplicationName tags the session so pg_stat_activity can identify it.
-	ApplicationName = "yc-360-postgres-capture"
+	ApplicationName = "yCrash-DB-Agent"
 
 	// ConnectTimeout bounds TCP connect plus authentication.
 	ConnectTimeout = 5 * time.Second

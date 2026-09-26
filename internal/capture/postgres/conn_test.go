@@ -37,7 +37,7 @@ func TestDSN(t *testing.T) {
 		"dbname='orders_db'",
 		"user='ycrash_monitor'",
 		"sslmode='require'",
-		"application_name='yc-360-postgres-capture'",
+		"application_name='yCrash-DB-Agent'",
 	} {
 		assert.Contains(t, got, want)
 	}
@@ -189,7 +189,7 @@ func TestBuildConfigSessionSafety(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, map[string]string{
-		"application_name":                    "yc-360-postgres-capture",
+		"application_name":                    "yCrash-DB-Agent",
 		"default_transaction_read_only":       "on",
 		"statement_timeout":                   "10s",
 		"lock_timeout":                        "2s",
