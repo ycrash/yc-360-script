@@ -2,8 +2,15 @@ package postgres
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,7 +31,6 @@ func testTarget() Target {
 		Database: "orders_db",
 		Username: "ycrash_monitor",
 		Password: testPassword,
-		SSLMode:  "require",
 	}
 }
 
@@ -58,7 +64,6 @@ func TestDSNQuoting(t *testing.T) {
 				Port:     5432,
 				Database: `orders'db`,
 				Username: `DOMAIN\ycrash`,
-				SSLMode:  "require",
 			},
 		},
 		{
@@ -68,7 +73,6 @@ func TestDSNQuoting(t *testing.T) {
 				Port:     5432,
 				Database: "orders_db",
 				Username: "ycrash_monitor",
-				SSLMode:  "require",
 			},
 		},
 		{
@@ -78,7 +82,6 @@ func TestDSNQuoting(t *testing.T) {
 				Port:     5432,
 				Database: "orders_db",
 				Username: "ycrash_monitor",
-				SSLMode:  "require",
 			},
 		},
 	}
@@ -94,6 +97,143 @@ func TestDSNQuoting(t *testing.T) {
 			assert.Equal(t, tt.target.Username, cfg.User)
 		})
 	}
+}
+
+// writeTestCA writes a self-signed CA certificate, the shape of what caFile names.
+func writeTestCA(t *testing.T) string {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "yc-360 test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
+
+	return path
+}
+
+func TestTLSSSLMode(t *testing.T) {
+	assert.Equal(t, "require", TLS{}.SSLMode(), "the zero value is encrypted and unverified")
+	assert.Equal(t, "disable", TLS{Disabled: true}.SSLMode())
+	assert.Equal(t, "verify-full", TLS{Verify: true}.SSLMode())
+	assert.Equal(t, "verify-full", TLS{Verify: true, CAFile: "/etc/ycrash/ca.pem"}.SSLMode())
+}
+
+func TestTLSCAFileText(t *testing.T) {
+	assert.Equal(t, "system", TLS{Verify: true}.caFileText(), "verified against the system's trust store")
+	assert.Equal(t, "/etc/ycrash/ca.pem", TLS{Verify: true, CAFile: "/etc/ycrash/ca.pem"}.caFileText())
+	assert.Equal(t, "", TLS{}.caFileText(), "nothing is verified, so no CA is used")
+	assert.Equal(t, "", TLS{CAFile: "/etc/ycrash/ca.pem"}.caFileText(), "not even a configured one")
+	assert.Equal(t, "", TLS{Disabled: true}.caFileText())
+}
+
+func TestBuildConfigTLS(t *testing.T) {
+	withTLS := func(settings TLS) Target {
+		target := testTarget()
+		target.Host = "10.0.4.12"
+		target.TLS = settings
+
+		return target
+	}
+
+	t.Run("encrypted and unverified, with no plaintext fallback", func(t *testing.T) {
+		target := withTLS(TLS{})
+		assert.Contains(t, dsn(target), "sslmode='require'")
+		assert.NotContains(t, dsn(target), "sslrootcert")
+
+		cfg, err := buildConfig(target)
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.True(t, cfg.TLSConfig.InsecureSkipVerify, "the certificate is not checked")
+		assert.Nil(t, cfg.TLSConfig.VerifyPeerCertificate, "not even its chain, as verify-ca would")
+		assert.Empty(t, cfg.Fallbacks, "and a server refusing TLS is a failed connection, not a plaintext one")
+	})
+
+	t.Run("disabled is plaintext", func(t *testing.T) {
+		target := withTLS(TLS{Disabled: true})
+		assert.Contains(t, dsn(target), "sslmode='disable'")
+
+		cfg, err := buildConfig(target)
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.TLSConfig)
+		assert.Empty(t, cfg.Fallbacks)
+	})
+
+	t.Run("verified against the system's trust store", func(t *testing.T) {
+		target := withTLS(TLS{Verify: true})
+		assert.Contains(t, dsn(target), "sslmode='verify-full'")
+		assert.NotContains(t, dsn(target), "sslrootcert", "no file: Go's own roots")
+
+		cfg, err := buildConfig(target)
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.False(t, cfg.TLSConfig.InsecureSkipVerify)
+		assert.Nil(t, cfg.TLSConfig.RootCAs, "nil is the system's trust store")
+		assert.Equal(t, "10.0.4.12", cfg.TLSConfig.ServerName, "the certificate must name the host")
+	})
+
+	t.Run("verified against a CA file", func(t *testing.T) {
+		caFile := writeTestCA(t)
+		target := withTLS(TLS{Verify: true, CAFile: caFile})
+		assert.Contains(t, dsn(target), "sslrootcert='"+caFile+"'")
+
+		cfg, err := buildConfig(target)
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.False(t, cfg.TLSConfig.InsecureSkipVerify)
+		require.NotNil(t, cfg.TLSConfig.RootCAs, "the file's CA, not the system's")
+		assert.False(t, cfg.TLSConfig.RootCAs.Equal(x509.NewCertPool()))
+	})
+
+	t.Run("a CA file that cannot be read fails the connection, not the check", func(t *testing.T) {
+		_, err := buildConfig(withTLS(TLS{Verify: true, CAFile: filepath.Join(t.TempDir(), "missing.pem")}))
+		assert.ErrorContains(t, err, "unable to read CA file")
+	})
+
+	t.Run("a server name is the name checked on the certificate", func(t *testing.T) {
+		cfg, err := buildConfig(withTLS(TLS{Verify: true, ServerName: "db-prod-01.internal"}))
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.Equal(t, "db-prod-01.internal", cfg.TLSConfig.ServerName, "while connecting to 10.0.4.12")
+		assert.False(t, cfg.TLSConfig.InsecureSkipVerify)
+	})
+
+	t.Run("unverified, a server name is only sent", func(t *testing.T) {
+		cfg, err := buildConfig(withTLS(TLS{ServerName: "db-prod-01.internal"}))
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.Equal(t, "db-prod-01.internal", cfg.TLSConfig.ServerName)
+		assert.True(t, cfg.TLSConfig.InsecureSkipVerify)
+	})
+
+	t.Run("a CA file is used only when verifying", func(t *testing.T) {
+		target := withTLS(TLS{CAFile: writeTestCA(t)})
+		assert.NotContains(t, dsn(target), "sslrootcert",
+			"beside sslmode=require a root certificate would switch on verify-ca")
+
+		cfg, err := buildConfig(target)
+		require.NoError(t, err)
+		assert.Nil(t, cfg.TLSConfig.VerifyPeerCertificate)
+	})
 }
 
 func TestBuildConfigPassword(t *testing.T) {
@@ -149,6 +289,8 @@ func TestBuildConfigIgnoresEnvironment(t *testing.T) {
 	t.Setenv("PGUSER", "env_user")
 	t.Setenv("PGPASSWORD", "from-environment")
 	t.Setenv("PGSSLMODE", "disable")
+	t.Setenv("PGSSLROOTCERT", filepath.Join(t.TempDir(), "missing-ca.pem"))
+	t.Setenv("PGSSLSNI", "0")
 	t.Setenv("PGAPPNAME", "not-the-agent")
 	t.Setenv("PGOPTIONS", "-c statement_timeout=0")
 	t.Setenv("PGTZ", "Pacific/Kiritimati")
@@ -164,6 +306,7 @@ func TestBuildConfigIgnoresEnvironment(t *testing.T) {
 	assert.Equal(t, "ycrash_monitor", cfg.User)
 	assert.Equal(t, testPassword, cfg.Password)
 	assert.NotNil(t, cfg.TLSConfig, "sslmode=require from the config file, not sslmode=disable from the environment")
+	assert.Nil(t, cfg.TLSConfig.RootCAs, "and no root certificate from PGSSLROOTCERT")
 
 	assert.NotContains(t, cfg.RuntimeParams, "options",
 		"PGOPTIONS must not ride in the startup packet the session safety depends on")

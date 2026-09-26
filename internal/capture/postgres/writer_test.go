@@ -29,6 +29,9 @@ func fullArtifactMetadata() Metadata {
 		TargetUsername: "ycrash_monitor",
 		TargetSSLMode:  "require",
 
+		TargetTLSEnabled: "true",
+		TargetTLSVerify:  "false",
+
 		ExplainMode:     ExplainModeAll,
 		ExplainLiterals: explainLiteralsVerbatim,
 
@@ -117,6 +120,9 @@ func connectFailureMetadata() Metadata {
 		TargetDatabase:     "orders_db",
 		TargetUsername:     "ycrash_monitor",
 		TargetSSLMode:      "require",
+
+		TargetTLSEnabled: "true",
+		TargetTLSVerify:  "false",
 
 		ExplainMode:     ExplainModeAll,
 		ExplainLiterals: explainLiteralsVerbatim,
@@ -451,6 +457,10 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 		"target_database",
 		"target_username",
 		"target_sslmode",
+		"target_tls_enabled",
+		"target_tls_verify",
+		"target_tls_ca_file",
+		"target_tls_server_name",
 		"explain_mode",
 		"explain_literals",
 	}, keys)

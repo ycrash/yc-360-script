@@ -42,7 +42,6 @@ func unreachablePostgres(t *testing.T) *config.Postgres {
 		Database: "orders_db",
 		Username: "ycrash_monitor",
 		Password: pgTestPassword,
-		SSLMode:  "require",
 	}
 }
 
@@ -694,7 +693,7 @@ func TestPostgresCaptureOpensOneConnectionPerRun(t *testing.T) {
 	target := withWindow(t, time.Second)
 	target.Host = "127.0.0.1"
 	target.Port = listener.Addr().(*net.TCPAddr).Port
-	target.SSLMode = "disable"
+	target.TLS = &config.PostgresTLS{Enabled: new(bool)}
 
 	_, err = (&PostgresCapture{Target: target}).Run()
 	require.NoError(t, err)
@@ -987,7 +986,7 @@ func TestPostgresCaptureKillCancelsAnInFlightWindow(t *testing.T) {
 	target := withWindow(t, 2*time.Minute)
 	target.Host = "127.0.0.1"
 	target.Port = listener.Addr().(*net.TCPAddr).Port
-	target.SSLMode = "disable"
+	target.TLS = &config.PostgresTLS{Enabled: new(bool)}
 
 	task := &PostgresCapture{Target: target}
 

@@ -10,7 +10,11 @@ owns.
 The goldens:
 
 - `pg_metadata_full.txt` — a complete capture: the preamble, the target block,
-  the server block, the tablespace block, and the closing block. The split is
+  the server block, the tablespace block, and the closing block. The target
+  block's `target_tls_*` rows are the `tls:` settings the connection uses, and
+  `target_sslmode` the libpq mode they amount to; `target_tls_ca_file` is
+  `system` when the certificate is verified against the system's trust store,
+  and empty when nothing is verified. The split is
   the seam the capture already had — what was configured is knowable before
   the network, what the server said is not — so the block a reader can rely on
   is the one that is always there. **The tablespace block (2026-09-02) is the

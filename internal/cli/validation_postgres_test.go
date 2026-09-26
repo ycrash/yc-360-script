@@ -44,7 +44,6 @@ func TestValidatePostgres(t *testing.T) {
 			Database: "orders_db",
 			Username: "ycrash_monitor",
 			Password: "${PG_YCRASH_PASSWORD}",
-			SSLMode:  "REQUIRE",
 		})
 
 		require.NoError(t, validate())
@@ -53,7 +52,8 @@ func TestValidatePostgres(t *testing.T) {
 		require.NotNil(t, pg)
 		assert.Equal(t, "db-prod-01.internal", pg.Host, "trimmed")
 		assert.Equal(t, config.DefaultPostgresPort, pg.Port, "defaulted")
-		assert.Equal(t, "require", pg.SSLMode, "lowercased")
+		assert.True(t, pg.TLSEnabled(), "tls defaulted to encrypted")
+		assert.False(t, pg.TLSVerified())
 		assert.Equal(t, "sup3r-s3cr3t", pg.Password, "expanded")
 
 		assert.NotContains(t, pg.String(), "sup3r-s3cr3t")
@@ -63,10 +63,10 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			SSLMode:  "disable",
+			TLS:      &config.PostgresTLS{Enabled: new(bool)},
 		})
 
-		require.NoError(t, validate())
+		require.NoError(t, validate(), "a plaintext connection is warned about, not refused")
 		assert.Equal(t, config.DefaultPostgresDatabase, config.GlobalConfig.Postgres.Database)
 	})
 
@@ -128,11 +128,24 @@ func TestValidatePostgres(t *testing.T) {
 		require.NoError(t, validate(), "no postgres block, no check")
 	})
 
-	t.Run("invalid sslmode stops the run", func(t *testing.T) {
+	t.Run("sslmode stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			SSLMode:  "verify-fully",
+			SSLMode:  "verify-full",
+		})
+
+		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(),
+			"refused with its tls: form, never read as the unverified default")
+	})
+
+	t.Run("verification over plaintext stops the run", func(t *testing.T) {
+		verify := true
+
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			Host:     "db-prod-01.internal",
+			Username: "ycrash_monitor",
+			TLS:      &config.PostgresTLS{Enabled: new(bool), VerifyServerCertificate: &verify},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())

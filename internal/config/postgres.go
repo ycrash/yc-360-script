@@ -17,7 +17,15 @@ type Postgres struct {
 	Database string `yaml:"database"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
-	SSLMode  string `yaml:"sslmode"`
+
+	// TLS is how the connection is encrypted and checked. nil (key omitted) is
+	// encrypted with the certificate not verified; Validate fills it in.
+	TLS *PostgresTLS `yaml:"tls"`
+
+	// SSLMode is decoded only to be refused: the tls: block replaced it, and an
+	// unknown key would otherwise be dropped without a word, turning
+	// sslmode: verify-full into an unverified connection.
+	SSLMode string `yaml:"sslmode"`
 
 	// Pointer: nil (key omitted) takes the default; 0s is a configuration error.
 	CaptureDuration *Duration `yaml:"captureDuration"`
@@ -38,14 +46,39 @@ type Postgres struct {
 	AgentOnDBHost bool `yaml:"agentOnDbHost"`
 }
 
+// PostgresTLS is the tls: block.
+type PostgresTLS struct {
+	// Enabled: nil (key omitted) is true. false connects in plaintext.
+	Enabled *bool `yaml:"enabled"`
+
+	// VerifyServerCertificate checks the certificate's chain and that it names
+	// the server. nil (key omitted) is false.
+	VerifyServerCertificate *bool `yaml:"verifyServerCertificate"`
+
+	// CAFile is what the certificate must chain to; empty is the system's trust
+	// store. Used only when verifying.
+	CAFile string `yaml:"caFile"`
+
+	// ServerName is the name the certificate must carry, and the one sent to the
+	// server; empty is host. For connecting by IP to a certificate issued for a name.
+	ServerName string `yaml:"serverName"`
+}
+
+// TLSEnabled and TLSVerified read the block with its defaults, whether or not
+// Validate has filled them in.
+func (p *Postgres) TLSEnabled() bool {
+	return p.TLS == nil || p.TLS.Enabled == nil || *p.TLS.Enabled
+}
+
+func (p *Postgres) TLSVerified() bool {
+	return p.TLSEnabled() && p.TLS != nil && p.TLS.VerifyServerCertificate != nil && *p.TLS.VerifyServerCertificate
+}
+
 const (
 	DefaultPostgresPort = 5432
 
 	// DefaultPostgresDatabase exists on effectively every cluster.
 	DefaultPostgresDatabase = "postgres"
-
-	// DefaultPostgresSSLMode is stricter than libpq's own.
-	DefaultPostgresSSLMode = "require"
 
 	// DefaultPostgresCaptureDuration matches SCRIPT_SPAN, the application capture's
 	// nominal span - not the host collectors' real one: top and vmstat run ~20s.
@@ -77,10 +110,6 @@ const (
 	// presence is the switch, so turning the feature off means deleting the line.
 	ExplainOff = "off"
 )
-
-var postgresSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
-
-var postgresPlaintextCapableSSLModes = []string{"disable", "allow", "prefer"}
 
 var postgresExplainModes = []string{ExplainLogged, ExplainAll}
 
@@ -114,9 +143,18 @@ func (p *Postgres) String() string {
 		frequency = p.Frequency.String()
 	}
 
+	caFile, serverName := "", ""
+	if p.TLS != nil {
+		caFile, serverName = p.TLS.CAFile, p.TLS.ServerName
+	}
+
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s sslmode=%s captureDuration=%s frequency=%s explain=%s agentOnDbHost=%t",
-		p.Host, p.Port, p.Database, p.Username, password, p.SSLMode, window, frequency, p.ExplainMode(), p.AgentOnDBHost,
+		"host=%q port=%d database=%q username=%q password=%s "+
+			"tls.enabled=%t tls.verifyServerCertificate=%t tls.caFile=%q tls.serverName=%q "+
+			"captureDuration=%s frequency=%s explain=%s agentOnDbHost=%t",
+		p.Host, p.Port, p.Database, p.Username, password,
+		p.TLSEnabled(), p.TLSVerified(), caFile, serverName,
+		window, frequency, p.ExplainMode(), p.AgentOnDBHost,
 	)
 }
 
@@ -147,6 +185,11 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	p.Database = strings.TrimSpace(p.Database)
 	p.Username = strings.TrimSpace(p.Username)
 	p.SSLMode = strings.ToLower(strings.TrimSpace(p.SSLMode))
+
+	if p.TLS != nil {
+		p.TLS.CAFile = strings.TrimSpace(p.TLS.CAFile)
+		p.TLS.ServerName = strings.TrimSpace(p.TLS.ServerName)
+	}
 	p.Explain = strings.ToLower(strings.TrimSpace(p.Explain))
 
 	var errs []error
@@ -157,7 +200,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
-			"(valid keys: host, port, database, username, password, sslmode, captureDuration, " +
+			"(valid keys: host, port, database, username, password, tls, captureDuration, " +
 			"frequency, explain, agentOnDbHost)")
 	}
 
@@ -174,10 +217,6 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 			DefaultPostgresDatabase,
 		))
 	}
-	if p.SSLMode == "" {
-		p.SSLMode = DefaultPostgresSSLMode
-	}
-
 	// Over-ceiling clamps and warns (partial intent); non-positive is rejected outright.
 	switch {
 	case p.CaptureDuration == nil:
@@ -250,20 +289,14 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		errs = append(errs, fmt.Errorf("postgres.port %d is out of range (1-65535)", p.Port))
 	}
 
-	switch {
-	case !slices.Contains(postgresSSLModes, p.SSLMode):
-		errs = append(errs, fmt.Errorf("postgres.sslmode %q is invalid (valid values: %s)",
-			p.SSLMode, strings.Join(postgresSSLModes, ", ")))
-
-	case p.SSLMode == "disable":
-		warnings = append(warnings, "postgres.sslmode=disable - the connection will not be "+
-			"encrypted; credentials and captured query text would cross the network in plaintext.")
-
-	case slices.Contains(postgresPlaintextCapableSSLModes, p.SSLMode):
-		warnings = append(warnings, fmt.Sprintf("postgres.sslmode=%s - the connection may not be "+
-			"encrypted; credentials and captured query text could cross the network in plaintext.",
-			p.SSLMode))
+	if p.SSLMode != "" {
+		errs = append(errs, fmt.Errorf("postgres.sslmode is no longer accepted - use the tls: block: %s",
+			sslModeReplacement(p.SSLMode)))
 	}
+
+	tlsWarnings, tlsErrs := p.validateTLS()
+	warnings = append(warnings, tlsWarnings...)
+	errs = append(errs, tlsErrs...)
 
 	switch {
 	case p.Explain == "":
@@ -292,6 +325,70 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	}
 
 	return warnings, errors.Join(errs...)
+}
+
+// validateTLS fills in the block's defaults, so what the run uses is what it
+// says, and refuses the combinations that could only be a mistake.
+func (p *Postgres) validateTLS() (warnings []string, errs []error) {
+	if p.TLS == nil {
+		p.TLS = &PostgresTLS{}
+	}
+
+	enabled, verified := p.TLSEnabled(), p.TLSVerified()
+	verifyAsked := p.TLS.VerifyServerCertificate != nil && *p.TLS.VerifyServerCertificate
+
+	switch {
+	case !enabled && verifyAsked:
+		errs = append(errs, errors.New("postgres.tls.verifyServerCertificate is true but "+
+			"tls.enabled is false - a certificate can only be checked over TLS"))
+
+	case !enabled && (p.TLS.CAFile != "" || p.TLS.ServerName != ""):
+		errs = append(errs, errors.New("postgres.tls.caFile and tls.serverName have no effect "+
+			"when tls.enabled is false - remove them, or enable TLS"))
+
+	case !enabled:
+		warnings = append(warnings, "postgres.tls.enabled=false - the connection will not be "+
+			"encrypted; credentials and captured query text would cross the network in plaintext.")
+
+	case !verified && p.TLS.CAFile != "":
+		errs = append(errs, errors.New("postgres.tls.caFile is set but "+
+			"tls.verifyServerCertificate is not - the CA is used only to verify the server's "+
+			"certificate; set verifyServerCertificate: true, or remove caFile"))
+	}
+
+	p.TLS.Enabled = &enabled
+	p.TLS.VerifyServerCertificate = &verified
+
+	return warnings, errs
+}
+
+// sslModeReplacement is the tls: form of an sslmode value. Three have none:
+// prefer and allow fall back to plaintext, and verify-ca checks the chain
+// without the name, which serverName makes unnecessary.
+func sslModeReplacement(mode string) string {
+	switch mode {
+	case "disable":
+		return "sslmode: disable is tls: {enabled: false}"
+
+	case "require":
+		return "sslmode: require is tls: {enabled: true}, which is also what omitting tls: gives"
+
+	case "verify-full":
+		return "sslmode: verify-full is tls: {enabled: true, verifyServerCertificate: true}, " +
+			"with caFile: set to the file sslrootcert named, if any"
+
+	case "verify-ca":
+		return "sslmode: verify-ca has no tls: form - use tls: {enabled: true, " +
+			"verifyServerCertificate: true}, which also checks the certificate names the server; " +
+			"set serverName to that name when connecting by IP"
+
+	case "prefer", "allow":
+		return fmt.Sprintf("sslmode: %s has no tls: form, since it can fall back to plaintext - "+
+			"tls: {enabled: true} requires encryption, tls: {enabled: false} is plaintext", mode)
+	}
+
+	return fmt.Sprintf("sslmode: %q is not a mode; the tls: block takes enabled, "+
+		"verifyServerCertificate, caFile and serverName", mode)
 }
 
 // expandPostgresEnvRefs returns one error per ${NAME} that could not be resolved.
@@ -345,5 +442,6 @@ func (p *Postgres) isZero() bool {
 		p.Database == "" &&
 		p.Username == "" &&
 		p.Password == "" &&
+		p.TLS == nil &&
 		p.SSLMode == ""
 }

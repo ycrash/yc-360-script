@@ -43,6 +43,10 @@ func targetFields(m Metadata) []field {
 		{"target_database", m.TargetDatabase},
 		{"target_username", m.TargetUsername},
 		{"target_sslmode", m.TargetSSLMode},
+		{"target_tls_enabled", m.TargetTLSEnabled},
+		{"target_tls_verify", m.TargetTLSVerify},
+		{"target_tls_ca_file", m.TargetTLSCAFile},
+		{"target_tls_server_name", m.TargetTLSServerName},
 
 		// Policy, not readings: written here so a refused connection still records what
 		// the run intended.

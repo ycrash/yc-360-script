@@ -29,10 +29,11 @@ func validPostgres() *Postgres {
 		Database:  "orders_db",
 		Username:  "ycrash_monitor",
 		Password:  "s3cr3t",
-		SSLMode:   "require",
 		Frequency: newDuration(30 * time.Second),
 	}
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 func TestPostgresIsConfigured(t *testing.T) {
 	var absent *Postgres
@@ -57,7 +58,9 @@ func TestPostgresValidateDefaults(t *testing.T) {
 
 		assert.Equal(t, DefaultPostgresPort, p.Port)
 		assert.Equal(t, DefaultPostgresDatabase, p.Database)
-		assert.Equal(t, DefaultPostgresSSLMode, p.SSLMode)
+		require.NotNil(t, p.TLS, "filled in, so what the run uses is what the block says")
+		assert.True(t, *p.TLS.Enabled, "encrypted")
+		assert.False(t, *p.TLS.VerifyServerCertificate, "and not verified")
 
 		require.Len(t, warnings, 2)
 		assert.Contains(t, warnings[0], "postgres.database not set")
@@ -79,7 +82,7 @@ func TestPostgresValidateDefaults(t *testing.T) {
 		assert.Equal(t, "orders_db", p.Database)
 		assert.Equal(t, "ycrash_monitor", p.Username)
 		assert.Equal(t, "s3cr3t", p.Password)
-		assert.Equal(t, "require", p.SSLMode)
+		assert.True(t, p.TLSEnabled())
 	})
 }
 
@@ -88,8 +91,12 @@ func TestPostgresValidateNormalization(t *testing.T) {
 		Host:     "  db-prod-01.internal  ",
 		Database: "  orders_db  ",
 		Username: "  ycrash_monitor  ",
-		SSLMode:  "  REQUIRE  ",
 		Password: "  s3cr3t  ",
+		TLS: &PostgresTLS{
+			VerifyServerCertificate: boolPtr(true),
+			CAFile:                  "  /etc/ycrash/ca.pem  ",
+			ServerName:              "  db-prod-01.internal  ",
+		},
 	}
 
 	_, err := p.Validate()
@@ -98,14 +105,15 @@ func TestPostgresValidateNormalization(t *testing.T) {
 	assert.Equal(t, "db-prod-01.internal", p.Host)
 	assert.Equal(t, "orders_db", p.Database)
 	assert.Equal(t, "ycrash_monitor", p.Username)
-	assert.Equal(t, "require", p.SSLMode, "sslmode is lowercased as well as trimmed")
+	assert.Equal(t, "/etc/ycrash/ca.pem", p.TLS.CAFile)
+	assert.Equal(t, "db-prod-01.internal", p.TLS.ServerName)
 
 	assert.Equal(t, "  s3cr3t  ", p.Password)
 }
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, sslmode, captureDuration, frequency, " +
+		"(valid keys: host, port, database, username, password, tls, captureDuration, frequency, " +
 		"explain, agentOnDbHost)"
 
 	t.Run("zero block", func(t *testing.T) {
@@ -190,7 +198,7 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\nfrequency: 30s\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\nfrequency: 30s\n"+body)
 	}
 
 	t.Run("absent takes the default without warning", func(t *testing.T) {
@@ -286,7 +294,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\n"+body)
 	}
 
 	t.Run("absent takes the 5m default, which the default window cannot fit", func(t *testing.T) {
@@ -441,7 +449,7 @@ func TestPostgresValidateRequiredFields(t *testing.T) {
 			name:     "no cascade from defaulted keys",
 			block:    &Postgres{Host: "db-prod-01.internal"},
 			wantMsgs: []string{"postgres.username is required"},
-			notMsgs:  []string{"postgres.port", "postgres.sslmode"},
+			notMsgs:  []string{"postgres.port", "postgres.tls"},
 		},
 	}
 
@@ -490,74 +498,150 @@ func TestPostgresValidatePortRange(t *testing.T) {
 	}
 }
 
-func TestPostgresValidateSSLMode(t *testing.T) {
-	t.Run("all six libpq modes are accepted", func(t *testing.T) {
-		for _, mode := range []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"} {
+func TestPostgresValidateSSLModeIsRefused(t *testing.T) {
+	tests := []struct {
+		mode, form string
+	}{
+		{"disable", "sslmode: disable is tls: {enabled: false}"},
+		{"require", "sslmode: require is tls: {enabled: true}, which is also what omitting tls: gives"},
+		{"verify-full", "sslmode: verify-full is tls: {enabled: true, verifyServerCertificate: true}, " +
+			"with caFile: set to the file sslrootcert named, if any"},
+		{"verify-ca", "sslmode: verify-ca has no tls: form"},
+		{"prefer", "sslmode: prefer has no tls: form, since it can fall back to plaintext"},
+		{"allow", "sslmode: allow has no tls: form, since it can fall back to plaintext"},
+		{"verify-fully", `sslmode: "verify-fully" is not a mode`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
 			p := validPostgres()
-			p.SSLMode = mode
+			p.SSLMode = tt.mode
 
 			_, err := p.Validate()
-			assert.NoError(t, err, "mode %q should be accepted", mode)
-			assert.Equal(t, mode, p.SSLMode)
-		}
-	})
+			require.Error(t, err, "refused, not ignored: a dropped key would turn verify-full into unverified")
+			assert.Contains(t, err.Error(), "postgres.sslmode is no longer accepted - use the tls: block: ")
+			assert.Contains(t, err.Error(), tt.form, "the message gives its tls: form")
+		})
+	}
 
-	t.Run("plaintext-capable modes warn and name the mode", func(t *testing.T) {
-		tests := []struct {
-			mode      string
-			certainty string
-		}{
-			{mode: "disable", certainty: "will not be"},
-			{mode: "allow", certainty: "may not be"},
-			{mode: "prefer", certainty: "may not be"},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.mode, func(t *testing.T) {
-				p := validPostgres()
-				p.SSLMode = tt.mode
-
-				warnings, err := p.Validate()
-				require.NoError(t, err)
-				require.Len(t, warnings, 1, "mode %q should warn", tt.mode)
-				assert.Contains(t, warnings[0], "postgres.sslmode="+tt.mode,
-					"the warning names the mode actually configured")
-				assert.Contains(t, warnings[0], tt.certainty)
-			})
-		}
-	})
-
-	t.Run("encrypted modes do not warn", func(t *testing.T) {
-		for _, mode := range []string{"require", "verify-ca", "verify-full"} {
-			p := validPostgres()
-			p.SSLMode = mode
-
-			warnings, err := p.Validate()
-			require.NoError(t, err)
-			assert.Empty(t, warnings, "mode %q should not warn", mode)
-		}
-	})
-
-	t.Run("unknown mode is rejected with the valid set", func(t *testing.T) {
+	t.Run("case and whitespace are normalized before the mode is named", func(t *testing.T) {
 		p := validPostgres()
-		p.SSLMode = "verify-fully"
+		p.SSLMode = " Disable "
 
 		_, err := p.Validate()
 		require.Error(t, err)
-		assert.Equal(t,
-			`postgres.sslmode "verify-fully" is invalid `+
-				`(valid values: disable, allow, prefer, require, verify-ca, verify-full)`,
-			err.Error())
+		assert.Contains(t, err.Error(), "sslmode: disable is tls: {enabled: false}")
 	})
 
-	t.Run("case and whitespace are normalized before the membership check", func(t *testing.T) {
+	t.Run("beside a tls: block too", func(t *testing.T) {
 		p := validPostgres()
-		p.SSLMode = " Verify-Full "
+		p.SSLMode = "require"
+		p.TLS = &PostgresTLS{Enabled: boolPtr(true)}
 
 		_, err := p.Validate()
-		require.NoError(t, err)
-		assert.Equal(t, "verify-full", p.SSLMode)
+		assert.ErrorContains(t, err, "postgres.sslmode is no longer accepted")
 	})
+
+	t.Run("a block with only sslmode is refused for it, not reported empty", func(t *testing.T) {
+		p := &Postgres{SSLMode: "require"}
+
+		_, err := p.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "postgres.sslmode is no longer accepted")
+		assert.NotContains(t, err.Error(), "empty or has no recognised keys")
+	})
+}
+
+func TestPostgresValidateTLS(t *testing.T) {
+	validate := func(t *testing.T, tls *PostgresTLS) (*Postgres, []string, error) {
+		t.Helper()
+
+		p := validPostgres()
+		p.TLS = tls
+		warnings, err := p.Validate()
+
+		return p, warnings, err
+	}
+
+	t.Run("omitted is encrypted and unverified, without a warning", func(t *testing.T) {
+		p, warnings, err := validate(t, nil)
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+
+		assert.True(t, p.TLSEnabled())
+		assert.False(t, p.TLSVerified())
+	})
+
+	t.Run("an empty block is the same", func(t *testing.T) {
+		p, warnings, err := validate(t, &PostgresTLS{})
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+
+		assert.True(t, *p.TLS.Enabled, "enabled defaults to true")
+		assert.False(t, *p.TLS.VerifyServerCertificate, "and verification defaults to off")
+	})
+
+	t.Run("verification without enabled: is enabled", func(t *testing.T) {
+		p, _, err := validate(t, &PostgresTLS{VerifyServerCertificate: boolPtr(true)})
+		require.NoError(t, err)
+
+		assert.True(t, p.TLSEnabled())
+		assert.True(t, p.TLSVerified())
+	})
+
+	t.Run("verified against a CA file, under a name of its own", func(t *testing.T) {
+		p, warnings, err := validate(t, &PostgresTLS{
+			Enabled: boolPtr(true), VerifyServerCertificate: boolPtr(true),
+			CAFile: "/etc/ycrash/ca.pem", ServerName: "db-prod-01.internal",
+		})
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+
+		assert.True(t, p.TLSVerified())
+		assert.Equal(t, "/etc/ycrash/ca.pem", p.TLS.CAFile)
+	})
+
+	t.Run("a server name without verification is only sent, and accepted", func(t *testing.T) {
+		_, _, err := validate(t, &PostgresTLS{ServerName: "db-prod-01.internal"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("disabled warns that the connection is plaintext", func(t *testing.T) {
+		p, warnings, err := validate(t, &PostgresTLS{Enabled: boolPtr(false)})
+		require.NoError(t, err)
+
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "postgres.tls.enabled=false - the connection will not be encrypted")
+		assert.False(t, p.TLSEnabled())
+		assert.False(t, *p.TLS.VerifyServerCertificate)
+	})
+
+	for name, tt := range map[string]struct {
+		tls  *PostgresTLS
+		want string
+	}{
+		"verification over plaintext": {
+			&PostgresTLS{Enabled: boolPtr(false), VerifyServerCertificate: boolPtr(true)},
+			"postgres.tls.verifyServerCertificate is true but tls.enabled is false",
+		},
+		"a CA file over plaintext": {
+			&PostgresTLS{Enabled: boolPtr(false), CAFile: "/etc/ycrash/ca.pem"},
+			"postgres.tls.caFile and tls.serverName have no effect when tls.enabled is false",
+		},
+		"a server name over plaintext": {
+			&PostgresTLS{Enabled: boolPtr(false), ServerName: "db-prod-01.internal"},
+			"postgres.tls.caFile and tls.serverName have no effect when tls.enabled is false",
+		},
+		"a CA file that nothing is verified against": {
+			&PostgresTLS{Enabled: boolPtr(true), CAFile: "/etc/ycrash/ca.pem"},
+			"postgres.tls.caFile is set but tls.verifyServerCertificate is not",
+		},
+	} {
+		t.Run(name+" is refused", func(t *testing.T) {
+			_, _, err := validate(t, tt.tls)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestPostgresValidateExplain(t *testing.T) {
@@ -565,7 +649,7 @@ func TestPostgresValidateExplain(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nsslmode: require\nfrequency: 30s\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\nfrequency: 30s\n"+body)
 	}
 
 	t.Run("the two accepted values", func(t *testing.T) {
@@ -867,7 +951,8 @@ func TestPostgresString(t *testing.T) {
 
 		assert.Equal(t,
 			`host="db-prod-01.internal" port=5432 database="orders_db" `+
-				`username="ycrash_monitor" password=<redacted> sslmode=require `+
+				`username="ycrash_monitor" password=<redacted> `+
+				`tls.enabled=true tls.verifyServerCertificate=false tls.caFile="" tls.serverName="" `+
 				`captureDuration=1m30s frequency=30s explain=off agentOnDbHost=false`,
 			got)
 		assert.NotContains(t, got, "s3cr3t")
@@ -1033,10 +1118,17 @@ func TestPostgresYAMLShapes(t *testing.T) {
 		{
 			name: "full block",
 			doc: "version: \"1\"\noptions:\n  postgres:\n    host: db-prod-01.internal\n    port: 5432\n" +
-				"    database: orders_db\n    username: ycrash_monitor\n    password: ${PG_YCRASH_PASSWORD}\n    sslmode: require\n",
+				"    database: orders_db\n    username: ycrash_monitor\n    password: ${PG_YCRASH_PASSWORD}\n" +
+				"    tls:\n      enabled: true\n      verifyServerCertificate: true\n" +
+				"      caFile: /etc/ycrash/ca.pem\n      serverName: db-prod-01.internal\n",
 			wantAssert: func(t *testing.T, p *Postgres) {
 				assert.Equal(t, "db-prod-01.internal", p.Host)
 				assert.Equal(t, "${PG_YCRASH_PASSWORD}", p.Password)
+				require.NotNil(t, p.TLS)
+				assert.True(t, *p.TLS.Enabled)
+				assert.True(t, *p.TLS.VerifyServerCertificate)
+				assert.Equal(t, "/etc/ycrash/ca.pem", p.TLS.CAFile)
+				assert.Equal(t, "db-prod-01.internal", p.TLS.ServerName)
 			},
 			wantDescribe: "every recognised key, nested correctly",
 		},
@@ -1083,7 +1175,11 @@ func TestPostgresFixtureParsesEndToEnd(t *testing.T) {
 	assert.Equal(t, 5432, pg.Port)
 	assert.Equal(t, "orders_db", pg.Database)
 	assert.Equal(t, "ycrash_monitor", pg.Username)
-	assert.Equal(t, "require", pg.SSLMode)
+	require.NotNil(t, pg.TLS, "the tls: block decodes")
+	assert.True(t, *pg.TLS.Enabled)
+	assert.True(t, *pg.TLS.VerifyServerCertificate)
+	assert.Equal(t, "/etc/ycrash/ca.pem", pg.TLS.CAFile)
+	assert.Equal(t, "db-prod-01.internal", pg.TLS.ServerName)
 
 	assert.Equal(t, "${PG_YCRASH_PASSWORD}", pg.Password)
 }
@@ -1128,7 +1224,7 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 		assert.NotContains(t, flags, "${PG_YCRASH_PASSWORD}")
 
 		assert.Contains(t, flags, "port=5432")
-		assert.Contains(t, flags, "sslmode=require")
+		assert.Contains(t, flags, "tls.enabled=true tls.verifyServerCertificate=false")
 		assert.Contains(t, flags, "explain=off",
 			"the run's plan-capture intent belongs in the echo; it is not a credential")
 	})

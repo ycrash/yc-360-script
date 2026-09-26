@@ -6,6 +6,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"maps"
@@ -83,7 +84,53 @@ type Target struct {
 	Database string
 	Username string
 	Password string
-	SSLMode  string
+
+	TLS TLS
+}
+
+// TLS is how the connection is encrypted and checked. The zero value is
+// encrypted and unverified, the config's default when it has no tls: block.
+type TLS struct {
+	// Disabled connects in plaintext.
+	Disabled bool
+
+	// Verify checks the certificate's chain, and that it names ServerName, or
+	// Host when that is empty.
+	Verify bool
+
+	// CAFile is what the certificate must chain to; empty is the system's trust
+	// store.
+	CAFile string
+
+	// ServerName is the name checked on the certificate and sent to the server.
+	ServerName string
+}
+
+// SSLMode is the libpq mode the settings amount to.
+func (t TLS) SSLMode() string {
+	switch {
+	case t.Disabled:
+		return "disable"
+
+	case t.Verify:
+		return "verify-full"
+	}
+
+	return "require"
+}
+
+// caFileText is target_tls_ca_file: the file verified against, "system" for
+// the system's trust store, and empty when nothing is verified.
+func (t TLS) caFileText() string {
+	switch {
+	case t.SSLMode() != "verify-full":
+		return ""
+
+	case t.CAFile == "":
+		return "system"
+	}
+
+	return t.CAFile
 }
 
 func (t Target) String() string {
@@ -94,7 +141,7 @@ func (t Target) String() string {
 
 	return fmt.Sprintf(
 		"host=%q port=%d database=%q username=%q password=%s sslmode=%s",
-		t.Host, t.Port, t.Database, t.Username, password, t.SSLMode,
+		t.Host, t.Port, t.Database, t.Username, password, t.TLS.SSLMode(),
 	)
 }
 
@@ -303,7 +350,34 @@ func buildConfig(t Target) (*pgx.ConnConfig, error) {
 
 	cfg.ConnectTimeout = ConnectTimeout
 
+	// libpq has no keyword for a name other than the host's, so it is set on the
+	// parsed TLS settings: the name the certificate is checked against, and the
+	// one sent to the server.
+	if name := t.TLS.ServerName; name != "" {
+		for _, tlsConfig := range tlsConfigs(cfg) {
+			tlsConfig.ServerName = name
+		}
+	}
+
 	return cfg, nil
+}
+
+// tlsConfigs is every TLS setting the connection may use: the first attempt's
+// and each fallback's. None for a plaintext connection.
+func tlsConfigs(cfg *pgx.ConnConfig) []*tls.Config {
+	var configs []*tls.Config
+
+	if cfg.TLSConfig != nil {
+		configs = append(configs, cfg.TLSConfig)
+	}
+
+	for _, fallback := range cfg.Fallbacks {
+		if fallback.TLSConfig != nil {
+			configs = append(configs, fallback.TLSConfig)
+		}
+	}
+
+	return configs
 }
 
 // dsn renders the target in libpq keyword/value form. The password is absent -
@@ -314,8 +388,14 @@ func dsn(t Target) string {
 		{"port", strconv.Itoa(t.Port)},
 		{"dbname", t.Database},
 		{"user", t.Username},
-		{"sslmode", t.SSLMode},
+		{"sslmode", t.TLS.SSLMode()},
 		{"application_name", ApplicationName},
+	}
+
+	// Only when verifying: beside sslmode=require, libpq and pgx read a root
+	// certificate as a request to check the chain.
+	if t.TLS.SSLMode() == "verify-full" && t.TLS.CAFile != "" {
+		pairs = append(pairs, [2]string{"sslrootcert", t.TLS.CAFile})
 	}
 
 	parts := make([]string, 0, len(pairs))

@@ -50,6 +50,14 @@ type Metadata struct {
 	TargetUsername string
 	TargetSSLMode  string
 
+	// The tls: settings the connection uses. TargetTLSCAFile is "system" when the
+	// certificate is verified against the system's trust store, and empty when it
+	// is not verified.
+	TargetTLSEnabled    string
+	TargetTLSVerify     string
+	TargetTLSCAFile     string
+	TargetTLSServerName string
+
 	// ExplainMode and ExplainLiterals are policy, not readings; they live in the target
 	// block so they survive a refused connection.
 	ExplainMode     string
@@ -233,7 +241,12 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		TargetPort:         t.Port,
 		TargetDatabase:     t.Database,
 		TargetUsername:     t.Username,
-		TargetSSLMode:      t.SSLMode,
+		TargetSSLMode:      t.TLS.SSLMode(),
+
+		TargetTLSEnabled:    strconv.FormatBool(!t.TLS.Disabled),
+		TargetTLSVerify:     strconv.FormatBool(t.TLS.SSLMode() == "verify-full"),
+		TargetTLSCAFile:     t.TLS.caFileText(),
+		TargetTLSServerName: t.TLS.ServerName,
 
 		ExplainMode: explainModeText(explainMode),
 
@@ -374,7 +387,12 @@ func Collect(ctx context.Context, q RowQuerier, t Target, agentNow time.Time) Me
 		TargetPort:     t.Port,
 		TargetDatabase: t.Database,
 		TargetUsername: t.Username,
-		TargetSSLMode:  t.SSLMode,
+		TargetSSLMode:  t.TLS.SSLMode(),
+
+		TargetTLSEnabled:    strconv.FormatBool(!t.TLS.Disabled),
+		TargetTLSVerify:     strconv.FormatBool(t.TLS.SSLMode() == "verify-full"),
+		TargetTLSCAFile:     t.TLS.caFileText(),
+		TargetTLSServerName: t.TLS.ServerName,
 
 		// collectLogLocation overwrites these on any completed path; an early return can't look
 		// like a determined fact.

@@ -421,8 +421,24 @@ func postgresTarget(pg *config.Postgres) postgres.Target {
 		Database: pg.Database,
 		Username: pg.Username,
 		Password: pg.Password,
-		SSLMode:  pg.SSLMode,
+		TLS:      postgresTLS(pg),
 	}
+}
+
+// postgresTLS is the tls: block as the connection uses it; Validate has filled
+// in its defaults.
+func postgresTLS(pg *config.Postgres) postgres.TLS {
+	settings := postgres.TLS{
+		Disabled: !pg.TLSEnabled(),
+		Verify:   pg.TLSVerified(),
+	}
+
+	if pg.TLS != nil {
+		settings.CAFile = pg.TLS.CAFile
+		settings.ServerName = pg.TLS.ServerName
+	}
+
+	return settings
 }
 
 // postgresResultMessage interpolates only values already stripped of the password.

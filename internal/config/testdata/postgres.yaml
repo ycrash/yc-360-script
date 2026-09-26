@@ -8,5 +8,9 @@ options:
     database: orders_db
     username: ycrash_monitor
     password: ${PG_YCRASH_PASSWORD}
-    sslmode: require
+    tls:
+      enabled: true
+      verifyServerCertificate: true
+      caFile: /etc/ycrash/ca.pem
+      serverName: db-prod-01.internal
     captureDuration: 120s
