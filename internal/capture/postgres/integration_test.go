@@ -817,6 +817,21 @@ func assertMatrixDeadTuples(t *testing.T, block sampleBlock, orders string) {
 			"block itself reports")
 }
 
+// n_mod_since_analyze counts every row inserted, updated or deleted since the last
+// analyze. The fixture never analyzes, so that is its own DML plus any update the
+// block reports.
+func assertMatrixModsSinceAnalyze(t *testing.T, block sampleBlock, relid string, fixtureDML int) {
+	t.Helper()
+
+	updated, err := strconv.Atoi(block.cell(t, relid, "n_tup_upd"))
+	require.NoError(t, err, "n_tup_upd must be a number")
+
+	mods, err := strconv.Atoi(block.cell(t, relid, "n_mod_since_analyze"))
+	require.NoError(t, err, "n_mod_since_analyze must be a number")
+
+	assert.Equal(t, fixtureDML+updated, mods)
+}
+
 func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	t.Helper()
 
@@ -834,6 +849,15 @@ func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 
 	assert.Equal(t, "", block.cell(t, noIndexes, "last_autovacuum"))
 	assert.Equal(t, "", block.cell(t, noIndexes, "last_vacuum"))
+
+	for _, relid := range []string{orders, noIndexes} {
+		assert.Equal(t, "", block.cell(t, relid, "last_analyze"),
+			"the fixture never analyzes its bloat tables, so both analyze times are empty")
+		assert.Equal(t, "", block.cell(t, relid, "last_autoanalyze"))
+	}
+
+	assertMatrixModsSinceAnalyze(t, block, orders, matrixOrdersInserted+matrixOrdersDead)
+	assertMatrixModsSinceAnalyze(t, block, noIndexes, matrixNoIdxLive)
 
 	assert.NotEmpty(t, block.cell(t, orders, "table_size_bytes"))
 	assert.NotEmpty(t, block.cell(t, orders, "index_size_bytes"))

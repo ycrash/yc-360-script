@@ -24,6 +24,9 @@ var bloatColumns = []string{
 	"idx_scan",
 	"last_autovacuum",
 	"last_vacuum",
+	"last_analyze",
+	"last_autoanalyze",
+	"n_mod_since_analyze",
 	"table_size_bytes",
 	"index_size_bytes",
 }
@@ -45,6 +48,9 @@ const bloatStatsSQL = `SELECT relid,
        idx_scan,
        last_autovacuum,
        last_vacuum,
+       last_analyze,
+       last_autoanalyze,
+       n_mod_since_analyze,
        count(*) OVER () AS tables_total
 FROM pg_catalog.pg_stat_user_tables
 ORDER BY relid
@@ -141,6 +147,11 @@ type bloatRow struct {
 	lastAutovacuum *time.Time
 	lastVacuum     *time.Time
 
+	// When the planner's statistics were last taken, and rows changed since.
+	lastAnalyze      *time.Time
+	lastAutoanalyze  *time.Time
+	nModSinceAnalyze *int64
+
 	tableSize *int64
 	indexSize *int64
 }
@@ -181,6 +192,9 @@ func (b Bloat) readStats(ctx context.Context, q RowQuerier) ([]bloatRow, int64, 
 			&row.idxScan,
 			&row.lastAutovacuum,
 			&row.lastVacuum,
+			&row.lastAnalyze,
+			&row.lastAutoanalyze,
+			&row.nModSinceAnalyze,
 			&total,
 		); err != nil {
 			return nil, 0, err
@@ -267,6 +281,9 @@ func bloatCells(rows []bloatRow) [][]string {
 			int64Text(row.idxScan),
 			timeText(row.lastAutovacuum),
 			timeText(row.lastVacuum),
+			timeText(row.lastAnalyze),
+			timeText(row.lastAutoanalyze),
+			int64Text(row.nModSinceAnalyze),
 			int64Text(row.tableSize),
 			int64Text(row.indexSize),
 		}
