@@ -30,13 +30,19 @@ const (
 	colIdxScan
 	colLastAutovacuum
 	colLastVacuum
+	colLastAnalyze
+	colLastAutoanalyze
+	colModSinceAnalyze
 	colTableSize
 	colIndexSize
 )
 
 var (
-	testOrdersVacuum = time.Date(2026, 7, 25, 13, 50, 0, 0, time.UTC)
-	testItemsVacuum  = time.Date(2026, 7, 25, 8, 41, 0, 0, time.UTC)
+	testOrdersVacuum      = time.Date(2026, 7, 25, 13, 50, 0, 0, time.UTC)
+	testItemsVacuum       = time.Date(2026, 7, 25, 8, 41, 0, 0, time.UTC)
+	testOrdersAnalyze     = time.Date(2026, 7, 25, 2, 0, 0, 0, time.UTC)
+	testOrdersAutoanalyze = time.Date(2026, 7, 25, 13, 52, 0, 0, time.UTC)
+	testItemsAutoanalyze  = time.Date(2026, 7, 25, 8, 44, 0, 0, time.UTC)
 )
 
 var testdataDir = func() string {
@@ -90,12 +96,12 @@ func (r *fakeRows) RawValues() [][]byte                          { return nil }
 func (r *fakeRows) Conn() *pgx.Conn                              { return nil }
 
 func statsRow(relid uint32, schema, name string, live, dead, upd, hot, seq int64, idx *int64,
-	autovacuum, vacuum *time.Time, total int64,
+	autovacuum, vacuum, analyze, autoanalyze *time.Time, modSinceAnalyze, total int64,
 ) []any {
 	return []any{
 		relid, schema, name,
 		ptr(live), ptr(dead), ptr(upd), ptr(hot), ptr(seq), idx,
-		autovacuum, vacuum, total,
+		autovacuum, vacuum, analyze, autoanalyze, ptr(modSinceAnalyze), total,
 	}
 }
 
@@ -106,18 +112,22 @@ func sizeRow(relid uint32, table, index *int64) []any {
 func ordersSampleStart() [][]any {
 	return [][]any{
 		statsRow(16390, "public", "orders", 4210044, 412988, 884213, 689882, 88104,
-			ptr(int64(4021884)), &testOrdersVacuum, &testOrdersVacuum, 2),
+			ptr(int64(4021884)), &testOrdersVacuum, &testOrdersVacuum,
+			&testOrdersAnalyze, &testOrdersAutoanalyze, 51820, 2),
 		statsRow(16482, "public", "orders_line_items", 912004, 458210, 221904, 90981, 340120,
-			ptr(int64(1200440)), &testItemsVacuum, &testItemsVacuum, 2),
+			ptr(int64(1200440)), &testItemsVacuum, &testItemsVacuum,
+			nil, &testItemsAutoanalyze, 402113, 2),
 	}
 }
 
 func ordersSampleEnd() [][]any {
 	return [][]any{
 		statsRow(16390, "public", "orders", 4211200, 413410, 884340, 689951, 88220,
-			ptr(int64(4025901)), &testOrdersVacuum, &testOrdersVacuum, 2),
+			ptr(int64(4025901)), &testOrdersVacuum, &testOrdersVacuum,
+			&testOrdersAnalyze, &testOrdersAutoanalyze, 53525, 2),
 		statsRow(16482, "public", "orders_line_items", 912340, 466100, 221990, 91040, 340460,
-			ptr(int64(1201980)), &testItemsVacuum, &testItemsVacuum, 2),
+			ptr(int64(1201980)), &testItemsVacuum, &testItemsVacuum,
+			nil, &testItemsAutoanalyze, 410425, 2),
 	}
 }
 
@@ -319,6 +329,9 @@ func TestBloatColumnOrder(t *testing.T) {
 		"idx_scan",
 		"last_autovacuum",
 		"last_vacuum",
+		"last_analyze",
+		"last_autoanalyze",
+		"n_mod_since_analyze",
 		"table_size_bytes",
 		"index_size_bytes",
 	}, bloatColumns)
@@ -407,9 +420,9 @@ func TestBloatGoldenEmptyDatabase(t *testing.T) {
 func TestBloatWritesNullsEmptyNeverZero(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
-		statsRow(16390, "public", "no_indexes", 100, 0, 0, 0, 4, nil, nil, nil, 2),
+		statsRow(16390, "public", "no_indexes", 100, 0, 0, 0, 4, nil, nil, nil, nil, nil, 0, 2),
 		statsRow(16482, "public", "never_scanned", 100, 0, 0, 0, 4, ptr(int64(0)),
-			&testOrdersVacuum, nil, 2),
+			&testOrdersVacuum, nil, nil, &testOrdersAutoanalyze, 12, 2),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(8192)), ptr(int64(0)))}))
 
@@ -424,6 +437,14 @@ func TestBloatWritesNullsEmptyNeverZero(t *testing.T) {
 	assert.Equal(t, "2026-07-25T13:50:00.000Z", rows[1][colLastAutovacuum])
 	assert.Equal(t, "", rows[1][colLastVacuum])
 
+	assert.Equal(t, "", rows[0][colLastAnalyze], "never analyzed is empty, not an epoch")
+	assert.Equal(t, "", rows[0][colLastAutoanalyze])
+	assert.Equal(t, "0", rows[0][colModSinceAnalyze],
+		"no change since the last analyze is a count of zero, not a missing value")
+	assert.Equal(t, "", rows[1][colLastAnalyze])
+	assert.Equal(t, "2026-07-25T13:52:00.000Z", rows[1][colLastAutoanalyze])
+	assert.Equal(t, "12", rows[1][colModSinceAnalyze])
+
 	assert.Equal(t, "8192", rows[0][colTableSize])
 	assert.Equal(t, "0", rows[0][colIndexSize])
 }
@@ -432,9 +453,9 @@ func TestBloatRelationMissingFromTheSizeJoinHasEmptySizes(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
 		statsRow(16390, "public", "orders", 100, 0, 0, 0, 4, ptr(int64(1)),
-			&testOrdersVacuum, &testOrdersVacuum, 2),
+			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 2),
 		statsRow(16482, "public", "dropped_mid_sample", 100, 0, 0, 0, 4, ptr(int64(1)),
-			&testOrdersVacuum, &testOrdersVacuum, 2),
+			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 2),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{
 		sizeRow(16390, ptr(int64(8192)), ptr(int64(4096))),
@@ -540,7 +561,7 @@ func TestBloatCapFiresVisibly(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
 		statsRow(16390, "public", "orders", 100, 1, 1, 1, 1, ptr(int64(1)),
-			&testOrdersVacuum, &testOrdersVacuum, 41220),
+			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 41220),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(8192)), ptr(int64(4096)))}))
 
@@ -586,7 +607,7 @@ func TestBloatIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
 		statsRow(16390, "we,ird\"schema", "line\nbreak,\"quoted\"", 1, 2, 3, 4, 5,
-			ptr(int64(6)), &testOrdersVacuum, &testOrdersVacuum, 1),
+			ptr(int64(6)), &testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 1),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(1)), ptr(int64(2)))}))
 
