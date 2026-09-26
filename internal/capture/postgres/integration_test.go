@@ -1283,6 +1283,88 @@ FROM pg_catalog.pg_database`)
 	}
 }
 
+func runMatrixNonDefaultSettingsWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{NonDefaultSettings{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixNonDefaultSettings(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				// Connect sends the agent's own startup settings, so this session sees
+				// the same rows the collector's does.
+				names := matrixQuery(t, target, `SELECT string_agg(name, ',' ORDER BY name)
+FROM pg_catalog.pg_settings
+WHERE source != 'default' AND source != 'override'`)
+				require.NotNil(t, names[0])
+
+				results := runMatrixNonDefaultSettingsWindow(t, target)
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"complete for every role: pg_settings needs no grant")
+				require.Equal(t, 2, results[0].SamplesWritten)
+
+				artifact := matrixArtifactText(t, results[0])
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseCapacityBlocks(t, artifact, "pg_settings")
+				require.Len(t, blocks, 2, "start and end")
+
+				for i, block := range blocks {
+					assert.Equal(t, nonDefaultSettingsColumns, block.columns, "block %d", i)
+					assert.Equal(t, "0", block.header["redacted"], "block %d: no setting here holds a password", i)
+
+					rows := map[string][]string{}
+					order := make([]string, 0, len(block.rows))
+
+					for _, row := range block.rows {
+						rows[row[colSettingName]] = row
+						order = append(order, row[colSettingName])
+					}
+
+					assert.Equal(t, *names[0], strings.Join(order, ","),
+						"block %d: every setting changed from its default, in the statement's order", i)
+
+					for name, want := range map[string][]string{
+						"application_name":              {ApplicationName, ""},
+						"statement_timeout":             {"10000", "ms"},
+						"default_transaction_read_only": {"on", ""},
+					} {
+						require.Contains(t, rows, name, "block %d: the agent's own session settings are listed", i)
+						assert.Equal(t, want, []string{rows[name][colSettingValue], rows[name][colSettingUnit]},
+							"block %d: %s", i, name)
+						assert.Equal(t, "client", rows[name][colSettingSource], "block %d: %s", i, name)
+					}
+
+					if !role.privileged() {
+						assert.NotContains(t, rows, "shared_preload_libraries",
+							"block %d: a setting needing pg_read_all_settings is absent, not empty", i)
+
+						continue
+					}
+
+					require.Contains(t, rows, "shared_preload_libraries", "block %d", i)
+					assert.Equal(t, "pg_stat_statements", rows["shared_preload_libraries"][colSettingValue], "block %d", i)
+					assert.Equal(t, "postmaster", rows["shared_preload_libraries"][colSettingContext], "block %d", i)
+				}
+			})
+		}
+	}
+}
+
 func assertMatrixTablespaceSize(t *testing.T, block sampleBlock, name string, readable bool) {
 	t.Helper()
 

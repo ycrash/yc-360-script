@@ -105,6 +105,20 @@ The goldens:
   proposed and unconfirmed.
 - `pg_xid_age_connect_failure.txt` and `pg_xid_age_sample_error.txt` — the two
   regimes, on the same clock as the `pg_bloat_*` counterparts.
+- `pg_nondefault_settings_full.txt` — `pg_settings`' own six columns, every
+  setting whose `source` is neither `default` nor `override`, by `name`,
+  `scope=database`: settings made for one database or one role show only in
+  sessions there. The agent's own startup settings are listed as
+  `source=client`. `primary_conninfo` holds a password, written as
+  `password=<redacted>` with the rest of the value kept, and the header's
+  `redacted=1` counts it; `redacted=0` is written too, so a reader knows the
+  scan ran. The one change between the samples is a reload that halved
+  `log_min_duration_statement`. No least-privilege variant: a role without
+  `pg_read_all_settings` gets fewer rows, never empty cells. Uploads under
+  `dt=pgSettings`, proposed and unconfirmed.
+- `pg_nondefault_settings_connect_failure.txt` and
+  `pg_nondefault_settings_sample_error.txt` — the two regimes, on the same clock
+  as the `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -622,7 +636,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `nondefaultsettings_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 
