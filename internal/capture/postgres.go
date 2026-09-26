@@ -13,7 +13,7 @@ import (
 	"yc-agent/internal/config"
 )
 
-// PostgresMetadataFileName and the fifteen below must equal
+// PostgresMetadataFileName and the sixteen below must equal
 // YCrashDataType.fromAgentFileName()'s agentFileName exactly, or a -onlyCapture
 // bundle's artifact is dropped with no error at either end.
 const PostgresMetadataFileName = "pg_metadata.txt"
@@ -87,6 +87,10 @@ const PostgresCatalogMapFileName = "pg_catalog_map.txt"
 
 const pgDTCatalogMap = "pgCatalogMap"
 
+const PostgresMemoryFileName = "pg_memory.txt"
+
+const pgDTMemory = "pgMemory"
+
 // pgSampledDataType returns "" for an artifact with no dt at all: an invented
 // value would upload and drop silently, so the caller writes the artifact but
 // skips the upload with an explicit reason instead. No shipped artifact takes
@@ -141,6 +145,9 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 
 	case "pg_catalog_map":
 		return pgDTCatalogMap
+
+	case "pg_memory":
+		return pgDTMemory
 	}
 
 	return ""
@@ -234,6 +241,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.XIDAge{Interval: interval},
 			postgres.Replication{Interval: interval},
 			postgres.NonDefaultSettings{Interval: interval},
+			postgres.Memory{Interval: interval},
 			metadata,
 			postgres.CatalogMap{},
 			postgres.Capacity{Interval: interval},

@@ -132,6 +132,19 @@ The goldens:
   carries `error=` and the column header with no rows, the other two blocks are
   whole, and the artifact is `status=complete`, as `pg_capacity.txt` is with a
   refused block.
+- `pg_memory_full.txt` — `pg_shmem_allocations`' four columns, every
+  allocation every sample, largest first, `scope=cluster`. The unnamed row is
+  the shared memory not yet allocated; `<anonymous>` has an empty `off`, never
+  `0`, having no one offset. Shared memory is sized at startup, so the two
+  samples match. Uploads under `dt=pgMemory`, proposed and unconfirmed.
+- `pg_memory_permission_denied.txt` — the role may not read the view (below
+  PostgreSQL 15 anything short of superuser; from 15, anything without
+  `pg_read_all_stats`). Each sample is a block with `reason=permission_denied`
+  and the column header alone, counted as written: the artifact is
+  `status=complete`, since the refusal is the same answer every sample rather
+  than a sample that failed.
+- `pg_memory_connect_failure.txt` and `pg_memory_sample_error.txt` — the two
+  regimes, on the same clock as the `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -649,7 +662,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `nondefaultsettings_test.go`, `catalogmap_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `nondefaultsettings_test.go`, `catalogmap_test.go`, `memory_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 
