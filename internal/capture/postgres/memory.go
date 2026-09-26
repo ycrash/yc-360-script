@@ -17,6 +17,22 @@ const insufficientPrivilegeCode = "42501"
 // superuser before that.
 const reasonPermissionDenied = "permission_denied"
 
+// readPrivilege runs one has_*_privilege check, asked before a read the role may
+// be refused: the refusal itself would be an ERROR and its STATEMENT in the
+// server's own log. NULL tries the read.
+func readPrivilege(ctx context.Context, q Querier, sql string) (bool, error) {
+	stmtCtx, cancel := statementContext(ctx)
+	defer cancel()
+
+	var allowed *bool
+
+	if err := q.QueryRow(stmtCtx, sql).Scan(&allowed); err != nil {
+		return false, err
+	}
+
+	return allowed == nil || *allowed, nil
+}
+
 // memoryColumns is the view's four columns. name is the key across samples;
 // the one row with no name is the shared memory not yet allocated.
 var memoryColumns = []string{
@@ -25,6 +41,9 @@ var memoryColumns = []string{
 	"size",
 	"allocated_size",
 }
+
+// memoryPrivilegeSQL is asked before memorySQL on every sample.
+const memoryPrivilegeSQL = `SELECT has_table_privilege('pg_catalog.pg_shmem_allocations', 'SELECT')`
 
 // memorySQL is every named allocation in the server's shared memory, largest
 // first, uncapped: the view has well under a hundred rows.
@@ -47,19 +66,17 @@ func (m Memory) Artifact() Artifact {
 		Scope:    "cluster",
 		Schedule: Periodic(m.Interval),
 
-		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
-		// the close, and the shared tick is sized from this.
-		SampleBudget: StatementTimeout,
+		// No SampleBudget: the privilege check and the read are DefaultSampleBudget's
+		// two statements.
 	}
 }
 
-// Sample runs the one statement and writes one block. A refusal is a written
-// sample, reason=permission_denied with no rows, since it recurs every sample
-// for this role; any other failure errors and writes nothing, and the window
-// writes the stub.
+// Sample writes one block. A refusal is a written sample, reason=permission_denied
+// with no rows, since it recurs every sample for this role; any other failure
+// errors and writes nothing, and the window writes the stub.
 func (m Memory) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	rows, err := readMemory(ctx, q)
-	if err != nil && !hasSQLState(err, insufficientPrivilegeCode) {
+	rows, denied, err := readMemory(ctx, q)
+	if err != nil {
 		return err
 	}
 
@@ -69,7 +86,7 @@ func (m Memory) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 		{"sample", strconv.Itoa(s.Index)},
 	}
 
-	if err != nil {
+	if denied {
 		fields = append(fields, headerField{"reason", reasonPermissionDenied})
 	}
 
@@ -99,7 +116,27 @@ type memoryRow struct {
 	allocatedSize *int64
 }
 
-func readMemory(ctx context.Context, q RowQuerier) ([]memoryRow, error) {
+// readMemory reports a refusal as denied, not an error: found by the privilege
+// check, or by SQLSTATE 42501 when the grant goes between the check and the read.
+func readMemory(ctx context.Context, q RowQuerier) ([]memoryRow, bool, error) {
+	allowed, err := readPrivilege(ctx, q, memoryPrivilegeSQL)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !allowed {
+		return nil, true, nil
+	}
+
+	rows, err := queryMemory(ctx, q)
+	if hasSQLState(err, insufficientPrivilegeCode) {
+		return nil, true, nil
+	}
+
+	return rows, false, err
+}
+
+func queryMemory(ctx context.Context, q RowQuerier) ([]memoryRow, error) {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 

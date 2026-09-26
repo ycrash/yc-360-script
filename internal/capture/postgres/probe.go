@@ -125,6 +125,8 @@ SELECT
     COALESCE((SELECT extversion FROM pg_catalog.pg_extension WHERE extname = 'pg_stat_statements'), ''),
     pg_has_role(current_user, 'pg_monitor', 'member'),
     pg_has_role(current_user, 'pg_read_all_stats', 'usage'),
+    has_function_privilege('pg_catalog.pg_current_logfile()', 'EXECUTE'),
+    has_function_privilege('pg_catalog.pg_current_logfile(text)', 'EXECUTE'),
     now(),
     clock_timestamp()`
 
@@ -160,6 +162,8 @@ type serverFactsRow struct {
 	pgStatStatements *string
 	hasPgMonitorRole *bool
 	hasPgReadAllStat *bool
+	canLogfile       *bool
+	canLogfileFormat *bool
 	serverNow        *time.Time
 	serverClock      *time.Time
 }
@@ -188,6 +192,8 @@ func (r *serverFactsRow) dest() []any {
 		&r.pgStatStatements,
 		&r.hasPgMonitorRole,
 		&r.hasPgReadAllStat,
+		&r.canLogfile,
+		&r.canLogfileFormat,
 		&r.serverNow,
 		&r.serverClock,
 	}

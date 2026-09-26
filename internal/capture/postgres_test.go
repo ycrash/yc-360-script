@@ -409,13 +409,14 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 		"both land on the closing tick: Periodic's last sample is the close")
 	require.Equal(t, postgres.Periodic(0), bloat.Schedule)
 
-	assert.Equal(t, 3*postgres.StatementTimeout, capacity.SampleBudget,
-		"three statements: left at zero, the shared tick would be sized for two")
+	assert.Equal(t, 4*postgres.StatementTimeout, capacity.SampleBudget,
+		"four statements, the WAL read's privilege check among them: left at zero, the "+
+			"shared tick would be sized for two")
 	assert.Zero(t, bloat.SampleBudget, "bloat's two statements are the default shape")
 
-	assert.Equal(t, 55*time.Second,
+	assert.Equal(t, 65*time.Second,
 		capacity.SampleBudget+postgres.DefaultSampleBudget+postgres.WindowCloseMargin,
-		"so the closing tick now costs the window 55s where it cost 25s - a real load "+
+		"so the closing tick now costs the window 65s where it cost 25s - a real load "+
 			"commitment against a database already in trouble, and one that should move "+
 			"only deliberately")
 }
@@ -454,8 +455,9 @@ func TestPostgresMemoryJoinsTheClosingTick(t *testing.T) {
 	memory := postgres.Memory{}.Artifact()
 
 	require.Equal(t, postgres.Periodic(0), memory.Schedule, "born periodic, so its last sample is the close")
-	assert.Equal(t, postgres.StatementTimeout, memory.SampleBudget,
-		"one statement, declared: what this artifact adds to the closing tick is 10s")
+	assert.Zero(t, memory.SampleBudget,
+		"the privilege check and the read, the default shape: what this artifact adds to "+
+			"the closing tick is 20s")
 }
 
 func TestPostgresNonDefaultSettingsJoinsTheClosingTick(t *testing.T) {
@@ -517,6 +519,16 @@ func TestPostgresResultMessage(t *testing.T) {
 			want: "pg_metadata.txt written (log_access=unknown, agent_on_db_host=unknown); " +
 				"pg_current_logfile failed: " +
 				"ERROR: permission denied for function pg_current_logfile (SQLSTATE 42501)",
+		},
+		{
+			name: "the function was not called",
+			metadata: postgres.Metadata{
+				LogAccess:             postgres.LogAccessNone,
+				AgentOnDBHost:         postgres.OnDBHostNo,
+				CurrentLogfileSkipped: true,
+			},
+			want: "pg_metadata.txt written (log_access=none, agent_on_db_host=no); " +
+				"pg_current_logfile not called: this role may not execute it",
 		},
 	}
 

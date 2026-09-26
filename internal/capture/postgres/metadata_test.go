@@ -473,6 +473,35 @@ func TestCollectLogLocationDeniedFallsThroughToTheDisk(t *testing.T) {
 	assert.Empty(t, m.QueryError)
 }
 
+func TestCollectSkipsAFunctionTheRoleMayNotExecute(t *testing.T) {
+	q := healthyQuerier()
+	q.serverFacts.values[colCurrentLogfile] = ptr(false)
+	q.serverFacts.values[colCurrentLogfileFormat] = ptr(false)
+	q.logLocation = fakeRow{err: errDenied}
+
+	m := collect(t, q)
+
+	assert.NotContains(t, q.sql, logLocationFormatSQL,
+		"read with the server facts, so the refusal never reaches the server's own log")
+	assert.NotContains(t, q.sql, logLocationSQL)
+	assert.True(t, m.CurrentLogfileDenied)
+	assert.True(t, m.CurrentLogfileFormatDenied)
+	assert.True(t, m.CurrentLogfileSkipped, "the run log's line says so in the refusal's place")
+	assert.Empty(t, m.CurrentLogfileError)
+	assert.Equal(t, LogAccessNone, m.LogAccess)
+	assert.Equal(t, reasonUnresolved, m.LogAccessReason)
+}
+
+func TestCollectCallsTheFunctionWhenTheServerFactsFailed(t *testing.T) {
+	q := healthyQuerier()
+	q.serverFacts = fakeRow{err: errors.New("ERROR: canceling statement due to statement timeout")}
+
+	m := collect(t, q)
+
+	assert.False(t, m.CurrentLogfileSkipped, "an unanswered check is not a refusal")
+	assert.Contains(t, q.sql, logLocationSQL)
+}
+
 func TestCollectRecordsTheLastRoutesError(t *testing.T) {
 	q := healthyQuerier()
 	q.logLocation = fakeRow{err: errDenied}

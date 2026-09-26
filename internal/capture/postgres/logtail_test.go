@@ -71,7 +71,7 @@ func (f *fakeLogQuerier) QueryRow(ctx context.Context, sql string, args ...any) 
 		return fakeRow{values: []any{
 			nullable(s.dataDirectory), nullable(s.logDirectory), nullable(s.logFilename),
 			nullable(s.loggingCollector), nullable(s.logDestination), nullable(s.logLinePrefix),
-			nullable(s.serverAddr),
+			nullable(s.serverAddr), ptr(!s.currentLogfileDenied), ptr(!s.currentLogfileFormatDenied),
 		}}
 
 	case logLocationSQL:
@@ -592,6 +592,115 @@ func TestResolveLogSourceRoutes(t *testing.T) {
 		assert.Equal(t, LogAccessUnknown, source.logAccess(),
 			"detection could not run, which is a different sentence from detection finding nothing")
 	})
+}
+
+func TestResolveLogSourceSkipsAFunctionTheRoleMayNotExecute(t *testing.T) {
+	t.Run("the form taking a format, when log_destination names one", func(t *testing.T) {
+		settings := logSettings{
+			loggingCollector: "on", logDestination: "stderr,csvlog", read: true,
+			currentLogfileFormatDenied: true,
+		}
+		q := deniedQuerier(settings)
+
+		source := resolveLogSource(context.Background(), q, settings, nil)
+
+		assert.Empty(t, q.sql, "a refused call is an ERROR and its STATEMENT in the server's own log")
+		assert.True(t, source.functionSkipped)
+		assert.Empty(t, source.err, "nothing failed: the call was not made")
+		assert.Equal(t, reasonUnresolved, source.reason, "no route produced a path")
+	})
+
+	t.Run("the no-argument form, when it names none this agent reads", func(t *testing.T) {
+		settings := logSettings{
+			loggingCollector: "on", logDestination: "syslog", read: true,
+			currentLogfileDenied: true,
+		}
+		q := deniedQuerier(settings)
+
+		source := resolveLogSource(context.Background(), q, settings, nil)
+
+		assert.Empty(t, q.sql)
+		assert.True(t, source.functionSkipped)
+	})
+
+	t.Run("each form is checked for itself", func(t *testing.T) {
+		settings := logSettings{
+			loggingCollector: "on", logDestination: "stderr", read: true,
+			currentLogfileDenied: true,
+		}
+		q := &fakeLogQuerier{settings: settings, logfiles: map[string]string{"stderr": "/var/log/pg/postgresql.log"}}
+
+		source := resolveLogSource(context.Background(), q, settings, nil)
+
+		assert.Equal(t, []string{logLocationFormatSQL}, q.sql,
+			"the form taking a format is the one asked here, and it is granted")
+		assert.False(t, source.functionSkipped)
+		assert.Equal(t, resolvedByFunction, source.resolvedBy)
+	})
+
+	t.Run("the disk routes still run", func(t *testing.T) {
+		dir := newLogDir(t)
+
+		settings := dir.settings()
+		settings.dataDirectory = ""
+		settings.logDirectory = dir.logDirectory
+		settings.currentLogfileFormatDenied = true
+
+		newest := dir.rotate()
+
+		source := resolveLogSource(context.Background(), deniedQuerier(settings), settings, nil)
+
+		assert.Equal(t, resolvedByGlob, source.resolvedBy)
+		assert.Equal(t, newest, source.path)
+	})
+}
+
+func TestReadLogSettingsReadsTheFunctionPrivileges(t *testing.T) {
+	assert.Contains(t, logSettingsSQL, "has_function_privilege('pg_catalog.pg_current_logfile()', 'EXECUTE')")
+	assert.Contains(t, logSettingsSQL, "has_function_privilege('pg_catalog.pg_current_logfile(text)', 'EXECUTE')")
+
+	for _, tc := range []struct {
+		name                 string
+		plain, format        any
+		wantPlain, wantFmted bool
+	}{
+		{name: "granted", plain: ptr(true), format: ptr(true)},
+		{name: "refused", plain: ptr(false), format: ptr(false), wantPlain: true, wantFmted: true},
+		{name: "NULL is not a refusal", plain: nil, format: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := fakeRow{values: []any{
+				ptr("/var/lib/postgresql/data"), ptr("log"), ptr("postgresql.log"), ptr("on"),
+				ptr("stderr"), ptr("%m [%p] "), ptr("10.0.4.7"), tc.plain, tc.format,
+			}}
+
+			settings, err := readLogSettings(context.Background(), fixedRowQuerier{row: row})
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantPlain, settings.currentLogfileDenied)
+			assert.Equal(t, tc.wantFmted, settings.currentLogfileFormatDenied)
+		})
+	}
+}
+
+type fixedRowQuerier struct{ row fakeRow }
+
+func (f fixedRowQuerier) QueryRow(context.Context, string, ...any) pgx.Row { return f.row }
+
+func TestTailReasonBlockCarriesNoErrorForASkippedCall(t *testing.T) {
+	settings := logSettings{
+		loggingCollector: "on", logDestination: "stderr", read: true,
+		currentLogfileFormatDenied: true,
+	}
+	q := deniedQuerier(settings)
+	h := newDeadlockHarness(t, q)
+
+	block := h.next()
+
+	assert.Equal(t, reasonUnresolved, block.fields["reason"])
+	assert.False(t, block.has("error"), "a call not made has no error to report")
+	assert.NotContains(t, q.sql, logLocationFormatSQL)
+	assert.NotContains(t, q.sql, logLocationSQL)
 }
 
 func TestCurrentLogfilesParsing(t *testing.T) {
