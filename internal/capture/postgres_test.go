@@ -145,20 +145,21 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 	}
 
 	postgresDataTypes := map[string]string{
-		"pgDTMetadata":      pgDTMetadata,
-		"pgDTBloat":         pgDTBloat,
-		"pgDTHealth":        pgDTHealth,
-		"pgDTCapacity":      pgDTCapacity,
-		"pgDTReplication":   pgDTReplication,
-		"pgDTSessions":      pgDTSessions,
-		"pgDTSlowQueries":   pgDTSlowQueries,
-		"pgDTDeadlocks":     pgDTDeadlocks,
-		"pgDTTimeouts":      pgDTTimeouts,
-		"pgDTExplain":       pgDTExplain,
-		"pgDTIndexUsage":    pgDTIndexUsage,
-		"pgDTTablespaces":   pgDTTablespaces,
-		"pgDTCheckpointLog": pgDTCheckpointLog,
-		"pgDTXIDAge":        pgDTXIDAge,
+		"pgDTMetadata":           pgDTMetadata,
+		"pgDTBloat":              pgDTBloat,
+		"pgDTHealth":             pgDTHealth,
+		"pgDTCapacity":           pgDTCapacity,
+		"pgDTReplication":        pgDTReplication,
+		"pgDTSessions":           pgDTSessions,
+		"pgDTSlowQueries":        pgDTSlowQueries,
+		"pgDTDeadlocks":          pgDTDeadlocks,
+		"pgDTTimeouts":           pgDTTimeouts,
+		"pgDTExplain":            pgDTExplain,
+		"pgDTIndexUsage":         pgDTIndexUsage,
+		"pgDTTablespaces":        pgDTTablespaces,
+		"pgDTCheckpointLog":      pgDTCheckpointLog,
+		"pgDTXIDAge":             pgDTXIDAge,
+		"pgDTNonDefaultSettings": pgDTNonDefaultSettings,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
@@ -191,6 +192,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_tablespaces.txt", PostgresTablespacesFileName)
 	assert.Equal(t, "pg_checkpoint_log.txt", PostgresCheckpointLogFileName)
 	assert.Equal(t, "pg_xid_age.txt", PostgresXIDAgeFileName)
+	assert.Equal(t, "pg_nondefault_settings.txt", PostgresNonDefaultSettingsFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -204,7 +206,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 14, "every artifact the run writes is named here")
+	assert.Len(t, seen, 15, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -253,6 +255,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Equal(t, pgDTXIDAge, pgSampledDataType(postgres.XIDAge{}.Artifact()),
 		"and pg_xid_age.txt")
+
+	assert.Equal(t, pgDTNonDefaultSettings, pgSampledDataType(postgres.NonDefaultSettings{}.Artifact()),
+		"and pg_nondefault_settings.txt")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no dt at all is still refused rather than guessed at - the "+
@@ -307,6 +312,10 @@ func TestPostgresXIDAgeFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresXIDAgeFileName, postgres.XIDAge{}.Artifact().FileName)
 }
 
+func TestPostgresNonDefaultSettingsFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresNonDefaultSettingsFileName, postgres.NonDefaultSettings{}.Artifact().FileName)
+}
+
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 	require.Equal(t, postgres.Periodic(0), postgres.NewSlowQueries().Artifact().Schedule,
 		"a periodic collector, so its last offset is exactly the closing tick "+
@@ -323,15 +332,16 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 	interval := 30 * time.Second
 
 	for name, schedule := range map[string]postgres.Schedule{
-		"pg_sessions":     postgres.Sessions{Interval: interval}.Artifact().Schedule,
-		"pg_health":       postgres.Health{Interval: interval}.Artifact().Schedule,
-		"pg_xid_age":      postgres.XIDAge{Interval: interval}.Artifact().Schedule,
-		"pg_replication":  postgres.Replication{Interval: interval}.Artifact().Schedule,
-		"pg_capacity":     postgres.Capacity{Interval: interval}.Artifact().Schedule,
-		"pg_bloat":        postgres.Bloat{Interval: interval}.Artifact().Schedule,
-		"pg_index_usage":  postgres.IndexUsage{Interval: interval}.Artifact().Schedule,
-		"pg_tablespaces":  postgres.Tablespaces{Interval: interval}.Artifact().Schedule,
-		"pg_slow_queries": (&postgres.SlowQueries{Interval: interval}).Artifact().Schedule,
+		"pg_sessions":            postgres.Sessions{Interval: interval}.Artifact().Schedule,
+		"pg_health":              postgres.Health{Interval: interval}.Artifact().Schedule,
+		"pg_xid_age":             postgres.XIDAge{Interval: interval}.Artifact().Schedule,
+		"pg_replication":         postgres.Replication{Interval: interval}.Artifact().Schedule,
+		"pg_nondefault_settings": postgres.NonDefaultSettings{Interval: interval}.Artifact().Schedule,
+		"pg_capacity":            postgres.Capacity{Interval: interval}.Artifact().Schedule,
+		"pg_bloat":               postgres.Bloat{Interval: interval}.Artifact().Schedule,
+		"pg_index_usage":         postgres.IndexUsage{Interval: interval}.Artifact().Schedule,
+		"pg_tablespaces":         postgres.Tablespaces{Interval: interval}.Artifact().Schedule,
+		"pg_slow_queries":        (&postgres.SlowQueries{Interval: interval}).Artifact().Schedule,
 	} {
 		assert.Equal(t, postgres.Periodic(interval), schedule, name+
 			" takes the run's cadence, not a constant or a bookend of its own")
@@ -419,6 +429,14 @@ func TestPostgresXIDAgeJoinsTheClosingTick(t *testing.T) {
 
 	require.Equal(t, postgres.Periodic(0), xidAge.Schedule, "born periodic, so its last sample is the close")
 	assert.Equal(t, postgres.StatementTimeout, xidAge.SampleBudget,
+		"one statement, declared: what this artifact adds to the closing tick is 10s")
+}
+
+func TestPostgresNonDefaultSettingsJoinsTheClosingTick(t *testing.T) {
+	settings := postgres.NonDefaultSettings{}.Artifact()
+
+	require.Equal(t, postgres.Periodic(0), settings.Schedule, "born periodic, so its last sample is the close")
+	assert.Equal(t, postgres.StatementTimeout, settings.SampleBudget,
 		"one statement, declared: what this artifact adds to the closing tick is 10s")
 }
 
@@ -516,6 +534,7 @@ var postgresArtifactFiles = []string{
 	PostgresHealthFileName,
 	PostgresXIDAgeFileName,
 	PostgresReplicationFileName,
+	PostgresNonDefaultSettingsFileName,
 	PostgresMetadataFileName,
 	PostgresCapacityFileName,
 	PostgresBloatFileName,
@@ -573,6 +592,8 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and the third log tail, on its siblings' 10s poll rather than the cadence")
 	assert.Contains(t, result.Msg, PostgresXIDAgeFileName+" written (0/2 samples); postgres connect failed",
 		"and pg_xid_age.txt, on the cadence")
+	assert.Contains(t, result.Msg, PostgresNonDefaultSettingsFileName+" written (0/2 samples); postgres connect failed",
+		"and pg_nondefault_settings.txt")
 	assert.Equal(t, len(postgresArtifactsAwaitingDT), strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
 		"and exactly the held-back ones say why, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
@@ -700,20 +721,21 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	require.Contains(t, byDT, pgDTExplain, "pg_explain.txt uploaded under the wrong dt")
 
 	for dt, source := range map[string]string{
-		pgDTMetadata:      "source=pg_metadata",
-		pgDTHealth:        "source=pg_health",
-		pgDTBloat:         "source=pg_bloat",
-		pgDTCapacity:      "source=pg_capacity",
-		pgDTReplication:   "source=pg_replication",
-		pgDTSessions:      "source=pg_sessions",
-		pgDTSlowQueries:   "source=pg_slow_queries",
-		pgDTDeadlocks:     "source=pg_deadlocks",
-		pgDTTimeouts:      "source=pg_timeouts",
-		pgDTExplain:       "source=pg_explain",
-		pgDTIndexUsage:    "source=pg_index_usage",
-		pgDTTablespaces:   "source=pg_tablespaces",
-		pgDTCheckpointLog: "source=pg_checkpoint_log",
-		pgDTXIDAge:        "source=pg_xid_age",
+		pgDTMetadata:           "source=pg_metadata",
+		pgDTHealth:             "source=pg_health",
+		pgDTBloat:              "source=pg_bloat",
+		pgDTCapacity:           "source=pg_capacity",
+		pgDTReplication:        "source=pg_replication",
+		pgDTSessions:           "source=pg_sessions",
+		pgDTSlowQueries:        "source=pg_slow_queries",
+		pgDTDeadlocks:          "source=pg_deadlocks",
+		pgDTTimeouts:           "source=pg_timeouts",
+		pgDTExplain:            "source=pg_explain",
+		pgDTIndexUsage:         "source=pg_index_usage",
+		pgDTTablespaces:        "source=pg_tablespaces",
+		pgDTCheckpointLog:      "source=pg_checkpoint_log",
+		pgDTXIDAge:             "source=pg_xid_age",
+		pgDTNonDefaultSettings: "source=pg_nondefault_settings",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",

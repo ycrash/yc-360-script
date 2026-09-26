@@ -1,0 +1,18 @@
+# engine=postgres source=pg_nondefault_settings v=1 format=csv scope=database db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_nondefault_settings v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 sample_error="ERROR: canceling statement due to statement timeout" ts=2026-08-07T14:32:15.201Z
+# engine=postgres source=pg_settings v=1 format=csv scope=database db=orders_db dbid=16401 sample=2 redacted=1 ts=2026-08-07T14:34:05.140Z
+name,setting,unit,source,context,short_desc
+application_name,yCrash-DB-Agent,,client,user,Sets the application name to be reported in statistics and logs.
+DateStyle,"ISO, MDY",,configuration file,user,Sets the display format for date and time values.
+default_transaction_read_only,on,,client,user,Sets the default read-only status of new transactions.
+idle_in_transaction_session_timeout,5000,ms,client,user,"Sets the maximum allowed idle time between queries, when in a transaction."
+idle_session_timeout,0,ms,client,user,"Sets the maximum allowed idle time between queries, when not in a transaction."
+lock_timeout,2000,ms,client,user,Sets the maximum allowed duration of any wait for a lock.
+log_min_duration_statement,500,ms,configuration file,superuser,Sets the minimum execution time above which all statements will be logged.
+max_connections,200,,configuration file,postmaster,Sets the maximum number of concurrent connections.
+primary_conninfo,host=10.0.4.12 port=5432 user=replicator password=<redacted> application_name=orders-standby,,configuration file,sighup,Sets the connection string to be used to connect to the sending server.
+shared_buffers,524288,8kB,configuration file,postmaster,Sets the number of shared memory buffers used by the server.
+statement_timeout,10000,ms,client,user,Sets the maximum allowed duration of any statement.
+TimeZone,Etc/UTC,,configuration file,user,Sets the time zone for displaying and interpreting time stamps.
+work_mem,16384,kB,configuration file,user,Sets the maximum memory to be used for query workspaces.
+# engine=postgres source=pg_nondefault_settings v=1 format=csv scope=database db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 ts=2026-08-07T14:34:05.201Z
