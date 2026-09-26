@@ -1,7 +1,7 @@
 version: '1'
 options:
     
-    k: Lunar@9e8d7840-91e6-48a5-9f16-2a75b2b2fcf4
+    k: test@00000000-0000-0000-0000-000000000000
     s: 'http://localhost:8080'
     tdPath: ''
     gcPath: ''

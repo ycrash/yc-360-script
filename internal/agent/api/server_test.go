@@ -35,8 +35,8 @@ func TestServer(t *testing.T) {
 	testErrCh := make(chan error, 1)
 	go func() {
 		defer s.Close()
-		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
+		config.GlobalConfig.ApiKey = "buggycompany@00000000-0000-0000-0000-000000000000"
+		buf := bytes.NewBufferString(`{"key": "buggycompany@00000000-0000-0000-0000-000000000000", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
 		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			testErrCh <- err
@@ -93,8 +93,8 @@ func TestServerCmdActions(t *testing.T) {
 	testErrCh := make(chan error, 1)
 	go func() {
 		defer s.Close()
-		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "date", "capture 2341", "echo $pid"] }`)
+		config.GlobalConfig.ApiKey = "buggycompany@00000000-0000-0000-0000-000000000000"
+		buf := bytes.NewBufferString(`{"key": "buggycompany@00000000-0000-0000-0000-000000000000", "actions":[ "date", "capture 2341", "echo $pid"] }`)
 		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			testErrCh <- err
@@ -167,8 +167,8 @@ func TestServerForward(t *testing.T) {
 	go func() {
 		defer s.Close()
 		defer rs.Close()
-		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
+		config.GlobalConfig.ApiKey = "buggycompany@00000000-0000-0000-0000-000000000000"
+		buf := bytes.NewBufferString(`{"key": "buggycompany@00000000-0000-0000-0000-000000000000", "actions":[ "capture 12321", "capture 2341", "capture findmydeviced"] }`)
 		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/action", s.Addr()), buf)
 		if err != nil {
 			testErrCh <- err
@@ -237,8 +237,8 @@ func TestAttendanceAPI(t *testing.T) {
 	go func() {
 		defer s.Close()
 		config.GlobalConfig.Server = "https://test.gceasy.io"
-		config.GlobalConfig.ApiKey = "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc"
-		buf := bytes.NewBufferString(`{"key": "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc", "actions":[ "attendance"] }`)
+		config.GlobalConfig.ApiKey = "buggycompany@00000000-0000-0000-0000-000000000000"
+		buf := bytes.NewBufferString(`{"key": "buggycompany@00000000-0000-0000-0000-000000000000", "actions":[ "attendance"] }`)
 		resp, err := http.Post(fmt.Sprintf("http://%s/action", s.Addr()), "text", buf)
 		if err != nil {
 			testErrCh <- err

@@ -19,11 +19,11 @@ root      3460     1  3473  0   17 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3474  0   17 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3475  0   17 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3476  0   17 07:28 pts/0    00:00:00 java MyClass
-root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
 root      3484  3477  3484  0    8 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
 root      3484  3477  3485  0    8 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
 root      3484  3477  3488  0    8 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
@@ -58,11 +58,11 @@ root      3460     1  3474  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3475  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3476  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3528  0   18 07:28 pts/0    00:00:00 java MyClass
-root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
 root      3484  3477  3484  0   19 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
 root      3484  3477  3485  1   19 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
 root      3484  3477  3488  0   19 07:28 pts/0    00:00:00 /usr/lib/jvm/java-11-openjdk-amd64/bin/jstat -gc -t 3460 2000 30
@@ -108,11 +108,11 @@ root      3460     1  3474  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3475  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3476  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3528  0   18 07:28 pts/0    00:00:00 java MyClass
-root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
 root      3484  3477  3484  0    1 07:28 pts/0    00:00:00 [jstat] <defunct>
 root      3487  3477  3487  0    1 07:28 pts/0    00:00:00 top -bc -d 60 -n 3
 root      3493  3477  3493  0    1 07:28 pts/0    00:00:00 top -bH -d 5 -n 25 -p 3460
@@ -140,11 +140,11 @@ root      3460     1  3474  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3475  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3476  0   18 07:28 pts/0    00:00:00 java MyClass
 root      3460     1  3528  0   18 07:28 pts/0    00:00:00 java MyClass
-root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
-root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3477  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3478  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3479  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3480  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
+root      3477     1  3481  0    5 07:28 pts/0    00:00:00 ./cmd/cmd -p 3460 -s https://gceasy.io -k testCompany@00000000-0000-0000-0000-000000000000 -j /usr/lib/jvm/java-11-openjdk-amd64
 root      3484  3477  3484  0    1 07:28 pts/0    00:00:00 [jstat] <defunct>
 root      3487  3477  3487  0    1 07:28 pts/0    00:00:00 top -bc -d 60 -n 3
 root      3493  3477  3493  0    1 07:28 pts/0    00:00:00 top -bH -d 5 -n 25 -p 3460

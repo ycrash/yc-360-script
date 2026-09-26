@@ -16,7 +16,7 @@ func TestConfig(t *testing.T) {
 			Version: "1",
 			Options: Options{
 				Pid:            "0",
-				ApiKey:         "buggycompany@e094aasdsa-c3eb-4c9a-8254-f0dd107245cc",
+				ApiKey:         "buggycompany@00000000-0000-0000-0000-000000000000",
 				Server:         "https://test.gceasy.io",
 				AppName:        "aps",
 				HeapDump:       true,
@@ -52,8 +52,8 @@ func TestConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if GlobalConfig.ApiKey != "buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc" {
-			t.Fatalf("expect %s == buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc", GlobalConfig.ApiKey)
+		if GlobalConfig.ApiKey != "buggycompany@00000000-0000-0000-0000-000000000000" {
+			t.Fatalf("expect %s == buggycompany@00000000-0000-0000-0000-000000000000", GlobalConfig.ApiKey)
 		}
 		if GlobalConfig.Server != "https://test.gceasy.io" {
 			t.Fatalf("expect %s == https://test.gceasy.io", GlobalConfig.Server)
@@ -108,8 +108,8 @@ func TestConfig(t *testing.T) {
 		if GlobalConfig.VerifySSL {
 			t.Fail()
 		}
-		if GlobalConfig.ApiKey != "buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc" {
-			t.Fatalf("expect %s == buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc", GlobalConfig.ApiKey)
+		if GlobalConfig.ApiKey != "buggycompany@00000000-0000-0000-0000-000000000000" {
+			t.Fatalf("expect %s == buggycompany@00000000-0000-0000-0000-000000000000", GlobalConfig.ApiKey)
 		}
 		if GlobalConfig.Server != "http://test.abc.io" {
 			t.Fatalf("expect %s == http://test.abc.io", GlobalConfig.Server)

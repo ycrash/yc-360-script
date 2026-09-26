@@ -457,7 +457,7 @@
     "API_TIMEOUT_MS": "900000",
     "APPDATA": "C:\\Users\\mahes\\AppData\\Roaming",
     "AWS_ACCESS_KEY": "AKIA****************",
-    "AWS_SECRET_ACCESS_KEY": "iCNlIl0l********************************",
+    "AWS_SECRET_ACCESS_KEY": "****************************************",
     "BAGGAGE": "sentry-environment=production,sentry-release=Claude%401.19367.0,sentry-public_key=2f98127cbffe4740b1f767a2de77d23b,sentry-trace_id=a7ef840f60264047aa896a8b05fd8201,sentry-org_id=1158394",
     "ChocolateyInstall": "C:\\ProgramData\\chocolatey",
     "ChocolateyLastPathUpdate": "133452140989082522",
