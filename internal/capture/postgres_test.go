@@ -161,6 +161,7 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTXIDAge":             pgDTXIDAge,
 		"pgDTNonDefaultSettings": pgDTNonDefaultSettings,
 		"pgDTCatalogMap":         pgDTCatalogMap,
+		"pgDTMemory":             pgDTMemory,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
@@ -195,6 +196,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_xid_age.txt", PostgresXIDAgeFileName)
 	assert.Equal(t, "pg_nondefault_settings.txt", PostgresNonDefaultSettingsFileName)
 	assert.Equal(t, "pg_catalog_map.txt", PostgresCatalogMapFileName)
+	assert.Equal(t, "pg_memory.txt", PostgresMemoryFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -208,7 +210,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 16, "every artifact the run writes is named here")
+	assert.Len(t, seen, 17, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -263,6 +265,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Equal(t, pgDTCatalogMap, pgSampledDataType(postgres.CatalogMap{}.Artifact()),
 		"and pg_catalog_map.txt")
+
+	assert.Equal(t, pgDTMemory, pgSampledDataType(postgres.Memory{}.Artifact()),
+		"and pg_memory.txt")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no dt at all is still refused rather than guessed at - the "+
@@ -325,6 +330,10 @@ func TestPostgresCatalogMapFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresCatalogMapFileName, postgres.CatalogMap{}.Artifact().FileName)
 }
 
+func TestPostgresMemoryFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresMemoryFileName, postgres.Memory{}.Artifact().FileName)
+}
+
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
 	require.Equal(t, postgres.Periodic(0), postgres.NewSlowQueries().Artifact().Schedule,
 		"a periodic collector, so its last offset is exactly the closing tick "+
@@ -346,6 +355,7 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 		"pg_xid_age":             postgres.XIDAge{Interval: interval}.Artifact().Schedule,
 		"pg_replication":         postgres.Replication{Interval: interval}.Artifact().Schedule,
 		"pg_nondefault_settings": postgres.NonDefaultSettings{Interval: interval}.Artifact().Schedule,
+		"pg_memory":              postgres.Memory{Interval: interval}.Artifact().Schedule,
 		"pg_capacity":            postgres.Capacity{Interval: interval}.Artifact().Schedule,
 		"pg_bloat":               postgres.Bloat{Interval: interval}.Artifact().Schedule,
 		"pg_index_usage":         postgres.IndexUsage{Interval: interval}.Artifact().Schedule,
@@ -438,6 +448,14 @@ func TestPostgresXIDAgeJoinsTheClosingTick(t *testing.T) {
 
 	require.Equal(t, postgres.Periodic(0), xidAge.Schedule, "born periodic, so its last sample is the close")
 	assert.Equal(t, postgres.StatementTimeout, xidAge.SampleBudget,
+		"one statement, declared: what this artifact adds to the closing tick is 10s")
+}
+
+func TestPostgresMemoryJoinsTheClosingTick(t *testing.T) {
+	memory := postgres.Memory{}.Artifact()
+
+	require.Equal(t, postgres.Periodic(0), memory.Schedule, "born periodic, so its last sample is the close")
+	assert.Equal(t, postgres.StatementTimeout, memory.SampleBudget,
 		"one statement, declared: what this artifact adds to the closing tick is 10s")
 }
 
@@ -544,6 +562,7 @@ var postgresArtifactFiles = []string{
 	PostgresXIDAgeFileName,
 	PostgresReplicationFileName,
 	PostgresNonDefaultSettingsFileName,
+	PostgresMemoryFileName,
 	PostgresMetadataFileName,
 	PostgresCatalogMapFileName,
 	PostgresCapacityFileName,
@@ -606,6 +625,8 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and pg_nondefault_settings.txt")
 	assert.Contains(t, result.Msg, PostgresCatalogMapFileName+" written (0/1 samples); postgres connect failed",
 		"and pg_catalog_map.txt, read once")
+	assert.Contains(t, result.Msg, PostgresMemoryFileName+" written (0/2 samples); postgres connect failed",
+		"and pg_memory.txt, on the cadence")
 	assert.Equal(t, len(postgresArtifactsAwaitingDT), strings.Count(result.Msg, "; not uploaded: dt value not yet assigned"),
 		"and exactly the held-back ones say why, after the refusal rather than instead of it")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/2 samples)")
@@ -755,6 +776,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		pgDTXIDAge:             "source=pg_xid_age",
 		pgDTNonDefaultSettings: "source=pg_nondefault_settings",
 		pgDTCatalogMap:         "source=pg_catalog_map",
+		pgDTMemory:             "source=pg_memory",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",

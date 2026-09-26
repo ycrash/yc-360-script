@@ -1,0 +1,6 @@
+# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_shmem_allocations v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 reason=permission_denied ts=2026-08-07T14:32:05.112Z
+name,off,size,allocated_size
+# engine=postgres source=pg_shmem_allocations v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 reason=permission_denied ts=2026-08-07T14:34:05.140Z
+name,off,size,allocated_size
+# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

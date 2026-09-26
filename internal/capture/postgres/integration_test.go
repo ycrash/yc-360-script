@@ -1481,6 +1481,97 @@ func TestMatrixCatalogMapNamesOnlyTheConnectedDatabasesObjects(t *testing.T) {
 	}
 }
 
+func runMatrixMemoryWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{Memory{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixMemory(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				// Measured: pg_read_all_stats, and so pg_monitor, was granted the view in
+				// PostgreSQL 15; before that it was superuser only.
+				readable := role.superuser || (role.monitor && server.major >= 15)
+
+				granted := matrixQuery(t, target,
+					`SELECT has_table_privilege('pg_catalog.pg_shmem_allocations', 'SELECT')::text`)
+				require.Equal(t, strconv.FormatBool(readable), *granted[0], "the server's own answer agrees")
+
+				results := runMatrixMemoryWindow(t, target)
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"complete for every role: a refusal is a written sample")
+				require.Equal(t, 2, results[0].SamplesWritten)
+				assert.Empty(t, results[0].Err, "and no sample error")
+
+				artifact := matrixArtifactText(t, results[0])
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseCapacityBlocks(t, artifact, "pg_shmem_allocations")
+				require.Len(t, blocks, 2, "start and end")
+
+				for i, block := range blocks {
+					assert.Equal(t, memoryColumns, block.columns, "block %d", i)
+					assert.NotContains(t, block.header, "error", "block %d", i)
+
+					if !readable {
+						assert.Equal(t, "permission_denied", block.header["reason"], "block %d", i)
+						assert.Empty(t, block.rows, "block %d: no rows", i)
+
+						continue
+					}
+
+					assert.NotContains(t, block.header, "reason", "block %d", i)
+					require.NotEmpty(t, block.rows, "block %d", i)
+
+					var (
+						previous int64
+						unnamed  int
+						names    = map[string]bool{}
+					)
+
+					for n, row := range block.rows {
+						allocated, err := strconv.ParseInt(row[colMemoryAllocatedSize], 10, 64)
+						require.NoError(t, err, "block %d: %s's allocated_size", i, row[colMemoryName])
+
+						_, err = strconv.ParseInt(row[colMemorySize], 10, 64)
+						require.NoError(t, err, "block %d: %s's size", i, row[colMemoryName])
+
+						if n > 0 {
+							assert.LessOrEqual(t, allocated, previous, "block %d: largest first", i)
+						}
+
+						previous = allocated
+
+						if row[colMemoryName] == "" {
+							unnamed++
+						}
+
+						names[row[colMemoryName]] = true
+					}
+
+					assert.Equal(t, 1, unnamed, "block %d: one unnamed row, the unallocated remainder", i)
+					assert.True(t, names["Buffer Blocks"], "block %d: the buffer pool", i)
+					assert.True(t, names["<anonymous>"], "block %d", i)
+				}
+			})
+		}
+	}
+}
+
 func assertMatrixTablespaceSize(t *testing.T, block sampleBlock, name string, readable bool) {
 	t.Helper()
 

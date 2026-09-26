@@ -1,0 +1,13 @@
+# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 sample_error="ERROR: canceling statement due to statement timeout" ts=2026-08-07T14:32:15.201Z
+# engine=postgres source=pg_shmem_allocations v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.140Z
+name,off,size,allocated_size
+Buffer Blocks,6779904,1073741824,1073741824
+<anonymous>,,7017216,7017216
+XLOG Ctl,55168,16803400,16803456
+,1098842112,1892864,1892864
+Buffer Descriptors,5731328,8388608,8388608
+Checkpointer Data,1095617536,3932216,3932288
+Shared Memory Stats,1096295424,279992,280064
+subtransaction,5061376,267424,267520
+# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 ts=2026-08-07T14:34:05.201Z
