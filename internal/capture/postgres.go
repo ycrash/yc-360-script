@@ -464,5 +464,10 @@ func postgresResultMessage(metadata postgres.Metadata) string {
 		}
 	}
 
+	// In place of the refusal the call would have been: the reason the route found nothing.
+	if metadata.CurrentLogfileSkipped {
+		parts = append(parts, "pg_current_logfile not called: this role may not execute it")
+	}
+
 	return strings.Join(parts, "; ")
 }

@@ -67,8 +67,11 @@ GROUP BY application_name, backend_type
 ORDER BY application_name, backend_type
 LIMIT $1`
 
-// walSQL needs pg_monitor or superuser; a LOGIN-only role is denied and the block says so.
+// walSQL needs pg_monitor or superuser. walPrivilegeSQL is asked first, so a LOGIN-only role
+// skips it and the block says reason=permission_denied.
 const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
+
+const walPrivilegeSQL = `SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')`
 
 // Capacity captures checkpoint pressure, connection distribution and WAL volume every sample.
 // Checkpoint columns are cumulative counters and deltas are the server's; the other two are
@@ -88,9 +91,10 @@ func (c Capacity) Artifact() Artifact {
 		Scope:    "cluster",
 		Schedule: Periodic(c.Interval),
 
-		// Three statements on every sample. Periodic's last sample is the close, so
-		// moduleDeadline sums this against every other closing-tick collector.
-		SampleBudget: 3 * StatementTimeout,
+		// Four statements on every sample, the WAL read's privilege check among them.
+		// Periodic's last sample is the close, so moduleDeadline sums this against
+		// every other closing-tick collector.
+		SampleBudget: 4 * StatementTimeout,
 	}
 }
 
@@ -170,7 +174,7 @@ func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.
 }
 
 func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	bytesWritten, err := readWAL(ctx, q)
+	bytesWritten, denied, err := readWAL(ctx, q)
 
 	fields := []headerField{
 		{"db", s.Database},
@@ -178,8 +182,11 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 		{"sample", strconv.Itoa(s.Index)},
 	}
 
-	if err != nil {
+	switch {
+	case err != nil:
 		fields = append(fields, headerField{"error", s.errorText(err)})
+	case denied:
+		fields = append(fields, headerField{"reason", reasonPermissionDenied})
 	}
 
 	if err := writeBlockHeader(w, "pg_ls_waldir", c.Artifact().Scope, fields, s.At); err != nil {
@@ -187,9 +194,10 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	}
 
 	// NULL sum writes no row, not an empty cell: the only single-column body in the package, so an
-	// empty row would be a blank line a CSV reader skips. error= distinguishes this from a failed read.
+	// empty row would be a blank line a CSV reader skips. error= and reason= distinguish this from a
+	// failed or skipped read.
 	var cells [][]string
-	if err == nil && bytesWritten != nil {
+	if bytesWritten != nil {
 		cells = [][]string{{int64Text(bytesWritten)}}
 	}
 
@@ -320,18 +328,26 @@ func connectionCells(rows []connectionRow) [][]string {
 	return cells
 }
 
-// readWAL's sum is NULL on a directory with no files - see writeWALBlock.
-func readWAL(ctx context.Context, q RowQuerier) (*int64, error) {
+// readWAL's sum is NULL on a directory with no files - see writeWALBlock. denied is the
+// privilege check's answer; a refusal after it passed is an ordinary error.
+func readWAL(ctx context.Context, q RowQuerier) (walBytes *int64, denied bool, err error) {
+	allowed, err := readPrivilege(ctx, q, walPrivilegeSQL)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !allowed {
+		return nil, true, nil
+	}
+
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
-	var walBytes *int64
-
 	if err := q.QueryRow(stmtCtx, walSQL).Scan(&walBytes); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return walBytes, nil
+	return walBytes, false, nil
 }
 
 func (c Capacity) maxConnectionGroups() int {

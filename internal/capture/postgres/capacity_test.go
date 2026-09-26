@@ -109,6 +109,7 @@ type fakeCapacityConn struct {
 	checkpoint      []fakeRow
 	checkpointPre17 []fakeRow
 	connections     []fakeResult
+	walAllowed      []fakeRow
 	wal             []fakeRow
 
 	sql             []string
@@ -121,6 +122,7 @@ func newFakeCapacityConn() *fakeCapacityConn {
 		checkpoint:      ordersCheckpointsPG17(),
 		checkpointPre17: ordersCheckpointsPre17(),
 		connections:     repeat(rowsResult(ordersConnections())),
+		walAllowed:      repeatRow(rowResult(ptr(true))),
 		wal:             repeatRow(rowResult(ptr(int64(2254857830)))),
 	}
 }
@@ -134,6 +136,9 @@ func (c *fakeCapacityConn) QueryRow(ctx context.Context, sql string, args ...any
 
 	case checkpointSQLPre17:
 		return answerRow(&c.checkpointPre17)
+
+	case walPrivilegeSQL:
+		return answerRow(&c.walAllowed)
 
 	case walSQL:
 		return answerRow(&c.wal)
@@ -269,8 +274,8 @@ func TestCapacityArtifact(t *testing.T) {
 	assert.Equal(t, Periodic(15*time.Second), Capacity{Interval: 15 * time.Second}.Artifact().Schedule,
 		"the run's cadence, with the close as the last sample")
 
-	assert.Equal(t, 3*StatementTimeout, artifact.SampleBudget,
-		"three statements on every sample, and Periodic's last sample is the close, which "+
+	assert.Equal(t, 4*StatementTimeout, artifact.SampleBudget,
+		"four statements on every sample, and Periodic's last sample is the close, which "+
 			"moduleDeadline sums - leaving it zero would size the shared tick for two")
 }
 
@@ -425,7 +430,7 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 	denied := errors.New("ERROR: permission denied for function pg_ls_waldir (SQLSTATE 42501)")
 	timedOut := errors.New("ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")
 
-	t.Run("the WAL read alone", func(t *testing.T) {
+	t.Run("the WAL read alone, refused after the privilege check passed", func(t *testing.T) {
 		conn := newFakeCapacityConn()
 		conn.wal = repeatRow(errRow(denied))
 
@@ -529,8 +534,8 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 		conn := newFakeCapacityConn()
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, s))
 
-		assert.Equal(t, []string{checkpointSQL, connectionsSQL, walSQL}, conn.sql,
-			"sample %d: three statements, which is what Artifact().SampleBudget declares and "+
+		assert.Equal(t, []string{checkpointSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
+			"sample %d: four statements, which is what Artifact().SampleBudget declares and "+
 				"what Window.moduleDeadline sizes the shared closing tick from", s.Index)
 	}
 }
@@ -644,6 +649,44 @@ func TestCapacityWALSumOfNothingWritesNoRowRatherThanZero(t *testing.T) {
 		"and the absence of error= is what separates that from could-not-be-captured")
 }
 
+func TestCapacityWALReadSkippedWhenTheRoleMayNotRunIt(t *testing.T) {
+	assert.Equal(t, `SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')`, walPrivilegeSQL)
+
+	conn := newFakeCapacityConn()
+	conn.walAllowed = repeatRow(rowResult(ptr(false)))
+
+	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))["pg_ls_waldir"]
+
+	assert.NotContains(t, conn.sql, walSQL,
+		"a refused call is an ERROR and its STATEMENT in the server's own log, every sample")
+	assert.Contains(t, block.header, "reason=permission_denied")
+	assert.NotContains(t, block.header, "error=", "nothing failed: the read was not made")
+	assert.Equal(t, []string{"wal_bytes"}, block.body, "the column header alone")
+}
+
+func TestCapacityWALReadIsTriedWhenTheCheckAnswersNULL(t *testing.T) {
+	conn := newFakeCapacityConn()
+	conn.walAllowed = repeatRow(rowResult(nil))
+
+	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))["pg_ls_waldir"]
+
+	assert.Contains(t, conn.sql, walSQL, "only a false skips the read")
+	assert.Len(t, block.rows(t, walColumns), 1)
+}
+
+func TestCapacityFailedPrivilegeCheckIsTheBlocksError(t *testing.T) {
+	conn := newFakeCapacityConn()
+	conn.walAllowed = repeatRow(errRow(errors.New(
+		"ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")))
+
+	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))["pg_ls_waldir"]
+
+	assert.NotContains(t, conn.sql, walSQL, "nothing is known, so nothing is tried")
+	assert.Contains(t, block.header, `error="ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"`)
+	assert.NotContains(t, block.header, "reason=", "a failed check is not a refusal")
+	assert.Empty(t, block.rows(t, walColumns))
+}
+
 func TestCapacityGoldenPG17(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.hasPgStatCheckpointer = true
@@ -668,8 +711,7 @@ func TestCapacityGoldenPre17(t *testing.T) {
 func TestCapacityGoldenWALDenied(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.hasPgStatCheckpointer = true
-	conn.wal = repeatRow(errRow(errors.New(
-		"ERROR: permission denied for function pg_ls_waldir (SQLSTATE 42501)")))
+	conn.walAllowed = repeatRow(rowResult(ptr(false)))
 
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 

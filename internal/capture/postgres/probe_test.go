@@ -36,6 +36,8 @@ const (
 	colPgStatStatements
 	colHasPgMonitorRole
 	colHasPgReadAllStats
+	colCurrentLogfile
+	colCurrentLogfileFormat
 	colServerNow
 	colServerClock
 
@@ -145,6 +147,8 @@ func serverFactsValues() []any {
 	v[colPgStatStatements] = ptr("1.10")
 	v[colHasPgMonitorRole] = ptr(true)
 	v[colHasPgReadAllStats] = ptr(true)
+	v[colCurrentLogfile] = ptr(true)
+	v[colCurrentLogfileFormat] = ptr(true)
 	v[colServerNow] = ptr(testServerNow)
 	v[colServerClock] = ptr(testServerClock)
 

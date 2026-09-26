@@ -2115,6 +2115,7 @@ func assertMatrixWAL(t *testing.T, role matrixRole, block capacityMatrixBlock) {
 	if role.privileged() {
 		assert.NotContains(t, block.rawHead, "error=",
 			"pg_ls_waldir() is granted to pg_monitor, so the recommended role reads it")
+		assert.NotContains(t, block.rawHead, "reason=")
 
 		value, err := strconv.ParseInt(block.only(t, "wal_bytes"), 10, 64)
 		require.NoError(t, err, "wal_bytes must be a number")
@@ -2123,11 +2124,114 @@ func assertMatrixWAL(t *testing.T, role matrixRole, block capacityMatrixBlock) {
 		return
 	}
 
-	assert.Contains(t, block.rawHead, "error=", "a role holding only LOGIN is denied")
-	assert.Contains(t, block.rawHead, "pg_ls_waldir")
-	assert.Contains(t, block.rawHead, "42501")
+	assert.Contains(t, block.rawHead, "reason=permission_denied",
+		"a role holding only LOGIN is denied, which the privilege check says before the call")
+	assert.NotContains(t, block.rawHead, "error=", "the call is not made, so nothing fails")
 	assert.Empty(t, block.rows,
 		"the column header with no row: captured nothing, and the header says why")
+}
+
+// The agent's own reads that a role can be refused. Each refusal would be an ERROR and
+// its STATEMENT in the server's log on every sample, so each is asked first and skipped.
+func TestMatrixRefusedReadsLeaveNoErrorInTheServerLog(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		for _, role := range matrixRoles {
+			if role.superuser {
+				continue
+			}
+
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				superuser := matrixTarget(server, matrixSuperuser(t))
+
+				logfile := matrixQuery(t, superuser, `SELECT pg_current_logfile('stderr')`)[0]
+				require.NotNil(t, logfile, "the matrix servers write a stderr log")
+
+				from := matrixLogSize(t, *logfile)
+
+				target := matrixTarget(server, role)
+
+				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+				defer cancel()
+
+				conn, err := Connect(ctx, target)
+				require.NoError(t, err)
+
+				defer func() {
+					closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+					defer closeCancel()
+
+					_ = conn.Close(closeCtx)
+				}()
+
+				// As a run starts its samples: the capability flags pick each statement's variant.
+				sc := (&Window{Target: target}).identify(ctx, conn)
+				sc.At, sc.Index, sc.Total = time.Now(), 1, 2
+
+				require.NoError(t, Memory{}.Sample(ctx, conn, io.Discard, sc))
+				require.NoError(t, Capacity{}.Sample(ctx, conn, io.Discard, sc))
+				require.NoError(t, NewDeadlocks().Sample(ctx, conn, io.Discard, sc))
+
+				m := Collect(ctx, conn, target, time.Now())
+				assert.Empty(t, m.CurrentLogfileError, "no call was refused")
+
+				// The method's control: a refusal of this role's own reaches this file.
+				var password *string
+				require.Error(t, conn.QueryRow(ctx, `SELECT rolpassword FROM pg_catalog.pg_authid LIMIT 1`).Scan(&password))
+
+				marker := fmt.Sprintf("yc-360 refusal check %d", time.Now().UnixNano())
+				matrixDDL(t, server, "postgres",
+					fmt.Sprintf("DO $$ BEGIN RAISE WARNING '%s'; END $$", marker))
+
+				var errorLines []string
+
+				for line := range strings.SplitSeq(matrixLogUntil(t, *logfile, from, marker), "\n") {
+					if strings.Contains(line, "ERROR:") {
+						errorLines = append(errorLines, line)
+					}
+				}
+
+				require.Len(t, errorLines, 1,
+					"the control's refusal and nothing else, on pg%d as %s", server.major, role.user)
+				assert.Contains(t, errorLines[0], "permission denied for table pg_authid")
+			})
+		}
+	}
+}
+
+func matrixLogSize(t *testing.T, path string) int64 {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+
+	return info.Size()
+}
+
+// matrixLogUntil returns what the server logged from offset on, once marker is in it: the
+// logging collector writes behind the session that logged.
+func matrixLogUntil(t *testing.T, path string, offset int64, marker string) string {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+
+	for {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, int64(len(content)), offset, "the log rotated or shrank under the test")
+
+		written := string(content[offset:])
+		if strings.Contains(written, marker) {
+			return written
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("the marker never reached %s", path)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Target) {

@@ -115,9 +115,27 @@ type logSettings struct {
 	// itself proof the server is this host.
 	serverAddr string
 
+	// currentLogfileDenied and currentLogfileFormatDenied are true when this role
+	// may not execute pg_current_logfile() or pg_current_logfile(text). The function
+	// route then skips the call, since each refusal is an ERROR in the server's own
+	// log. False when the check did not run, so the call is tried.
+	currentLogfileDenied       bool
+	currentLogfileFormatDenied bool
+
 	// read is false when the statement behind these failed, which is the
 	// difference between reason=unresolved and reason=settings_unread.
 	read bool
+}
+
+// functionDenied is whether the function route's call would be refused: the form
+// taking a format when log_destination names one this agent reads, the no-argument
+// form otherwise.
+func (s logSettings) functionDenied() bool {
+	if len(destinationFormats(s.logDestination)) > 0 {
+		return s.currentLogfileFormatDenied
+	}
+
+	return s.currentLogfileDenied
 }
 
 // logSettingsSQL: scalar subqueries over pg_settings, not SHOW/current_setting() —
@@ -129,7 +147,9 @@ const logSettingsSQL = `SELECT
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'logging_collector'),
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'log_destination'),
     (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'log_line_prefix'),
-    host(inet_server_addr())`
+    host(inet_server_addr()),
+    has_function_privilege('pg_catalog.pg_current_logfile()', 'EXECUTE'),
+    has_function_privilege('pg_catalog.pg_current_logfile(text)', 'EXECUTE')`
 
 // logLocationFormatSQL always names a format: the no-arg pg_current_logfile()
 // prefers stderr first, the inverse of the matcher's preference order.
@@ -142,24 +162,31 @@ func readLogSettings(ctx context.Context, q Querier) (logSettings, error) {
 	var dataDirectory, logDirectory, logFilename, loggingCollector, logDestination,
 		logLinePrefix, serverAddr *string
 
+	var currentLogfile, currentLogfileFormat *bool
+
 	err := q.QueryRow(ctx, logSettingsSQL).Scan(
 		&dataDirectory, &logDirectory, &logFilename, &loggingCollector, &logDestination,
-		&logLinePrefix, &serverAddr)
+		&logLinePrefix, &serverAddr, &currentLogfile, &currentLogfileFormat)
 	if err != nil {
 		return logSettings{}, err
 	}
 
 	return logSettings{
-		dataDirectory:    text(dataDirectory),
-		logDirectory:     text(logDirectory),
-		logFilename:      text(logFilename),
-		loggingCollector: text(loggingCollector),
-		logDestination:   text(logDestination),
-		logLinePrefix:    text(logLinePrefix),
-		serverAddr:       text(serverAddr),
-		read:             true,
+		dataDirectory:              text(dataDirectory),
+		logDirectory:               text(logDirectory),
+		logFilename:                text(logFilename),
+		loggingCollector:           text(loggingCollector),
+		logDestination:             text(logDestination),
+		logLinePrefix:              text(logLinePrefix),
+		serverAddr:                 text(serverAddr),
+		currentLogfileDenied:       isFalse(currentLogfile),
+		currentLogfileFormatDenied: isFalse(currentLogfileFormat),
+		read:                       true,
 	}, nil
 }
+
+// isFalse is a privilege check's refusal: NULL is not one.
+func isFalse(v *bool) bool { return v != nil && !*v }
 
 // logSource is the resolved file (path, format, how found).
 // Success is cached; failure is retried each sample, so a transient failure costs one block, not the run.
@@ -182,6 +209,10 @@ type logSource struct {
 	// err is the last route's SQL error, already redacted (not necessarily the
 	// only failure).
 	err string
+
+	// functionSkipped: the function route was not called, since this role may not
+	// execute pg_current_logfile.
+	functionSkipped bool
 }
 
 func (s logSource) formatNames() string {
@@ -238,6 +269,8 @@ func resolveLogSource(ctx context.Context, q Querier, s logSettings, redact func
 		src.raw, src.format, src.available, src.resolvedBy = raw, format, available, resolvedByCurrentLogfiles
 		return finishLogSource(src, s)
 	}
+
+	src.functionSkipped = s.functionDenied()
 
 	raw, format, available, err, ok := resolveFromFunction(ctx, q, s)
 	if err != nil && redact != nil {
@@ -331,9 +364,14 @@ func resolveFromCurrentLogfiles(s logSettings) (raw string, format logFormat, av
 
 // resolveFromFunction asks pg_current_logfile per destination in preference order,
 // falling back to the no-arg form only when log_destination lists nothing usable.
+// A role that may not execute the form needed calls nothing.
 func resolveFromFunction(ctx context.Context, q Querier, s logSettings) (
 	raw string, format logFormat, available []logFormat, err error, ok bool,
 ) {
+	if s.functionDenied() {
+		return "", "", nil, nil, false
+	}
+
 	available = destinationFormats(s.logDestination)
 
 	for _, f := range available {

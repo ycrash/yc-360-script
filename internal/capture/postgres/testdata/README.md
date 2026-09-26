@@ -148,7 +148,9 @@ The goldens:
   `pg_read_all_stats`). Each sample is a block with `reason=permission_denied`
   and the column header alone, counted as written: the artifact is
   `status=complete`, since the refusal is the same answer every sample rather
-  than a sample that failed.
+  than a sample that failed. The refusal is found by `has_table_privilege`
+  before the read, which is then not made, so it writes nothing into the
+  server's own log.
 - `pg_memory_connect_failure.txt` and `pg_memory_sample_error.txt` — the two
   regimes, on the same clock as the `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
@@ -184,9 +186,12 @@ The goldens:
   normalisation is incomplete.
 - `pg_capacity_wal_denied.txt` — the least-privilege role. `pg_ls_waldir()`
   needs `pg_monitor` or superuser, so a role holding only `LOGIN` is denied: the
-  WAL block is its header and its column header with `error=` saying why, the
-  other two blocks are populated, and the artifact is `complete`. One refused
-  read costs its own block, never the reads that succeeded beside it.
+  WAL block is its header and its column header with `reason=permission_denied`
+  saying why, the other two blocks are populated, and the artifact is
+  `complete`. One refused read costs its own block, never the reads that
+  succeeded beside it. The refusal is found by `has_function_privilege` before
+  the call, which is then not made, so there is no server error to quote and
+  none in the server's own log; `error=` is left for a read that failed.
 - `pg_capacity_connect_failure.txt` — two lines, as above.
 - `pg_replication_full.txt` — a complete interval capture of a primary, on a 30s
   window so three samples fit on a page. **Two blocks per sample**: the

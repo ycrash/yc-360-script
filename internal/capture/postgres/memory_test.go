@@ -46,15 +46,28 @@ func memorySample() [][]any {
 type fakeMemoryConn struct {
 	*fakeWindowConn
 
-	memory []fakeResult
-	args   [][]any
+	allowed []fakeRow
+	memory  []fakeResult
+	args    [][]any
+	sql     []string
 }
 
 func newFakeMemoryConn() *fakeMemoryConn {
 	return &fakeMemoryConn{
 		fakeWindowConn: newFakeWindowConn(),
+		allowed:        repeatRow(rowResult(ptr(true))),
 		memory:         repeat(rowsResult(memorySample())),
 	}
+}
+
+func (c *fakeMemoryConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if sql == memoryPrivilegeSQL {
+		c.sql = append(c.sql, sql)
+
+		return answerRow(&c.allowed)
+	}
+
+	return c.fakeWindowConn.QueryRow(ctx, sql, args...)
 }
 
 func (c *fakeMemoryConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -62,6 +75,7 @@ func (c *fakeMemoryConn) Query(ctx context.Context, sql string, args ...any) (pg
 		return nil, fmt.Errorf("unexpected query: %s", sql)
 	}
 
+	c.sql = append(c.sql, sql)
 	c.args = append(c.args, args)
 
 	return answer(&c.memory)
@@ -142,8 +156,8 @@ func TestMemoryArtifact(t *testing.T) {
 		"no cadence given is the bookend alone, never a single sample")
 	assert.Equal(t, Periodic(15*time.Second), Memory{Interval: 15 * time.Second}.Artifact().Schedule,
 		"the run's cadence, with the close as the last sample")
-	assert.Equal(t, StatementTimeout, artifact.SampleBudget,
-		"one statement, declared: DefaultSampleBudget would charge the closing tick for two")
+	assert.Zero(t, artifact.SampleBudget,
+		"the privilege check and the read: DefaultSampleBudget's two statements")
 }
 
 func TestMemoryColumnOrder(t *testing.T) {
@@ -175,7 +189,7 @@ func TestMemoryGoldenFull(t *testing.T) {
 
 func TestMemoryGoldenPermissionDenied(t *testing.T) {
 	conn := newFakeMemoryConn()
-	conn.memory = repeat(errResult(permissionDenied42501()))
+	conn.allowed = repeatRow(rowResult(ptr(false)))
 
 	results := runMemoryWindow(t, goldenClock(t), connectTo(conn))
 
@@ -220,13 +234,63 @@ func TestMemoryGoldenSampleError(t *testing.T) {
 	assert.Equal(t, bloatGolden(t, "pg_memory_sample_error.txt"), artifactText(t, results[0]))
 }
 
-func TestMemoryRefusalIsAReasonWithNoRows(t *testing.T) {
+func TestMemorySkipsTheReadTheRoleWouldBeRefused(t *testing.T) {
+	assert.Equal(t, `SELECT has_table_privilege('pg_catalog.pg_shmem_allocations', 'SELECT')`, memoryPrivilegeSQL)
+
+	conn := newFakeMemoryConn()
+	conn.allowed = repeatRow(rowResult(ptr(false)))
+
+	header, rows := memoryBlock(t, takeMemorySample(t, conn))
+
+	assert.Equal(t, []string{memoryPrivilegeSQL}, conn.sql,
+		"a refused read is an ERROR and its STATEMENT in the server's own log, every sample")
+	assert.Equal(t, "permission_denied", header["reason"])
+	assert.NotContains(t, header, "error", "a refusal is not an error")
+	assert.Empty(t, rows, "the column header alone")
+}
+
+func TestMemoryChecksThePrivilegeBeforeEveryRead(t *testing.T) {
+	conn := newFakeMemoryConn()
+
+	takeMemorySample(t, conn)
+	takeMemorySample(t, conn)
+
+	assert.Equal(t, []string{memoryPrivilegeSQL, memorySQL, memoryPrivilegeSQL, memorySQL}, conn.sql,
+		"asked on every sample, so a grant made during the window is seen at the next one")
+}
+
+func TestMemoryReadIsTriedWhenTheCheckAnswersNULL(t *testing.T) {
+	conn := newFakeMemoryConn()
+	conn.allowed = repeatRow(rowResult(nil))
+
+	_, rows := memoryBlock(t, takeMemorySample(t, conn))
+
+	assert.Equal(t, []string{memoryPrivilegeSQL, memorySQL}, conn.sql, "only a false skips the read")
+	assert.Len(t, rows, 8)
+}
+
+func TestMemoryFailedPrivilegeCheckIsAFailedSample(t *testing.T) {
+	conn := newFakeMemoryConn()
+	conn.allowed = repeatRow(errRow(errors.New("ERROR: canceling statement due to statement timeout")))
+
+	var buf bytes.Buffer
+	err := Memory{}.Sample(context.Background(), conn, &buf, SampleContext{
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, []string{memoryPrivilegeSQL}, conn.sql, "nothing is known, so nothing is tried")
+	assert.Empty(t, buf.String(), "the window writes the stub")
+}
+
+func TestMemoryRefusalAfterTheCheckIsStillAReason(t *testing.T) {
 	conn := newFakeMemoryConn()
 	conn.memory = repeat(errResult(fmt.Errorf("sample: %w", permissionDenied42501())))
 
 	header, rows := memoryBlock(t, takeMemorySample(t, conn))
 
-	assert.Equal(t, "permission_denied", header["reason"], "found through a wrapped error too")
+	assert.Equal(t, "permission_denied", header["reason"],
+		"a grant revoked between the check and the read, found through a wrapped error too")
 	assert.NotContains(t, header, "error", "a refusal is not an error")
 	assert.Equal(t, "pg_shmem_allocations", header["source"])
 	assert.Empty(t, rows, "the column header alone")

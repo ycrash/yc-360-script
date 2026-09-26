@@ -139,6 +139,14 @@ type Metadata struct {
 	CurrentLogfileResolved string
 	CurrentLogfileError    string
 
+	// Whether this role may not execute pg_current_logfile() and pg_current_logfile(text),
+	// read with the server facts so log resolution skips a call the server would refuse.
+	// CurrentLogfileSkipped says it did, for the agent log line in the refusal's place.
+	// None is an artifact row: log_access and its reason carry the outcome.
+	CurrentLogfileDenied       bool
+	CurrentLogfileFormatDenied bool
+	CurrentLogfileSkipped      bool
+
 	// Shared with pg_deadlocks.txt/pg_timeouts.txt: all three run the same log resolution, so they
 	// can disagree about a moment (rotation, reload) but never about the method.
 	LogResolvedBy string
@@ -479,6 +487,8 @@ func collectServerFacts(ctx context.Context, q Querier, m *Metadata, password st
 
 	m.HasPgMonitorRole = boolText(row.hasPgMonitorRole)
 	m.HasPgReadAllStats = boolText(row.hasPgReadAllStat)
+	m.CurrentLogfileDenied = isFalse(row.canLogfile)
+	m.CurrentLogfileFormatDenied = isFalse(row.canLogfileFormat)
 	m.PgStatStatementsVersion = text(row.pgStatStatements)
 	m.HasPgStatStatements = strconv.FormatBool(m.PgStatStatementsVersion != "")
 	m.HasPgStatCheckpointer = boolText(row.hasCheckpointer)
@@ -523,6 +533,7 @@ func collectLogLocation(ctx context.Context, q Querier, m *Metadata, password st
 	// Last route's error, not the only route's: before disk routes existed, a denied
 	// pg_current_logfile() was the whole story.
 	m.CurrentLogfileError = source.err
+	m.CurrentLogfileSkipped = source.functionSkipped
 
 	if source.raw != "" {
 		m.CurrentLogfile = source.raw
@@ -545,7 +556,11 @@ func logSettingsFromMetadata(m *Metadata) logSettings {
 		loggingCollector: m.LoggingCollector,
 		logDestination:   m.LogDestination,
 		serverAddr:       m.InetServerAddr,
-		read:             m.QueryError == "",
+
+		currentLogfileDenied:       m.CurrentLogfileDenied,
+		currentLogfileFormatDenied: m.CurrentLogfileFormatDenied,
+
+		read: m.QueryError == "",
 	}
 }
 
