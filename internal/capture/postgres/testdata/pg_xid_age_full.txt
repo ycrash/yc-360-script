@@ -1,0 +1,14 @@
+# engine=postgres source=pg_xid_age v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.112Z
+datname,xid_age
+orders_db,412883019
+postgres,201554812
+template1,201554810
+template0,198204233
+# engine=postgres source=pg_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.140Z
+datname,xid_age
+orders_db,412973511
+postgres,201645304
+template1,201645302
+template0,198294725
+# engine=postgres source=pg_xid_age v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

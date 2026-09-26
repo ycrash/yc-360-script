@@ -1215,6 +1215,74 @@ func TestMatrixTablespaces(t *testing.T) {
 	}
 }
 
+func runMatrixXIDAgeWindow(t *testing.T, target Target) []ArtifactResult {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	window := &Window{
+		Duration:   time.Second,
+		Target:     target,
+		Collectors: []Collector{XIDAge{}},
+	}
+
+	return window.Run(context.Background())
+}
+
+func TestMatrixXIDAge(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+
+				databases := matrixQuery(t, target, `SELECT string_agg(datname::text, ',' ORDER BY datname COLLATE "C")
+FROM pg_catalog.pg_database`)
+				require.NotNil(t, databases[0])
+
+				results := runMatrixXIDAgeWindow(t, target)
+				require.Len(t, results, 1)
+				require.NoError(t, results[0].IOErr)
+
+				require.Equal(t, StatusComplete, results[0].Status,
+					"complete for every role: pg_database needs no grant")
+				require.Equal(t, 2, results[0].SamplesWritten)
+
+				artifact := matrixArtifactText(t, results[0])
+				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
+
+				blocks := parseCapacityBlocks(t, artifact, "pg_database")
+				require.Len(t, blocks, 2, "start and end")
+
+				for i, block := range blocks {
+					assert.Equal(t, xidAgeColumns, block.columns, "block %d", i)
+
+					var (
+						names    []string
+						previous int64
+					)
+
+					for n, row := range block.rows {
+						names = append(names, row[colXIDAgeDatName])
+
+						age, err := strconv.ParseInt(row[colXIDAgeAge], 10, 64)
+						require.NoError(t, err, "block %d: %s's xid_age is a number", i, row[colXIDAgeDatName])
+						assert.Positive(t, age, "block %d: %s", i, row[colXIDAgeDatName])
+
+						if n > 0 {
+							assert.LessOrEqual(t, age, previous, "block %d: oldest first", i)
+						}
+
+						previous = age
+					}
+
+					sort.Strings(names)
+					assert.Equal(t, *databases[0], strings.Join(names, ","),
+						"block %d: every database in the cluster, template0 included", i)
+				}
+			})
+		}
+	}
+}
+
 func assertMatrixTablespaceSize(t *testing.T, block sampleBlock, name string, readable bool) {
 	t.Helper()
 

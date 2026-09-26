@@ -96,6 +96,15 @@ The goldens:
   guard is what keeps a refusal from costing the whole artifact.
 - `pg_tablespaces_connect_failure.txt` and `pg_tablespaces_sample_error.txt` —
   the two regimes, on the same clock as the `pg_bloat_*` counterparts.
+- `pg_xid_age_full.txt` — the spec's two columns, `datname,xid_age`, every
+  database every sample, oldest first, `scope=cluster`. `template0` is listed:
+  nothing connects to it, but it ages like the rest. Every row moves by the same
+  90492 between the samples, because the transaction-ID counter is the
+  cluster's; only a vacuum that freezes a database moves it back. No least-
+  privilege variant: any role reads `pg_database`. Uploads under `dt=pgXidAge`,
+  proposed and unconfirmed.
+- `pg_xid_age_connect_failure.txt` and `pg_xid_age_sample_error.txt` — the two
+  regimes, on the same clock as the `pg_bloat_*` counterparts.
 - `pg_health_full.txt` — a complete interval capture, on a 30s window so three
   samples fit on a page; the default 120s window is the same shape with twelve.
   `pg_stat_database` is read **unfiltered**, so the block carries every database
@@ -613,7 +622,7 @@ significant trailing space — `TestGoldenKeepsTrailingWhitespace` guards it
 against trimming editors.
 
 To change a fixture, change the writer or the samples in `writer_test.go`,
-`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
+`bloat_test.go`, `indexusage_test.go`, `tablespaces_test.go`, `xidage_test.go`, `checkpointlog_test.go`, `health_test.go`, `capacity_test.go`, `replication_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 
