@@ -32,6 +32,9 @@ var connectionColumns = []string{
 
 var walColumns = []string{"wal_bytes"}
 
+// databaseColumns are what the cache hit, rollback and throughput ratios are read from.
+var databaseColumns = []string{"xact_commit", "xact_rollback", "blks_hit", "blks_read", "temp_bytes"}
+
 // checkpointSQL reads the two views PG17 split counters across (both single-row, so the cross join
 // is safe), and buffers_backend from pg_stat_io, where 17 moved it.
 const checkpointSQL = `SELECT c.num_timed,
@@ -63,6 +66,16 @@ const checkpointSQLPre17 = `SELECT checkpoints_timed,
        stats_reset AS bgwriter_stats_reset
 FROM pg_catalog.pg_stat_bgwriter`
 
+// databaseSQL reads the connected database's row. pg_health.txt has every database's; this is the
+// one this file's ratios are read from.
+const databaseSQL = `SELECT xact_commit,
+       xact_rollback,
+       blks_hit,
+       blks_read,
+       temp_bytes
+FROM pg_catalog.pg_stat_database
+WHERE datname = current_database()`
+
 // connectionsSQL groups rather than filters by backend_type: parallel/autovacuum workers show as
 // their own rows. ORDER BY identity, never count(*): the block is sampled repeatedly under a cap,
 // and a statistic ordering would let two samples keep two different group sets - the same rule
@@ -82,9 +95,10 @@ const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
 
 const walPrivilegeSQL = `SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')`
 
-// Capacity captures checkpoint pressure, connection distribution and WAL volume every sample.
-// Checkpoint columns are cumulative counters and deltas are the server's; the other two are
-// gauges, so their series is the reading rather than a difference between samples.
+// Capacity captures checkpoint pressure, the connected database's throughput, connection
+// distribution and WAL volume every sample. The checkpoint and database columns are cumulative
+// counters and deltas are the server's; the other two are gauges, so their series is the reading
+// rather than a difference between samples.
 type Capacity struct {
 	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
@@ -101,14 +115,14 @@ func (c Capacity) Artifact() Artifact {
 		Schedule:   Periodic(c.Interval),
 		Connection: ConnectionNormal,
 
-		// Four statements on every sample, the WAL read's privilege check among them.
+		// Five statements on every sample, the WAL read's privilege check among them.
 		// Periodic's last sample is the close, so moduleDeadline sums this against
 		// every other closing-tick collector on the same connection.
-		SampleBudget: 4 * StatementTimeout,
+		SampleBudget: 5 * StatementTimeout,
 	}
 }
 
-// Sample writes all three blocks every time. The gauges (active_connections, wal_bytes) used to
+// Sample writes all four blocks every time. The gauges (active_connections, wal_bytes) used to
 // land on the closing sample alone; as a series they show connections climbing and WAL growing
 // through the window, which one closing reading cannot.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
@@ -116,6 +130,10 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 	var sample bytes.Buffer
 
 	if err := c.writeCheckpointBlock(ctx, q, &sample, s); err != nil {
+		return err
+	}
+
+	if err := c.writeDatabaseBlock(ctx, q, &sample, s); err != nil {
 		return err
 	}
 
@@ -153,6 +171,27 @@ func (c Capacity) writeCheckpointBlock(ctx context.Context, q RowQuerier, w io.W
 	}
 
 	return writeRows(w, checkpointColumns, checkpointCells(row))
+}
+
+// writeDatabaseBlock is scope=database in a cluster file: its row is the connected database's.
+func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	row, err := readDatabase(ctx, q)
+
+	fields := []headerField{
+		{"db", s.Database},
+		{"dbid", s.DBID},
+		{"sample", strconv.Itoa(s.Index)},
+	}
+
+	if err != nil {
+		fields = append(fields, headerField{"error", s.errorText(err)})
+	}
+
+	if err := writeBlockHeader(w, "pg_stat_database", "database", fields, s.At); err != nil {
+		return err
+	}
+
+	return writeRows(w, databaseColumns, databaseCells(row))
 }
 
 // writeConnectionsBlock drops the count keys on a failed read rather than writing zeroes:
@@ -281,6 +320,48 @@ func checkpointCells(row *checkpointRow) [][]string {
 		int64Text(row.buffersBackend),
 		timeText(row.checkpointerReset),
 		timeText(row.bgwriterReset),
+	}}
+}
+
+type databaseRow struct {
+	xactCommit   *int64
+	xactRollback *int64
+	blksHit      *int64
+	blksRead     *int64
+	tempBytes    *int64
+}
+
+func readDatabase(ctx context.Context, q RowQuerier) (*databaseRow, error) {
+	stmtCtx, cancel := statementContext(ctx)
+	defer cancel()
+
+	var row databaseRow
+
+	err := q.QueryRow(stmtCtx, databaseSQL).Scan(
+		&row.xactCommit,
+		&row.xactRollback,
+		&row.blksHit,
+		&row.blksRead,
+		&row.tempBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &row, nil
+}
+
+func databaseCells(row *databaseRow) [][]string {
+	if row == nil {
+		return nil
+	}
+
+	return [][]string{{
+		int64Text(row.xactCommit),
+		int64Text(row.xactRollback),
+		int64Text(row.blksHit),
+		int64Text(row.blksRead),
+		int64Text(row.tempBytes),
 	}}
 }
 
