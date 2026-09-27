@@ -20,16 +20,17 @@ func withCleanGlobalConfig(t *testing.T) {
 }
 
 // validPostgres is a fully specified block. Frequency is set because the
-// 5m default does not fit the default window and Validate says so; a fixture that
+// 5m default does not fit a 2m window and Validate says so; a fixture that
 // left it unset would carry that warning into every test that counts warnings.
 func validPostgres() *Postgres {
 	return &Postgres{
-		Host:      "db-prod-01.internal",
-		Port:      5432,
-		Database:  "orders_db",
-		Username:  "ycrash_monitor",
-		Password:  "s3cr3t",
-		Frequency: newDuration(30 * time.Second),
+		Host:            "db-prod-01.internal",
+		Port:            5432,
+		Database:        "orders_db",
+		Username:        "ycrash_monitor",
+		Password:        "s3cr3t",
+		CaptureDuration: newDuration(2 * time.Minute),
+		Frequency:       newDuration(30 * time.Second),
 	}
 }
 
@@ -51,7 +52,8 @@ func TestPostgresValidateNilReceiver(t *testing.T) {
 
 func TestPostgresValidateDefaults(t *testing.T) {
 	t.Run("filled when omitted", func(t *testing.T) {
-		p := &Postgres{Host: "db-prod-01.internal", Username: "ycrash_monitor"}
+		p := &Postgres{Host: "db-prod-01.internal", Username: "ycrash_monitor",
+			CaptureDuration: newDuration(2 * time.Minute)}
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
@@ -66,7 +68,7 @@ func TestPostgresValidateDefaults(t *testing.T) {
 		assert.Contains(t, warnings[0], "postgres.database not set")
 		assert.Contains(t, warnings[0], "pg_stat_statements")
 		assert.Contains(t, warnings[1], "postgres.frequency is unset and defaults to 5m0s",
-			"the default does not fit the default window, and a block that set neither is told")
+			"the default does not fit a 2m window, and a block that set no frequency is told")
 	})
 
 	t.Run("explicit values untouched", func(t *testing.T) {
@@ -88,10 +90,11 @@ func TestPostgresValidateDefaults(t *testing.T) {
 
 func TestPostgresValidateNormalization(t *testing.T) {
 	p := &Postgres{
-		Host:     "  db-prod-01.internal  ",
-		Database: "  orders_db  ",
-		Username: "  ycrash_monitor  ",
-		Password: "  s3cr3t  ",
+		Host:            "  db-prod-01.internal  ",
+		Database:        "  orders_db  ",
+		Username:        "  ycrash_monitor  ",
+		Password:        "  s3cr3t  ",
+		CaptureDuration: newDuration(2 * time.Minute),
 		TLS: &PostgresTLS{
 			VerifyServerCertificate: boolPtr(true),
 			CAFile:                  "  /etc/ycrash/ca.pem  ",
@@ -201,16 +204,15 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 			"database: orders_db\nusername: ycrash_monitor\nfrequency: 30s\n"+body)
 	}
 
-	t.Run("absent takes the default without warning", func(t *testing.T) {
+	t.Run("absent is refused: there is no default", func(t *testing.T) {
 		p := withTarget(t, "")
 
 		warnings, err := p.Validate()
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "postgres.captureDuration is required")
+		assert.Contains(t, err.Error(), "at most 2h0m0s")
 
-		require.NotNil(t, p.CaptureDuration)
-		assert.Equal(t, DefaultPostgresCaptureDuration, p.CaptureDuration.Duration())
-
-		assert.Empty(t, warnings, "the default is not worth a warning")
+		assert.Empty(t, warnings, "one fault, one message: no bookend warning without a window")
 	})
 
 	t.Run("an explicit value is kept", func(t *testing.T) {
@@ -268,13 +270,13 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		}
 	})
 
-	t.Run("a bare key decodes to nil and is treated as absent", func(t *testing.T) {
+	t.Run("a bare key decodes to nil and is refused as absent", func(t *testing.T) {
 		p := withTarget(t, "captureDuration:")
 		require.Nil(t, p.CaptureDuration, "an explicit null does not reach UnmarshalYAML")
 
 		_, err := p.Validate()
-		require.NoError(t, err)
-		assert.Equal(t, DefaultPostgresCaptureDuration, p.CaptureDuration.Duration())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "postgres.captureDuration is required")
 	})
 
 	t.Run("an unparseable value is the decoder's error, naming the line", func(t *testing.T) {
@@ -293,11 +295,15 @@ func TestPostgresValidateFrequency(t *testing.T) {
 	withTarget := func(t *testing.T, body string) *Postgres {
 		t.Helper()
 
+		if !strings.Contains(body, "captureDuration") {
+			body = "captureDuration: 2m\n" + body
+		}
+
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
 			"database: orders_db\nusername: ycrash_monitor\n"+body)
 	}
 
-	t.Run("absent takes the 5m default, which the default window cannot fit", func(t *testing.T) {
+	t.Run("absent takes the 5m default, which a 2m window cannot fit", func(t *testing.T) {
 		p := withTarget(t, "")
 
 		warnings, err := p.Validate()
@@ -308,10 +314,36 @@ func TestPostgresValidateFrequency(t *testing.T) {
 
 		require.Len(t, warnings, 1)
 		assert.Contains(t, warnings[0], "postgres.frequency is unset and defaults to 5m0s")
-		assert.Contains(t, warnings[0], "not shorter than the 2m0s window")
-		assert.Contains(t, warnings[0], "only the opening and closing samples")
+		assert.Contains(t, warnings[0], "meets or exceeds postgres.captureDuration (2m0s)")
+		assert.Contains(t, warnings[0], "normal-speed and expensive-speed files will produce only "+
+			"the opening and closing samples, no samples in between")
+		assert.Contains(t, warnings[0], "fast-speed files (pg_sessions.txt) are unaffected, sampled every 15s")
 		assert.Contains(t, warnings[0], "for example 30s",
 			"a value that fits the window, named as the fix")
+	})
+
+	t.Run("an explicit cadence at the window is warned in the same terms", func(t *testing.T) {
+		p := withTarget(t, "frequency: 2m")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		require.Len(t, warnings, 1)
+		assert.Equal(t, "postgres.frequency (2m0s) meets or exceeds postgres.captureDuration (2m0s) - "+
+			"normal-speed and expensive-speed files will produce only the opening and closing samples, "+
+			"no samples in between; fast-speed files (pg_sessions.txt) are unaffected, sampled every 15s.",
+			warnings[0])
+	})
+
+	t.Run("a window no longer than the fast speed does not claim it is unaffected", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 12s\nfrequency: 12s")
+
+		warnings, err := p.Validate()
+		require.NoError(t, err)
+
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "only the opening and closing samples")
+		assert.NotContains(t, warnings[0], "unaffected", "12s at 12s: sessions get the bookend alone too")
 	})
 
 	t.Run("absent on a window longer than the default takes it without warning", func(t *testing.T) {
@@ -419,6 +451,24 @@ func TestPostgresValidateFrequency(t *testing.T) {
 		require.Error(t, err)
 		assert.Empty(t, warnings, "one fault, one message")
 	})
+}
+
+func TestPostgresSpeeds(t *testing.T) {
+	for _, tt := range []struct {
+		frequency, fast, expensive time.Duration
+	}{
+		{10 * time.Second, 10 * time.Second, 5 * time.Minute},
+		{15 * time.Second, 15 * time.Second, 5 * time.Minute},
+		{30 * time.Second, 15 * time.Second, 5 * time.Minute},
+		{5 * time.Minute, 15 * time.Second, 5 * time.Minute},
+		{20 * time.Minute, 15 * time.Second, 20 * time.Minute},
+	} {
+		t.Run(tt.frequency.String(), func(t *testing.T) {
+			assert.Equal(t, tt.fast, PostgresFastFrequency(tt.frequency), "fast is frequency, at most 15s")
+			assert.Equal(t, tt.expensive, PostgresExpensiveFrequency(tt.frequency),
+				"expensive is frequency, at least 5m")
+		})
+	}
 }
 
 func TestPostgresValidateRequiredFields(t *testing.T) {
@@ -649,7 +699,7 @@ func TestPostgresValidateExplain(t *testing.T) {
 		t.Helper()
 
 		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
-			"database: orders_db\nusername: ycrash_monitor\nfrequency: 30s\n"+body)
+			"database: orders_db\nusername: ycrash_monitor\ncaptureDuration: 2m\nfrequency: 30s\n"+body)
 	}
 
 	t.Run("the two accepted values", func(t *testing.T) {
@@ -970,9 +1020,10 @@ func TestPostgresString(t *testing.T) {
 	})
 
 	t.Run("an unset window says so rather than reading as a value", func(t *testing.T) {
-		got := validPostgres().String()
+		p := validPostgres()
+		p.CaptureDuration = nil
 
-		assert.Contains(t, got, "captureDuration=(unset, defaults to 2m0s)")
+		assert.Contains(t, p.String(), "captureDuration=(unset, required)")
 	})
 
 	t.Run("an unset cadence says so rather than reading as a value", func(t *testing.T) {
@@ -1211,6 +1262,8 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 			Database: "orders_db",
 			Username: "ycrash_monitor",
 			Password: "${PG_YCRASH_PASSWORD}",
+
+			CaptureDuration: newDuration(2 * time.Minute),
 		}
 		_, err := GlobalConfig.Postgres.Validate()
 		require.NoError(t, err)
@@ -1245,6 +1298,7 @@ func TestPostgresAgentOnDBHost(t *testing.T) {
 		p := decodePostgresBlock(t, `
 host: db-prod-01.internal
 username: ycrash_monitor
+captureDuration: 2m
 agentOnDbHost: true`)
 
 		warnings, err := p.Validate()

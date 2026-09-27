@@ -623,16 +623,16 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 	assert.Less(t, elapsed, 30*time.Second,
 		"a connect failure waited out the window instead of failing fast")
 
-	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/2 samples)",
-		"the 5m default on the 2m window is the bookend alone, none taken - and it "+
-			"reports a refusal like every other; Validate is what warns a deployment about "+
-			"the two samples, since the capture itself takes what it is given")
+	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/9 samples)",
+		"sessions sample at the fast speed, at most 15s, whatever the frequency: 2m at 15s "+
+			"is eight steps and the close - and it reports a refusal like every other")
 	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/2 samples)",
-		"the same cadence, where this artifact once carried a 10s constant of its own")
+		"the 5m default on the 2m window is the bookend alone at the normal speed; Validate "+
+			"is what warns a deployment about the two samples, since the capture takes what it is given")
 	assert.Contains(t, result.Msg, PostgresReplicationFileName+" written (0/2 samples)",
-		"and the same again for replication: one cadence for every sampled artifact")
+		"and the same again for replication, at the normal speed")
 	assert.Contains(t, result.Msg, PostgresBloatFileName+" written (0/2 samples)",
-		"the whole-table reads take the same cadence as the cheap ones")
+		"the whole-table reads at the expensive speed, at least 5m")
 	assert.Contains(t, result.Msg, PostgresCapacityFileName+" written (0/2 samples)")
 	assert.Contains(t, result.Msg, PostgresIndexUsageFileName+" written (0/2 samples); postgres connect failed",
 		"the eleventh artifact takes the cadence too, and reports the refusal like the rest")
@@ -1065,7 +1065,8 @@ func TestPostgresCaptureDefaultsTheWindowWhenUnvalidated(t *testing.T) {
 	task := &PostgresCapture{Target: unreachablePostgres(t)}
 	require.Nil(t, task.Target.CaptureDuration)
 
-	assert.Equal(t, config.DefaultPostgresCaptureDuration, task.captureDuration())
+	assert.Equal(t, unvalidatedCaptureDuration, task.captureDuration(),
+		"Validate refuses a block without the key; one built in code still gets a window")
 
 	window := config.Duration(45 * time.Second)
 	task.Target.CaptureDuration = &window
@@ -1106,13 +1107,47 @@ func TestPostgresCaptureHonoursTheConfiguredFrequency(t *testing.T) {
 	result, err := (&PostgresCapture{Target: target}).Run()
 	require.NoError(t, err)
 
-	assert.Contains(t, result.Msg, PostgresSessionsFileName+" written (0/5 samples)",
+	assert.Contains(t, result.Msg, PostgresHealthFileName+" written (0/5 samples)",
 		"2m at 30s: four steps and the close, where the "+
 			"5m default would have been the bookend alone")
 	assert.Contains(t, result.Msg, PostgresSlowQueriesFileName+" written (0/5 samples)")
 	assert.Contains(t, result.Msg, PostgresExplainFileName+" written (0/5 samples)",
-		"and pg_explain takes the same five: since the once-per-shape rework it walks "+
-			"every sample's statements read rather than ranking the two endpoints")
+		"and pg_explain takes the same five: it walks every sample's statements read")
+}
+
+func TestPostgresCaptureSamplesEachFileAtItsSpeed(t *testing.T) {
+	chdirToCaptureDir(t)
+
+	target := withWindow(t, 10*time.Minute)
+	frequency := config.Duration(time.Minute)
+	target.Frequency = &frequency
+
+	result, err := (&PostgresCapture{Target: target}).Run()
+	require.NoError(t, err)
+
+	// 10m at 1m: fast 15s is forty steps and the close; normal 1m is ten and the
+	// close; expensive 5m is two and the close.
+	for _, tt := range []struct {
+		file    string
+		samples int
+	}{
+		{PostgresSessionsFileName, 41},
+		{PostgresHealthFileName, 11},
+		{PostgresXIDAgeFileName, 11},
+		{PostgresReplicationFileName, 11},
+		{PostgresMemoryFileName, 11},
+		{PostgresCapacityFileName, 11},
+		{PostgresSlowQueriesFileName, 11},
+		{PostgresExplainFileName, 11},
+		{PostgresBloatFileName, 3},
+		{PostgresIndexUsageFileName, 3},
+		{PostgresTablespacesFileName, 3},
+		{PostgresNonDefaultSettingsFileName, 3},
+		{PostgresCatalogMapFileName, 1},
+		{PostgresDeadlocksFileName, 60},
+	} {
+		assert.Contains(t, result.Msg, fmt.Sprintf("%s written (0/%d samples)", tt.file, tt.samples))
+	}
 }
 
 func TestPostgresCaptureMessage(t *testing.T) {

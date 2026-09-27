@@ -239,7 +239,7 @@ var explainableKeywords = []string{
 type Explain struct {
 	mode string
 
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
 
 	// sq offers each sample's statements read; Explain never re-runs it.
