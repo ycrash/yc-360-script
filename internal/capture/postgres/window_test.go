@@ -646,8 +646,8 @@ func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
 		mode string
 		want time.Duration
 	}{
-		{name: "enabled", mode: ExplainModeAll, want: 203 * time.Second},
-		{name: "logged", mode: ExplainModeLogged, want: 203 * time.Second},
+		{name: "enabled", mode: ExplainModeAll, want: 202 * time.Second},
+		{name: "logged", mode: ExplainModeLogged, want: 202 * time.Second},
 		{name: "disabled", mode: "", want: 180 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
