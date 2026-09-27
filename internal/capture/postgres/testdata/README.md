@@ -474,18 +474,32 @@ The goldens:
   The `log_path=` here is relative because the fixture's data directory is the
   test's working directory, which is what makes the golden reproducible on every
   machine; a real server reports an absolute one.
-- `pg_deadlocks_csvlog.txt` — the same event as a CSV *record* spanning four
-  physical lines, its `DETAIL` inside a quoted field with real newlines in it.
-  This is the fixture that shows why the body is length-delimited: in `csvlog` a
-  body line can begin with anything at all, `#` included. `matched_by=sqlstate`,
-  because the format carries `40P01` in a dedicated column and a five-character
-  code is exact where a message is translatable.
+  **The statements are redacted, and nothing else is.** The text after each
+  `Process <n>: ` in the `DETAIL` and the whole `STATEMENT:` line become
+  `<redacted>`; the lock waits, the process and transaction numbers, the relation
+  and the tuple stay, because they are the finding. `redacted=3` counts the
+  replacements, and every block that reports a read carries it, `0` included,
+  the drain too. A `QUERY:` line is replaced whole as well, and a `CONTEXT:`
+  line loses the SQL, row data or bind values it quotes; the csvlog and jsonlog
+  fixtures show the `CONTEXT` case.
+- `pg_deadlocks_csvlog.txt` — a deadlock inside a PL/pgSQL function, measured
+  from the matrix's postgres:18 container on 2026-09-27, as a CSV *record*
+  spanning five physical lines, its `DETAIL` and `CONTEXT` inside quoted fields
+  with real newlines in them. This is the fixture that shows why the body is
+  length-delimited: in `csvlog` a body line can begin with anything at all, `#`
+  included. `matched_by=sqlstate`, because the format carries `40P01` in a
+  dedicated column and a five-character code is exact where a message is
+  translatable. `redacted=4`: the two processes' statements, the function's
+  `SQL statement "…"` frame in `CONTEXT` and the statement column. **Only the
+  columns that changed are quoted again**, the way csvlog quotes (in double
+  quotes, a quote doubled); every other byte of the record is as read.
 - `pg_deadlocks_jsonlog.txt` — the same event again, as one JSON line. The only
-  format with no boundary problem at all: one line, one event.
+  format with no boundary problem at all: one line, one event. The changed values
+  are escaped again as jsonlog escapes them, and the rest of the line is as read.
 - `pg_deadlocks_remote.txt` — Mode R, and **the file the "not observable"
   rendering is built against.** Twelve header-only blocks, each
   `reason=unreadable log_access=none`, and **no `matched=` key anywhere in
-  it**. The missing key is the design: `matched=0` is a measurement — the log was
+  it**, nor `redacted=`. The missing key is the design: `matched=0` is a measurement — the log was
   read and held no event — where a `reason=` is an absence of measurement.
   Writing `matched=0` beside a reason would put a number in the file that a
   receiver can sum, average or render as a green tick. `status=complete` is

@@ -31,6 +31,17 @@ const measuredDeadlock = "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock d
 	"2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation \"yc_dl\"\n" +
 	"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  BEGIN; UPDATE yc_dl SET v=2 WHERE id=2; SELECT pg_sleep(2); UPDATE yc_dl SET v=2 WHERE id=1; COMMIT;\n"
 
+// writtenDeadlock is measuredDeadlock as pg_deadlocks.txt writes it: each process's
+// statement and the STATEMENT line replaced, the lock waits kept.
+const writtenDeadlock = "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
+	"2026-08-15 10:00:34.543 UTC [25666] DETAIL:  Process 25666 waits for ShareLock on transaction 948; blocked by process 25651.\n" +
+	"\tProcess 25651 waits for ShareLock on transaction 949; blocked by process 25666.\n" +
+	"\tProcess 25666: <redacted>\n" +
+	"\tProcess 25651: <redacted>\n" +
+	"2026-08-15 10:00:34.543 UTC [25666] HINT:  See server log for query details.\n" +
+	"2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation \"yc_dl\"\n" +
+	"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>\n"
+
 const unrelatedTraffic = "2026-08-15 10:00:24.101 UTC [25640] LOG:  checkpoint starting: time\n" +
 	"2026-08-15 10:00:24.980 UTC [25640] LOG:  checkpoint complete: wrote 12 buffers (0.1%)\n"
 
@@ -916,7 +927,7 @@ func TestTailReopensARotationTargetItCouldNotOpenAtTheTime(t *testing.T) {
 	assert.Equal(t, "0", recovered.fields["from_offset"],
 		"a file that appeared inside the window is read whole")
 	assert.Equal(t, "1", recovered.fields["matched"])
-	assert.Equal(t, measuredDeadlock, recovered.body)
+	assert.Equal(t, writtenDeadlock, recovered.body)
 
 	assert.False(t, recovered.has("resolved_late"), "nothing was skipped, so there is nothing to declare")
 }
@@ -946,7 +957,7 @@ func TestTailResumesTheFileItLostRatherThanRereadingIt(t *testing.T) {
 	resumed := h.next()
 
 	assert.Equal(t, "1", resumed.fields["matched"], "the event it had not read, and not the one it had")
-	assert.Equal(t, measuredDeadlock, resumed.body)
+	assert.Equal(t, writtenDeadlock, resumed.body)
 }
 
 func TestTailOffsetsAdvanceWithoutGapOrOverlap(t *testing.T) {
@@ -1050,7 +1061,7 @@ func TestTailFollowsRotationThroughEveryRoute(t *testing.T) {
 			assert.Equal(t, "0", rotated.fields["from_offset"], "and the new file is read from its start")
 			assert.Equal(t, strconv.Itoa(len(generation)), rotated.fields["previous_to_offset"])
 			assert.Equal(t, strconv.Itoa(len(generation)), rotated.fields["to_offset"])
-			assert.Equal(t, measuredDeadlock+measuredDeadlock, rotated.body)
+			assert.Equal(t, writtenDeadlock+writtenDeadlock, rotated.body)
 		})
 	}
 }
@@ -1073,7 +1084,7 @@ func TestTailGlobRouteDrainsEveryGenerationInOrder(t *testing.T) {
 	rotated := h.next()
 
 	assert.Equal(t, "true", rotated.fields["rotated"])
-	assert.Equal(t, measuredDeadlock+measuredDeadlock, rotated.body,
+	assert.Equal(t, writtenDeadlock+writtenDeadlock, rotated.body,
 		"nothing duplicated and nothing skipped, in order")
 }
 
@@ -1144,7 +1155,7 @@ func TestTailDetectsTruncationInPlace(t *testing.T) {
 
 		assert.Equal(t, "true", block.fields["file_truncated"])
 		assert.Equal(t, "1", block.fields["matched"])
-		assert.Equal(t, measuredDeadlock, block.body)
+		assert.Equal(t, writtenDeadlock, block.body)
 
 		assert.Equal(t, "0", block.fields["from_offset"], "rebased, as the size check's case is")
 		assert.Equal(t, strconv.Itoa(len(unrelatedTraffic)), block.fields["previous_to_offset"])
@@ -1280,7 +1291,7 @@ func TestTailDrainIsNotASampleAndSurvivesADeadWindow(t *testing.T) {
 			"never a thirteenth sample")
 	assert.Equal(t, "1", blocks[0].fields["matched"],
 		"the final interval Every's offsets leave open is what this closes")
-	assert.Equal(t, measuredDeadlock, blocks[0].body)
+	assert.Equal(t, writtenDeadlock, blocks[0].body)
 
 	assert.Equal(t, "true", blocks[0].fields["partial_event"],
 		"an event ending exactly at EOF is complete but unprovably so - the bytes are intact "+
