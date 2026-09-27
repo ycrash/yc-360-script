@@ -549,6 +549,13 @@ The goldens:
   deadlock and timeout matchers are run as their own tails run them to exclude
   what they take, so no event is in two files. The client's cancel is held from
   sample 3 to the drain: on stderr only the next entry proves where one ends.
+  **Redacted as `pg_deadlocks.txt` is**, plus the values an error quotes: the
+  unique violation's `DETAIL` becomes `Key (id)=(<redacted>) already exists.`
+  and every `STATEMENT:` line `<redacted>`, so `redacted=2` in sample 2 and in
+  the drain, and `redacted=0` beside the `FATAL`, which quotes a database's
+  name — a name, and kept. Values in an error's message are found by a list of
+  known English message shapes (`invalid input syntax for type integer: "…"`
+  and the like), because PostgreSQL quotes names and values alike.
 - `pg_errors_unreadable.txt` — the remote regime, three samples with
   `reason=unreadable` and no `matched=` anywhere, as the other tails.
 

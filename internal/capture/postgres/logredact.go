@@ -35,8 +35,9 @@ const (
 )
 
 // field redacts one field's text. Lines within it are separated by "\n", whatever the
-// format writes between them.
-func (r *logRedaction) field(kind logField, text string) (string, int) {
+// format writes between them. sqlstate is the entry's code where the format carries
+// one, and empty where it does not.
+func (r *logRedaction) field(sqlstate string, kind logField, text string) (string, int) {
 	if text == "" {
 		return text, 0
 	}
@@ -45,6 +46,9 @@ func (r *logRedaction) field(kind logField, text string) (string, int) {
 	case fieldStatement, fieldInternalQuery:
 		return redactedValue, 1
 
+	case fieldMessage:
+		return redactMessage(text)
+
 	case fieldContext:
 		return redactContext(text)
 
@@ -52,6 +56,8 @@ func (r *logRedaction) field(kind logField, text string) (string, int) {
 		if r.deadlockReport {
 			return redactDeadlockReport(text)
 		}
+
+		return redactDetail(sqlstate, text)
 	}
 
 	return text, 0
@@ -73,6 +79,117 @@ func (r *logRedaction) event(event []byte, format logFormat) ([]byte, int) {
 // redactedEvent stands in for an event whose fields could not be told apart, so that
 // nothing in it is written.
 func redactedEvent() ([]byte, int) { return []byte(redactedValue + "\n"), 1 }
+
+// redactShapes replaces the values in the first shape s is in: every group of a shape
+// is a value.
+func redactShapes(shapes []*regexp.Regexp, s string) (string, int) {
+	for _, shape := range shapes {
+		at := shape.FindStringSubmatchIndex(s)
+		if at == nil {
+			continue
+		}
+
+		var out strings.Builder
+
+		copied, redacted := 0, 0
+
+		for group := 2; group < len(at); group += 2 {
+			if at[group] < 0 {
+				continue
+			}
+
+			out.WriteString(s[copied:at[group]])
+			out.WriteString(redactedValue)
+
+			copied = at[group+1]
+			redacted++
+		}
+
+		out.WriteString(s[copied:])
+
+		return out.String(), redacted
+	}
+
+	return s, 0
+}
+
+// messageValues are the error messages that quote a value from the statement or the
+// data rather than a name. PostgreSQL quotes names and values alike, so only a known
+// shape tells them apart: relation "orders" stays. English only, as every tail's
+// matching is.
+var messageValues = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)^invalid input syntax for (?:type )?[^:"]+: "(.*)"$`),
+	regexp.MustCompile(`(?s)^invalid input value for enum [^:"]+: "(.*)"$`),
+	regexp.MustCompile(`(?s)^value "(.*)" is out of range for type [^"]+$`),
+	regexp.MustCompile(`(?s)^"(.*)" is out of range for type [^"]+$`),
+	regexp.MustCompile(`(?s)^(?:date/time|interval) field value out of range: "(.*)"$`),
+	regexp.MustCompile(`(?s)^invalid value "(.*)" for "[^"]*"$`),
+	regexp.MustCompile(`(?s)^malformed (?:array|range|multirange|record) literal: "(.*)"$`),
+	regexp.MustCompile(`(?s)^invalid byte sequence for encoding "[^"]+": (.+)$`),
+	regexp.MustCompile(`(?s)^character with byte sequence (.+) in encoding "[^"]+" has no equivalent in encoding "[^"]+"$`),
+	regexp.MustCompile(`(?s)^unterminated (?:quoted string|dollar-quoted string|bit string literal|hexadecimal string literal) at or near "(.*)"$`),
+	regexp.MustCompile(`(?s)^trailing junk after (?:numeric literal|parameter) at or near "(.*)"$`),
+	regexp.MustCompile(`(?s)^syntax error at or near "((?:[EeBbXxNn]|[Uu]&)?'.*|\$.*|[0-9.].*)"$`),
+	regexp.MustCompile(`(?s)^invalid value for parameter "[^"]+": "(.*)"$`),
+	regexp.MustCompile(`(?s)^string is not a valid identifier: "(.*)"$`),
+	regexp.MustCompile(`(?s)^invalid hexadecimal digit: "(.*)"$`),
+	regexp.MustCompile(`(?s)^time zone "(.*)" not recognized$`),
+}
+
+// verbosePrefix is the code log_error_verbosity=verbose writes before a stderr message,
+// and cursorSuffix where in the statement the error was, which stderr writes after it.
+var (
+	verbosePrefix = regexp.MustCompile(`^[0-9A-Z]{5}: `)
+	cursorSuffix  = regexp.MustCompile(` at character \d+$`)
+)
+
+func redactMessage(text string) (string, int) {
+	code := verbosePrefix.FindString(text)
+	body := text[len(code):]
+	cursor := cursorSuffix.FindString(body)
+
+	redacted, n := redactShapes(messageValues, body[:len(body)-len(cursor)])
+	if n == 0 {
+		return text, 0
+	}
+
+	return code + redacted + cursor, n
+}
+
+// detailValues are the DETAIL texts that quote a key's or a row's values, or the input
+// the json parser stopped at.
+var detailValues = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)^Key \(.*?\)=\((.*)\) (?:already exists|is duplicated)\.$`),
+	regexp.MustCompile(`(?s)^Key \(.*?\)=\((.*)\) is (?:not present in|still referenced from) table ".*"\.$`),
+	regexp.MustCompile(`(?s)^Key \(.*?\)=\((.*)\) conflicts with (?:existing )?key \(.*?\)=\((.*)\)\.$`),
+	regexp.MustCompile(`(?s)^Failing row contains \((.*)\)\.$`),
+	regexp.MustCompile(`(?s)^Partition key of the failing row contains \(.*?\) = \((.*)\)\.$`),
+	regexp.MustCompile(`(?s)^Token "(.*)" is invalid\.$`),
+	regexp.MustCompile(`(?s)^Expected .*, but found "(.*)"\.$`),
+	regexp.MustCompile(`(?s)^Escape sequence "(.*)" is invalid\.$`),
+}
+
+func redactDetail(sqlstate, text string) (string, int) {
+	if redacted, n := redactShapes(detailValues, text); n > 0 {
+		return redacted, n
+	}
+
+	// A key in a shape not listed, a translated one among them: its values run from
+	// the first ")=(" to the last ")".
+	if at := strings.Index(text, ")=("); at >= 0 {
+		if end := strings.LastIndexByte(text, ')'); end >= at+3 {
+			return text[:at+3] + redactedValue + text[end:], 1
+		}
+	}
+
+	// An integrity violation's DETAIL names the key or row that broke it, in whatever
+	// language the server writes, so one in no shape above is replaced whole.
+	if strings.HasPrefix(sqlstate, "23") || sqlstate == "44000" {
+		return redactedValue, 1
+	}
+
+	return text, 0
+}
 
 // A deadlock report's DETAIL names each process's lock wait, then each process's
 // statement, which may run over several lines.
@@ -285,6 +402,7 @@ func (r *logRedaction) stderrEvent(event []byte) ([]byte, int) {
 	}
 
 	prefix := first[:at]
+	sqlstate := strings.TrimSuffix(verbosePrefix.FindString(message), ": ")
 
 	var (
 		out      bytes.Buffer
@@ -298,7 +416,7 @@ func (r *logRedaction) stderrEvent(event []byte) ([]byte, int) {
 		body, _ := cutTerminator(line)
 
 		if kind, head, text, ok := stderrFieldLine(body, prefix); ok {
-			redacted += r.writeStderrField(&out, field)
+			redacted += r.writeStderrField(&out, sqlstate, field)
 
 			field = stderrField{kind: kind, head: head}
 			field.raw, field.text = []string{line}, []string{text}
@@ -310,7 +428,7 @@ func (r *logRedaction) stderrEvent(event []byte) ([]byte, int) {
 		field.text = append(field.text, strings.TrimPrefix(body, "\t"))
 	}
 
-	redacted += r.writeStderrField(&out, field)
+	redacted += r.writeStderrField(&out, sqlstate, field)
 
 	if redacted == 0 {
 		return event, 0
@@ -319,8 +437,8 @@ func (r *logRedaction) stderrEvent(event []byte) ([]byte, int) {
 	return out.Bytes(), redacted
 }
 
-func (r *logRedaction) writeStderrField(out *bytes.Buffer, f stderrField) int {
-	text, redacted := r.field(f.kind, strings.Join(f.text, "\n"))
+func (r *logRedaction) writeStderrField(out *bytes.Buffer, sqlstate string, f stderrField) int {
+	text, redacted := r.field(sqlstate, f.kind, strings.Join(f.text, "\n"))
 	if redacted == 0 {
 		for _, line := range f.raw {
 			out.WriteString(line)
@@ -406,21 +524,20 @@ func (r *logRedaction) csvRecord(record []byte) ([]byte, int) {
 		copied   int
 	)
 
+	sqlstate := csvValue(record, spans[csvStateIndex])
+
 	for i, span := range spans {
 		kind, carries := csvFieldKinds[i]
 		if !carries {
 			continue
 		}
 
-		raw := string(record[span[0]:span[1]])
-		if !strings.HasPrefix(raw, `"`) {
-			// Unquoted is empty: csvlog quotes every text it writes.
+		// Unquoted is empty: csvlog quotes every text it writes.
+		if record[span[0]] != '"' {
 			continue
 		}
 
-		value := strings.ReplaceAll(raw[1:len(raw)-1], `""`, `"`)
-
-		text, n := r.field(kind, value)
+		text, n := r.field(sqlstate, kind, csvValue(record, span))
 		if n == 0 {
 			continue
 		}
@@ -439,6 +556,16 @@ func (r *logRedaction) csvRecord(record []byte) ([]byte, int) {
 	out.Write(record[copied:])
 
 	return out.Bytes(), redacted
+}
+
+// csvValue is a field's text, its quotes removed and a doubled quote read as one.
+func csvValue(record []byte, span [2]int) string {
+	raw := string(record[span[0]:span[1]])
+	if !strings.HasPrefix(raw, `"`) {
+		return raw
+	}
+
+	return strings.ReplaceAll(raw[1:len(raw)-1], `""`, `"`)
 }
 
 // csvFieldSpans splits one csvlog record into the byte spans of its fields, quotes
@@ -518,13 +645,22 @@ func (r *logRedaction) jsonRecord(line []byte) ([]byte, int) {
 		copied   int
 	)
 
+	// Absent is 00000, as the matcher reads it.
+	sqlstate := "00000"
+
+	for _, v := range values {
+		if v.key == "state_code" && line[v.start] == '"' {
+			sqlstate = unescapeJSON(line[v.start+1 : v.end-1])
+		}
+	}
+
 	for _, v := range values {
 		kind, carries := jsonFieldKinds[v.key]
 		if !carries || line[v.start] != '"' {
 			continue
 		}
 
-		text, n := r.field(kind, unescapeJSON(line[v.start+1:v.end-1]))
+		text, n := r.field(sqlstate, kind, unescapeJSON(line[v.start+1:v.end-1]))
 		if n == 0 {
 			continue
 		}

@@ -6,14 +6,18 @@ import (
 )
 
 // Errors copies every entry the server logged at ERROR, FATAL or PANIC during the
-// window, verbatim, less what pg_deadlocks.txt and pg_timeouts.txt copy.
+// window, less what pg_deadlocks.txt and pg_timeouts.txt copy, with the statements and
+// the values an entry quotes replaced.
 type Errors struct {
 	tail logTail
 }
 
 // NewErrors constructs the collector.
 func NewErrors() *Errors {
-	return &Errors{tail: newLogTail("pg_errors", errorMatch)}
+	tail := newLogTail("pg_errors", errorMatch)
+	tail.redaction = &logRedaction{}
+
+	return &Errors{tail: tail}
 }
 
 func (*Errors) Artifact() Artifact {
