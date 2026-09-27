@@ -77,10 +77,11 @@ type Bloat struct {
 
 func (b Bloat) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_bloat",
-		FileName: "pg_bloat.txt",
-		Scope:    "database",
-		Schedule: Periodic(b.Interval),
+		Name:       "pg_bloat",
+		FileName:   "pg_bloat.txt",
+		Scope:      "database",
+		Schedule:   Periodic(b.Interval),
+		Connection: ConnectionExpensive,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already. Periodic's
 		// last sample is the close, so moduleDeadline sums it there like the others.

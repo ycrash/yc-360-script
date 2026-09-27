@@ -45,11 +45,12 @@ func (n NonDefaultSettings) Artifact() Artifact {
 
 		// A database's and a role's own settings apply only to sessions in that
 		// database or as that role.
-		Scope:    "database",
-		Schedule: Periodic(n.Interval),
+		Scope:      "database",
+		Schedule:   Periodic(n.Interval),
+		Connection: ConnectionExpensive,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
-		// the close, and the shared tick is sized from this.
+		// the close, and the connection's closing tick is sized from this.
 		SampleBudget: StatementTimeout,
 	}
 }

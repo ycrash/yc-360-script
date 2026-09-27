@@ -71,6 +71,9 @@ func (CatalogMap) Artifact() Artifact {
 		Scope:    "database",
 		Schedule: Once(),
 
+		// An uncapped read of the catalog, with the other whole-table reads.
+		Connection: ConnectionExpensive,
+
 		// Three statements. Once samples at the start only, so this reaches the
 		// closing tick's deadline only when the window has no length.
 		SampleBudget: 3 * StatementTimeout,

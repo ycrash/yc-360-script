@@ -295,6 +295,9 @@ func (m *MetadataCollector) Artifact() Artifact {
 		FileName: "pg_metadata.txt",
 		Scope:    metadataScope,
 		Schedule: Once(),
+
+		// Read once, with the other reads of what changes slowly.
+		Connection: ConnectionExpensive,
 	}
 }
 

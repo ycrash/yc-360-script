@@ -26,6 +26,9 @@ func (*CheckpointLog) Artifact() Artifact {
 		Schedule: Every(DefaultLogTailInterval),
 		Format:   formatText,
 
+		// A tail delayed behind a slow read loses nothing: it reads on from its offset.
+		Connection: ConnectionNormal,
+
 		SampleBudget: LogDrainBudget,
 	}
 }

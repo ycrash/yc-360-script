@@ -151,10 +151,11 @@ type Sessions struct {
 
 func (s Sessions) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_sessions",
-		FileName: "pg_sessions.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(s.Interval),
+		Name:       "pg_sessions",
+		FileName:   "pg_sessions.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(s.Interval),
+		Connection: ConnectionFast,
 
 		// Periodic's last sample is the close, so moduleDeadline sums this one.
 		// The SET in Sample is what enforces the timeout.

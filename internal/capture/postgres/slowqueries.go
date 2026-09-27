@@ -318,9 +318,10 @@ func (sq *SlowQueries) Artifact() Artifact {
 		// cluster, not database: pg_stat_statements holds stats for every database in the cluster, tagged by dbid, though the extension is installed per database.
 		Scope: "cluster",
 
-		Schedule: Periodic(sq.Interval),
+		Schedule:   Periodic(sq.Interval),
+		Connection: ConnectionNormal,
 
-		// Preflight + two reads on every sample: 3x StatementTimeout. Periodic's last sample is the close, so moduleDeadline sums this against Capacity and Bloat.
+		// Preflight + two reads on every sample: 3x StatementTimeout. Periodic's last sample is the close, so moduleDeadline sums this against Capacity and the connection's other closing-tick collectors.
 		SampleBudget: 3 * StatementTimeout,
 	}
 }

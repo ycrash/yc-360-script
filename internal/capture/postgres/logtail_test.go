@@ -415,6 +415,8 @@ func runLogGoldenWindow(t *testing.T, collector Collector, format logFormat,
 	}
 
 	writer := newFakeCollector("pg_log_writer")
+	// On the tail's own connection, so the two share one timeline and take turns.
+	writer.artifact.Connection = collector.Artifact().Connection
 	writer.artifact.Schedule = Every(DefaultLogTailInterval)
 
 	tick := 0
@@ -468,6 +470,8 @@ func runRemoteGoldenWindow(t *testing.T, collector Collector, duration time.Dura
 	}
 
 	writer := newFakeCollector("pg_log_writer")
+	// On the tail's own connection, so the two share one timeline and take turns.
+	writer.artifact.Connection = collector.Artifact().Connection
 	writer.artifact.Schedule = Every(DefaultLogTailInterval)
 
 	window := &Window{

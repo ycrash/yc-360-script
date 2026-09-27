@@ -93,13 +93,14 @@ type Tablespaces struct {
 
 func (ts Tablespaces) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_tablespaces",
-		FileName: "pg_tablespaces.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(ts.Interval),
+		Name:       "pg_tablespaces",
+		FileName:   "pg_tablespaces.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(ts.Interval),
+		Connection: ConnectionExpensive,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
-		// the close, and the shared tick is sized from this.
+		// the close, and the connection's closing tick is sized from this.
 		SampleBudget: StatementTimeout,
 	}
 }

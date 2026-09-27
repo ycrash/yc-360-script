@@ -31,13 +31,14 @@ type XIDAge struct {
 
 func (x XIDAge) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_xid_age",
-		FileName: "pg_xid_age.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(x.Interval),
+		Name:       "pg_xid_age",
+		FileName:   "pg_xid_age.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(x.Interval),
+		Connection: ConnectionNormal,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
-		// the close, and the shared tick is sized from this.
+		// the close, and the connection's closing tick is sized from this.
 		SampleBudget: StatementTimeout,
 	}
 }

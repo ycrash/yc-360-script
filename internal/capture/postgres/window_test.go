@@ -603,10 +603,32 @@ func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, 248*time.Second, window.moduleDeadline(),
-		"120s window, plus Capacity's 40s, Bloat's 20s default and SlowQueries' 30s on the "+
-			"closing tick, plus the 5s close margin - and plus the 33s the bookend added, "+
-			"since Sessions, Health and Replication now end on that tick too")
+	assert.Equal(t, 225*time.Second, window.moduleDeadline(),
+		"120s window, plus the normal connection's closing tick - Health's 10s, Replication's "+
+			"20s, Capacity's 40s and SlowQueries' 30s, one after another - plus the 5s close "+
+			"margin. Sessions' 3s on the fast connection and Bloat's 20s on the expensive one "+
+			"run beside it, so they add nothing")
+}
+
+func TestWindowModuleDeadlineCoversTheLongestConnection(t *testing.T) {
+	fast := newFakeCollector("pg_fast")
+	fast.artifact.Connection = ConnectionFast
+	fast.artifact.SampleBudget = 50 * time.Second
+
+	normal := newFakeCollector("pg_normal")
+	normal.artifact.Connection = ConnectionNormal
+	normal.artifact.SampleBudget = 20 * time.Second
+
+	alsoNormal := newFakeCollector("pg_also_normal")
+	alsoNormal.artifact.Connection = ConnectionNormal
+	alsoNormal.artifact.SampleBudget = 20 * time.Second
+
+	window := &Window{Duration: time.Minute, Collectors: []Collector{fast, normal, alsoNormal}}
+	assert.Equal(t, time.Minute+50*time.Second+WindowCloseMargin, window.moduleDeadline(),
+		"a connection's closing tick sums its collectors; the connections run at once, so the longest sum")
+
+	fast.artifact.SampleBudget = 30 * time.Second
+	assert.Equal(t, time.Minute+40*time.Second+WindowCloseMargin, window.moduleDeadline())
 }
 
 func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
@@ -624,9 +646,9 @@ func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
 		mode string
 		want time.Duration
 	}{
-		{name: "enabled", mode: ExplainModeAll, want: 281 * time.Second},
-		{name: "logged", mode: ExplainModeLogged, want: 281 * time.Second},
-		{name: "disabled", mode: "", want: 258 * time.Second},
+		{name: "enabled", mode: ExplainModeAll, want: 258 * time.Second},
+		{name: "logged", mode: ExplainModeLogged, want: 258 * time.Second},
+		{name: "disabled", mode: "", want: 235 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tenth := NewExplain(tc.mode, NewSlowQueries())
@@ -1888,4 +1910,222 @@ func TestWindowStoppedMidSampleReportsTheStop(t *testing.T) {
 		assert.Contains(t, artifactText(t, results[0]),
 			"status=deadline_exceeded samples_expected=2 samples_written=0")
 	})
+}
+
+// speedCollectors is one fake per connection, in the order they are registered in
+// production: the normal connection's first, then fast, then expensive.
+func speedCollectors() (normal, fast, expensive *fakeCollector) {
+	normal = newFakeCollector("pg_normal")
+	normal.artifact.Connection = ConnectionNormal
+
+	fast = newFakeCollector("pg_fast")
+	fast.artifact.Connection = ConnectionFast
+
+	expensive = newFakeCollector("pg_expensive")
+	expensive.artifact.Connection = ConnectionExpensive
+
+	return normal, fast, expensive
+}
+
+// newSpeedWindow runs on the real clock: its timelines run at once, and the fake
+// clock is one timeline's.
+func newSpeedWindow(t *testing.T, connect func(ctx context.Context, target Target) (windowConn, error),
+	collectors ...Collector,
+) *Window {
+	t.Helper()
+	t.Chdir(t.TempDir())
+
+	return &Window{
+		Target:     testWindowTarget(),
+		Duration:   50 * time.Millisecond,
+		Collectors: collectors,
+		connect:    connect,
+	}
+}
+
+func TestWindowOpensOneConnectionPerSpeedFastFirst(t *testing.T) {
+	normal, fast, expensive := speedCollectors()
+
+	var dialled []*fakeWindowConn
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		conn := newFakeWindowConn()
+		dialled = append(dialled, conn)
+
+		return conn, nil
+	}, normal, fast, expensive)
+
+	results := window.Run(context.Background())
+
+	require.Len(t, dialled, 3, "one connection per speed")
+
+	for _, conn := range dialled {
+		assert.True(t, conn.closed, "every connection is closed at the end")
+	}
+
+	for i, result := range results {
+		assert.Equal(t, StatusComplete, result.Status, result.Artifact.Name)
+		assert.Equal(t, 2, result.SamplesWritten, result.Artifact.Name)
+		assert.Contains(t, artifactText(t, results[i]), "dbid=16401", "each connection is identified")
+	}
+}
+
+func TestWindowCollectorsNamingOneConnectionShareIt(t *testing.T) {
+	normal, _, _ := speedCollectors()
+
+	alsoNormal := newFakeCollector("pg_also_normal")
+	alsoNormal.artifact.Connection = ConnectionNormal
+
+	dials := 0
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		dials++
+
+		return newFakeWindowConn(), nil
+	}, normal, alsoNormal)
+
+	results := window.Run(context.Background())
+
+	assert.Equal(t, 1, dials)
+	assert.Equal(t, StatusComplete, results[0].Status)
+	assert.Equal(t, StatusComplete, results[1].Status)
+}
+
+func TestWindowARefusedSlotFailsOnlyThatConnection(t *testing.T) {
+	normal, fast, expensive := speedCollectors()
+
+	dials := 0
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		dials++
+
+		// The second dial is the normal connection's: fast is dialled first.
+		if dials == 2 {
+			return nil, fmt.Errorf("%w: FATAL: sorry, too many clients already (SQLSTATE 53300)",
+				ErrTooManyConnections)
+		}
+
+		return newFakeWindowConn(), nil
+	}, normal, fast, expensive)
+
+	results := window.Run(context.Background())
+
+	assert.Equal(t, 3, dials, "a slot may come free, so the next connection is still dialled")
+
+	assert.Equal(t, StatusConnectFailed, results[0].Status)
+	assert.Equal(t, 0, results[0].SamplesWritten)
+	assert.Empty(t, normal.seen, "its collectors never sample")
+	assert.Contains(t, artifactText(t, results[0]), "connect_error=too_many_connections")
+	assert.Contains(t, results[0].Err, "too many clients already", "the full text for the log")
+
+	for _, result := range results[1:] {
+		assert.Equal(t, StatusComplete, result.Status, "%s: the connections that opened still run",
+			result.Artifact.Name)
+		assert.NotContains(t, artifactText(t, result), "connect_error=", result.Artifact.Name)
+	}
+}
+
+func TestWindowAFailureOfTheTargetIsNotDialledAgain(t *testing.T) {
+	normal, fast, expensive := speedCollectors()
+
+	dials := 0
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		dials++
+
+		return nil, errors.New("FATAL: password authentication failed for user \"ycrash_monitor\" (SQLSTATE 28P01)")
+	}, normal, fast, expensive)
+
+	results := window.Run(context.Background())
+
+	assert.Equal(t, 1, dials, "every dial would fail the same way, and each would reach the server's log")
+
+	for _, result := range results {
+		assert.Equal(t, StatusConnectFailed, result.Status, result.Artifact.Name)
+		assert.Contains(t, result.Err, "password authentication failed", result.Artifact.Name)
+	}
+}
+
+func TestWindowALostConnectionStopsOnlyItsOwnTimeline(t *testing.T) {
+	normal, fast, expensive := speedCollectors()
+
+	for _, collector := range []*fakeCollector{normal, fast, expensive} {
+		collector.artifact.Schedule = Periodic(10 * time.Millisecond)
+	}
+
+	var dialled []*fakeWindowConn
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		conn := newFakeWindowConn()
+		dialled = append(dialled, conn)
+
+		return conn, nil
+	}, normal, fast, expensive)
+
+	lossErr := errors.New("FATAL: terminating connection due to administrator command (SQLSTATE 57P01)")
+
+	normal.sample = func(_ context.Context, s SampleContext, w io.Writer) error {
+		if s.Index < 2 {
+			return writeBlockHeader(w, "fake_view", "database", []headerField{{"sample", "1"}}, s.At)
+		}
+
+		// The normal connection is the second dialled.
+		dialled[1].lost = true
+		dialled[1].lossErr = lossErr
+
+		return lossErr
+	}
+
+	results := window.Run(context.Background())
+
+	assert.Equal(t, StatusConnectionLost, results[0].Status)
+	assert.Equal(t, 1, results[0].SamplesWritten)
+	assert.Len(t, normal.seen, 2, "its timeline stopped at the sample that found out")
+	assert.Contains(t, artifactText(t, results[0]), "connection_error=")
+
+	for _, result := range results[1:] {
+		assert.Equal(t, StatusComplete, result.Status, "%s: the other connections go on", result.Artifact.Name)
+		assert.Equal(t, result.SamplesExpected, result.SamplesWritten, result.Artifact.Name)
+		assert.NotContains(t, artifactText(t, result), "connection_error=", result.Artifact.Name)
+	}
+}
+
+func TestWindowASlowReadDoesNotHoldUpAnotherConnection(t *testing.T) {
+	_, fast, expensive := speedCollectors()
+
+	fast.artifact.Schedule = Periodic(10 * time.Millisecond)
+
+	fastDone := make(chan struct{})
+
+	fast.sample = func(_ context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == s.Total {
+			close(fastDone)
+		}
+
+		return writeBlockHeader(w, "fake_view", "database", nil, s.At)
+	}
+
+	// The expensive connection's first read lasts until the fast one has taken its
+	// last sample: one timeline would wait on itself here.
+	expensive.sample = func(_ context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 1 {
+			select {
+			case <-fastDone:
+			case <-time.After(5 * time.Second):
+				return errors.New("the fast samples waited behind this read")
+			}
+		}
+
+		return writeBlockHeader(w, "fake_view", "database", nil, s.At)
+	}
+
+	window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) {
+		return newFakeWindowConn(), nil
+	}, fast, expensive)
+
+	results := window.Run(context.Background())
+
+	for _, result := range results {
+		assert.Equal(t, StatusComplete, result.Status, result.Artifact.Name)
+	}
 }

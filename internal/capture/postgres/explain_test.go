@@ -1335,6 +1335,8 @@ func explainLoggedWindow(t *testing.T, e *Explain, q *fakeExplainConn, entries s
 	path := currentLogPath(t, q)
 
 	writer := newFakeCollector("pg_log_writer")
+	// On the tail's own connection, so the two share one timeline and take turns.
+	writer.artifact.Connection = e.Artifact().Connection
 	writer.artifact.Schedule = Every(DefaultLogTailInterval)
 
 	tick := 0

@@ -61,10 +61,11 @@ type Memory struct {
 
 func (m Memory) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_memory",
-		FileName: "pg_memory.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(m.Interval),
+		Name:       "pg_memory",
+		FileName:   "pg_memory.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(m.Interval),
+		Connection: ConnectionNormal,
 
 		// No SampleBudget: the privilege check and the read are DefaultSampleBudget's
 		// two statements.

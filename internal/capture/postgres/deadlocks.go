@@ -27,6 +27,9 @@ func (*Deadlocks) Artifact() Artifact {
 		Schedule: Every(DefaultLogTailInterval),
 		Format:   formatText,
 
+		// A tail delayed behind a slow read loses nothing: it reads on from its offset.
+		Connection: ConnectionNormal,
+
 		// Unused by Every-scheduled collectors; kept so the deadline is explicit here too.
 		SampleBudget: LogDrainBudget,
 	}

@@ -314,6 +314,10 @@ func (e *Explain) Artifact() Artifact {
 		Schedule: Periodic(e.Interval),
 		Format:   formatText,
 
+		// Slow queries' connection: every sample walks the read that collector made
+		// on the same tick, just before this one.
+		Connection: ConnectionNormal,
+
 		SampleBudget: e.sampleBudget(),
 	}
 }
