@@ -789,10 +789,22 @@ func (r *tailRead) body() []byte { return bytes.Join(r.events, nil) }
 // sample always writes exactly one block, even when there's nothing to read — a
 // missing sample= would be an unexplained gap in the sequence.
 func (t *logTail) sample(ctx context.Context, q Querier, w io.Writer, sc SampleContext) error {
+	read, ok := t.readSample(ctx, q, sc)
+	if !ok {
+		return t.writeReasonBlock(w, sc)
+	}
+
+	return t.writeReadBlock(w, sc, read, false)
+}
+
+// readSample is one scheduled sample's reading without its block: resolve, read, follow a
+// rotation. A held event stays held for the next sample. False when there is no source
+// open to read, and t.source says why.
+func (t *logTail) readSample(ctx context.Context, q Querier, sc SampleContext) (*tailRead, bool) {
 	resolvedLate := t.resolveOnce(ctx, q, sc)
 
 	if t.file == nil {
-		return t.writeReasonBlock(w, sc)
+		return nil, false
 	}
 
 	read := &tailRead{from: t.consumed(), resolvedLate: resolvedLate}
@@ -802,7 +814,7 @@ func (t *logTail) sample(ctx context.Context, q Querier, w io.Writer, sc SampleC
 
 	read.to = t.consumed()
 
-	return t.writeReadBlock(w, sc, read, false)
+	return read, true
 }
 
 // resolveOnce resolves and opens the source the first time it can and is a no-op after;
@@ -879,10 +891,21 @@ func (t *logTail) readEvents(ctx context.Context, q Querier, deadline time.Time)
 // Needs no connection or context — must still run after cancellation — so it never re-resolves; a rotation between the last sample and close leaves the new file unread (named residual).
 // Closes the handle: the collector's last call.
 func (t *logTail) writeClosing(w io.Writer, sc SampleContext) error {
-	if t.file == nil {
+	read, ok := t.readDrain()
+	if !ok {
 		// Never resolved. The connect-failure path lands here, and the artifact
 		// keeps its preamble-plus-closing-block shape.
 		return nil
+	}
+
+	return t.writeReadBlock(w, sc, read, true)
+}
+
+// readDrain is the closing read without its block, the held event flushed and the handle
+// closed. False when there was no handle to drain.
+func (t *logTail) readDrain() (*tailRead, bool) {
+	if t.file == nil {
+		return nil, false
 	}
 
 	defer t.closeFile()
@@ -894,7 +917,7 @@ func (t *logTail) writeClosing(w io.Writer, sc SampleContext) error {
 
 	read.to = t.consumed()
 
-	return t.writeReadBlock(w, sc, read, true)
+	return read, true
 }
 
 // writeBlock renders header+body into one buffer and issues a single Write.

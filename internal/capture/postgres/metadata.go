@@ -224,12 +224,27 @@ type MetadataCollector struct {
 	declaredOnDBHost bool
 	afterCollect     func(Metadata)
 
+	// dbErrors' account rides this file's closing block.
+	dbErrors *DBErrors
+
 	collected Metadata
 }
 
 // DeclareOnDBHost records postgres.agentOnDbHost. It only raises an unknown to
 // yes; a measured verdict stands.
 func (m *MetadataCollector) DeclareOnDBHost(declared bool) { m.declaredOnDBHost = declared }
+
+// ReportDBErrors puts db_errors.log's account - log access, counts, limits reached - on
+// this file's closing block: the log file itself carries the server's lines alone.
+func (m *MetadataCollector) ReportDBErrors(d *DBErrors) { m.dbErrors = d }
+
+func (m *MetadataCollector) closingFields() []headerField {
+	if m.dbErrors == nil {
+		return nil
+	}
+
+	return m.dbErrors.closingFields()
+}
 
 // AfterCollect runs once the server block is written, while the window is still
 // open, so the caller can act on host_artifacts at its opening edge. It runs on

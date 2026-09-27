@@ -168,6 +168,10 @@ type Artifact struct {
 	// Format is the body format, formatCSV when empty.
 	// Header-only blocks (preamble/closing/stub) still carry the real format=, or a receiver dispatching on the first block misparses the file.
 	Format string
+
+	// Bare: the file holds the collector's bytes alone. The window writes no preamble,
+	// closing block or sample stub into it, and a failed sample is a failed write.
+	Bare bool
 }
 
 func artifactFormat(artifact Artifact) string {
@@ -195,6 +199,12 @@ type Opening interface {
 // Exists because Every's offsets stop short of the window close.
 type Closing interface {
 	WriteClosing(w io.Writer, s SampleContext) error
+}
+
+// closingFielder adds fields to the collector's own closing block. Read after every
+// collector's WriteClosing, so a drain's counts are final.
+type closingFielder interface {
+	closingFields() []headerField
 }
 
 type SampleContext struct {
@@ -395,6 +405,10 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 		}
 		results[i].File = file
 
+		if artifact.Bare {
+			continue
+		}
+
 		err = writeBlockHeaderFormat(file, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
 			{"db", sampleCtx.Database},
 			{"dbid", sampleCtx.DBID},
@@ -481,7 +495,7 @@ func (w *Window) closeArtifacts(
 	at := w.clock()
 
 	for i := range results {
-		if !results[i].writable() {
+		if !results[i].writable() || results[i].Artifact.Bare {
 			continue
 		}
 
@@ -499,6 +513,10 @@ func (w *Window) closeArtifacts(
 
 		if stopped == StatusConnectionLost {
 			fields = append(fields, headerField{"connection_error", lostErr})
+		}
+
+		if fielder, ok := w.Collectors[i].(closingFielder); ok {
+			fields = append(fields, fielder.closingFields()...)
 		}
 
 		artifact := results[i].Artifact
@@ -635,6 +653,11 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 	result.Err = errorText(sampleErr, w.Target.Password)
 
 	artifact := result.Artifact
+
+	if artifact.Bare {
+		result.IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, sampleErr)
+		return
+	}
 
 	err := writeBlockHeaderFormat(result.File, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
 		{"db", sampleCtx.Database},
