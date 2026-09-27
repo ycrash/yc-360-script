@@ -51,16 +51,24 @@ const (
 	// plan counts nobody can reproduce from a bundle.
 	DefaultMaxExplains = 10
 
+	// MaxGeneratedPlans bounds the plans one capture asks the server for: every
+	// EXPLAIN the estimated tiers submit counts, whether a plan comes back or not,
+	// since the bound is on the load the agent adds. A plan the logged tier reads from
+	// the log costs the database nothing and does not count. Once it is reached, a
+	// shape with no logged plan gets reason=plan_limit_reached.
+	MaxGeneratedPlans = 5
+
 	// ExplainTimeout bounds one statement, applied server-side with
 	// SET statement_timeout / RESET and never as a client context: pgx closes the
 	// connection when a context expires and this window never reconnects. Server-side,
 	// a timeout is an ordinary error= and the next candidate proceeds. Either estimated
 	// tier sends five statements per candidate, and only its EXPLAIN plans anything;
 	// the other four are catalogue work that finishes in the round trip.
-	ExplainTimeout = 3 * time.Second
+	ExplainTimeout = 2 * time.Second
 
-	// ExplainBudget is the aggregate across candidates, deliberately under
-	// DefaultMaxExplains x ExplainTimeout so candidates_skipped_budget= can fire.
+	// ExplainBudget is the aggregate one sample may spend submitting, whatever the
+	// number of candidates; a candidate whose turn comes after it is spent waits for
+	// the next sample, counted as candidates_skipped_budget=.
 	ExplainBudget = 20 * time.Second
 
 	// DefaultMaxUnattachedPlans bounds logged plans carrying no query identifier - on
@@ -103,6 +111,10 @@ const (
 
 	// reasonBudgetSpent: the aggregate ran out before this candidate's turn.
 	reasonBudgetSpent = "budget_spent"
+
+	// reasonPlanLimit: the capture had already submitted MaxGeneratedPlans EXPLAINs,
+	// and the log held no plan for this candidate.
+	reasonPlanLimit = "plan_limit_reached"
 
 	// reasonTextTruncated: the text was cut by the agent's own cap, not the server's.
 	// Both query-text reads ask for one rune past DefaultMaxQueryText so the cut is
@@ -791,11 +803,13 @@ type explainCounters struct {
 	excludedSelf          int
 
 	// observed is first seen this sample and eligible; written is attempted this
-	// sample; skippedBudget went back to the queue when the aggregate ran out; queued
-	// is what still waits after this sample.
+	// sample; skippedBudget went back to the queue when the aggregate ran out;
+	// skippedLimit had no logged plan and came after the capture's last generated
+	// one; queued is what still waits after this sample.
 	observed      int
 	written       int
 	skippedBudget int
+	skippedLimit  int
 	queued        int
 }
 
@@ -815,6 +829,7 @@ func (c explainCounters) fields() []headerField {
 		{"candidates_new", c.observed},
 		{"candidates_written", c.written},
 		{"candidates_skipped_budget", c.skippedBudget},
+		{"candidates_skipped_limit", c.skippedLimit},
 		{"candidates_queued", c.queued},
 	}
 
@@ -1139,6 +1154,17 @@ func (e *Explain) submitAll(
 		return nil
 	}
 
+	// Past the limit nothing is submitted, so the session is not set up for it either.
+	if e.prepared >= MaxGeneratedPlans {
+		for _, c := range candidates {
+			if c.mode == planModeNone {
+				e.refuseAtLimit(c, counters)
+			}
+		}
+
+		return nil
+	}
+
 	if err := runUtilityStatement(ctx, q, setExplainTimeoutSQL); err != nil {
 		return err
 	}
@@ -1155,6 +1181,12 @@ func (e *Explain) submitAll(
 			continue
 		}
 
+		if e.prepared >= MaxGeneratedPlans {
+			e.refuseAtLimit(c, counters)
+
+			continue
+		}
+
 		if e.now().Sub(started) >= ExplainBudget {
 			c.reason = reasonBudgetSpent
 			counters.skippedBudget++
@@ -1166,6 +1198,19 @@ func (e *Explain) submitAll(
 	}
 
 	return nil
+}
+
+// refuseAtLimit records why a candidate the capture's limit stopped got no plan. One
+// with nothing submittable keeps that reason, which it would have had anyway.
+func (e *Explain) refuseAtLimit(c *explainCandidate, counters *explainCounters) {
+	if mode, ok := choosePlanMode(c); !ok {
+		c.reason = mode
+
+		return
+	}
+
+	c.reason = reasonPlanLimit
+	counters.skippedLimit++
 }
 
 // submitOne picks the mode from the evidence that is available, not from a rule, and

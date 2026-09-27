@@ -368,9 +368,10 @@ func TestExplainSampleBudgetIsModeDependent(t *testing.T) {
 				"for mode %q", mode)
 	}
 
-	assert.Less(t, ExplainBudget, DefaultMaxExplains*ExplainTimeout,
-		"were the aggregate equal to N x the per-candidate timeout, candidates_skipped_budget= "+
-			"could never fire and would be decoration")
+	assert.Less(t, MaxGeneratedPlans*ExplainTimeout, ExplainBudget,
+		"the capture's limit of plans, each at its timeout, fits in one sample's aggregate: "+
+			"the limit is what normally stops submission, and the aggregate stops a sample "+
+			"whose statements around each EXPLAIN run slow")
 }
 
 func TestNewExplainRefusesAWiringBug(t *testing.T) {
@@ -1688,7 +1689,96 @@ func TestExplainDefersBeyondTheCapToTheNextSample(t *testing.T) {
 	assert.False(t, summaryOf(t, two).has("candidates_new"),
 		"the second read showed the same shapes, and none of them is new")
 
-	assert.Len(t, q.submitted, DefaultMaxExplains+5, "every shape exactly once, as a drip")
+	assert.Len(t, q.submitted, MaxGeneratedPlans,
+		"every shape attempted exactly once, as a drip, and the first five of them generated")
+	assert.Equal(t, reasonPlanLimit, one[MaxGeneratedPlans].fields["reason"])
+	assert.Equal(t, reasonPlanLimit, two[0].fields["reason"])
+}
+
+func TestExplainGeneratesAtMostTheLimitPerCapture(t *testing.T) {
+	shapes := func(from, to int) []statementRow {
+		var rows []statementRow
+
+		for id := from; id <= to; id++ {
+			row := pg18Statement(ordersItemsEnd)
+			row.queryid = ptr(int64(id))
+			rows = append(rows, row)
+		}
+
+		return rows
+	}
+
+	sq := NewSlowQueries()
+
+	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
+	q.offerOnTick(sq, 1, shapes(2000, 2002))
+	q.offerOnTick(sq, 2, shapes(2000, 2006))
+	q.offerOnTick(sq, 3, shapes(2000, 2007))
+
+	e := NewExplain(ExplainModeAll, sq)
+
+	var first, second, third bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &first, explainContext(1, 3)))
+	assert.Len(t, q.submitted, 3)
+
+	require.NoError(t, e.Sample(context.Background(), q, &second, explainContext(2, 3)))
+	assert.Len(t, q.submitted, MaxGeneratedPlans, "two more, and the capture's limit is reached")
+
+	blocks := parseTextArtifact(t, second.String())
+	require.Len(t, blocks, 5, "four new shapes and the summary")
+
+	for i, block := range blocks[:2] {
+		assert.Equal(t, planModeEstimatedGeneric, block.fields["mode"], "block %d", i)
+	}
+
+	for i, block := range blocks[2:4] {
+		assert.Equal(t, planModeNone, block.fields["mode"], "block %d", i)
+		assert.Equal(t, reasonPlanLimit, block.fields["reason"], "block %d: recorded, not skipped", i)
+		assert.False(t, block.has("error"), "block %d: nothing was sent", i)
+	}
+
+	assert.Equal(t, "2", summaryOf(t, blocks).fields["candidates_skipped_limit"])
+
+	utility := len(q.utility)
+
+	require.NoError(t, e.Sample(context.Background(), q, &third, explainContext(3, 3)))
+	assert.Len(t, q.submitted, MaxGeneratedPlans, "a shape first seen after the limit gets none")
+
+	for _, sql := range q.utility[utility:] {
+		assert.NotContains(t, sql, "statement_timeout", "nothing is submitted, so nothing is set up")
+	}
+
+	blocks = parseTextArtifact(t, third.String())
+	require.Len(t, blocks, 2)
+	assert.Equal(t, "2007", blocks[0].fields["queryid"])
+	assert.Equal(t, reasonPlanLimit, blocks[0].fields["reason"])
+	assert.Equal(t, "1", summaryOf(t, blocks).fields["candidates_skipped_limit"])
+}
+
+func TestExplainLoggedPlansDoNotCountAgainstTheLimit(t *testing.T) {
+	entry := itemsPlanEntry("0.023")
+
+	q := newFakeExplainConn(readableLog(t, ""))
+
+	e := NewExplain(ExplainModeAll, itemsFeed())
+	e.prepared = MaxGeneratedPlans
+
+	require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
+
+	appendFile(t, currentLogPath(t, q), entry+unrelatedTraffic)
+
+	var buf bytes.Buffer
+	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
+
+	blocks := parseTextArtifact(t, buf.String())
+	require.Len(t, blocks, 2)
+
+	assert.Equal(t, planModeLogged, blocks[0].fields["mode"],
+		"a plan the server logged costs the database nothing, so the limit does not stop it")
+	assert.Equal(t, entry, blocks[0].body)
+	assert.Empty(t, q.submitted)
+	assert.False(t, summaryOf(t, blocks).has("candidates_skipped_limit"))
+	assert.Equal(t, MaxGeneratedPlans, e.prepared, "and it takes none of the capture's five")
 }
 
 func TestExplainBudgetSkipReturnsTheShapeToTheQueue(t *testing.T) {
