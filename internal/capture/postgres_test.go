@@ -37,6 +37,7 @@ func unreachablePostgres(t *testing.T) *config.Postgres {
 	require.NoError(t, listener.Close())
 
 	return &config.Postgres{
+		ID:       "orders-primary",
 		Host:     "127.0.0.1",
 		Port:     port,
 		Database: "orders_db",
@@ -680,6 +681,7 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and bloat before index usage: the table reading before the reading that joins to it")
 
 	_, values := readPostgresArtifact(t)
+	assert.Equal(t, "orders-primary", values["target_id"], "the configured id names the target")
 	assert.Equal(t, "127.0.0.1", values["target_host"],
 		"the target block is on disk even though the connection never happened")
 	assert.NotContains(t, values, "current_database",

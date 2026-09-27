@@ -44,6 +44,7 @@ func targetFields(m Metadata) []field {
 	return []field{
 		{"agent_ts", timestamp(m.AgentTS)},
 		{"yc360_version", m.YC360Version},
+		{"target_id", m.TargetID},
 		{"target_host", m.TargetHost},
 		{"target_port", strconv.Itoa(m.TargetPort)},
 		{"target_database", m.TargetDatabase},

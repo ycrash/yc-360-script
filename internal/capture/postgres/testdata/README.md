@@ -11,7 +11,10 @@ The goldens:
 
 - `pg_metadata_full.txt` — a complete capture: the preamble, the target block,
   the server block, the tablespace block, and the closing block. The target
-  block's `target_tls_*` rows are the `tls:` settings the connection uses, and
+  block's `target_id` is the configured `id`, the `target_id=` on every sample
+  block of the periodic files, which this file has none of; it was added as a
+  row, so the file stays `v=1`. Its `target_tls_*` rows are the `tls:` settings
+  the connection uses, and
   `target_sslmode` the libpq mode they amount to; `target_tls_ca_file` is
   `system` when the certificate is verified against the system's trust store,
   and empty when nothing is verified. The server block's `uptime_seconds` is

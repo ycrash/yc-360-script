@@ -3,14 +3,15 @@ options:
   k: buggycompany@00000000-0000-0000-0000-000000000000
   s: https://ycrash.companyname.com
   postgres:
-    host: db-prod-01.internal
-    port: 5432
-    database: orders_db
-    username: ycrash_monitor
-    password: ${PG_YCRASH_PASSWORD}
-    tls:
-      enabled: true
-      verifyServerCertificate: true
-      caFile: /etc/ycrash/ca.pem
-      serverName: db-prod-01.internal
-    captureDuration: 120s
+    - id: orders-primary
+      host: db-prod-01.internal
+      port: 5432
+      database: orders_db
+      username: ycrash_monitor
+      password: ${PG_YCRASH_PASSWORD}
+      tls:
+        enabled: true
+        verifyServerCertificate: true
+        caFile: /etc/ycrash/ca.pem
+        serverName: db-prod-01.internal
+      captureDuration: 120s
