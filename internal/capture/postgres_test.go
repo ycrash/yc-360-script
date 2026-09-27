@@ -419,8 +419,8 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 		"both land on the closing tick: Periodic's last sample is the close")
 	require.Equal(t, postgres.Periodic(0), bloat.Schedule)
 
-	assert.Equal(t, 5*postgres.StatementTimeout, capacity.SampleBudget,
-		"five statements, the WAL read's privilege check among them: left at zero, the "+
+	assert.Equal(t, 7*postgres.StatementTimeout, capacity.SampleBudget,
+		"seven statements from 17, the WAL read's privilege check among them: left at zero, the "+
 			"normal connection's closing tick would be sized for two")
 	assert.Zero(t, bloat.SampleBudget, "bloat's two statements are the default shape")
 
@@ -428,7 +428,7 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 	assert.Equal(t, postgres.ConnectionExpensive, bloat.Connection,
 		"so bloat's closing read runs beside capacity's, not after it")
 
-	assert.Equal(t, 25*time.Second, capacity.SampleBudget,
+	assert.Equal(t, 35*time.Second, capacity.SampleBudget,
 		"what capacity costs its connection's closing tick - a load commitment against a "+
 			"database already in trouble, and one that should move only deliberately")
 }

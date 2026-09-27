@@ -17,22 +17,15 @@ import (
 )
 
 const (
-	colCheckpointsTimed = iota
-	colCheckpointsReq
-	colBuffersCheckpoint
-	colBuffersClean
-	colBuffersBackend
-	colCheckpointerReset
-	colBgwriterReset
-)
-
-const (
 	colApplicationName = iota
 	colBackendType
 	colActiveConnections
 )
 
-var testBgwriterReset = time.Date(2026, 8, 1, 9, 15, 0, 0, time.UTC)
+var (
+	testBgwriterReset = time.Date(2026, 8, 1, 9, 15, 0, 0, time.UTC)
+	testIOReset       = time.Date(2026, 8, 3, 11, 40, 0, 0, time.UTC)
+)
 
 func answerRow(pending *[]fakeRow) pgx.Row {
 	if len(*pending) == 0 {
@@ -55,29 +48,47 @@ func queueRow(r ...fakeRow) []fakeRow { return r }
 // testCheckpointsTimed holds still across the window: only requested checkpoints move.
 const testCheckpointsTimed int64 = 842
 
-func checkpointValues(requested, checkpointBuffers, cleanBuffers int64, backendBuffers *int64,
-	checkpointerReset, bgwriterReset time.Time,
-) fakeRow {
-	return rowResult(
-		ptr(testCheckpointsTimed), ptr(requested), ptr(checkpointBuffers), ptr(cleanBuffers), backendBuffers,
-		&checkpointerReset, &bgwriterReset,
-	)
+// ordersCheckpoints is one window's two samples, read below 17 from one view and from 17 from three.
+var ordersCheckpoints = []struct{ requested, written, clean, backend int64 }{
+	{requested: 12, written: 1204882, clean: 88104, backend: 310884},
+	{requested: 15, written: 1205410, clean: 88220, backend: 311002},
 }
 
-func ordersCheckpointsPre17() []fakeRow {
-	return queueRow(
-		checkpointValues(12, 1204882, 88104, ptr(int64(310884)),
-			testDBStatsReset, testDBStatsReset),
-		checkpointValues(15, 1205410, 88220, ptr(int64(311002)),
-			testDBStatsReset, testDBStatsReset),
-	)
+func ordersBgwriterPre17() []fakeRow {
+	rows := make([]fakeRow, 0, len(ordersCheckpoints))
+	for _, c := range ordersCheckpoints {
+		rows = append(rows, rowResult(ptr(testCheckpointsTimed), ptr(c.requested), ptr(c.written), ptr(c.clean),
+			ptr(c.backend), &testDBStatsReset))
+	}
+
+	return queueRow(rows...)
 }
 
-func ordersCheckpointsPG17() []fakeRow {
-	return queueRow(
-		checkpointValues(12, 1204882, 88104, ptr(int64(310884)), testDBStatsReset, testBgwriterReset),
-		checkpointValues(15, 1205410, 88220, ptr(int64(311002)), testDBStatsReset, testBgwriterReset),
-	)
+func ordersCheckpointer() []fakeRow {
+	rows := make([]fakeRow, 0, len(ordersCheckpoints))
+	for _, c := range ordersCheckpoints {
+		rows = append(rows, rowResult(ptr(testCheckpointsTimed), ptr(c.requested), ptr(c.written), &testDBStatsReset))
+	}
+
+	return queueRow(rows...)
+}
+
+func ordersBgwriter() []fakeRow {
+	rows := make([]fakeRow, 0, len(ordersCheckpoints))
+	for _, c := range ordersCheckpoints {
+		rows = append(rows, rowResult(ptr(c.clean), &testBgwriterReset))
+	}
+
+	return queueRow(rows...)
+}
+
+func ordersBackendBuffers() []fakeRow {
+	rows := make([]fakeRow, 0, len(ordersCheckpoints))
+	for _, c := range ordersCheckpoints {
+		rows = append(rows, rowResult(ptr(c.backend), &testIOReset))
+	}
+
+	return queueRow(rows...)
 }
 
 // ordersDatabase is orders_db's row in pg_health's samples, so the two files agree.
@@ -116,12 +127,14 @@ func ordersConnections() [][]any {
 type fakeCapacityConn struct {
 	*fakeWindowConn
 
-	checkpoint      []fakeRow
-	checkpointPre17 []fakeRow
-	database        []fakeRow
-	connections     []fakeResult
-	walAllowed      []fakeRow
-	wal             []fakeRow
+	bgwriterPre17  []fakeRow
+	checkpointer   []fakeRow
+	bgwriter       []fakeRow
+	backendBuffers []fakeRow
+	database       []fakeRow
+	connections    []fakeResult
+	walAllowed     []fakeRow
+	wal            []fakeRow
 
 	sql             []string
 	connectionsArgs [][]any
@@ -129,13 +142,15 @@ type fakeCapacityConn struct {
 
 func newFakeCapacityConn() *fakeCapacityConn {
 	return &fakeCapacityConn{
-		fakeWindowConn:  newFakeWindowConn(),
-		checkpoint:      ordersCheckpointsPG17(),
-		checkpointPre17: ordersCheckpointsPre17(),
-		database:        ordersDatabase(),
-		connections:     repeat(rowsResult(ordersConnections())),
-		walAllowed:      repeatRow(rowResult(ptr(true))),
-		wal:             repeatRow(rowResult(ptr(int64(2254857830)))),
+		fakeWindowConn: newFakeWindowConn(),
+		bgwriterPre17:  ordersBgwriterPre17(),
+		checkpointer:   ordersCheckpointer(),
+		bgwriter:       ordersBgwriter(),
+		backendBuffers: ordersBackendBuffers(),
+		database:       ordersDatabase(),
+		connections:    repeat(rowsResult(ordersConnections())),
+		walAllowed:     repeatRow(rowResult(ptr(true))),
+		wal:            repeatRow(rowResult(ptr(int64(2254857830)))),
 	}
 }
 
@@ -143,11 +158,17 @@ func (c *fakeCapacityConn) QueryRow(ctx context.Context, sql string, args ...any
 	c.sql = append(c.sql, sql)
 
 	switch sql {
-	case checkpointSQL:
-		return answerRow(&c.checkpoint)
+	case bgwriterSQLPre17:
+		return answerRow(&c.bgwriterPre17)
 
-	case checkpointSQLPre17:
-		return answerRow(&c.checkpointPre17)
+	case checkpointerSQL:
+		return answerRow(&c.checkpointer)
+
+	case bgwriterSQL:
+		return answerRow(&c.bgwriter)
+
+	case backendBuffersSQL:
+		return answerRow(&c.backendBuffers)
 
 	case databaseSQL:
 		return answerRow(&c.database)
@@ -289,21 +310,33 @@ func TestCapacityArtifact(t *testing.T) {
 	assert.Equal(t, Periodic(15*time.Second), Capacity{Interval: 15 * time.Second}.Artifact().Schedule,
 		"the run's cadence, with the close as the last sample")
 
-	assert.Equal(t, 5*StatementTimeout, artifact.SampleBudget,
-		"five statements on every sample, and Periodic's last sample is the close, which "+
-			"moduleDeadline sums - leaving it zero would size the shared tick for two")
+	assert.Equal(t, 7*StatementTimeout, artifact.SampleBudget,
+		"seven statements on every sample from 17, and Periodic's last sample is the close, "+
+			"which moduleDeadline sums - leaving it zero would size the shared tick for two")
+
+	assert.Equal(t, 2, artifact.Version,
+		"the checkpoint counters' blocks and columns were renamed, which a reader of v=1 gets wrong")
 }
 
 func TestCapacityColumnOrder(t *testing.T) {
+	require.Len(t, checkpointBlocksPre17, 1)
+	assert.Equal(t, "pg_stat_bgwriter", checkpointBlocksPre17[0].source)
 	assert.Equal(t, []string{
-		"checkpoints_timed",
-		"checkpoints_req",
-		"buffers_checkpoint",
-		"buffers_clean",
-		"buffers_backend",
-		"checkpointer_stats_reset",
-		"bgwriter_stats_reset",
-	}, checkpointColumns, "the pre-17 names on every version, and both reset clocks")
+		"checkpoints_timed", "checkpoints_req", "buffers_checkpoint", "buffers_clean", "buffers_backend",
+		"stats_reset",
+	}, checkpointBlocksPre17[0].columns, "below 17 one view held every counter")
+
+	sources := make([]string, 0, len(checkpointBlocks17))
+	for _, block := range checkpointBlocks17 {
+		sources = append(sources, block.source)
+	}
+
+	assert.Equal(t, []string{"pg_stat_checkpointer", "pg_stat_bgwriter", "pg_stat_io"}, sources,
+		"from 17 three views hold them, each block named by its view")
+	assert.Equal(t, []string{"num_timed", "num_requested", "buffers_written", "stats_reset"},
+		checkpointBlocks17[0].columns, "each view's own column names")
+	assert.Equal(t, []string{"buffers_clean", "stats_reset"}, checkpointBlocks17[1].columns)
+	assert.Equal(t, []string{"buffers_backend", "stats_reset"}, checkpointBlocks17[2].columns)
 
 	assert.Equal(t, []string{"application_name", "backend_type", "active_connections"},
 		connectionColumns, "backend_type is a grouping dimension, so it is in the contract")
@@ -314,23 +347,25 @@ func TestCapacityColumnOrder(t *testing.T) {
 		databaseColumns, "the counters of the cache hit, rollback and throughput ratios")
 }
 
-func TestCapacitySelectsTheStatementOnTheCapability(t *testing.T) {
+func TestCapacitySelectsTheStatementsOnTheCapability(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		hasView  bool
-		want     string
-		unwanted string
-		views    string
+		want     []string
+		unwanted []string
+		sources  []string
 	}{
 		{
-			name:    "pg_stat_checkpointer exists, so the counters are read from it",
-			hasView: true, want: checkpointSQL, unwanted: checkpointSQLPre17,
-			views: "views=pg_stat_checkpointer,pg_stat_bgwriter",
+			name:    "pg_stat_checkpointer exists, so the counters are read from the three views",
+			hasView: true, want: []string{checkpointerSQL, bgwriterSQL, backendBuffersSQL},
+			unwanted: []string{bgwriterSQLPre17},
+			sources:  []string{"pg_stat_checkpointer", "pg_stat_bgwriter", "pg_stat_io"},
 		},
 		{
-			name:    "it does not, so they are read from pg_stat_bgwriter",
-			hasView: false, want: checkpointSQLPre17, unwanted: checkpointSQL,
-			views: "views=pg_stat_bgwriter",
+			name:    "it does not, so they are read from pg_stat_bgwriter alone",
+			hasView: false, want: []string{bgwriterSQLPre17},
+			unwanted: []string{checkpointerSQL, bgwriterSQL, backendBuffersSQL},
+			sources:  []string{"pg_stat_bgwriter"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -342,101 +377,111 @@ func TestCapacitySelectsTheStatementOnTheCapability(t *testing.T) {
 			var buf bytes.Buffer
 			require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, sampleCtx))
 
-			assert.Contains(t, conn.sql, tc.want, "the statement the server can answer")
-			assert.NotContains(t, conn.sql, tc.unwanted, "and only that one")
+			for _, sql := range tc.want {
+				assert.Contains(t, conn.sql, sql, "the statements the server can answer")
+			}
 
-			assert.Contains(t, buf.String(), tc.views,
-				"views= is the provenance, and it is what a reader compares two servers with")
-			assert.Contains(t, buf.String(), "source=pg_checkpointer",
-				"source= is the parser's dispatch key and does not move with the version")
+			for _, sql := range tc.unwanted {
+				assert.NotContains(t, conn.sql, sql, "and only those")
+			}
+
+			blocks := capacityBlocks(t, buf.String())
+			for _, source := range tc.sources {
+				assert.Contains(t, blocks, source, "source= names the view the block read")
+			}
+
+			assert.Len(t, blocks, len(tc.sources)+3, "beside the database, connection and WAL blocks")
+			assert.NotContains(t, buf.String(), "views=", "source= says which view, so views= went")
 		})
 	}
 }
 
-func TestCapacityWritesTheSameColumnsOnBothPaths(t *testing.T) {
-	read := func(hasView bool) [][]string {
+func TestCapacityCheckpointBlocksKeepEachViewsNames(t *testing.T) {
+	read := func(hasView bool) map[string][]string {
 		t.Helper()
-
-		conn := newFakeCapacityConn()
 
 		sampleCtx := capacitySampleContext(1, 2)
 		sampleCtx.HasPgStatCheckpointer = hasView
 
 		var buf bytes.Buffer
-		require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, sampleCtx))
+		require.NoError(t, Capacity{}.Sample(context.Background(), newFakeCapacityConn(), &buf, sampleCtx))
 
-		return capacityBlocks(t, buf.String())["pg_checkpointer"].rows(t, checkpointColumns)
+		values := map[string][]string{}
+
+		for source, block := range capacityBlocks(t, buf.String()) {
+			for _, candidate := range checkpointBlocks(hasView) {
+				if candidate.source != source {
+					continue
+				}
+
+				rows := block.rows(t, candidate.columns)
+				require.Len(t, rows, 1, source)
+
+				for i, column := range candidate.columns {
+					values[source+"."+column] = append(values[source+"."+column], rows[0][i])
+				}
+			}
+		}
+
+		return values
 	}
 
 	pre17 := read(false)
 	pg17 := read(true)
 
-	require.Len(t, pre17, 1)
-	require.Len(t, pg17, 1)
-
-	assert.Equal(t, "310884", pre17[0][colBuffersBackend], "the column is a reading below 17")
-
-	for _, column := range []int{
-		colCheckpointsTimed, colCheckpointsReq, colBuffersCheckpoint, colBuffersClean, colBuffersBackend,
+	for pre17Column, pg17Column := range map[string]string{
+		"pg_stat_bgwriter.checkpoints_timed":  "pg_stat_checkpointer.num_timed",
+		"pg_stat_bgwriter.checkpoints_req":    "pg_stat_checkpointer.num_requested",
+		"pg_stat_bgwriter.buffers_checkpoint": "pg_stat_checkpointer.buffers_written",
+		"pg_stat_bgwriter.buffers_clean":      "pg_stat_bgwriter.buffers_clean",
+		"pg_stat_bgwriter.buffers_backend":    "pg_stat_io.buffers_backend",
 	} {
-		assert.Equal(t, pre17[0][column], pg17[0][column],
-			"every counter is normalised to one name and one meaning")
+		require.NotEmpty(t, pre17[pre17Column], pre17Column)
+		assert.Equal(t, pre17[pre17Column], pg17[pg17Column],
+			"the same counter under the name its view gives it: mapping one to the other is the server's")
 	}
 }
 
 func TestCapacityCountsBackendBuffersFromPgStatIOOnPG17(t *testing.T) {
-	assert.Contains(t, checkpointSQL, buffersBackendSQL, "17 moved buffers_backend to pg_stat_io")
-
-	assert.Contains(t, buffersBackendSQL, "COALESCE(io.writes, 0) + COALESCE(io.extends, 0)",
+	assert.Contains(t, backendBuffersSQL, "COALESCE(writes, 0) + COALESCE(extends, 0)",
 		"writes and extensions, as the old column counted, and a NULL extends on a bulkread "+
 			"row must not drop that row's writes")
-	assert.Contains(t, buffersBackendSQL, "io.object = 'relation'",
+	assert.Contains(t, backendBuffersSQL, "object = 'relation'",
 		"temporary relations were never counted: they are not synced")
-	assert.Contains(t, buffersBackendSQL, "NOT IN ('checkpointer', 'background writer')",
+	assert.Contains(t, backendBuffersSQL, "NOT IN ('checkpointer', 'background writer')",
 		"every other process's writes counted, parallel and autovacuum workers included")
 
 	conn := newFakeCapacityConn()
-	conn.checkpoint = repeatRow(checkpointValues(12, 1204882, 88104, nil, testDBStatsReset, testBgwriterReset))
+	conn.backendBuffers = repeatRow(rowResult(nil, &testIOReset))
 
 	var buf bytes.Buffer
 	require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, capacitySampleContext(1, 2)))
 
-	rows := capacityBlocks(t, buf.String())["pg_checkpointer"].rows(t, checkpointColumns)
+	rows := capacityBlocks(t, buf.String())["pg_stat_io"].rows(t, checkpointBlocks17[2].columns)
 	require.Len(t, rows, 1)
-	assert.Empty(t, rows[0][colBuffersBackend],
+	assert.Equal(t, []string{"", "2026-08-03T11:40:00.000Z"}, rows[0],
 		"no pg_stat_io row to sum is empty, not 0: 0 would say backends wrote no buffers")
 }
 
-func TestCapacityWritesBothResetClocks(t *testing.T) {
-	conn := newFakeCapacityConn()
-
-	sampleCtx := capacitySampleContext(1, 2)
-
+func TestCapacityEachCheckpointBlockCarriesItsViewsResetClock(t *testing.T) {
 	var buf bytes.Buffer
-	require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, sampleCtx))
+	require.NoError(t, Capacity{}.Sample(context.Background(), newFakeCapacityConn(), &buf,
+		capacitySampleContext(1, 2)))
 
-	rows := capacityBlocks(t, buf.String())["pg_checkpointer"].rows(t, checkpointColumns)
-	require.Len(t, rows, 1)
+	blocks := capacityBlocks(t, buf.String())
 
-	assert.Equal(t, "2026-07-20T02:00:00.000Z", rows[0][colCheckpointerReset])
-	assert.Equal(t, "2026-08-01T09:15:00.000Z", rows[0][colBgwriterReset],
-		"on 17 and above the two views reset independently, so one column would leave the "+
-			"other view's counter with an undetectable reset")
+	for i, want := range []string{"2026-07-20T02:00:00.000Z", "2026-08-01T09:15:00.000Z", "2026-08-03T11:40:00.000Z"} {
+		block := checkpointBlocks17[i]
 
-	sampleCtx.HasPgStatCheckpointer = false
-
-	buf.Reset()
-	require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, sampleCtx))
-
-	rows = capacityBlocks(t, buf.String())["pg_checkpointer"].rows(t, checkpointColumns)
-	require.Len(t, rows, 1)
-
-	assert.Equal(t, rows[0][colCheckpointerReset], rows[0][colBgwriterReset],
-		"below 17 they are one view's column read twice, and equal by construction")
-	assert.NotEmpty(t, rows[0][colCheckpointerReset], "which is a value, not two empty cells")
+		rows := blocks[block.source].rows(t, block.columns)
+		require.Len(t, rows, 1)
+		assert.Equal(t, want, rows[0][len(block.columns)-1],
+			"%s: on 17 and above the three views reset independently, so one clock would leave "+
+				"the others' counters with an undetectable reset", block.source)
+	}
 }
 
-func TestCapacityWritesAllFourBlocksOnEverySample(t *testing.T) {
+func TestCapacityWritesEveryBlockOnEverySample(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		index, total int
@@ -459,7 +504,10 @@ func TestCapacityWritesAllFourBlocksOnEverySample(t *testing.T) {
 			}
 
 			assert.ElementsMatch(t,
-				[]string{"pg_checkpointer", "pg_stat_database", "pg_stat_activity_by_app", "pg_ls_waldir"}, sources,
+				[]string{
+					"pg_stat_checkpointer", "pg_stat_bgwriter", "pg_stat_io",
+					"pg_stat_database", "pg_stat_activity_by_app", "pg_ls_waldir",
+				}, sources,
 				"the gauges once landed on the closing sample alone; as a series they show "+
 					"connections climbing and WAL growing through the window")
 		})
@@ -482,45 +530,49 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 		assert.Equal(t, []string{"wal_bytes"}, blocks["pg_ls_waldir"].body,
 			"the column header with no row: captured nothing, and the header says why")
 
-		assert.Len(t, blocks["pg_checkpointer"].rows(t, checkpointColumns), 1,
+		assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
 			"the counters read successfully beside it are unaffected")
 		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
 	})
 
-	t.Run("the checkpoint read alone", func(t *testing.T) {
+	t.Run("one checkpoint view alone", func(t *testing.T) {
 		conn := newFakeCapacityConn()
-		conn.checkpoint = repeatRow(errRow(timedOut))
+		conn.backendBuffers = repeatRow(errRow(timedOut))
 
 		blocks := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))
 
-		assert.Contains(t, blocks["pg_checkpointer"].header, "error=")
-		assert.Contains(t, blocks["pg_checkpointer"].header, "views=pg_stat_checkpointer,pg_stat_bgwriter",
-			"which variant was attempted is what explains the error beside it")
-		assert.Empty(t, blocks["pg_checkpointer"].rows(t, checkpointColumns))
+		assert.Contains(t, blocks["pg_stat_io"].header, "error=")
+		assert.Empty(t, blocks["pg_stat_io"].rows(t, checkpointBlocks17[2].columns))
 
-		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10,
-			"the gauges beside it still land")
+		assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
+			"each view is its own read, so the other two still land")
+		assert.Len(t, blocks["pg_stat_bgwriter"].rows(t, checkpointBlocks17[1].columns), 1)
+		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
 		assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
 	})
 
 	t.Run("every read in the sample", func(t *testing.T) {
 		conn := newFakeCapacityConn()
-		conn.checkpoint = repeatRow(errRow(timedOut))
+		conn.checkpointer = repeatRow(errRow(timedOut))
+		conn.bgwriter = repeatRow(errRow(timedOut))
+		conn.backendBuffers = repeatRow(errRow(timedOut))
 		conn.database = repeatRow(errRow(timedOut))
 		conn.connections = repeat(errResult(timedOut))
 		conn.wal = repeatRow(errRow(denied))
 
 		var buf bytes.Buffer
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, capacitySampleContext(2, 2)),
-			"four refused reads are not an error: Sample fails only when it cannot write")
+			"six refused reads are not an error: Sample fails only when it cannot write")
 
 		blocks := capacityBlocks(t, buf.String())
-		require.Len(t, blocks, 4,
-			"four header-only blocks carrying four reasons, rather than one stub saying "+
+		require.Len(t, blocks, 6,
+			"six header-only blocks carrying six reasons, rather than one stub saying "+
 				"the sample could not be taken")
 
 		for source, columns := range map[string][]string{
-			"pg_checkpointer":         checkpointColumns,
+			"pg_stat_checkpointer":    checkpointBlocks17[0].columns,
+			"pg_stat_bgwriter":        checkpointBlocks17[1].columns,
+			"pg_stat_io":              checkpointBlocks17[2].columns,
 			"pg_stat_database":        databaseColumns,
 			"pg_stat_activity_by_app": connectionColumns,
 			"pg_ls_waldir":            walColumns,
@@ -537,7 +589,9 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 
 func TestCapacityFailedSampleIsStillACompleteSample(t *testing.T) {
 	conn := newFakeCapacityConn()
-	conn.checkpoint = repeatRow(errRow(errors.New("ERROR: permission denied")))
+	conn.checkpointer = repeatRow(errRow(errors.New("ERROR: permission denied")))
+	conn.bgwriter = repeatRow(errRow(errors.New("ERROR: permission denied")))
+	conn.backendBuffers = repeatRow(errRow(errors.New("ERROR: permission denied")))
 	conn.database = repeatRow(errRow(errors.New("ERROR: permission denied")))
 	conn.connections = repeat(errResult(errors.New("ERROR: permission denied")))
 	conn.wal = repeatRow(errRow(errors.New("ERROR: permission denied")))
@@ -567,9 +621,9 @@ func TestCapacityWritesTheWholeSampleInOneWrite(t *testing.T) {
 		capacitySampleContext(2, 2)))
 
 	assert.Equal(t, 1, writer.writes,
-		"four blocks, one buffer, one Write: a write failing between two of them would leave "+
+		"six blocks, one buffer, one Write: a write failing between two of them would leave "+
 			"the window's stub behind a half-written sample")
-	assert.Equal(t, 4, strings.Count(writer.buf.String(), "# engine=postgres"))
+	assert.Equal(t, 6, strings.Count(writer.buf.String(), "# engine=postgres"))
 }
 
 func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
@@ -577,10 +631,40 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 		conn := newFakeCapacityConn()
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, s))
 
-		assert.Equal(t, []string{checkpointSQL, databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
-			"sample %d: five statements, which is what Artifact().SampleBudget declares and "+
+		assert.Equal(t, []string{
+			checkpointerSQL, bgwriterSQL, backendBuffersSQL,
+			databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL,
+		}, conn.sql,
+			"sample %d: seven statements, which is what Artifact().SampleBudget declares and "+
 				"what Window.moduleDeadline sizes the shared closing tick from", s.Index)
 	}
+
+	conn := newFakeCapacityConn()
+	sampleCtx := capacitySampleContext(1, 2)
+	sampleCtx.HasPgStatCheckpointer = false
+
+	require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, sampleCtx))
+	assert.Equal(t, []string{bgwriterSQLPre17, databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
+		"five below 17, inside the budget")
+}
+
+func TestCapacityStampsItsOwnVersionOnEveryBlock(t *testing.T) {
+	conn := newFakeCapacityConn()
+	conn.hasPgStatCheckpointer = true
+
+	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
+
+	headers := 0
+
+	for line := range strings.SplitSeq(artifactText(t, results[0]), "\n") {
+		if strings.HasPrefix(line, "#") {
+			headers++
+
+			assert.Contains(t, line, " v=2 ", "the window's blocks and the collector's alike")
+		}
+	}
+
+	assert.Equal(t, 14, headers, "the preamble, six blocks in each of two samples, and the close")
 }
 
 func TestCapacityDatabaseBlockIsTheConnectedDatabasesRow(t *testing.T) {
@@ -606,7 +690,8 @@ func TestCapacityDatabaseBlockFailsAlone(t *testing.T) {
 		`error="ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"`)
 	assert.Empty(t, blocks["pg_stat_database"].rows(t, databaseColumns), "no row, not a row of zeroes")
 
-	assert.Len(t, blocks["pg_checkpointer"].rows(t, checkpointColumns), 1, "the blocks beside it still land")
+	assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
+		"the blocks beside it still land")
 	assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
 	assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
 }
@@ -765,7 +850,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, eight sample blocks")
+	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, twelve sample blocks")
 	assert.Equal(t, bloatGolden(t, "pg_capacity_pg17.txt"), artifactText(t, results[0]))
 }
 

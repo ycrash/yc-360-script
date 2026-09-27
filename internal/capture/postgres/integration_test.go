@@ -2073,11 +2073,8 @@ func TestMatrixCapacity(t *testing.T) {
 				artifact := matrixArtifactText(t, results[0])
 				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")
 
-				checkpoints := parseCapacityBlocks(t, artifact, "pg_checkpointer")
-				require.Len(t, checkpoints, matrixCapacitySamples, "the counters are read on every sample")
-
-				assertMatrixCheckpointShape(t, server, checkpoints)
-				assertMatrixCheckpointCounters(t, role, checkpoints)
+				checkpoints := assertMatrixCheckpointShape(t, server, artifact)
+				assertMatrixCheckpointCounters(t, server, role, checkpoints)
 
 				databases := parseCapacityBlocks(t, artifact, "pg_stat_database")
 				require.Len(t, databases, matrixCapacitySamples, "the connected database is read on every sample")
@@ -2100,51 +2097,65 @@ func TestMatrixCapacity(t *testing.T) {
 				}
 
 				if role.superuser {
-					assertMatrixResetClocksAreTwo(t, server, target)
+					assertMatrixEachViewKeepsItsResetClock(t, server, target)
 				}
 			})
 		}
 	}
 }
 
-func assertMatrixCheckpointShape(t *testing.T, server matrixServer, blocks []capacityMatrixBlock) {
+// assertMatrixCheckpointShape returns each checkpoint view's blocks, one per sample.
+func assertMatrixCheckpointShape(t *testing.T, server matrixServer, artifact string) map[string][]capacityMatrixBlock {
 	t.Helper()
 
-	views := "pg_stat_bgwriter"
-	if server.major >= 17 {
-		views = "pg_stat_checkpointer,pg_stat_bgwriter"
+	blocks := map[string][]capacityMatrixBlock{}
+
+	for _, want := range checkpointBlocks(server.major >= 17) {
+		blocks[want.source] = parseCapacityBlocks(t, artifact, want.source)
+		require.Len(t, blocks[want.source], matrixCapacitySamples, "%s is read on every sample", want.source)
+
+		for i, block := range blocks[want.source] {
+			assert.NotContains(t, block.rawHead, "error=",
+				"%s block %d: reading the checkpoint counters needs no grant", want.source, i)
+			assert.Equal(t, "2", block.header["v"], "%s block %d", want.source, i)
+			assert.Equal(t, want.columns, block.columns,
+				"%s block %d: the view's own column names, on the server that has the view", want.source, i)
+
+			for _, column := range want.columns {
+				assert.NotEmpty(t, block.only(t, column),
+					"%s block %d: %s is a reading, buffers_backend included, which on 17 and above "+
+						"comes from pg_stat_io and every role may read", want.source, i, column)
+			}
+		}
 	}
 
-	for i, block := range blocks {
-		assert.NotContains(t, block.rawHead, "error=",
-			"block %d: reading the checkpoint counters needs no grant", i)
-
-		assert.Equal(t, checkpointColumns, block.columns,
-			"block %d: one column set on every version is what the normalisation buys", i)
-		assert.Equal(t, views, block.header["views"],
-			"block %d: three of the five counters moved views in 17, and views= is where the "+
-				"artifact says which server it read", i)
-
-		assert.NotEmpty(t, block.only(t, "buffers_backend"),
-			"block %d: a reading on every version, from pg_stat_io on 17 and above, "+
-				"which every role may read", i)
-
-		assert.NotEmpty(t, block.only(t, "buffers_clean"),
-			"block %d: the one counter that stayed in pg_stat_bgwriter", i)
-		assert.NotEmpty(t, block.only(t, "checkpointer_stats_reset"), "block %d", i)
-		assert.NotEmpty(t, block.only(t, "bgwriter_stats_reset"), "block %d", i)
+	if server.major < 17 {
+		assert.Empty(t, parseCapacityBlocks(t, artifact, "pg_stat_checkpointer"), "no such view before 17")
+		assert.Empty(t, parseCapacityBlocks(t, artifact, "pg_stat_io"), "and one view holds every counter")
 	}
+
+	return blocks
 }
 
-func assertMatrixCheckpointCounters(t *testing.T, role matrixRole, blocks []capacityMatrixBlock) {
+func assertMatrixCheckpointCounters(t *testing.T, server matrixServer, role matrixRole,
+	blocks map[string][]capacityMatrixBlock,
+) {
 	t.Helper()
 
-	firstBackend := matrixCheckpointCounter(t, blocks[0], "buffers_backend")
-	lastBackend := matrixCheckpointCounter(t, blocks[len(blocks)-1], "buffers_backend")
+	requested, requestedColumn := blocks["pg_stat_bgwriter"], "checkpoints_req"
+	backend := blocks["pg_stat_bgwriter"]
+
+	if server.major >= 17 {
+		requested, requestedColumn = blocks["pg_stat_checkpointer"], "num_requested"
+		backend = blocks["pg_stat_io"]
+	}
+
+	firstBackend := matrixCheckpointCounter(t, backend[0], "buffers_backend")
+	lastBackend := matrixCheckpointCounter(t, backend[len(backend)-1], "buffers_backend")
 	assert.GreaterOrEqual(t, lastBackend, firstBackend, "buffers_backend is a cumulative counter")
 
-	first := matrixCheckpointCounter(t, blocks[0], "checkpoints_req")
-	last := matrixCheckpointCounter(t, blocks[len(blocks)-1], "checkpoints_req")
+	first := matrixCheckpointCounter(t, requested[0], requestedColumn)
+	last := matrixCheckpointCounter(t, requested[len(requested)-1], requestedColumn)
 
 	if role.superuser {
 		assert.Greater(t, last, first,
@@ -2367,7 +2378,7 @@ func matrixLogUntil(t *testing.T, path string, offset int64, marker string) stri
 	}
 }
 
-func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Target) {
+func assertMatrixEachViewKeepsItsResetClock(t *testing.T, server matrixServer, target Target) {
 	t.Helper()
 
 	results := runMatrixCapacityWindow(t, target, func() {
@@ -2377,31 +2388,32 @@ func assertMatrixResetClocksAreTwo(t *testing.T, server matrixServer, target Tar
 	require.Len(t, results, 1)
 	require.NoError(t, results[0].IOErr)
 
-	blocks := parseCapacityBlocks(t, matrixArtifactText(t, results[0]), "pg_checkpointer")
-	require.Len(t, blocks, matrixCapacitySamples)
+	artifact := matrixArtifactText(t, results[0])
 
 	// The reset fires between the opening sample and the first step, so the
 	// endpoints straddle it whatever the cadence.
-	first, last := blocks[0], blocks[len(blocks)-1]
+	clock := func(source string) (first, last string) {
+		t.Helper()
 
-	assert.NotEqual(t, first.only(t, "bgwriter_stats_reset"), last.only(t, "bgwriter_stats_reset"),
-		"resetting bgwriter must move bgwriter's own clock")
+		blocks := parseCapacityBlocks(t, artifact, source)
+		require.Len(t, blocks, matrixCapacitySamples, source)
 
-	if server.major >= 17 {
-		assert.Equal(t,
-			first.only(t, "checkpointer_stats_reset"), last.only(t, "checkpointer_stats_reset"),
-			"and must leave pg_stat_checkpointer's where it was: two views, two clocks, which is "+
-				"why one column would leave the other view's counter with an undetectable reset")
+		return blocks[0].only(t, "stats_reset"), blocks[len(blocks)-1].only(t, "stats_reset")
+	}
 
+	first, last := clock("pg_stat_bgwriter")
+	assert.NotEqual(t, first, last, "resetting bgwriter must move bgwriter's own clock")
+
+	if server.major < 17 {
 		return
 	}
 
-	assert.NotEqual(t,
-		first.only(t, "checkpointer_stats_reset"), last.only(t, "checkpointer_stats_reset"),
-		"below 17 the reset takes the checkpoint counters with it, because they are one view")
-	assert.Equal(t,
-		last.only(t, "bgwriter_stats_reset"), last.only(t, "checkpointer_stats_reset"),
-		"and one clock is read into both columns")
+	for _, source := range []string{"pg_stat_checkpointer", "pg_stat_io"} {
+		first, last := clock(source)
+		assert.Equal(t, first, last,
+			"%s: and leave the other views' clocks where they were - three views, three clocks, "+
+				"which is why one column would leave the others' counters with an undetectable reset", source)
+	}
 }
 
 func matrixHoldSessions(t *testing.T, target Target, n int) (release func()) {

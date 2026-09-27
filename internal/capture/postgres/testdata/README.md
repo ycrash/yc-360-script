@@ -169,25 +169,26 @@ The goldens:
   block of a shape is present in every block of that shape. `status=complete`:
   ten of eleven columns is a captured sample, not a failed one.
 - `pg_capacity_pg17.txt` — a complete capture against PostgreSQL 17 or 18:
-  **four sample blocks for two samples**, which is the first artifact where
-  those are different numbers. The checkpoint block is written on both samples; the
-  connection and WAL blocks are gauges — what exists as the window closes, not
-  what happened during it — so they are written once, on the closing sample.
-  `views=pg_stat_checkpointer,pg_stat_bgwriter` because 17 moved three of the
-  five counters into a new view; `buffers_backend` is empty because that column
-  was removed outright, and empty rather than `0` because `0` would mean
-  backends wrote no buffers. The two reset clocks carry different values: the
-  two views reset independently from 17 on, so one column would leave the
-  other's counter with an undetectable reset.
-- `pg_capacity_pre17.txt` — the same capture against 14–16, and the pair is the
-  contract. **Exactly two structural differences are permitted**: `views=`, and
-  a populated `buffers_backend`. Every column header is identical, the two reset
-  clocks are the same value read twice, and anything else moving means the
-  normalisation is incomplete.
+  **six blocks on every sample**. The checkpoint counters are three of them, one
+  per view 17 split them across, each under the view's own name and column
+  names: `pg_stat_checkpointer` (`num_timed`, `num_requested`,
+  `buffers_written`), `pg_stat_bgwriter` (`buffers_clean`) and `pg_stat_io`
+  (`buffers_backend`: the relation writes and extensions of every process but
+  the checkpointer and the background writer, which on 16, where both exist,
+  matched the old column apart from the sync requests DDL makes without writing
+  a buffer). Each carries its own view's `stats_reset`, and the three differ:
+  the views reset independently from 17 on. Then the connected database's
+  `pg_stat_database` row, `scope=database` in a cluster file, the connection
+  groups and the WAL size. Every block is `v=2`, the file's own version.
+- `pg_capacity_pre17.txt` — the same capture against 14–16. One checkpoint
+  block, `source=pg_stat_bgwriter`, the view that held all five counters then,
+  under their old names and with its one `stats_reset`. The counters carry the
+  same values as the 17 fixture's, so the pair sets each old name beside its
+  new one; mapping one to the other is the server's.
 - `pg_capacity_wal_denied.txt` — the least-privilege role. `pg_ls_waldir()`
   needs `pg_monitor` or superuser, so a role holding only `LOGIN` is denied: the
   WAL block is its header and its column header with `reason=permission_denied`
-  saying why, the other two blocks are populated, and the artifact is
+  saying why, the other blocks are populated, and the artifact is
   `complete`. One refused read costs its own block, never the reads that
   succeeded beside it. The refusal is found by `has_function_privilege` before
   the call, which is then not made, so there is no server error to quote and
@@ -597,8 +598,10 @@ pin the rule below against the driver text that motivates it.
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, `pg_metadata_server` for what the server said, and
   `pg_metadata_tablespaces` for where its tablespaces live —
-  `pg_capacity.txt` carries four: `pg_capacity`, `pg_checkpointer`,
-  `pg_stat_activity_by_app` and `pg_ls_waldir` — `pg_replication.txt`
+  `pg_capacity.txt` carries seven from 17 on: `pg_capacity`,
+  `pg_stat_checkpointer`, `pg_stat_bgwriter`, `pg_stat_io`, `pg_stat_database`,
+  `pg_stat_activity_by_app` and `pg_ls_waldir`, and five before 17, where
+  `pg_stat_bgwriter` holds every checkpoint counter — `pg_replication.txt`
   carries three: `pg_replication`, `pg_stat_replication` and
   `pg_replication_slots` — and `pg_sessions.txt` three: `pg_sessions`,
   `pg_stat_activity` and `pg_locks`. **One `source=` is one shape**, which is why
@@ -606,20 +609,23 @@ pin the rule below against the driver text that motivates it.
   carries counts per `(application_name, backend_type)` group where
   `pg_sessions.txt` carries a row per backend, and two shapes under one dispatch
   key would make the column header load-bearing for dispatch.
+  `pg_capacity.txt`'s own reads are the exception: each block names the view it
+  read. So its `pg_stat_bgwriter` is five counters before 17 and one from 17,
+  and its `pg_stat_database` is one database's five counters where
+  `pg_health.txt`'s is every database's eleven columns; the column header says
+  which.
 - **One sample may be more than one block, and `samples_expected` counts
-  samples.** `pg_capacity.txt` writes four sample blocks for two samples — one
-  on the opening sample and three on the closing one — and a reader that counted
-  blocks would call that file incomplete. `pg_replication.txt` and
-  `pg_sessions.txt` are the stronger case: both write two blocks on **every**
-  sample, so their block count is never their sample count — and on the default
-  window `pg_sessions.txt` writes 120 sample blocks for 60 samples. Group a
+  samples.** `pg_capacity.txt` writes six blocks on every sample from 17 and
+  four before, `pg_replication.txt` and `pg_sessions.txt` two, so their block
+  count is never their sample count — on the default window `pg_sessions.txt`
+  writes 120 sample blocks for 60 samples. Group a
   collector's
   blocks into samples by `sample=`, which every one of them carries; the
   artifact's own `samples_expected` and `samples_written` are about samples and
   nothing else.
 - **A block whose own read failed is still written**, with `error=` in its
   header and no rows under its column header. Within one sample the blocks fail
-  independently: a `pg_capacity.txt` sample can carry two populated blocks and
+  independently: a `pg_capacity.txt` sample can carry five populated blocks and
   one that says why it is empty, and it is still a complete sample. The
   artifact-level stub — `sample_error=` on a block naming the artifact — is a
   different thing, and means the collector could not localise the failure at
@@ -678,7 +684,7 @@ identity and its clock read are readable without parsing the middle.
 - **`ts=` is the sample's clock read, not the block's.** Every block of one
   `sample=` carries the same value, taken before the sample's first statement
   ran — so in `pg_capacity.txt` the WAL block's `ts=` can precede its own read
-  by as much as two statement timeouts. Equal `ts=` within one `sample=` is by
+  by as much as six statement timeouts. Equal `ts=` within one `sample=` is by
   construction and says nothing about the sampler catching up; the rule above
   applies across samples.
 
@@ -698,10 +704,14 @@ in as many words: no parser has been written against `pg_metadata.txt` v=1.
 `pg_metadata.txt` has never had a `fromAgentFileName` entry either, so no bundle
 has ever been classified and nothing has ever read one.
 
-**That exemption is spent.** The next time any one artifact's shape moves alone,
-`v` belongs on `Artifact` rather than on the package: it is one constant today,
-stamped into every block of every artifact, so bumping it would announce a break
-in `pg_bloat.txt` and `pg_health.txt`, which have not changed shape.
+**That exemption is spent**, and the next shape change moved `v` onto
+`Artifact` (`Version`, `1` when unset), so a break in one file bumps that file
+alone and does not announce one in `pg_bloat.txt` or `pg_health.txt`.
+`pg_capacity.txt` is `v=2`, on every one of its blocks: its checkpoint counters
+left one `source=pg_checkpointer` block, with the pre-17 names on every version
+and `views=` saying which views were read, for a block per view under the
+view's own names, which a reader of `v=1` gets wrong. Every other artifact is
+`v=1`.
 
 The tablespace block added to `pg_metadata.txt` on 2026-09-02 is not that case,
 and the distinction is worth stating once: it is a **fifth block under a new

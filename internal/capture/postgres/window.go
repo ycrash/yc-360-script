@@ -187,6 +187,10 @@ type Artifact struct {
 	// two others). Empty names one of its own like any other name, which a test's
 	// window of fakes shares.
 	Connection string
+
+	// Version is the file's format version, v= on each of its blocks. Zero is
+	// defaultArtifactVersion.
+	Version int
 }
 
 func artifactFormat(artifact Artifact) string {
@@ -195,6 +199,14 @@ func artifactFormat(artifact Artifact) string {
 	}
 
 	return artifact.Format
+}
+
+func artifactVersion(artifact Artifact) int {
+	if artifact.Version == 0 {
+		return defaultArtifactVersion
+	}
+
+	return artifact.Version
 }
 
 type Collector interface {
@@ -539,16 +551,17 @@ func (w *Window) openArtifacts(results []ArtifactResult, sampleCtx SampleContext
 		}
 		results[i].File = file
 
-		err = writeBlockHeaderFormat(file, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
-			{"db", sampleCtx.Database},
-			{"dbid", sampleCtx.DBID},
-			{"status", "started"},
-			{"window", windowSeconds(w.Duration)},
-			// interval= is empty without a cadence; samples_expected needs it to make sense.
-			{"schedule", artifact.Schedule.name()},
-			{"interval", artifact.Schedule.intervalText()},
-			{"samples_expected", strconv.Itoa(results[i].SamplesExpected)},
-		}, w.clock())
+		err = writeVersionedBlockHeader(file, artifact.Name, artifactVersion(artifact), artifact.Scope,
+			artifactFormat(artifact), []headerField{
+				{"db", sampleCtx.Database},
+				{"dbid", sampleCtx.DBID},
+				{"status", "started"},
+				{"window", windowSeconds(w.Duration)},
+				// interval= is empty without a cadence; samples_expected needs it to make sense.
+				{"schedule", artifact.Schedule.name()},
+				{"interval", artifact.Schedule.intervalText()},
+				{"samples_expected", strconv.Itoa(results[i].SamplesExpected)},
+			}, w.clock())
 		if err != nil {
 			results[i].IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, err)
 			continue
@@ -647,7 +660,8 @@ func (w *Window) closeArtifacts(results []ArtifactResult, owner []*connectionTim
 		}
 
 		artifact := results[i].Artifact
-		if err := writeBlockHeaderFormat(results[i].File, artifact.Name, artifact.Scope, artifactFormat(artifact), fields, at); err != nil {
+		if err := writeVersionedBlockHeader(results[i].File, artifact.Name, artifactVersion(artifact), artifact.Scope,
+			artifactFormat(artifact), fields, at); err != nil {
 			results[i].IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, err)
 			continue
 		}
@@ -784,12 +798,13 @@ func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContex
 
 	artifact := result.Artifact
 
-	err := writeBlockHeaderFormat(result.File, artifact.Name, artifact.Scope, artifactFormat(artifact), []headerField{
-		{"db", sampleCtx.Database},
-		{"dbid", sampleCtx.DBID},
-		{"sample", strconv.Itoa(sampleCtx.Index)},
-		{"sample_error", result.Err},
-	}, sampleCtx.At)
+	err := writeVersionedBlockHeader(result.File, artifact.Name, artifactVersion(artifact), artifact.Scope,
+		artifactFormat(artifact), []headerField{
+			{"db", sampleCtx.Database},
+			{"dbid", sampleCtx.DBID},
+			{"sample", strconv.Itoa(sampleCtx.Index)},
+			{"sample_error", result.Err},
+		}, sampleCtx.At)
 	if err != nil {
 		result.IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, err)
 	}

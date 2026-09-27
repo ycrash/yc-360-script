@@ -12,17 +12,9 @@ import (
 // (application_name, backend_type) pairs rather than applications.
 const DefaultMaxConnectionGroups = 1000
 
-// checkpointColumns uses the pre-17 names on every version, so no mapping table is needed. Two
-// reset-clock columns because PG17 split counters across two independently resettable views.
-var checkpointColumns = []string{
-	"checkpoints_timed",
-	"checkpoints_req",
-	"buffers_checkpoint",
-	"buffers_clean",
-	"buffers_backend",
-	"checkpointer_stats_reset",
-	"bgwriter_stats_reset",
-}
+// capacityVersion is pg_capacity.txt's v=: 2 since each view's checkpoint counters became a block
+// under the view's own name and column names.
+const capacityVersion = 2
 
 var connectionColumns = []string{
 	"application_name",
@@ -35,36 +27,70 @@ var walColumns = []string{"wal_bytes"}
 // databaseColumns are what the cache hit, rollback and throughput ratios are read from.
 var databaseColumns = []string{"xact_commit", "xact_rollback", "blks_hit", "blks_read", "temp_bytes"}
 
-// checkpointSQL reads the two views PG17 split counters across (both single-row, so the cross join
-// is safe), and buffers_backend from pg_stat_io, where 17 moved it.
-const checkpointSQL = `SELECT c.num_timed,
-       c.num_requested,
-       c.buffers_written,
-       b.buffers_clean,
-       (` + buffersBackendSQL + `) AS buffers_backend,
-       c.stats_reset AS checkpointer_stats_reset,
-       b.stats_reset AS bgwriter_stats_reset
-FROM pg_catalog.pg_stat_checkpointer c,
-     pg_catalog.pg_stat_bgwriter b`
+// counterBlock is one view's checkpoint counters: source= is the view, the columns are its own
+// names, and the last is its stats_reset, since 17 resets the three views separately.
+type counterBlock struct {
+	source  string
+	sql     string
+	columns []string
+}
 
-// buffersBackendSQL is what buffers_backend counted before 17: the relation writes and extensions
-// of every process but these two, which on PostgreSQL 16 matched it apart from the sync requests
-// DDL makes without writing a buffer. A NULL cell is an operation its context never does; summed
-// as it is, it would drop the row's writes.
-const buffersBackendSQL = `SELECT sum(COALESCE(io.writes, 0) + COALESCE(io.extends, 0))::bigint
-        FROM pg_catalog.pg_stat_io io
-        WHERE io.object = 'relation'
-          AND io.backend_type NOT IN ('checkpointer', 'background writer')`
-
-// checkpointSQLPre17 reads the same columns from the one view that held them before PG17 split it.
-const checkpointSQLPre17 = `SELECT checkpoints_timed,
+// bgwriterSQLPre17 reads the one view that held every counter before 17.
+const bgwriterSQLPre17 = `SELECT checkpoints_timed,
        checkpoints_req,
        buffers_checkpoint,
        buffers_clean,
        buffers_backend,
-       stats_reset AS checkpointer_stats_reset,
-       stats_reset AS bgwriter_stats_reset
+       stats_reset
 FROM pg_catalog.pg_stat_bgwriter`
+
+const checkpointerSQL = `SELECT num_timed,
+       num_requested,
+       buffers_written,
+       stats_reset
+FROM pg_catalog.pg_stat_checkpointer`
+
+const bgwriterSQL = `SELECT buffers_clean,
+       stats_reset
+FROM pg_catalog.pg_stat_bgwriter`
+
+// backendBuffersSQL is what buffers_backend counted before 17: the relation writes and extensions
+// of every process but these two, which on PostgreSQL 16 matched it apart from the sync requests
+// DDL makes without writing a buffer. A NULL cell is an operation its context never does; summed
+// as it is, it would drop the row's writes. Every row carries the view's one reset clock.
+const backendBuffersSQL = `SELECT sum(COALESCE(writes, 0) + COALESCE(extends, 0))::bigint AS buffers_backend,
+       max(stats_reset) AS stats_reset
+FROM pg_catalog.pg_stat_io
+WHERE object = 'relation'
+  AND backend_type NOT IN ('checkpointer', 'background writer')`
+
+var checkpointBlocksPre17 = []counterBlock{{
+	source: "pg_stat_bgwriter",
+	sql:    bgwriterSQLPre17,
+	columns: []string{
+		"checkpoints_timed", "checkpoints_req", "buffers_checkpoint", "buffers_clean", "buffers_backend",
+		"stats_reset",
+	},
+}}
+
+// checkpointBlocks17 are the three views 17 split the counters across, each read on its own so
+// one failing leaves the other two.
+var checkpointBlocks17 = []counterBlock{
+	{source: "pg_stat_checkpointer", sql: checkpointerSQL,
+		columns: []string{"num_timed", "num_requested", "buffers_written", "stats_reset"}},
+	{source: "pg_stat_bgwriter", sql: bgwriterSQL, columns: []string{"buffers_clean", "stats_reset"}},
+	{source: "pg_stat_io", sql: backendBuffersSQL, columns: []string{"buffers_backend", "stats_reset"}},
+}
+
+// checkpointBlocks selects on the capability, not a version number, so a false positive on 17
+// lands on the undefined-column error rather than a wrong answer.
+func checkpointBlocks(hasPgStatCheckpointer bool) []counterBlock {
+	if hasPgStatCheckpointer {
+		return checkpointBlocks17
+	}
+
+	return checkpointBlocksPre17
+}
 
 // databaseSQL reads the connected database's row. pg_health.txt has every database's; this is the
 // one this file's ratios are read from.
@@ -114,22 +140,23 @@ func (c Capacity) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(c.Interval),
 		Connection: ConnectionNormal,
+		Version:    capacityVersion,
 
-		// Five statements on every sample, the WAL read's privilege check among them.
-		// Periodic's last sample is the close, so moduleDeadline sums this against
-		// every other closing-tick collector on the same connection.
-		SampleBudget: 5 * StatementTimeout,
+		// Seven statements on every sample from 17, five before, the WAL read's privilege
+		// check among them. Periodic's last sample is the close, so moduleDeadline sums
+		// this against every other closing-tick collector on the same connection.
+		SampleBudget: 7 * StatementTimeout,
 	}
 }
 
-// Sample writes all four blocks every time. The gauges (active_connections, wal_bytes) used to
+// Sample writes every block every time. The gauges (active_connections, wal_bytes) used to
 // land on the closing sample alone; as a series they show connections climbing and WAL growing
 // through the window, which one closing reading cannot.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	// One buffer, one Write: avoids leaving a half-written sample if a write fails mid-block.
 	var sample bytes.Buffer
 
-	if err := c.writeCheckpointBlock(ctx, q, &sample, s); err != nil {
+	if err := c.writeCheckpointBlocks(ctx, q, &sample, s); err != nil {
 		return err
 	}
 
@@ -150,27 +177,30 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 	return err
 }
 
-// writeCheckpointBlock writes views= whether or not the read succeeded, so it can explain the
-// error beside it.
-func (c Capacity) writeCheckpointBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	row, err := readCheckpoint(ctx, q, s.HasPgStatCheckpointer)
+func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	for _, block := range checkpointBlocks(s.HasPgStatCheckpointer) {
+		cells, err := readCounterBlock(ctx, q, block)
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-		{"views", checkpointViews(s.HasPgStatCheckpointer)},
+		fields := []headerField{
+			{"db", s.Database},
+			{"dbid", s.DBID},
+			{"sample", strconv.Itoa(s.Index)},
+		}
+
+		if err != nil {
+			fields = append(fields, headerField{"error", s.errorText(err)})
+		}
+
+		if err := c.writeHeader(w, block.source, c.Artifact().Scope, fields, s.At); err != nil {
+			return err
+		}
+
+		if err := writeRows(w, block.columns, cells); err != nil {
+			return err
+		}
 	}
 
-	if err != nil {
-		fields = append(fields, headerField{"error", s.errorText(err)})
-	}
-
-	if err := writeBlockHeader(w, "pg_checkpointer", c.Artifact().Scope, fields, s.At); err != nil {
-		return err
-	}
-
-	return writeRows(w, checkpointColumns, checkpointCells(row))
+	return nil
 }
 
 // writeDatabaseBlock is scope=database in a cluster file: its row is the connected database's.
@@ -187,7 +217,7 @@ func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Wri
 		fields = append(fields, headerField{"error", s.errorText(err)})
 	}
 
-	if err := writeBlockHeader(w, "pg_stat_database", "database", fields, s.At); err != nil {
+	if err := c.writeHeader(w, "pg_stat_database", "database", fields, s.At); err != nil {
 		return err
 	}
 
@@ -215,7 +245,7 @@ func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.
 		)
 	}
 
-	if err := writeBlockHeader(w, "pg_stat_activity_by_app", c.Artifact().Scope, fields, s.At); err != nil {
+	if err := c.writeHeader(w, "pg_stat_activity_by_app", c.Artifact().Scope, fields, s.At); err != nil {
 		return err
 	}
 
@@ -238,7 +268,7 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 		fields = append(fields, headerField{"reason", reasonPermissionDenied})
 	}
 
-	if err := writeBlockHeader(w, "pg_ls_waldir", c.Artifact().Scope, fields, s.At); err != nil {
+	if err := c.writeHeader(w, "pg_ls_waldir", c.Artifact().Scope, fields, s.At); err != nil {
 		return err
 	}
 
@@ -253,74 +283,33 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	return writeRows(w, walColumns, cells)
 }
 
-// checkpointRow's columns are pointers: buffers_backend is NULL from PG17 on if pg_stat_io has no
-// row to sum; stats_reset is NULL if the server was never reset.
-type checkpointRow struct {
-	checkpointsTimed  *int64
-	checkpointsReq    *int64
-	buffersCheckpoint *int64
-	buffersClean      *int64
-	buffersBackend    *int64
-	checkpointerReset *time.Time
-	bgwriterReset     *time.Time
-}
-
-func readCheckpoint(ctx context.Context, q RowQuerier, hasPgStatCheckpointer bool) (*checkpointRow, error) {
+// readCounterBlock scans one row of counters and a trailing stats_reset. A NULL is an empty cell:
+// buffers_backend when pg_stat_io has no row to sum, stats_reset on a view never reset.
+func readCounterBlock(ctx context.Context, q RowQuerier, block counterBlock) ([][]string, error) {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
-	var row checkpointRow
+	counters := make([]*int64, len(block.columns)-1)
 
-	err := q.QueryRow(stmtCtx, checkpointStatement(hasPgStatCheckpointer)).Scan(
-		&row.checkpointsTimed,
-		&row.checkpointsReq,
-		&row.buffersCheckpoint,
-		&row.buffersClean,
-		&row.buffersBackend,
-		&row.checkpointerReset,
-		&row.bgwriterReset,
-	)
-	if err != nil {
+	var reset *time.Time
+
+	dest := make([]any, 0, len(block.columns))
+	for i := range counters {
+		dest = append(dest, &counters[i])
+	}
+
+	dest = append(dest, &reset)
+
+	if err := q.QueryRow(stmtCtx, block.sql).Scan(dest...); err != nil {
 		return nil, err
 	}
 
-	return &row, nil
-}
-
-// checkpointStatement selects on the capability, not a version number, so a false positive on 17
-// lands on the undefined-column error rather than a wrong answer.
-func checkpointStatement(hasPgStatCheckpointer bool) string {
-	if hasPgStatCheckpointer {
-		return checkpointSQL
+	row := make([]string, 0, len(block.columns))
+	for _, counter := range counters {
+		row = append(row, int64Text(counter))
 	}
 
-	return checkpointSQLPre17
-}
-
-// checkpointViews is the block's provenance: views= varies since PG17, when three of these columns
-// stopped coming from pg_stat_bgwriter.
-func checkpointViews(hasPgStatCheckpointer bool) string {
-	if hasPgStatCheckpointer {
-		return "pg_stat_checkpointer,pg_stat_bgwriter"
-	}
-
-	return "pg_stat_bgwriter"
-}
-
-func checkpointCells(row *checkpointRow) [][]string {
-	if row == nil {
-		return nil
-	}
-
-	return [][]string{{
-		int64Text(row.checkpointsTimed),
-		int64Text(row.checkpointsReq),
-		int64Text(row.buffersCheckpoint),
-		int64Text(row.buffersClean),
-		int64Text(row.buffersBackend),
-		timeText(row.checkpointerReset),
-		timeText(row.bgwriterReset),
-	}}
+	return [][]string{append(row, timeText(reset))}, nil
 }
 
 type databaseRow struct {
@@ -439,6 +428,11 @@ func readWAL(ctx context.Context, q RowQuerier) (walBytes *int64, denied bool, e
 	}
 
 	return walBytes, false, nil
+}
+
+// writeHeader stamps the file's own v= on a block.
+func (c Capacity) writeHeader(w io.Writer, source, scope string, fields []headerField, at time.Time) error {
+	return writeVersionedBlockHeader(w, source, artifactVersion(c.Artifact()), scope, formatCSV, fields, at)
 }
 
 func (c Capacity) maxConnectionGroups() int {
