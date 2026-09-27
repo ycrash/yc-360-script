@@ -2216,9 +2216,8 @@ func TestWindowCaptureIDIsOnePerRunAndSharedByEveryFile(t *testing.T) {
 	}
 
 	captureIDs := func() []string {
-		window := newTestWindow(t, newFakeClock(),
+		window := newSpeedWindow(t, func(context.Context, Target) (windowConn, error) { return newFakeWindowConn(), nil },
 			periodic("pg_fast", ConnectionFast), periodic("pg_expensive", ConnectionExpensive))
-		window.CaptureID = ""
 
 		var ids []string
 
