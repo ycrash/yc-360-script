@@ -334,7 +334,7 @@ func TestBuildConfigSessionSafety(t *testing.T) {
 	assert.Equal(t, map[string]string{
 		"application_name":                    "yCrash-DB-Agent",
 		"default_transaction_read_only":       "on",
-		"statement_timeout":                   "10s",
+		"statement_timeout":                   "5s",
 		"lock_timeout":                        "2s",
 		"idle_in_transaction_session_timeout": "5s",
 		"idle_session_timeout":                "0",
@@ -347,7 +347,7 @@ func TestDefaultSampleBudgetCoversATwoStatementSample(t *testing.T) {
 	assert.Equal(t, 2*StatementTimeout, DefaultSampleBudget,
 		"the budget must outlast the statements one sample is allowed to run")
 
-	assert.Equal(t, 25*time.Second, DefaultSampleBudget+WindowCloseMargin,
+	assert.Equal(t, 15*time.Second, DefaultSampleBudget+WindowCloseMargin,
 		"which is what a closing tick owned by one default-budget collector costs")
 }
 

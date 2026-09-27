@@ -389,7 +389,7 @@ func TestPostgresSampledCollectorsShareOneCadence(t *testing.T) {
 			"that tick's statements read for shapes not yet seen")
 }
 
-func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T) {
+func TestPostgresBookendCollectorsDeclareTheirClosingBudgets(t *testing.T) {
 	sessions := postgres.Sessions{}.Artifact()
 	health := postgres.Health{}.Artifact()
 	replication := postgres.Replication{}.Artifact()
@@ -402,12 +402,13 @@ func TestPostgresBookendWidensTheModuleDeadlineByThirtyThreeSeconds(t *testing.T
 	assert.Zero(t, replication.SampleBudget,
 		"two statements is DefaultSampleBudget already, so there is nothing to restate")
 
-	assert.Equal(t, 33*time.Second,
-		sessions.SampleBudget+health.SampleBudget+postgres.DefaultSampleBudget,
-		"what the bookend costs: three collectors that stopped short of the close now land "+
-			"on it, so the module deadline goes from 245s to 278s on the default window. A "+
-			"deliberate widening. Capacity, bloat and slow queries were on the close already "+
-			"as start-and-end collectors, so taking the cadence adds nothing to the sum")
+	assert.Equal(t, postgres.ConnectionFast, sessions.Connection)
+	assert.Equal(t, postgres.ConnectionNormal, health.Connection)
+	assert.Equal(t, postgres.ConnectionNormal, replication.Connection)
+
+	assert.Equal(t, 15*time.Second, health.SampleBudget+postgres.DefaultSampleBudget,
+		"what the bookend costs the normal connection's closing tick: health and replication "+
+			"land on it, one after the other. Sessions' 3s is on the fast connection, beside it")
 }
 
 func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
@@ -420,14 +421,16 @@ func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {
 
 	assert.Equal(t, 4*postgres.StatementTimeout, capacity.SampleBudget,
 		"four statements, the WAL read's privilege check among them: left at zero, the "+
-			"shared tick would be sized for two")
+			"normal connection's closing tick would be sized for two")
 	assert.Zero(t, bloat.SampleBudget, "bloat's two statements are the default shape")
 
-	assert.Equal(t, 65*time.Second,
-		capacity.SampleBudget+postgres.DefaultSampleBudget+postgres.WindowCloseMargin,
-		"so the closing tick now costs the window 65s where it cost 25s - a real load "+
-			"commitment against a database already in trouble, and one that should move "+
-			"only deliberately")
+	assert.Equal(t, postgres.ConnectionNormal, capacity.Connection)
+	assert.Equal(t, postgres.ConnectionExpensive, bloat.Connection,
+		"so bloat's closing read runs beside capacity's, not after it")
+
+	assert.Equal(t, 20*time.Second, capacity.SampleBudget,
+		"what capacity costs its connection's closing tick - a load commitment against a "+
+			"database already in trouble, and one that should move only deliberately")
 }
 
 func TestPostgresIndexUsageJoinsTheClosingTick(t *testing.T) {
@@ -436,11 +439,11 @@ func TestPostgresIndexUsageJoinsTheClosingTick(t *testing.T) {
 	require.Equal(t, postgres.Periodic(0), indexUsage.Schedule,
 		"born periodic, so its last sample is the close")
 	assert.Zero(t, indexUsage.SampleBudget, "two statements, the default shape, copied from bloat")
+	assert.Equal(t, postgres.ConnectionExpensive, indexUsage.Connection)
 
-	assert.Equal(t, 20*time.Second, postgres.DefaultSampleBudget,
-		"what the eleventh artifact adds to the closing tick's deadline: one more "+
-			"DefaultSampleBudget, on the shared tick the test above calls a load commitment. "+
-			"Deliberate, and the review's F1 counts it")
+	assert.Equal(t, 10*time.Second, postgres.DefaultSampleBudget,
+		"what it adds to the expensive connection's closing tick: one more DefaultSampleBudget, "+
+			"after bloat's")
 }
 
 func TestPostgresTablespacesJoinsTheClosingTick(t *testing.T) {

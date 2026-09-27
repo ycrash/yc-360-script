@@ -103,7 +103,7 @@ const (
 	// MinPostgresFrequency floors frequency. It equals the capture's per-statement
 	// timeout, pinned by a test there, so a maxed-out sample can never outrun the
 	// tick behind it; below it the timeline could not catch up under load.
-	MinPostgresFrequency = 10 * time.Second
+	MinPostgresFrequency = 5 * time.Second
 
 	// ExplainLogged captures only the plans the server itself logged - nothing is
 	// submitted back to the database.
