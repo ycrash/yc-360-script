@@ -739,7 +739,7 @@ func TestPostgresValidateExplain(t *testing.T) {
 		require.Len(t, warnings, 1, "a fully specified block has nothing else to warn about")
 		assert.Contains(t, warnings[0], "postgres.explain=all")
 		assert.Contains(t, warnings[0], "submitted back to the database as EXPLAIN")
-		assert.Contains(t, warnings[0], "literal parameter values from your data")
+		assert.Contains(t, warnings[0], "the plans written to the bundle have their literal values replaced")
 	})
 
 	t.Run("logged does not warn: nothing is submitted", func(t *testing.T) {

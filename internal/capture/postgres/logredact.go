@@ -19,6 +19,10 @@ type logRedaction struct {
 	// csvlog and jsonlog take a translated report by its code, where no English shape
 	// would find the SQL in it.
 	deadlockReport bool
+
+	// plans reads the message as an auto_explain entry: its first line, then a plan,
+	// whose constants the plan rules replace.
+	plans bool
 }
 
 // logField is the part of an entry a text belongs to, which decides what is replaced.
@@ -47,6 +51,10 @@ func (r *logRedaction) field(sqlstate string, kind logField, text string) (strin
 		return redactedValue, 1
 
 	case fieldMessage:
+		if r.plans {
+			return redactPlanEntry(text)
+		}
+
 		return redactMessage(text)
 
 	case fieldContext:
@@ -142,6 +150,25 @@ var (
 	verbosePrefix = regexp.MustCompile(`^[0-9A-Z]{5}: `)
 	cursorSuffix  = regexp.MustCompile(` at character \d+$`)
 )
+
+// pgErrorText is a server error as the driver renders it: level, message and code.
+var pgErrorText = regexp.MustCompile(`^([A-Z]+: )(.*?)( \(SQLSTATE [0-9A-Z]{5}\))?$`)
+
+// redactErrorText is redactMessage for an error the agent's own statement got, as an
+// error= header carries it.
+func redactErrorText(text string) (string, int) {
+	match := pgErrorText.FindStringSubmatch(text)
+	if match == nil {
+		return text, 0
+	}
+
+	message, n := redactMessage(match[2])
+	if n == 0 {
+		return text, 0
+	}
+
+	return match[1] + message + match[3], n
+}
 
 func redactMessage(text string) (string, int) {
 	code := verbosePrefix.FindString(text)

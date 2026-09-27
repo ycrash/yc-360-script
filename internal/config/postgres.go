@@ -312,9 +312,9 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 			p.Explain, strings.Join(postgresExplainModes, ", ")))
 
 	case p.Explain == ExplainAll:
-		warnings = append(warnings, "postgres.explain=all - captured query text will be submitted "+
-			"back to the database as EXPLAIN statements, and captured plans contain literal "+
-			"parameter values from your data.")
+		warnings = append(warnings, "postgres.explain=all - captured query text, with the "+
+			"parameter values the server logged, will be submitted back to the database as "+
+			"EXPLAIN statements; the plans written to the bundle have their literal values replaced.")
 	}
 
 	if p.AgentOnDBHost {
