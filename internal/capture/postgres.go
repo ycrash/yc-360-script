@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -215,6 +216,11 @@ func (p *PostgresCapture) Run() (Result, error) {
 	explain := postgres.NewExplain(p.explainMode(), slowQueries)
 	explain.Interval = interval
 
+	// db_errors.log goes where an application's logs go, under the name the app-log
+	// capture gives them, and reports through pg_metadata.txt's closing block.
+	dbErrors := postgres.NewDBErrors(generateUniqueLogPath(postgres.DBErrorsLogName))
+	metadata.ReportDBErrors(dbErrors)
+
 	window := &postgres.Window{
 		Target:   target,
 		Duration: duration,
@@ -236,6 +242,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
 			postgres.NewCheckpointLog(),
+			dbErrors,
 			postgres.Sessions{Interval: interval},
 			postgres.Health{Interval: interval},
 			postgres.XIDAge{Interval: interval},
@@ -267,7 +274,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	hostMessages, hostOK := waitForHostCapture(hostCollectors)
 
-	result, err := p.uploadArtifacts(results, collected)
+	result, err := p.uploadArtifacts(results, collected, dbErrors)
 	if err != nil {
 		return result, err
 	}
@@ -326,7 +333,9 @@ func (p *PostgresCapture) explainMode() string {
 	return p.Target.Explain
 }
 
-func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, collected postgres.Metadata) (Result, error) {
+func (p *PostgresCapture) uploadArtifacts(
+	artifacts []postgres.ArtifactResult, collected postgres.Metadata, dbErrors *postgres.DBErrors,
+) (Result, error) {
 	defer func() {
 		for _, artifact := range artifacts {
 			if artifact.File != nil {
@@ -341,10 +350,21 @@ func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, c
 		ok       = true
 	)
 
-	for _, artifact := range artifacts {
+	for i, artifact := range artifacts {
 		// The one failure the artifact cannot record about itself.
 		if artifact.IOErr != nil {
 			ioErr = errors.Join(ioErr, artifact.IOErr)
+			continue
+		}
+
+		if dbErrors != nil && artifact.Artifact.Name == dbErrors.Artifact().Name {
+			msg, uploaded := p.uploadDBErrors(&artifacts[i], dbErrors)
+			if !uploaded {
+				ok = false
+			}
+
+			messages = append(messages, msg)
+
 			continue
 		}
 
@@ -371,6 +391,57 @@ func (p *PostgresCapture) uploadArtifacts(artifacts []postgres.ArtifactResult, c
 	}
 
 	return Result{Msg: strings.Join(messages, " | "), Ok: ok}, nil
+}
+
+// dbErrorsAccount is what the upload needs from the errors tail.
+type dbErrorsAccount interface {
+	LogRead() bool
+	Kept() int
+	Dropped() int
+	LogAccess() (access, reason string)
+}
+
+// uploadDBErrors sends db_errors.log down the application-log path. A log that was never
+// read leaves no file: an empty one would say no errors happened, and pg_metadata.txt
+// says why there is none. A log read with nothing in it is uploaded empty, through the
+// reader path, since PostData skips an empty file.
+func (p *PostgresCapture) uploadDBErrors(artifact *postgres.ArtifactResult, dbErrors dbErrorsAccount) (string, bool) {
+	name := artifact.Artifact.FileName
+
+	if !dbErrors.LogRead() {
+		artifact.File.Close()
+		artifact.File = nil
+
+		access, reason := dbErrors.LogAccess()
+
+		if err := os.Remove(name); err != nil {
+			return fmt.Sprintf("%s could not be removed after log_access=%s (%s): %v",
+				name, access, reason, err), false
+		}
+
+		return fmt.Sprintf("%s not written: log_access=%s (%s)", postgres.DBErrorsLogName, access, reason), true
+	}
+
+	summary := fmt.Sprintf("%s written (%d errors)", name, dbErrors.Kept())
+	if dropped := dbErrors.Dropped(); dropped > 0 {
+		summary = fmt.Sprintf("%s written (%d errors, %d more past the size cap)", name, dbErrors.Kept(), dropped)
+	}
+
+	dt := buildPostData(postgres.DBErrorsLogName, "log", false)
+
+	var (
+		msg      string
+		uploaded bool
+	)
+
+	if info, err := artifact.File.Stat(); err == nil && info.Size() == 0 {
+		msg, uploaded = PostReaderWithTimeout(p.Endpoint(), dt, strings.NewReader(""),
+			config.GlobalConfig.HttpClientTimeout.Duration())
+	} else {
+		msg, uploaded = PostData(p.Endpoint(), dt, artifact.File)
+	}
+
+	return summary + "; " + msg, uploaded
 }
 
 // postgresArtifactSummary gives pg_metadata.txt a reading rather than a sample

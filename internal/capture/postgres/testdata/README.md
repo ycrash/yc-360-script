@@ -10,7 +10,15 @@ owns.
 The goldens:
 
 - `pg_metadata_full.txt` — a complete capture: the preamble, the target block,
-  the server block, the tablespace block, and the closing block. The target
+  the server block, the tablespace block, and the closing block. The closing
+  block carries `db_errors.log`'s account, since that file holds the server's
+  log lines and nothing of the agent's: `db_errors_log_access`, the format its
+  lines are in (`db_errors_log_format`, csvlog here), how many errors the tail
+  matched and how many the 32 MB cap dropped, and any limit a read reached
+  (`db_errors_skipped_bytes`, `db_errors_events_truncated`, `db_errors_rotations`,
+  `db_errors_file_truncations`, `db_errors_carry_dropped`,
+  `db_errors_partial_events`, `db_errors_resolved_late`), each only when reached.
+  The keys are additive, so `v` stays 1. The target
   block's `target_tls_*` rows are the `tls:` settings the connection uses, and
   `target_sslmode` the libpq mode they amount to; `target_tls_ca_file` is
   `system` when the certificate is verified against the system's trust store,
@@ -53,7 +61,10 @@ The goldens:
   absence of the server block is the discriminator, and `connect_error=` in the
   closing block's header says why. There is no `log_access` row: with no
   connection it would be `unknown` by construction, and the closing block says
-  the same thing about the capture rather than about the server.
+  the same thing about the capture rather than about the server. The errors
+  tail never sampled either, so its account is
+  `db_errors_log_access=unknown db_errors_log_access_reason=settings_unread` and
+  no count: no `db_errors.log` is written.
 - `pg_bloat_full.txt` — a complete sampled capture: the preamble, two sample
   blocks, and the closing block that says both were written.
 - `pg_bloat_connect_failure.txt` — the sampled equivalent of the above. Two

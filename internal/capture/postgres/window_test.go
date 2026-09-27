@@ -1668,6 +1668,78 @@ func TestWindowClosingIsNotCalledForAnArtifactWithNoFile(t *testing.T) {
 	assert.Empty(t, collector.seenClosing)
 }
 
+func TestWindowBareArtifactHoldsTheCollectorsBytesAlone(t *testing.T) {
+	clock := newFakeClock()
+
+	bare := newFakeClosingCollector("pg_bare")
+	bare.artifact.Bare = true
+	bare.sample = func(_ context.Context, s SampleContext, w io.Writer) error {
+		_, err := fmt.Fprintf(w, "line %d\n", s.Index)
+		return err
+	}
+	bare.closing = func(w io.Writer, _ SampleContext) error {
+		_, err := io.WriteString(w, "drained\n")
+		return err
+	}
+
+	results := newTestWindow(t, clock, bare, newFakeCollector("pg_framed")).Run(context.Background())
+
+	assert.Equal(t, "line 1\nline 2\ndrained\n", artifactText(t, results[0]),
+		"no preamble, no closing block: the file is the collector's")
+	assert.Equal(t, StatusComplete, results[0].Status, "the window still keeps its account")
+	assert.Equal(t, 2, results[0].SamplesWritten)
+
+	assert.Len(t, headersOf(t, results[1]), 4, "and every other artifact keeps its frame")
+}
+
+func TestWindowBareArtifactSampleErrorIsAWriteFailure(t *testing.T) {
+	clock := newFakeClock()
+
+	bare := newFakeCollector("pg_bare")
+	bare.artifact.Bare = true
+	bare.sample = func(context.Context, SampleContext, io.Writer) error {
+		return errors.New("no space left on device")
+	}
+
+	results := newTestWindow(t, clock, bare).Run(context.Background())
+
+	require.Error(t, results[0].IOErr, "a bare collector returns an error only when its write failed")
+	assert.Empty(t, artifactText(t, results[0]), "and no stub is written into the file")
+}
+
+type fakeFieldedCollector struct {
+	*fakeCollector
+
+	fields func() []headerField
+}
+
+func (f *fakeFieldedCollector) closingFields() []headerField { return f.fields() }
+
+func TestWindowClosingFieldsAreReadAfterEveryDrain(t *testing.T) {
+	clock := newFakeClock()
+
+	drained := false
+
+	fielded := &fakeFieldedCollector{fakeCollector: newFakeCollector("pg_fielded")}
+	fielded.fields = func() []headerField {
+		return []headerField{{"drained_before", strconv.FormatBool(drained)}}
+	}
+
+	draining := newFakeClosingCollector("pg_draining")
+	draining.closing = func(io.Writer, SampleContext) error {
+		drained = true
+		return nil
+	}
+
+	results := newTestWindow(t, clock, fielded, draining).Run(context.Background())
+
+	headers := headersOf(t, results[0])
+	assert.Contains(t, headers[len(headers)-1], "status=complete samples_expected=2 samples_written=2 drained_before=true",
+		"on the collector's own closing block, after its standard keys, and read once a "+
+			"collector registered after it has drained")
+	assert.NotContains(t, artifactText(t, results[1]), "drained_before", "on that collector's block alone")
+}
+
 func TestWindowIntervalSampleNumberingIsPerArtifact(t *testing.T) {
 	clock := newFakeClock()
 
