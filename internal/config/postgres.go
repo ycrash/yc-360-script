@@ -8,10 +8,16 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// Postgres is a PostgreSQL capture target and the window it is sampled over.
+// Postgres is a PostgreSQL capture target and the window it is sampled over. In the
+// file, postgres: is a list of targets with one entry.
 type Postgres struct {
+	// ID names the target; every sample block carries it as target_id=. Required.
+	ID string `yaml:"id"`
+
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	Database string `yaml:"database"`
@@ -46,6 +52,42 @@ type Postgres struct {
 	// the probe cannot reach: the database is down, so there is no backend to look
 	// for - exactly when host readings matter most. A measurement always wins.
 	AgentOnDBHost bool `yaml:"agentOnDbHost"`
+
+	// shapeErr is why the postgres: block was not a list of one target, set when it
+	// is decoded; Validate refuses it.
+	shapeErr string
+}
+
+// UnmarshalYAML reads postgres: as a list of targets. Any other shape still decodes,
+// so that Validate can say what to write instead.
+func (p *Postgres) UnmarshalYAML(value *yaml.Node) error {
+	type target Postgres // no methods, so decoding an entry does not come back here
+
+	switch value.Kind {
+	case yaml.MappingNode:
+		p.shapeErr = "postgres: is a list of targets - write this block as its one entry, " +
+			"starting with - id: <a name for this target>"
+
+		return nil
+
+	case yaml.SequenceNode:
+		switch len(value.Content) {
+		case 0:
+			p.shapeErr = "postgres: lists no target - it takes one entry, starting with - id: <a name for this target>"
+
+			return nil
+
+		case 1:
+			return value.Content[0].Decode((*target)(p))
+		}
+
+		p.shapeErr = fmt.Sprintf("postgres: lists %d targets - a run captures one; run the agent once for each",
+			len(value.Content))
+
+		return nil
+	}
+
+	return fmt.Errorf("line %d: postgres: is a list of targets, not a %s", value.Line, value.Tag)
 }
 
 // PostgresTLS is the tls: block.
@@ -155,10 +197,10 @@ func (p *Postgres) String() string {
 	}
 
 	return fmt.Sprintf(
-		"host=%q port=%d database=%q username=%q password=%s "+
+		"id=%q host=%q port=%d database=%q username=%q password=%s "+
 			"tls.enabled=%t tls.verifyServerCertificate=%t tls.caFile=%q tls.serverName=%q "+
 			"captureDuration=%s frequency=%s explain=%s agentOnDbHost=%t",
-		p.Host, p.Port, p.Database, p.Username, password,
+		p.ID, p.Host, p.Port, p.Database, p.Username, password,
 		p.TLSEnabled(), p.TLSVerified(), caFile, serverName,
 		window, frequency, p.ExplainMode(), p.AgentOnDBHost,
 	)
@@ -196,7 +238,12 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		return nil, nil
 	}
 
+	if p.shapeErr != "" {
+		return nil, errors.New(p.shapeErr)
+	}
+
 	// Password is not trimmed: it must reach the driver byte-exact.
+	p.ID = strings.TrimSpace(p.ID)
 	p.Host = strings.TrimSpace(p.Host)
 	p.Database = strings.TrimSpace(p.Database)
 	p.Username = strings.TrimSpace(p.Username)
@@ -216,7 +263,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 
 	if p.isZero() {
 		return nil, errors.New("postgres block is present but empty or has no recognised keys " +
-			"(valid keys: host, port, database, username, password, tls, captureDuration, " +
+			"(valid keys: id, host, port, database, username, password, tls, captureDuration, " +
 			"frequency, explain, agentOnDbHost)")
 	}
 
@@ -285,6 +332,10 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		warnings = append(warnings, p.bookendWarning(frequencyDefaulted))
 	}
 
+	if p.ID == "" {
+		errs = append(errs, errors.New("postgres.id is required - a name for this target, "+
+			"for example orders-primary; every sample block carries it as target_id"))
+	}
 	if p.Host == "" {
 		errs = append(errs, errors.New("postgres.host is required"))
 	}
@@ -469,7 +520,8 @@ func newDuration(d time.Duration) *Duration {
 // are excluded: a window or a cadence alone hasn't said what to capture, so that
 // case gets the "empty" error.
 func (p *Postgres) isZero() bool {
-	return p.Host == "" &&
+	return p.ID == "" &&
+		p.Host == "" &&
 		p.Port == 0 &&
 		p.Database == "" &&
 		p.Username == "" &&

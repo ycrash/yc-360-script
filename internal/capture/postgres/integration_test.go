@@ -6134,10 +6134,13 @@ func TestMatrixSampleHeader(t *testing.T) {
 					name := result.Artifact.Name
 					require.Equal(t, StatusComplete, result.Status, name)
 
-					blocks := matrixSampleHeaderBlocks(t, matrixArtifactText(t, result))
+					text := matrixArtifactText(t, result)
+					blocks := matrixSampleHeaderBlocks(t, text)
 
 					if !result.Artifact.periodic() {
 						assert.Empty(t, blocks, "%s keeps its one header line", name)
+						assert.Contains(t, text, "\ntarget_id,"+target.ID+"\n",
+							"%s names the same target in its target block", name)
 
 						continue
 					}

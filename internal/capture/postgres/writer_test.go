@@ -26,6 +26,7 @@ func fullArtifactMetadata() Metadata {
 	return Metadata{
 		AgentTS:        testAgentNow,
 		YC360Version:   "3.6.1",
+		TargetID:       "orders-primary",
 		Tablespaces:    []Tablespace{{Name: "orders_archive", Location: "/srv/pg/archive"}},
 		TargetHost:     "db-prod-01.internal",
 		TargetPort:     5432,
@@ -458,6 +459,7 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 	assert.Equal(t, []string{
 		"agent_ts",
 		"yc360_version",
+		"target_id",
 		"target_host",
 		"target_port",
 		"target_database",
@@ -472,6 +474,7 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 	}, keys)
 
 	_, values, _ := parseArtifact(t, writeArtifact(t, m))
+	assert.Equal(t, "orders-primary", values["target_id"], "the name every other file's sample blocks carry")
 	assert.Equal(t, "db-prod-01.internal", values["target_host"])
 
 	assert.Equal(t, ExplainModeAll, values["explain_mode"],

@@ -434,6 +434,7 @@ func postgresArtifactMessage(artifact postgres.ArtifactResult) string {
 // postgresTarget keeps the capture package free of a config import.
 func postgresTarget(pg *config.Postgres) postgres.Target {
 	return postgres.Target{
+		ID:       pg.ID,
 		Host:     pg.Host,
 		Port:     pg.Port,
 		Database: pg.Database,

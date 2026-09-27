@@ -24,6 +24,7 @@ func withCleanGlobalConfig(t *testing.T) {
 // left it unset would carry that warning into every test that counts warnings.
 func validPostgres() *Postgres {
 	return &Postgres{
+		ID:              "orders-primary",
 		Host:            "db-prod-01.internal",
 		Port:            5432,
 		Database:        "orders_db",
@@ -52,7 +53,7 @@ func TestPostgresValidateNilReceiver(t *testing.T) {
 
 func TestPostgresValidateDefaults(t *testing.T) {
 	t.Run("filled when omitted", func(t *testing.T) {
-		p := &Postgres{Host: "db-prod-01.internal", Username: "ycrash_monitor",
+		p := &Postgres{ID: "orders-primary", Host: "db-prod-01.internal", Username: "ycrash_monitor",
 			CaptureDuration: newDuration(2 * time.Minute)}
 
 		warnings, err := p.Validate()
@@ -90,6 +91,7 @@ func TestPostgresValidateDefaults(t *testing.T) {
 
 func TestPostgresValidateNormalization(t *testing.T) {
 	p := &Postgres{
+		ID:              "  orders-primary  ",
 		Host:            "  db-prod-01.internal  ",
 		Database:        "  orders_db  ",
 		Username:        "  ycrash_monitor  ",
@@ -105,6 +107,7 @@ func TestPostgresValidateNormalization(t *testing.T) {
 	_, err := p.Validate()
 	require.NoError(t, err)
 
+	assert.Equal(t, "orders-primary", p.ID)
 	assert.Equal(t, "db-prod-01.internal", p.Host)
 	assert.Equal(t, "orders_db", p.Database)
 	assert.Equal(t, "ycrash_monitor", p.Username)
@@ -116,7 +119,7 @@ func TestPostgresValidateNormalization(t *testing.T) {
 
 func TestPostgresValidateEmptyBlock(t *testing.T) {
 	const wantMsg = "postgres block is present but empty or has no recognised keys " +
-		"(valid keys: host, port, database, username, password, tls, captureDuration, frequency, " +
+		"(valid keys: id, host, port, database, username, password, tls, captureDuration, frequency, " +
 		"explain, agentOnDbHost)"
 
 	t.Run("zero block", func(t *testing.T) {
@@ -183,8 +186,13 @@ func decodePostgresBlock(t *testing.T, body string) *Postgres {
 
 	var doc strings.Builder
 	doc.WriteString("postgres:\n")
-	for line := range strings.SplitSeq(body, "\n") {
-		doc.WriteString("  " + line + "\n")
+	for i, line := range strings.Split(body, "\n") {
+		indent := "    "
+		if i == 0 {
+			indent = "  - "
+		}
+
+		doc.WriteString(indent + line + "\n")
 	}
 
 	var block struct {
@@ -200,7 +208,7 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 	withTarget := func(t *testing.T, body string) *Postgres {
 		t.Helper()
 
-		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+		return decodePostgresBlock(t, "id: orders-primary\nhost: db-prod-01.internal\n"+
 			"database: orders_db\nusername: ycrash_monitor\nfrequency: 30s\n"+body)
 	}
 
@@ -283,7 +291,7 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		var block struct {
 			Postgres *Postgres `yaml:"postgres"`
 		}
-		err := yaml.Unmarshal([]byte("postgres:\n  captureDuration: 2 minutes\n"), &block)
+		err := yaml.Unmarshal([]byte("postgres:\n  - captureDuration: 2 minutes\n"), &block)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid duration format '2 minutes' at line 2",
@@ -299,7 +307,7 @@ func TestPostgresValidateFrequency(t *testing.T) {
 			body = "captureDuration: 2m\n" + body
 		}
 
-		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+		return decodePostgresBlock(t, "id: orders-primary\nhost: db-prod-01.internal\n"+
 			"database: orders_db\nusername: ycrash_monitor\n"+body)
 	}
 
@@ -480,6 +488,13 @@ func TestPostgresValidateRequiredFields(t *testing.T) {
 		wantMsgs []string
 		notMsgs  []string
 	}{
+		{
+			name:  "missing id",
+			block: &Postgres{Host: "db-prod-01.internal", Username: "ycrash_monitor"},
+			wantMsgs: []string{"postgres.id is required - a name for this target, for example orders-primary; " +
+				"every sample block carries it as target_id"},
+			notMsgs: []string{"postgres.host is required", "postgres.username is required"},
+		},
 		{
 			name:     "missing host",
 			block:    &Postgres{Username: "ycrash_monitor"},
@@ -700,7 +715,7 @@ func TestPostgresValidateExplain(t *testing.T) {
 	withTarget := func(t *testing.T, body string) *Postgres {
 		t.Helper()
 
-		return decodePostgresBlock(t, "host: db-prod-01.internal\n"+
+		return decodePostgresBlock(t, "id: orders-primary\nhost: db-prod-01.internal\n"+
 			"database: orders_db\nusername: ycrash_monitor\ncaptureDuration: 2m\nfrequency: 30s\n"+body)
 	}
 
@@ -1002,7 +1017,7 @@ func TestPostgresString(t *testing.T) {
 		got := p.String()
 
 		assert.Equal(t,
-			`host="db-prod-01.internal" port=5432 database="orders_db" `+
+			`id="orders-primary" host="db-prod-01.internal" port=5432 database="orders_db" `+
 				`username="ycrash_monitor" password=<redacted> `+
 				`tls.enabled=true tls.verifyServerCertificate=false tls.caFile="" tls.serverName="" `+
 				`captureDuration=1m30s frequency=30s explain=off agentOnDbHost=false`,
@@ -1131,6 +1146,7 @@ func TestPostgresYAMLShapes(t *testing.T) {
 		doc          string
 		wantNil      bool
 		wantZero     bool
+		wantShapeErr string
 		wantAssert   func(t *testing.T, p *Postgres)
 		wantDescribe string
 	}{
@@ -1147,34 +1163,43 @@ func TestPostgresYAMLShapes(t *testing.T) {
 			wantDescribe: "yaml.v3 short-circuits a null before allocating, so this reads as absent. Accepted residual: detecting it would need a custom unmarshal on Config itself, for a shape nobody writes deliberately",
 		},
 		{
-			name:         "empty mapping",
-			doc:          "version: \"1\"\noptions:\n  postgres: {}\n",
+			name:         "empty list",
+			doc:          "version: \"1\"\noptions:\n  postgres: []\n",
 			wantZero:     true,
+			wantShapeErr: "postgres: lists no target - it takes one entry, starting with - id: <a name for this target>",
 			wantDescribe: "allocated, so it is configured and must fail validation rather than silently skip the capture",
 		},
 		{
+			name:         "one empty entry",
+			doc:          "version: \"1\"\noptions:\n  postgres:\n    - {}\n",
+			wantZero:     true,
+			wantDescribe: "a list of one, so the empty-block error applies",
+		},
+		{
 			name:         "only unrecognised keys",
-			doc:          "version: \"1\"\noptions:\n  postgres:\n    hostname: db-prod-01.internal\n    sslMode: disable\n",
+			doc:          "version: \"1\"\noptions:\n  postgres:\n    - hostname: db-prod-01.internal\n      sslMode: disable\n",
 			wantZero:     true,
 			wantDescribe: "yaml key matching is case-sensitive and lenient, so `hostname` and `sslMode` are both discarded — this is exactly why the empty-block error lists the valid keys",
 		},
 		{
-			name:     "partial block",
-			doc:      "version: \"1\"\noptions:\n  postgres:\n    port: 5432\n",
+			name:     "partial entry",
+			doc:      "version: \"1\"\noptions:\n  postgres:\n    - port: 5432\n",
 			wantZero: false,
 			wantAssert: func(t *testing.T, p *Postgres) {
 				assert.Equal(t, 5432, p.Port)
 				assert.Empty(t, p.Host)
 			},
-			wantDescribe: "one recognised key means the block decoded; validation reports what is missing",
+			wantDescribe: "one recognised key means the entry decoded; validation reports what is missing",
 		},
 		{
-			name: "full block",
-			doc: "version: \"1\"\noptions:\n  postgres:\n    host: db-prod-01.internal\n    port: 5432\n" +
-				"    database: orders_db\n    username: ycrash_monitor\n    password: ${PG_YCRASH_PASSWORD}\n" +
-				"    tls:\n      enabled: true\n      verifyServerCertificate: true\n" +
-				"      caFile: /etc/ycrash/ca.pem\n      serverName: db-prod-01.internal\n",
+			name: "full entry",
+			doc: "version: \"1\"\noptions:\n  postgres:\n    - id: orders-primary\n      host: db-prod-01.internal\n" +
+				"      port: 5432\n      database: orders_db\n      username: ycrash_monitor\n" +
+				"      password: ${PG_YCRASH_PASSWORD}\n" +
+				"      tls:\n        enabled: true\n        verifyServerCertificate: true\n" +
+				"        caFile: /etc/ycrash/ca.pem\n        serverName: db-prod-01.internal\n",
 			wantAssert: func(t *testing.T, p *Postgres) {
+				assert.Equal(t, "orders-primary", p.ID)
 				assert.Equal(t, "db-prod-01.internal", p.Host)
 				assert.Equal(t, "${PG_YCRASH_PASSWORD}", p.Password)
 				require.NotNil(t, p.TLS)
@@ -1184,6 +1209,23 @@ func TestPostgresYAMLShapes(t *testing.T) {
 				assert.Equal(t, "db-prod-01.internal", p.TLS.ServerName)
 			},
 			wantDescribe: "every recognised key, nested correctly",
+		},
+		{
+			name: "the single-target form",
+			doc: "version: \"1\"\noptions:\n  postgres:\n    host: db-prod-01.internal\n" +
+				"    username: ycrash_monitor\n",
+			wantZero: true,
+			wantShapeErr: "postgres: is a list of targets - write this block as its one entry, " +
+				"starting with - id: <a name for this target>",
+			wantDescribe: "the old shape is configured, refused, and told what to write; nothing in it is read",
+		},
+		{
+			name: "two targets",
+			doc: "version: \"1\"\noptions:\n  postgres:\n    - id: orders-primary\n      host: db-a\n" +
+				"    - id: orders-replica\n      host: db-b\n",
+			wantZero:     true,
+			wantShapeErr: "postgres: lists 2 targets - a run captures one; run the agent once for each",
+			wantDescribe: "one run captures one target",
 		},
 	}
 
@@ -1202,11 +1244,25 @@ func TestPostgresYAMLShapes(t *testing.T) {
 			assert.True(t, p.IsConfigured())
 			assert.Equal(t, tt.wantZero, p.isZero())
 
+			if tt.wantShapeErr != "" {
+				warnings, err := p.Validate()
+				require.EqualError(t, err, tt.wantShapeErr)
+				assert.Empty(t, warnings, "the shape is the one thing wrong until it is fixed")
+			}
+
 			if tt.wantAssert != nil {
 				tt.wantAssert(t, p)
 			}
 		})
 	}
+}
+
+func TestPostgresScalarBlockIsTheDecodersError(t *testing.T) {
+	var c Config
+
+	err := yaml.Unmarshal([]byte("version: \"1\"\noptions:\n  postgres: db-prod-01.internal\n"), &c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "line 3: postgres: is a list of targets, not a !!str")
 }
 
 func TestPostgresBlockMustBeNestedUnderOptions(t *testing.T) {
@@ -1260,6 +1316,7 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "sup3r-s3cr3t")
 
 		GlobalConfig.Postgres = &Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Database: "orders_db",
 			Username: "ycrash_monitor",
@@ -1272,7 +1329,7 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 
 		flags := EffectiveFlags()
 
-		assert.Contains(t, flags, `postgres: host="db-prod-01.internal"`)
+		assert.Contains(t, flags, `postgres: id="orders-primary" host="db-prod-01.internal"`)
 		assert.Contains(t, flags, "password=<redacted>")
 
 		assert.NotContains(t, flags, "sup3r-s3cr3t")
@@ -1297,7 +1354,7 @@ func TestPostgresAgentOnDBHost(t *testing.T) {
 	})
 
 	t.Run("a declaration is decoded and warned about", func(t *testing.T) {
-		p := decodePostgresBlock(t, `
+		p := decodePostgresBlock(t, `id: orders-primary
 host: db-prod-01.internal
 username: ycrash_monitor
 captureDuration: 2m

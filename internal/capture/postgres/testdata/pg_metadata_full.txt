@@ -3,6 +3,7 @@
 key,value
 agent_ts,2026-08-04T09:12:44.118Z
 yc360_version,3.6.1
+target_id,orders-primary
 target_host,db-prod-01.internal
 target_port,5432
 target_database,orders_db

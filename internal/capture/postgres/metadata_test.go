@@ -227,7 +227,7 @@ func TestMetadataBlocksCarryTheirOwnKeys(t *testing.T) {
 	assert.Equal(t, want, keys)
 	assert.Len(t, serverBlockFields(full), 70,
 		"log_access and log_access_reason plus serverFields' sixty-eight, and no connect_error row")
-	assert.Len(t, targetFields(full), 13)
+	assert.Len(t, targetFields(full), 14)
 
 	assert.Equal(t, LogAccessDirect, values["log_access"])
 	assert.Equal(t, "3.6.1", values["yc360_version"])

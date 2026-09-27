@@ -42,8 +42,11 @@ type RowQuerier interface {
 // No password field.
 type Metadata struct {
 	// AgentTS and YC360Version are supplied, not read, so golden tests are deterministic.
-	AgentTS        time.Time
-	YC360Version   string
+	AgentTS      time.Time
+	YC360Version string
+
+	// TargetID is the target's name, the target_id= on every other file's sample blocks.
+	TargetID       string
 	TargetHost     string
 	TargetPort     int
 	TargetDatabase string
@@ -250,6 +253,7 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		AgentTS:            agentNow,
 		AgentTSAtClockRead: agentNow,
 		YC360Version:       yc360Version,
+		TargetID:           t.id(),
 		TargetHost:         t.Host,
 		TargetPort:         t.Port,
 		TargetDatabase:     t.Database,
@@ -399,6 +403,7 @@ const metadataScope = "cluster"
 func Collect(ctx context.Context, q RowQuerier, t Target, agentNow time.Time) Metadata {
 	m := Metadata{
 		AgentTS:        agentNow,
+		TargetID:       t.id(),
 		TargetHost:     t.Host,
 		TargetPort:     t.Port,
 		TargetDatabase: t.Database,

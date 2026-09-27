@@ -41,6 +41,7 @@ func TestValidatePostgres(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "sup3r-s3cr3t")
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "  db-prod-01.internal  ",
 			Database: "orders_db",
 			Username: "ycrash_monitor",
@@ -64,6 +65,7 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("warnings do not stop the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
@@ -87,6 +89,7 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("a block without captureDuration stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 		})
@@ -104,6 +107,7 @@ func TestValidatePostgres(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "")
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
@@ -120,6 +124,7 @@ func TestValidatePostgres(t *testing.T) {
 		}
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
@@ -133,6 +138,7 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("an owner-only config file passes", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
@@ -152,6 +158,7 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("sslmode stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
@@ -167,6 +174,7 @@ func TestValidatePostgres(t *testing.T) {
 		verify := true
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			ID:       "orders-primary",
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
 
