@@ -91,7 +91,7 @@ func parseLogEntry(event []byte, format logFormat, prefix *linePrefix) (logEntry
 func parseStderrEntry(event []byte, prefix *linePrefix) (logEntry, bool) {
 	lines := strings.Split(strings.TrimSuffix(string(event), "\n"), "\n")
 
-	at, message := stderrSeverity(lines[0])
+	at, _, message := stderrSeverity(lines[0])
 	if at < 0 {
 		return logEntry{}, false
 	}

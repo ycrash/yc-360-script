@@ -4500,6 +4500,98 @@ func TestMatrixLogTailStructuredFormats(t *testing.T) {
 	}
 }
 
+// The errors tail against real servers in each format it reads: the ERROR and FATAL
+// entries a window produced, whole, and none of what the deadlock and timeout tails copy.
+func TestMatrixLogTailErrors(t *testing.T) {
+	for _, format := range []logFormat{logFormatStderr, logFormatCSV, logFormatJSON} {
+		for _, server := range matrixServers {
+			requireMatrixLogDir(t, server)
+
+			t.Run(fmt.Sprintf("%s/pg%d", format, server.major), func(t *testing.T) {
+				if format == logFormatJSON && server.major < 15 {
+					t.Skip(`jsonlog is PostgreSQL 15+: 14 answers "log format \"jsonlog\" is not supported"`)
+				}
+
+				matrixDeadlockTable(t, server)
+
+				if format != logFormatStderr {
+					matrixDDL(t, server, "postgres",
+						fmt.Sprintf("ALTER SYSTEM SET log_destination = '%s'", format),
+						"SELECT pg_reload_conf()")
+
+					t.Cleanup(func() {
+						matrixDDL(t, server, "postgres",
+							"ALTER SYSTEM RESET log_destination", "SELECT pg_reload_conf()")
+					})
+
+					time.Sleep(2 * time.Second)
+				}
+
+				superuser := matrixSuperuser(t)
+				tail := newMatrixTail(t, matrixTarget(server, superuser), newErrorTail())
+
+				// Opened with it, so the two events it must leave are shown to be in its window.
+				deadlocks := newMatrixTail(t, matrixTarget(server, superuser), NewDeadlocks())
+				timeouts := newMatrixTail(t, matrixTarget(server, superuser), NewTimeouts())
+
+				opening := tail.sample()
+				require.Equal(t, string(format), opening.fields["log_format"])
+				require.Equal(t, LogAccessDirect, opening.fields["log_access"])
+
+				deadlocks.sample()
+				timeouts.sample()
+
+				worker := matrixLogConn(t, server, "yc_second")
+				require.Error(t, matrixLogExec(t, worker, "SET statement_timeout = '300ms'; SELECT pg_sleep(2)"))
+				require.NoError(t, matrixLogExec(t, worker, "RESET statement_timeout"))
+
+				matrixGenerateDeadlock(t, server)
+				matrixLogMarker(t, server)
+
+				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+				defer cancel()
+
+				_, err := Connect(ctx, matrixTargetDB(server, superuser, "yc_no_such_database"))
+				require.Error(t, err, "a FATAL at connection")
+
+				// Last, so its arrival says every event before it has been read.
+				sentinel := fmt.Sprintf("yc-360 errors tail %d", time.Now().UnixNano())
+				require.Error(t, matrixLogExec(t, worker, fmt.Sprintf(`SELECT 1/0 AS "%s"`, sentinel)))
+
+				var body strings.Builder
+
+				deadline := time.Now().Add(20 * time.Second)
+
+				for !strings.Contains(body.String(), sentinel) {
+					require.False(t, time.Now().After(deadline), "the sentinel never reached the tail: %s", body.String())
+
+					// On stderr an entry's end is proven only by the next one.
+					matrixLogMarker(t, server)
+
+					time.Sleep(500 * time.Millisecond)
+					body.WriteString(tail.sample().body)
+				}
+
+				read := body.String()
+
+				assert.Equal(t, 1, strings.Count(read, "division by zero"))
+				assert.Equal(t, 1, strings.Count(read, "does not exist"), "the FATAL is taken")
+				assert.Contains(t, read, "SELECT 1/0 AS ",
+					"the statement comes with its error: a STATEMENT line, or the record's own field")
+
+				assert.NotContains(t, read, "deadlock detected", "pg_deadlocks.txt's")
+				assert.NotContains(t, read, "statement timeout", "pg_timeouts.txt's")
+				assert.NotContains(t, read, "yc-360 log tail marker", "a WARNING is below the three levels")
+
+				assert.Contains(t, deadlocks.sample().body, "deadlock detected",
+					"the deadlock was in the window, and its own tail copied it")
+				assert.Contains(t, timeouts.sample().body, "statement timeout",
+					"as was the statement timeout")
+			})
+		}
+	}
+}
+
 func TestMatrixLogTailUnreadable(t *testing.T) {
 	for _, server := range matrixServers {
 		requireMatrixLogDir(t, server)
