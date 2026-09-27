@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Shared engine for pg_deadlocks.txt/pg_timeouts.txt/pg_checkpoint_log.txt; only the matcher differs. Body is raw bytes, not per-row.
+// Shared engine for pg_deadlocks.txt/pg_timeouts.txt/pg_checkpoint_log.txt and the errors tail; only the matcher differs. Body is raw bytes, not per-row.
 // log_line_prefix may start with '#' and csvlog DETAIL fields hold real newlines, so no scan finds a terminator — bytes= marks the end.
 const (
 	// DefaultLogTailInterval is the poll cadence. Log is append-only (rotation renames, not truncates) so polling loses nothing, unlike pg_stat_activity's missed-sample loss.
@@ -592,6 +592,12 @@ type eventMatch struct {
 	// of these is accepted too. pg_explain.txt's tail takes auto_explain's "plan:" entries
 	// by suffix and log_min_duration_statement's "execute" records by this.
 	messageContains []string
+
+	// severity matches on the entry's level in place of its code and message: every
+	// entry at one of these, less any a matcher in exclude takes. Each excluded matcher
+	// is run as its own tail runs it, so no entry is copied by both tails.
+	severity []string
+	exclude  []eventMatch
 }
 
 // messageDecides is true when no code alone can match: every SQLSTATE the
@@ -617,6 +623,26 @@ func (m eventMatch) matches(sqlstate, message string) bool {
 	}
 
 	return m.matchesMessage(message)
+}
+
+// matchesRecord is the csvlog and jsonlog test, where a record carries its level and code.
+func (m eventMatch) matchesRecord(severity, sqlstate, message string) bool {
+	if len(m.severity) == 0 {
+		return m.matches(sqlstate, message)
+	}
+
+	return slices.Contains(m.severity, severity) &&
+		!slices.ContainsFunc(m.exclude, func(x eventMatch) bool { return x.matchesRecord(severity, sqlstate, message) })
+}
+
+// matchesStderr is the stderr test, where a line carries its level but no code.
+func (m eventMatch) matchesStderr(severity, message string) bool {
+	if len(m.severity) == 0 {
+		return m.matchesMessage(message)
+	}
+
+	return slices.Contains(m.severity, severity) &&
+		!slices.ContainsFunc(m.exclude, func(x eventMatch) bool { return x.matchesStderr(severity, message) })
 }
 
 func (m eventMatch) matchesMessage(s string) bool {
@@ -1427,9 +1453,9 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 // matchStderrLine derives the report's prefix by finding the severity keyword.
 // Every line of a report shares the identical expanded prefix, so log_line_prefix itself never needs parsing.
 func (m eventMatch) matchStderrLine(line string) (prefix string, ok bool) {
-	at, message := stderrSeverity(line)
+	at, severity, message := stderrSeverity(line)
 
-	if at < 0 || !m.matchesMessage(message) {
+	if at < 0 || !m.matchesStderr(severity, message) {
 		return "", false
 	}
 
@@ -1437,9 +1463,9 @@ func (m eventMatch) matchStderrLine(line string) (prefix string, ok bool) {
 }
 
 // stderrSeverity finds the earliest severity keyword in a line and returns where it
-// starts - everything before it is the expanded log_line_prefix - and the message
-// after it. -1 when the line opens no entry.
-func stderrSeverity(line string) (at int, message string) {
+// starts - everything before it is the expanded log_line_prefix - the keyword, and
+// the message after it. -1 when the line opens no entry.
+func stderrSeverity(line string) (at int, severity, message string) {
 	at = -1
 
 	for _, keyword := range severityKeywords {
@@ -1453,10 +1479,10 @@ func stderrSeverity(line string) (at int, message string) {
 			continue
 		}
 
-		at, message = i, rest
+		at, severity, message = i, keyword, rest
 	}
 
-	return at, message
+	return at, severity, message
 }
 
 // isNewStderrEntry: a line without the report's prefix is a different entry by construction (the prefix holds a timestamp), judged by scanning the whole line.
@@ -1491,9 +1517,10 @@ func isNewStderrEntry(line, prefix string) bool {
 // csvlog column indices, stable across PG 14-18 (26 columns; the two added in 14 are the last two).
 // FieldsPerRecord = -1 tolerates a version that appends more; a short record is treated as a corrupt tail, not a panic.
 const (
-	csvStateIndex   = 12
-	csvMessageIndex = 13
-	csvDetailIndex  = 14
+	csvSeverityIndex = 11
+	csvStateIndex    = 12
+	csvMessageIndex  = 13
+	csvDetailIndex   = 14
 
 	// csvQueryIDIndex is the 26th column, added in 14 with leader_pid before it.
 	csvQueryIDIndex = 25
@@ -1526,7 +1553,8 @@ func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 
 		end := reader.InputOffset()
 
-		if len(record) > csvMessageIndex && m.matches(record[csvStateIndex], record[csvMessageIndex]) {
+		if len(record) > csvMessageIndex &&
+			m.matchesRecord(record[csvSeverityIndex], record[csvStateIndex], record[csvMessageIndex]) {
 			events = appendEvent(events, complete[start:end], read)
 			matched++
 		}
@@ -1535,6 +1563,8 @@ func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 
 // jsonEntry: jsonlog is one line per event, the only format with no boundary problem.
 type jsonEntry struct {
+	ErrorSeverity string `json:"error_severity"`
+
 	// StateCode is absent from the line when the code is 00000 - every LOG entry -
 	// where csvlog writes the column; matchJSONLog supplies it.
 	StateCode string `json:"state_code"`
@@ -1574,7 +1604,7 @@ func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
 			entry.StateCode = "00000"
 		}
 
-		if m.matches(entry.StateCode, entry.Message) {
+		if m.matchesRecord(entry.ErrorSeverity, entry.StateCode, entry.Message) {
 			events = appendEvent(events, data[lineStart:lineEnd], read)
 			matched++
 		}
