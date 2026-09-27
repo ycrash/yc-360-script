@@ -13,15 +13,79 @@ options:
     database: orders_db
     username: yc_monitor
     password: ${YC_PG_PASSWORD}
-    sslmode: require
+    tls:
+      verifyServerCertificate: true
+      caFile: /etc/ycrash/ca.pem
     captureDuration: 120s
     frequency: 30s
     explain: logged
 ```
 
-`port`, `database`, `sslmode` and `captureDuration` may be omitted; they default
-to `5432`, `postgres`, `require` and `120s`. `captureDuration` is capped at
-`2h`.
+`port`, `database`, `tls` and `captureDuration` may be omitted; they default
+to `5432`, `postgres`, an encrypted connection whose certificate is not checked,
+and `120s`. `captureDuration` is capped at `2h`.
+
+### The file must be readable by its owner alone
+
+On Linux and macOS the agent refuses to start when the `-c` file gives its
+group or any other account access of any kind. `0600` and `0400` pass; `0644`
+does not:
+
+```
+ERR  config file db.yaml is open to group or others (mode 0644). It holds the
+     database connection settings, so only its owner may read it: chmod 600 db.yaml
+```
+
+This holds whatever the password is, a `${VAR}` reference included: the file
+still carries the host, port, user name and TLS file paths. It applies only to a
+file with a `postgres:` block, so an application capture's configuration keeps
+whatever mode it has. Windows files have no such mode bits, and there the file is
+not checked. Each account that runs the agent needs a copy of its own.
+
+### `tls` — how the connection is encrypted and checked
+
+```yaml
+    tls:
+      enabled: true
+      verifyServerCertificate: true
+      caFile: /etc/ycrash/ca.pem
+      serverName: db-prod-01.internal
+```
+
+| `tls:` | what the connection does |
+| --- | --- |
+| omitted, or `enabled: true` alone | encrypted; the server's certificate is not checked |
+| `enabled: false` | plaintext, with a warning at startup |
+| `verifyServerCertificate: true` | encrypted; the certificate must chain to `caFile`, or without one to the system's trust store, and name the server |
+
+- **`caFile`** is the CA the certificate must chain to. Omitted while verifying,
+  the system's trust store is used, and `pg_metadata.txt` says
+  `target_tls_ca_file=system`. It is used only when verifying, so a `caFile`
+  without `verifyServerCertificate: true` is refused rather than read as a
+  request to verify.
+- **`serverName`** is the name the certificate must carry, and the one sent to
+  the server; omitted, it is `host`. It is how to verify a server reached by IP
+  address, or by a name its certificate does not carry.
+- **Nothing falls back.** A server that refuses TLS is a failed connection,
+  never a plaintext one.
+- **Refused at startup:** `verifyServerCertificate: true` with `enabled: false`,
+  and `caFile` or `serverName` with `enabled: false`.
+
+**`sslmode` is no longer accepted.** A configuration that still has it is
+refused at startup, and the message gives its `tls:` form:
+
+| `sslmode` | `tls:` |
+| --- | --- |
+| `disable` | `{enabled: false}` |
+| `require` | `{enabled: true}`, or no `tls:` at all |
+| `verify-full` | `{enabled: true, verifyServerCertificate: true}`, with `caFile:` set to the file `sslrootcert` named, if any |
+| `verify-ca` | none — `verifyServerCertificate: true` also checks the name; set `serverName` to the name on the certificate when connecting by IP |
+| `prefer`, `allow` | none — both can fall back to plaintext |
+
+`pg_metadata.txt` records the settings the connection used as
+`target_tls_enabled`, `target_tls_verify`, `target_tls_ca_file` and
+`target_tls_server_name`, and `target_sslmode` names the libpq mode they amount
+to: `disable`, `require` or `verify-full`.
 
 ### `frequency` — how often the periodic artifacts are sampled
 
@@ -165,14 +229,70 @@ Two limits to know:
   under `-m3` that rule is now the deployment model rather than a side effect of
   a refusal.
 
+## What a capture writes
+
+Every artifact is a `pg_*.txt` file in the bundle, uploaded under a type of its
+own. Read once, at the start:
+
+- `pg_metadata.txt` — the target as configured, its `tls:` settings included;
+  the server's version, settings and capabilities; its uptime as
+  `uptime_seconds`; the same-host verdict and what it decided; and the
+  tablespace locations.
+- `pg_catalog_map.txt` — the names the OIDs in `pg_locks` resolve to:
+  `pg_class` (tables, indexes, materialized views and partitioned tables),
+  `pg_namespace` and `pg_database`, every row, unsorted and uncapped. The first
+  two are the connected database's own catalogs, so a lock in another database
+  keeps its OIDs, and so does a lock on a view, a sequence or a TOAST table.
+
+Read on every `frequency` tick, from the opening sample to the closing one:
+
+- `pg_sessions.txt` — `pg_stat_activity` and `pg_locks`.
+- `pg_health.txt` — `pg_stat_database`, every database in the cluster.
+- `pg_xid_age.txt` — each database's transaction-ID age, `age(datfrozenxid)`,
+  oldest first and `template0` included: how far each is from wraparound.
+- `pg_replication.txt` — the WAL senders, and the replication slots with
+  `retained_bytes`, the WAL each slot holds back. On a primary that is measured
+  from `pg_current_wal_lsn()`. A standby cannot call that, so there it is
+  measured from the WAL received so far, `pg_last_wal_receive_lsn()`, and it is
+  empty on a standby that is not streaming.
+- `pg_nondefault_settings.txt` — every setting not at its built-in default, with
+  passwords replaced (see *What leaves the database*).
+- `pg_memory.txt` — `pg_shmem_allocations`, the server's shared memory by
+  allocation, largest first. There is no per-connection figure; where
+  `host_artifacts=captured`, `top` has each backend's resident and shared memory.
+- `pg_capacity.txt` — checkpoints, connections by application, and WAL volume.
+- `pg_bloat.txt` — `pg_stat_user_tables` with table and index sizes, including
+  `last_analyze`, `last_autoanalyze` and `n_mod_since_analyze`: when the
+  planner's statistics were last taken, and how many rows have changed since.
+- `pg_index_usage.txt` — `pg_stat_user_indexes`.
+- `pg_tablespaces.txt` — each tablespace's size.
+- `pg_slow_queries.txt` — `pg_stat_statements`.
+- `pg_explain.txt` — query plans, when `explain:` is set.
+
+Copied from the server's log every 10 seconds, where the log is readable (see
+*Where to run it*): `pg_deadlocks.txt`, `pg_timeouts.txt`,
+`pg_checkpoint_log.txt` and `pg_errors.txt`.
+
+`pg_errors.txt` holds every entry the server logged at `ERROR`, `FATAL` or
+`PANIC` during the window, except the deadlocks and timeouts the two files before
+it copy, so no entry is in two files. Each comes with the lines that belong to it
+— `DETAIL`, `HINT`, `QUERY`, `CONTEXT`, `STATEMENT` — exactly as the server wrote
+them, in whichever log format the capture reads (jsonlog, then csvlog, then
+stderr), and its blocks say `matched_by=severity`: the entry's level decides.
+Like the other log tails it records where the log could not be read with a
+`reason=` and no `matched=`, and stops copying at 32 MB, keeping the window's
+first errors. The levels are matched by their English names, as the other log
+tails match theirs, so a server writing translated stderr messages reads
+`matched=0`.
+
 ## Which database to name
 
-**Name the application database. The default is `postgres`, and it costs you three
-of the eleven artifacts — silently, with all three files reporting `status=complete`.**
+**Name the application database. The default is `postgres`, and it costs you four
+of the eighteen artifacts — silently, with all four files reporting `status=complete`.**
 
 `database:` is optional and defaults to `postgres`, which exists on effectively
 every cluster. Most of the artifacts do not care which database you connect
-through. Three of them care completely:
+through. Four of them care completely:
 
 - `pg_bloat.txt` reads `pg_stat_user_tables`, which only ever shows the connected
   database's tables. Pointed at `postgres`, it captures a column header and no
@@ -186,8 +306,13 @@ through. Three of them care completely:
   run. So a capture connected to `postgres` while the extension lives in
   `orders_db` has nothing to read — no query statistics at all, on a cluster
   where they are all being collected.
+- `pg_catalog_map.txt` names the OIDs `pg_locks` holds, and its `pg_class` and
+  `pg_namespace` blocks are the connected database's own catalogs. Pointed at
+  `postgres`, it names `postgres`'s tables, so a lock on one of the
+  application's tables keeps its bare OID.
 
-The third one says so, in the file, rather than leaving you to work it out:
+`pg_slow_queries.txt` says so, in the file, rather than leaving you to work it
+out:
 
 ```
 # ... source=pg_stat_statements ... library_loaded=true reason=extension_absent ...
@@ -217,7 +342,9 @@ GRANT pg_monitor TO yc_monitor;
 
 The capture is read-only — it sets `default_transaction_read_only`,
 `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` on
-its own session — so `pg_monitor` is the whole grant it needs.
+its own session — so `pg_monitor` is the whole grant it needs. The session names
+itself `application_name=yCrash-DB-Agent`, so it is easy to pick out in
+`pg_stat_activity` and in the server log.
 
 ### One exception: `explain: all`
 
@@ -247,12 +374,16 @@ where `pg_stat_statements` is absent there is nothing to attempt at all: the
 summary says `statements_reason=extension_absent` rather than reporting an idle
 database.
 
-**Without `pg_monitor`, five artifacts lose data, and they lose it five
+**Without `pg_monitor`, seven artifacts lose data, and they lose it seven
 different ways.**
 
-A role holding only `LOGIN` is *denied* some statements outright. Those failures
-are loud: the block carries an `error=` header naming the refusal, so nothing is
-silently missing.
+A role holding only `LOGIN` is *denied* some reads outright. The agent asks the
+server first (`has_table_privilege`, `has_function_privilege`) and skips a read it
+would be refused, so no refusal is written into your server log on every sample,
+and the block says `reason=permission_denied`, so nothing is silently missing.
+`pg_capacity.txt`'s WAL block is one: `pg_ls_waldir()` needs `pg_monitor`. The
+log tails are another, and say more: without the grant they cannot find the log
+at all, so they say `reason=unresolved`.
 
 `pg_replication.txt` is the first exception and it is worth understanding before
 reading one. `pg_stat_replication` does not refuse a least-privilege role — it
@@ -334,6 +465,22 @@ them as `sizes_unread=`. Under `LOGIN` alone that is every tablespace but the
 default one; the artifact is still `status=complete`, and `has_pg_read_all_stats`
 is again the flag that says why.
 
+`pg_memory.txt` is the sixth, and the one where `pg_monitor` is not enough on
+every version. `pg_shmem_allocations` is granted to `pg_read_all_stats`, and so
+to `pg_monitor`, from PostgreSQL 15; on 14 only a superuser may read it. A
+refused role gets a block with `reason=permission_denied` and the column header
+alone, every sample. That is a reading of what the role may see rather than a
+failed sample, so the artifact is still `status=complete`. The agent asks
+`has_table_privilege` before each read and skips one it would be refused, so the
+refusal does not reach your server log.
+
+`pg_nondefault_settings.txt` is the seventh. `pg_settings` leaves out the
+settings a role may not read rather than showing them empty:
+`shared_preload_libraries` and `log_directory` among them need
+`pg_read_all_settings`, which `pg_monitor` includes. Under `LOGIN` alone those
+rows are simply absent, and `has_pg_monitor_role` is the flag that says the list
+may be short.
+
 ## What leaves the database
 
 Read this before the first capture goes anywhere outside your perimeter.
@@ -362,9 +509,12 @@ in `pg_stat_statements` and a capture will pick it up. Any role holding
 read it.
 
 **In Mode H the exposure is larger, and it is not normalised at all.**
-`pg_deadlocks.txt` and `pg_timeouts.txt` copy the server's log verbatim, and a
-deadlock's `DETAIL` reproduces each participant's statement **as submitted** —
-literals included — as does every `STATEMENT:` line beside a timeout. On a real
+`pg_deadlocks.txt`, `pg_timeouts.txt` and `pg_errors.txt` copy the server's log
+verbatim, and a deadlock's `DETAIL` reproduces each participant's statement **as
+submitted** — literals included — as does every `STATEMENT:` line beside a
+timeout or an error. An error's own message and `DETAIL` often quote the value
+itself: `Key (id)=(4021) already exists`, `invalid input syntax for type integer:
+"abc"`, a `COPY` row in its `CONTEXT`. On a real
 application that is `UPDATE customers SET ssn = '…' WHERE email = '…'`.
 `log_parameter_max_length` does **not** bound this, though it looks as though it
 should: that setting bounds bind parameters logged with a statement, and the
@@ -381,8 +531,11 @@ Three things follow:
   statements it built from captured text — and, for the literal tier, the bind
   values the server logged — and a submission that errors can be written into
   your own server log by `log_min_error_statement` (default `error`), literals
-  included. The exposure is small and your logging policy governs it, but the
-  agent is a party to it there and nowhere else.
+  included, and from there into `pg_errors.txt` when the agent reads that log.
+  Those entries are the agent's own: in csvlog and jsonlog they carry
+  `application_name` `yCrash-DB-Agent`, and in stderr only when
+  `log_line_prefix` includes `%a`. The exposure is small and your logging policy
+  governs it, but the agent is a party to it there and nowhere else.
   `pg_metadata.txt` records `explain_mode=` and `explain_literals=verbatim` so
   the bundle says which.
 - **`pg_metadata.txt` records whether the exposure is possible.** The
@@ -393,6 +546,31 @@ Three things follow:
   bundle and uploads nothing, which is the mode to use while a security review is
   pending. Under `-m3` it is ignored and every cycle uploads; see
   [Monitoring a database on a loop](#monitoring-a-database-on-a-loop).
+
+**`pg_nondefault_settings.txt` carries every setting changed from its default,
+with passwords replaced.** A setting's value can hold a connection string —
+`primary_conninfo` on a standby carries the replication role's password when
+`pg_basebackup -R` wrote it — so every value is scanned before it is written. A
+password becomes `<redacted>`, and the row and the rest of the value are kept, so
+the file still says where the standby connects. Both connection-string forms are
+covered: keyword/value (`password=secret`, `password='a b'`, and any keyword
+ending in `password`, such as `sslpassword` or a shell's `PGPASSWORD=`) and URI
+(`postgresql://user:secret@host/…`, `?password=…`). Each block's header counts
+what it replaced as `redacted=`.
+
+**What the redaction does not catch** is a secret in any other shape: a token
+passed as a command-line option inside `archive_command` or `restore_command`, a
+cloud key in an environment variable the command sets, a credential in a file a
+setting names. Read those two settings before a bundle leaves your perimeter.
+
+The same file lists the agent's own session settings — `application_name`, the
+four timeouts and `default_transaction_read_only` — as `source=client` rows. They
+are the agent's, and for those six settings they stand in front of any
+`ALTER ROLE` or `ALTER DATABASE` value, which the file therefore cannot show.
+
+**`pg_catalog_map.txt` carries names, not data:** the connected database's
+tables, indexes, materialized views and schemas, and the name of every database
+in the cluster.
 
 **Host artifacts are a separate exposure, and they are gated.** A confirmed
 database host contributes its process list, connection table, kernel messages
@@ -519,9 +697,9 @@ Run it anywhere with network reachability to the database and you get every
 artifact sourced from SQL — the only supported mode for managed PostgreSQL (RDS,
 Aurora, Cloud SQL, Azure Database).
 
-Run it on the database host and three more artifacts become available:
-`pg_deadlocks.txt`, `pg_timeouts.txt` and `pg_checkpoint_log.txt`, which come
-from the server's log file rather than from a query. The first two are the only
+Run it on the database host and four more artifacts become available:
+`pg_deadlocks.txt`, `pg_timeouts.txt`, `pg_checkpoint_log.txt` and
+`pg_errors.txt`, which come from the server's log file rather than from a query. The first two are the only
 record in the bundle of what the database *did to a transaction* — the
 participants of a deadlock, and which statement a timeout killed — and neither
 needs any logging configuration: `log_min_messages = warning` and
@@ -531,6 +709,8 @@ buffers written and the `write=`, `sync=` and `total=` costs the counters in
 `pg_capacity.txt` cannot give, and it does need one setting:
 `log_checkpoints = on`, the default since PostgreSQL 15 and off on 14.
 `pg_metadata.txt` records the value, so an empty file can be read against it.
+The fourth, `pg_errors.txt`, needs nothing either: every default installation
+logs its errors.
 
 Host artifacts (`top`, `ps`, `vmstat`, `netstat`, `dmesg`, `df`, `kernel`)
 describe the machine that ran the script, so a database capture takes them only
@@ -538,9 +718,9 @@ when the run establishes that this is the database's machine. It does that by
 looking up the backend process the server reported for its own connection —
 `pg_metadata.txt` records the answer in `agent_on_db_host`, the test behind it,
 and, whenever the answer is not `yes`, the reason. `host_artifacts` says what
-the run did with it, so a bundle with no host files explains itself, and the
-agent log carries the deployment change that would turn most reasons into a
-`yes`.
+the run did with it, so a bundle with no host files explains itself, and
+`host_metrics_available` says the same as `true` or `false`. The agent log
+carries the deployment change that would turn most reasons into a `yes`.
 
 The same answer gates database monitoring's CPU and memory stream: under `-m3`
 the `top` capture runs only on a confirmed database host, and where it does not,
@@ -566,7 +746,7 @@ it, so their formats are shared and none of them changes here.
 Measured on PostgreSQL 14 through 18: the data directory is `0700`, the log
 directory inside it is `0700`, every log file is `0600`, and
 `log_file_mode = 0600`. A dedicated service account reads none of it, so an agent
-sitting on the database host reports `log_access=none` and all three log
+sitting on the database host reports `log_access=none` and all four log
 artifacts say `reason=unreadable` with the path they could not open. That is why the field
 is named for the experiment it runs — opening the file the server named — and not
 for a location it never tested.
@@ -592,7 +772,7 @@ That is the outcome you hit first. Three deployments make Mode H actually work:
 the logging collector at all.** Debian and Ubuntu packaging ships
 `logging_collector = off` and redirects the server's stderr through the cluster
 wrapper to `/var/log/postgresql/postgresql-NN-main.log` — a file PostgreSQL
-cannot name, so the agent refuses to guess at it. Both artifacts report
+cannot name, so the agent refuses to guess at it. Every log artifact reports
 `reason=collector_off` in every deployment until the collector is enabled. The
 PGDG RPM packaging and the official containers run the collector, and are
 deployments 1–3 territory.
