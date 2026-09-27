@@ -180,10 +180,11 @@ type Replication struct {
 
 func (r Replication) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_replication",
-		FileName: "pg_replication.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(r.Interval),
+		Name:       "pg_replication",
+		FileName:   "pg_replication.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(r.Interval),
+		Connection: ConnectionNormal,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already, which is
 		// what Periodic's closing sample contributes to moduleDeadline.

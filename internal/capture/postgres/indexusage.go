@@ -64,10 +64,11 @@ type IndexUsage struct {
 
 func (u IndexUsage) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_index_usage",
-		FileName: "pg_index_usage.txt",
-		Scope:    "database",
-		Schedule: Periodic(u.Interval),
+		Name:       "pg_index_usage",
+		FileName:   "pg_index_usage.txt",
+		Scope:      "database",
+		Schedule:   Periodic(u.Interval),
+		Connection: ConnectionExpensive,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already, and that
 		// is what this collector adds to the closing tick - Periodic's last sample

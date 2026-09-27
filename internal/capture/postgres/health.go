@@ -83,13 +83,14 @@ type Health struct {
 
 func (h Health) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_health",
-		FileName: "pg_health.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(h.Interval),
+		Name:       "pg_health",
+		FileName:   "pg_health.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(h.Interval),
+		Connection: ConnectionNormal,
 
 		// One statement, not DefaultSampleBudget's two. Periodic's last sample is
-		// the close, so this is summed against every other closing-tick collector.
+		// the close, so this is summed against the connection's other closing-tick collectors.
 		SampleBudget: StatementTimeout,
 	}
 }

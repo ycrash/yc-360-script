@@ -139,6 +139,7 @@ func runMatrixMetadataWindow(t *testing.T, target Target) ([]ArtifactResult, int
 		Collectors: []Collector{
 			NewMetadata(target, "matrix", time.Now(), ""),
 			Health{Interval: time.Second},
+			Sessions{Interval: time.Second},
 		},
 	}
 
@@ -216,9 +217,9 @@ func TestMatrixWindowStopsWhenTheBackendIsTerminated(t *testing.T) {
 
 const terminatedConnectionError = `connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"`
 
-// A capture's cadence leaves the connection idle between ticks, so the kill lands on
-// no statement and the next tick's first statement is what meets it: the sessions
-// collector's SET, whose error is the one every artifact must carry.
+// A capture's cadence leaves the connections idle between ticks, so the kill lands on
+// no statement and each connection's next first statement is what meets it - the
+// sessions collector's SET on the fast one - whose error its artifacts must carry.
 func TestMatrixWindowStopsWhenTheBackendIsTerminatedBetweenTicks(t *testing.T) {
 	for _, server := range matrixServers {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
@@ -263,14 +264,118 @@ func TestMatrixWindowStopsWhenTheBackendIsTerminatedBetweenTicks(t *testing.T) {
 	}
 }
 
+// Killing one of the capture's backends stops only the collectors on that connection.
+func TestMatrixALostConnectionStopsOnlyItsOwnTimeline(t *testing.T) {
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			window := &Window{
+				Duration: 6 * time.Second,
+				Target:   matrixTarget(server, matrixMonitor(t)),
+				Collectors: []Collector{
+					Health{Interval: time.Second},
+					Sessions{Interval: time.Second},
+				},
+			}
+
+			terminated := make(chan int64, 1)
+
+			go func() {
+				time.Sleep(1500 * time.Millisecond)
+
+				// The backend whose last statement was health's read is the normal connection.
+				killed, err := matrixTerminateCaptureSessionsWhere(matrixTarget(server, matrixSuperuser(t)),
+					"query LIKE '%pg_stat_database%'")
+				if err != nil {
+					t.Error(err)
+				}
+
+				terminated <- killed
+			}()
+
+			results := window.Run(context.Background())
+
+			require.EqualValues(t, 1, <-terminated, "one backend, the normal connection's")
+			require.Len(t, results, 2)
+
+			health, sessions := results[0], results[1]
+
+			assert.Equal(t, StatusConnectionLost, health.Status)
+			assert.Less(t, health.SamplesWritten, health.SamplesExpected)
+			assert.Contains(t, health.Err, "SQLSTATE 57P01")
+			assert.Contains(t, matrixArtifactText(t, health), terminatedConnectionError)
+
+			assert.Equal(t, StatusComplete, sessions.Status, "the fast connection went on")
+			assert.Equal(t, sessions.SamplesExpected, sessions.SamplesWritten)
+			assert.NotContains(t, matrixArtifactText(t, sessions), "connection_error=")
+		})
+	}
+}
+
+// A role's CONNECTION LIMIT refuses the third connection with the server's own
+// 53300; the two that opened run.
+func TestMatrixARefusedConnectionFailsOnlyItsOwnArtifacts(t *testing.T) {
+	const limited = "yc_360_matrix_limited"
+
+	for _, server := range matrixServers {
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			matrixDDL(t, server, "postgres",
+				"DROP ROLE IF EXISTS "+limited,
+				"CREATE ROLE "+limited+" LOGIN CONNECTION LIMIT 2 PASSWORD 'yc-limited-pw'")
+
+			t.Cleanup(func() { matrixDDL(t, server, "postgres", "DROP ROLE IF EXISTS "+limited) })
+
+			window := &Window{
+				Duration: 2 * time.Second,
+				Target:   matrixTarget(server, matrixRole{user: limited, password: "yc-limited-pw"}),
+				Collectors: []Collector{
+					Health{Interval: time.Second},
+					Sessions{Interval: time.Second},
+					NonDefaultSettings{Interval: time.Second},
+				},
+			}
+
+			results := window.Run(context.Background())
+			require.Len(t, results, 3)
+
+			health, sessions, settings := results[0], results[1], results[2]
+
+			assert.Equal(t, StatusComplete, sessions.Status, "fast is dialled first")
+			assert.Equal(t, StatusComplete, health.Status, "then normal")
+
+			assert.Equal(t, StatusConnectFailed, settings.Status, "expensive, third, is over the limit")
+			assert.Equal(t, 0, settings.SamplesWritten)
+			assert.Contains(t, settings.Err, "too many connections for role", "the server's own words, for the log")
+			assert.Contains(t, settings.Err, "SQLSTATE 53300")
+			assert.Contains(t, matrixArtifactText(t, settings), "connect_error=too_many_connections")
+
+			t.Logf("pg%d: the third dial reported %q", server.major, settings.Err)
+
+			matrixArtifactText(t, health)
+			matrixArtifactText(t, sessions)
+		})
+	}
+}
+
 // matrixTerminateCaptureSessions is the DBA's kill, from another connection.
 func matrixTerminateCaptureSessions(target Target) error {
+	_, err := matrixTerminateCaptureSessionsWhere(target, "true")
+
+	return err
+}
+
+// matrixTerminateCaptureSessionsWhere kills the capture's backends that match a
+// condition on pg_stat_activity, and says how many.
+func matrixTerminateCaptureSessionsWhere(target Target, condition string) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 	defer cancel()
 
 	conn, err := Connect(ctx, target)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	defer func() {
@@ -282,10 +387,12 @@ func matrixTerminateCaptureSessions(target Target) error {
 
 	var terminated int64
 
-	return conn.QueryRow(ctx,
+	err = conn.QueryRow(ctx,
 		`SELECT count(pg_terminate_backend(pid)) FROM pg_catalog.pg_stat_activity
-		  WHERE application_name = $1 AND pid <> pg_backend_pid()`, ApplicationName).
+		  WHERE application_name = $1 AND pid <> pg_backend_pid() AND (`+condition+`)`, ApplicationName).
 		Scan(&terminated)
+
+	return terminated, err
 }
 
 func matrixCountCaptureSessions(target Target) (int64, error) {
@@ -321,21 +428,23 @@ func TestMatrixMetadataWindow(t *testing.T) {
 				direct := collectFromMatrix(t, target)
 
 				results, sessions := runMatrixMetadataWindow(t, target)
-				require.Len(t, results, 2)
+				require.Len(t, results, 3)
 				require.NoError(t, results[0].IOErr)
 
 				require.Equal(t, StatusComplete, results[0].Status,
 					"the capability read must complete for every role on every version")
 				require.Equal(t, 1, results[0].SamplesWritten, "Once() is one reading")
 
-				assert.EqualValues(t, 1, sessions,
-					"two artifacts, one connection: before this slice the metadata capture "+
-						"dialled a second one of its own")
+				assert.EqualValues(t, 3, sessions,
+					"one connection per speed: metadata on the expensive one, health on the "+
+						"normal one, sessions on the fast one, and none dialled of its own")
 
 				content, err := os.ReadFile(results[0].Artifact.FileName)
 				require.NoError(t, err)
-				results[0].File.Close()
-				results[1].File.Close()
+
+				for _, result := range results {
+					result.File.Close()
+				}
 
 				artifact := string(content)
 				assert.NotContains(t, artifact, target.Password, "the artifact carries the password")

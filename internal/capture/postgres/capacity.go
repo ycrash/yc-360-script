@@ -86,14 +86,15 @@ type Capacity struct {
 
 func (c Capacity) Artifact() Artifact {
 	return Artifact{
-		Name:     "pg_capacity",
-		FileName: "pg_capacity.txt",
-		Scope:    "cluster",
-		Schedule: Periodic(c.Interval),
+		Name:       "pg_capacity",
+		FileName:   "pg_capacity.txt",
+		Scope:      "cluster",
+		Schedule:   Periodic(c.Interval),
+		Connection: ConnectionNormal,
 
 		// Four statements on every sample, the WAL read's privilege check among them.
 		// Periodic's last sample is the close, so moduleDeadline sums this against
-		// every other closing-tick collector.
+		// every other closing-tick collector on the same connection.
 		SampleBudget: 4 * StatementTimeout,
 	}
 }

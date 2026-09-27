@@ -160,8 +160,8 @@ func pgSampledDataType(artifact postgres.Artifact) string {
 	return ""
 }
 
-// PostgresCapture runs every postgres artifact as one collector each over a
-// single connection. Target is a pointer so %v/%+v/%#v route through
+// PostgresCapture runs every postgres artifact as one collector each, over one
+// connection per speed. Target is a pointer so %v/%+v/%#v route through
 // config.Postgres's String/GoString, which redact the password.
 type PostgresCapture struct {
 	Capture
@@ -229,19 +229,22 @@ func (p *PostgresCapture) Run() (Result, error) {
 		Target:   target,
 		Duration: duration,
 
-		// Registration order is sampling order on the shared tick, not a timing
-		// guarantee. Log tails go first so from_offset is set before other
-		// collectors' statements reach the log; then the cheap reads, then the
-		// whole-table and whole-filesystem reads (capacity, bloat, index usage,
-		// tablespaces, slow queries), so a tick that runs long is late with the
-		// expensive reading rather than the cheap ones.
+		// Each artifact names its connection, the one for its speed, and the three
+		// connections' timelines run at the same time. Within one, registration
+		// order is sampling order on a shared tick, not a timing guarantee. Log
+		// tails go first on the normal connection, so from_offset is set before
+		// that connection's statements reach the log; then the cheap reads, then
+		// the whole-table and whole-filesystem reads (capacity, slow queries; on
+		// the expensive connection bloat, index usage, tablespaces), so a tick
+		// that runs long is late with the expensive reading rather than the cheap
+		// ones.
 		//
-		// The catalog map is read once, at t0, straight after pg_metadata and
-		// before the whole-table reads.
+		// The catalog map is read once, at t0, straight after pg_metadata on the
+		// expensive connection and before the whole-table reads there.
 		//
-		// pg_explain goes last on both counts: on every tick it walks slowQueries'
-		// read of that tick, and at t0 its log tail then opens past the agent's own
-		// first plans.
+		// pg_explain goes last on the normal connection: on every tick it walks
+		// slowQueries' read of that tick, and at t0 its log tail then opens past
+		// that connection's first statements.
 		Collectors: []postgres.Collector{
 			postgres.NewDeadlocks(),
 			postgres.NewTimeouts(),
