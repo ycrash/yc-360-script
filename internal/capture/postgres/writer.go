@@ -10,9 +10,9 @@ import (
 	"unicode"
 )
 
-// artifactVersion changes when the key set or the value forms change in a way an
-// existing reader would get wrong.
-const artifactVersion = 1
+// defaultArtifactVersion is v= for an artifact that sets no Version. An artifact's version changes
+// when its key set or value forms change in a way an existing reader would get wrong.
+const defaultArtifactVersion = 1
 
 // The two body formats; a receiver dispatches on format=, not
 // filename. formatText's end is given by the block header's bytes= key, never
@@ -201,12 +201,19 @@ func writeBlockHeader(w io.Writer, source, scope string, fields []headerField, t
 }
 
 func writeBlockHeaderFormat(w io.Writer, source, scope, format string, fields []headerField, ts time.Time) error {
+	return writeVersionedBlockHeader(w, source, defaultArtifactVersion, scope, format, fields, ts)
+}
+
+// writeVersionedBlockHeader is for an artifact whose Version is its own.
+func writeVersionedBlockHeader(w io.Writer, source string, version int, scope, format string,
+	fields []headerField, ts time.Time,
+) error {
 	tokens := make([]string, 0, len(fields)+6)
 
 	tokens = append(tokens,
 		"engine=postgres",
 		"source="+headerValue(source),
-		"v="+strconv.Itoa(artifactVersion),
+		"v="+strconv.Itoa(version),
 		"format="+headerValue(format),
 		"scope="+headerValue(scope),
 	)
