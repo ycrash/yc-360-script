@@ -5,14 +5,18 @@ import (
 	"io"
 )
 
-// Deadlocks copies every deadlock report the server logged during the window, verbatim.
+// Deadlocks copies every deadlock report the server logged during the window, with its
+// statements' text replaced: the processes, locks and transactions are kept.
 type Deadlocks struct {
 	tail logTail
 }
 
 // NewDeadlocks constructs the collector.
 func NewDeadlocks() *Deadlocks {
-	return &Deadlocks{tail: newLogTail("pg_deadlocks", deadlockMatch)}
+	tail := newLogTail("pg_deadlocks", deadlockMatch)
+	tail.redaction = &logRedaction{deadlockReport: true}
+
+	return &Deadlocks{tail: tail}
 }
 
 func (*Deadlocks) Artifact() Artifact {

@@ -26,6 +26,55 @@ const measuredDeadlockJSON = `{"timestamp":"2026-08-15 10:02:48.397 UTC","user":
 	`"statement":"UPDATE yc_dl SET v=2 WHERE id=2;","application_name":"psql","backend_type":"client backend","query_id":0}
 `
 
+// measured on postgres:18, 2026-09-27, with log_destination set to stderr,csvlog,jsonlog:
+// a deadlock where one side's statement spans three lines, and one inside a PL/pgSQL
+// function, whose CONTEXT quotes the function's SQL.
+const (
+	measuredDeadlockMultiline = "2026-09-27 04:35:07.889 UTC [52469] ERROR:  deadlock detected\n" +
+		"2026-09-27 04:35:07.889 UTC [52469] DETAIL:  Process 52469 waits for ShareLock on transaction 2521; blocked by process 52468.\n" +
+		"\tProcess 52468 waits for ShareLock on transaction 2522; blocked by process 52469.\n" +
+		"\tProcess 52469: UPDATE dl\n" +
+		"\t   SET v = 12\n" +
+		"\t WHERE id = 2;\n" +
+		"\tProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;\n" +
+		"2026-09-27 04:35:07.889 UTC [52469] HINT:  See server log for query details.\n" +
+		"2026-09-27 04:35:07.889 UTC [52469] CONTEXT:  while updating tuple (0,2) in relation \"dl\"\n" +
+		"2026-09-27 04:35:07.889 UTC [52469] STATEMENT:  UPDATE dl\n" +
+		"\t   SET v = 12\n" +
+		"\t WHERE id = 2;\n"
+
+	measuredDeadlockInFunction = "2026-09-27 04:35:11.001 UTC [52499] ERROR:  deadlock detected\n" +
+		"2026-09-27 04:35:11.001 UTC [52499] DETAIL:  Process 52499 waits for ShareLock on transaction 2524; blocked by process 52498.\n" +
+		"\tProcess 52498 waits for ShareLock on transaction 2523; blocked by process 52499.\n" +
+		"\tProcess 52499: SELECT bump(4, 3)\n" +
+		"\tProcess 52498: SELECT bump(3, 4)\n" +
+		"2026-09-27 04:35:11.001 UTC [52499] HINT:  See server log for query details.\n" +
+		"2026-09-27 04:35:11.001 UTC [52499] CONTEXT:  while updating tuple (0,3) in relation \"dl\"\n" +
+		"\tSQL statement \"UPDATE dl SET v = v + 100 WHERE id = b\"\n" +
+		"\tPL/pgSQL function bump(integer,integer) line 5 at SQL statement\n" +
+		"2026-09-27 04:35:11.001 UTC [52499] STATEMENT:  SELECT bump(4, 3)\n"
+
+	measuredDeadlockMultilineCSV = `2026-09-27 04:35:07.889 UTC,"postgres","yc_redact_measure",52469,"[local]",6ab89cf9.ccf5,1,"UPDATE",2026-09-27 04:35:05 UTC,16/462,2522,ERROR,40P01,"deadlock detected","Process 52469 waits for ShareLock on transaction 2521; blocked by process 52468.
+Process 52468 waits for ShareLock on transaction 2522; blocked by process 52469.
+Process 52469: UPDATE dl
+   SET v = 12
+ WHERE id = 2;
+Process 52468: UPDATE dl SET v = 22 WHERE id = 1;","See server log for query details.",,,"while updating tuple (0,2) in relation ""dl""","UPDATE dl
+   SET v = 12
+ WHERE id = 2;",,,"psql","client backend",,-950878186224079528` + "\n"
+
+	measuredDeadlockInFunctionCSV = `2026-09-27 04:35:11.001 UTC,"postgres","yc_redact_measure",52499,"[local]",6ab89cfc.cd13,1,"SELECT",2026-09-27 04:35:08 UTC,21/719,2523,ERROR,40P01,"deadlock detected","Process 52499 waits for ShareLock on transaction 2524; blocked by process 52498.
+Process 52498 waits for ShareLock on transaction 2523; blocked by process 52499.
+Process 52499: SELECT bump(4, 3)
+Process 52498: SELECT bump(3, 4)","See server log for query details.",,,"while updating tuple (0,3) in relation ""dl""
+SQL statement ""UPDATE dl SET v = v + 100 WHERE id = b""
+PL/pgSQL function bump(integer,integer) line 5 at SQL statement","SELECT bump(4, 3)",,,"psql","client backend",,-5101566428157288899` + "\n"
+
+	measuredDeadlockMultilineJSON = `{"timestamp":"2026-09-27 04:35:07.889 UTC","user":"postgres","dbname":"yc_redact_measure","pid":52469,"remote_host":"[local]","session_id":"6ab89cf9.ccf5","line_num":1,"ps":"UPDATE","session_start":"2026-09-27 04:35:05 UTC","vxid":"16/462","txid":2522,"error_severity":"ERROR","state_code":"40P01","message":"deadlock detected","detail":"Process 52469 waits for ShareLock on transaction 2521; blocked by process 52468.\nProcess 52468 waits for ShareLock on transaction 2522; blocked by process 52469.\nProcess 52469: UPDATE dl\n   SET v = 12\n WHERE id = 2;\nProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;","hint":"See server log for query details.","context":"while updating tuple (0,2) in relation \"dl\"","statement":"UPDATE dl\n   SET v = 12\n WHERE id = 2;","application_name":"psql","backend_type":"client backend","query_id":-950878186224079528}` + "\n"
+
+	measuredDeadlockInFunctionJSON = `{"timestamp":"2026-09-27 04:35:11.001 UTC","user":"postgres","dbname":"yc_redact_measure","pid":52499,"remote_host":"[local]","session_id":"6ab89cfc.cd13","line_num":1,"ps":"SELECT","session_start":"2026-09-27 04:35:08 UTC","vxid":"21/719","txid":2523,"error_severity":"ERROR","state_code":"40P01","message":"deadlock detected","detail":"Process 52499 waits for ShareLock on transaction 2524; blocked by process 52498.\nProcess 52498 waits for ShareLock on transaction 2523; blocked by process 52499.\nProcess 52499: SELECT bump(4, 3)\nProcess 52498: SELECT bump(3, 4)","hint":"See server log for query details.","context":"while updating tuple (0,3) in relation \"dl\"\nSQL statement \"UPDATE dl SET v = v + 100 WHERE id = b\"\nPL/pgSQL function bump(integer,integer) line 5 at SQL statement","statement":"SELECT bump(4, 3)","application_name":"psql","backend_type":"client backend","query_id":-5101566428157288899}` + "\n"
+)
+
 const unrelatedCSV = `2026-08-15 10:02:50.000 UTC,"postgres","postgres",113,"[local]",6a803945.71,1,"idle",` +
 	`2026-08-15 10:02:49.000 UTC,3/13,0,LOG,00000,"checkpoint starting: time",,,,,,,,,"psql","client backend",,0
 `
@@ -248,11 +297,14 @@ func TestDeadlocksMaxEventLinesBoundsAnEventWithNoEnd(t *testing.T) {
 }
 
 func TestDeadlocksBytesEqualsTheBodyLengthOnEveryBlock(t *testing.T) {
-	hashPrefixed := strings.ReplaceAll(measuredDeadlock, "2026-08-15 10:00:34.543 UTC [25666] ",
-		"#2026-08-15 10:00:34.543 UTC [25666] ")
+	hashPrefixed := func(event string) string {
+		return strings.ReplaceAll(event, "2026-08-15 10:00:34.543 UTC [25666] ", "#2026-08-15 10:00:34.543 UTC [25666] ")
+	}
 
+	// In a relation's name, which is kept, where a statement's text is not.
 	invalid := "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
-		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  SELECT '" + string([]byte{0xff, 0xfe}) + "';\n"
+		"2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation \"yc_" +
+		string([]byte{0xff, 0xfe}) + "\"\n"
 
 	dir := newLogDir(t)
 	dir.writeCurrentLogfiles("stderr log/postgresql-2026-08-15_100224.log")
@@ -261,12 +313,12 @@ func TestDeadlocksBytesEqualsTheBodyLengthOnEveryBlock(t *testing.T) {
 
 	blocks := []textBlock{h.next()}
 
-	for _, fixture := range []string{hashPrefixed, invalid, ""} {
+	for _, fixture := range []string{hashPrefixed(measuredDeadlock), invalid, ""} {
 		dir.append(fixture + unrelatedTraffic)
 		blocks = append(blocks, h.next())
 	}
 
-	require.Equal(t, hashPrefixed, blocks[1].body,
+	require.Equal(t, hashPrefixed(writtenDeadlock), blocks[1].body,
 		"a body line beginning with '#' is why bytes= and not a scanning parser")
 	require.Equal(t, invalid, blocks[2].body)
 	require.Empty(t, blocks[3].body)
@@ -318,7 +370,7 @@ func TestDeadlocksGoldenFull(t *testing.T) {
 
 func TestDeadlocksGoldenCSVLog(t *testing.T) {
 	results := runLogGoldenWindow(t, NewDeadlocks(), logFormatCSV,
-		"", []string{measuredDeadlockCSV + unrelatedCSV}, 20*time.Second, logGoldenClock(t, 2))
+		"", []string{measuredDeadlockInFunctionCSV + unrelatedCSV}, 20*time.Second, logGoldenClock(t, 2))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_deadlocks_csvlog.txt"), artifactText(t, results[0]))
@@ -326,7 +378,7 @@ func TestDeadlocksGoldenCSVLog(t *testing.T) {
 
 func TestDeadlocksGoldenJSONLog(t *testing.T) {
 	results := runLogGoldenWindow(t, NewDeadlocks(), logFormatJSON,
-		"", []string{measuredDeadlockJSON + unrelatedJSON}, 20*time.Second, logGoldenClock(t, 2))
+		"", []string{measuredDeadlockInFunctionJSON + unrelatedJSON}, 20*time.Second, logGoldenClock(t, 2))
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_deadlocks_jsonlog.txt"), artifactText(t, results[0]))
@@ -345,6 +397,7 @@ func TestDeadlocksGoldenRemote(t *testing.T) {
 	assert.NotContains(t, artifact, "matched=",
 		"there is no matched= key anywhere in this file, and that is the design: a receiver "+
 			"cannot render a zero it was never given")
+	assert.NotContains(t, artifact, "redacted=", "nor a count of replacements in a log never read")
 
 	assert.Equal(t, bloatGolden(t, "pg_deadlocks_remote.txt"), artifact)
 }
@@ -358,4 +411,139 @@ func formatExtension(format logFormat) string {
 	}
 
 	return ".log"
+}
+
+func TestDeadlocksRedactionKeepsTheLockWaitsAndReplacesTheStatements(t *testing.T) {
+	redaction := NewDeadlocks().tail.redaction
+
+	for _, tt := range []struct {
+		name     string
+		format   logFormat
+		event    string
+		replaced *strings.Replacer
+		redacted int
+	}{
+		{
+			name:   "stderr, a statement over three lines",
+			format: logFormatStderr,
+			event:  measuredDeadlockMultiline,
+			replaced: strings.NewReplacer(
+				"Process 52469: UPDATE dl\n\t   SET v = 12\n\t WHERE id = 2;\n", "Process 52469: <redacted>\n",
+				"Process 52468: UPDATE dl SET v = 22 WHERE id = 1;", "Process 52468: <redacted>",
+				"STATEMENT:  UPDATE dl\n\t   SET v = 12\n\t WHERE id = 2;\n", "STATEMENT:  <redacted>\n"),
+			redacted: 3,
+		},
+		{
+			name:   "stderr, inside a function",
+			format: logFormatStderr,
+			event:  measuredDeadlockInFunction,
+			replaced: strings.NewReplacer(
+				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
+				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
+				`SQL statement "UPDATE dl SET v = v + 100 WHERE id = b"`, `SQL statement "<redacted>"`,
+				"STATEMENT:  SELECT bump(4, 3)", "STATEMENT:  <redacted>"),
+			redacted: 4,
+		},
+		{
+			name:   "csvlog, a statement over three lines",
+			format: logFormatCSV,
+			event:  measuredDeadlockMultilineCSV,
+			replaced: strings.NewReplacer(
+				"Process 52469: UPDATE dl\n   SET v = 12\n WHERE id = 2;\nProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;\"",
+				"Process 52469: <redacted>\nProcess 52468: <redacted>\"",
+				"\"UPDATE dl\n   SET v = 12\n WHERE id = 2;\",,,", `"<redacted>",,,`),
+			redacted: 3,
+		},
+		{
+			name:   "csvlog, inside a function",
+			format: logFormatCSV,
+			event:  measuredDeadlockInFunctionCSV,
+			replaced: strings.NewReplacer(
+				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
+				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
+				`SQL statement ""UPDATE dl SET v = v + 100 WHERE id = b""`, `SQL statement ""<redacted>""`,
+				`"SELECT bump(4, 3)",,,`, `"<redacted>",,,`),
+			redacted: 4,
+		},
+		{
+			name:   "jsonlog, a statement over three lines",
+			format: logFormatJSON,
+			event:  measuredDeadlockMultilineJSON,
+			replaced: strings.NewReplacer(
+				`Process 52469: UPDATE dl\n   SET v = 12\n WHERE id = 2;\nProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;"`,
+				`Process 52469: <redacted>\nProcess 52468: <redacted>"`,
+				`"statement":"UPDATE dl\n   SET v = 12\n WHERE id = 2;"`, `"statement":"<redacted>"`),
+			redacted: 3,
+		},
+		{
+			name:   "jsonlog, inside a function",
+			format: logFormatJSON,
+			event:  measuredDeadlockInFunctionJSON,
+			replaced: strings.NewReplacer(
+				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
+				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
+				`SQL statement \"UPDATE dl SET v = v + 100 WHERE id = b\"`, `SQL statement \"<redacted>\"`,
+				`"statement":"SELECT bump(4, 3)"`, `"statement":"<redacted>"`),
+			redacted: 4,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			want := tt.replaced.Replace(tt.event)
+			require.NotEqual(t, tt.event, want)
+
+			got, redacted := redaction.event([]byte(tt.event), tt.format)
+
+			assert.Equal(t, want, string(got),
+				"the processes, locks, transactions, relation and tuple stay; the SQL goes")
+			assert.Equal(t, tt.redacted, redacted, "one for each replacement")
+			assert.NotContains(t, string(got), "SET v", "no statement text survives")
+		})
+	}
+}
+
+func TestDeadlocksRedactionHidesATranslatedReport(t *testing.T) {
+	english := "Process 112 waits for ShareLock on transaction 754; blocked by process 105.\n" +
+		"Process 105 waits for ShareLock on transaction 755; blocked by process 112.\n" +
+		"Process 112: UPDATE yc_dl SET v=2 WHERE id=2;\n" +
+		"Process 105: UPDATE yc_dl SET v=1 WHERE id=1;"
+	german := "Prozess 112 wartet auf ShareLock auf Transaktion 754; blockiert von Prozess 105.\n" +
+		"Prozess 105 wartet auf ShareLock auf Transaktion 755; blockiert von Prozess 112.\n" +
+		"Prozess 112: UPDATE yc_dl SET v=2 WHERE id=2;\n" +
+		"Prozess 105: UPDATE yc_dl SET v=1 WHERE id=1;"
+
+	require.Contains(t, measuredDeadlockCSV, english)
+	translated := strings.Replace(measuredDeadlockCSV, english, german, 1)
+
+	_, matched := matchBody(logFormatCSV, deadlockMatch, translated)
+	require.Equal(t, 1, matched, "csvlog takes a translated report by its code")
+
+	got, redacted := NewDeadlocks().tail.redaction.event([]byte(translated), logFormatCSV)
+
+	assert.Equal(t, strings.NewReplacer(german, "<redacted>", `"UPDATE yc_dl SET v=2 WHERE id=2;",,,`, `"<redacted>",,,`).
+		Replace(translated), string(got),
+		"a DETAIL in no shape the agent reads is replaced whole, where an English rule would miss the SQL in it")
+	assert.Equal(t, 2, redacted)
+}
+
+func TestDeadlocksRedactionRunsBeforeTheEventCap(t *testing.T) {
+	huge := "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
+		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  INSERT INTO t VALUES ('" + strings.Repeat("x", MaxEventBytes) + "');\n"
+
+	read := &tailRead{redaction: NewDeadlocks().tail.redaction}
+
+	events, _, _, matched := matchEvents([]byte(huge+unrelatedTraffic), logFormatStderr, deadlockMatch, read)
+
+	require.Equal(t, 1, matched)
+	require.Len(t, events, 1)
+	assert.Equal(t, "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n"+
+		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>\n", string(events[0]),
+		"the statement is replaced whole, so there is nothing left to cut")
+	assert.Zero(t, read.eventsTruncated)
+	assert.Equal(t, 1, read.redacted)
+}
+
+func TestLogTailsThatKeepTextVerbatimCountNothing(t *testing.T) {
+	assert.NotNil(t, NewDeadlocks().tail.redaction)
+	assert.Nil(t, NewTimeouts().tail.redaction, "a timeout's statement is kept")
+	assert.Nil(t, NewCheckpointLog().tail.redaction, "a checkpoint line carries no values")
 }

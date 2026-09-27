@@ -4181,7 +4181,10 @@ func TestMatrixLogTailDeadlock(t *testing.T) {
 					"are TAB continuations a line-oriented reader would mis-attribute")
 			assert.Contains(t, block.body, "CONTEXT:",
 				"and the line a DETAIL-only rule stops before, which names the relation and the tuple")
-			assert.Contains(t, block.body, "STATEMENT:")
+			assert.Contains(t, block.body, "STATEMENT:  <redacted>")
+
+			assert.NotContains(t, block.body, "SET v = v + 1", "neither process's statement is written")
+			assert.Equal(t, "3", block.fields["redacted"], "the two processes' statements and the victim's")
 
 			size, err := strconv.Atoi(block.fields["bytes"])
 			require.NoError(t, err)
@@ -4491,6 +4494,11 @@ func TestMatrixLogTailStructuredFormats(t *testing.T) {
 
 				assert.Contains(t, matched.body, "deadlock detected")
 				assert.Contains(t, matched.body, "40P01")
+
+				assert.NotContains(t, matched.body, "SET v = v + 1",
+					"the statements are replaced inside the record's own fields")
+				assert.Equal(t, "3", matched.fields["redacted"],
+					"the DETAIL names both processes' statements in this format too")
 
 				size, err := strconv.Atoi(matched.fields["bytes"])
 				require.NoError(t, err)

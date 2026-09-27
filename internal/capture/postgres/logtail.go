@@ -719,6 +719,10 @@ type logTail struct {
 
 	match eventMatch
 
+	// redaction is what is replaced in each event before it is written; nil copies
+	// events verbatim.
+	redaction *logRedaction
+
 	settings     logSettings
 	haveSettings bool
 
@@ -787,6 +791,12 @@ type tailRead struct {
 	carryDropped    bool
 	eventsTruncated int
 	partial         bool
+
+	// redaction is the tail's, applied to each event before the byte cap, so a long
+	// statement's replacement does not leave its tail cut short; redacted counts what it
+	// replaced.
+	redaction *logRedaction
+	redacted  int
 }
 
 func (r *tailRead) body() []byte { return bytes.Join(r.events, nil) }
@@ -812,7 +822,7 @@ func (t *logTail) readSample(ctx context.Context, q Querier, sc SampleContext) (
 		return nil, false
 	}
 
-	read := &tailRead{from: t.consumed(), resolvedLate: resolvedLate}
+	read := &tailRead{from: t.consumed(), resolvedLate: resolvedLate, redaction: t.redaction}
 
 	t.readOpenFile(read, time.Time{})
 	t.followRotation(ctx, q, read)
@@ -873,7 +883,7 @@ func (t *logTail) openAtEnd(ctx context.Context, q Querier, sc SampleContext) bo
 // event comes back with read.partial set. A nil q skips rotation-following, which is how
 // the closing pass reads: after cancellation there is no connection left to ask.
 func (t *logTail) readEvents(ctx context.Context, q Querier, deadline time.Time) ([][]byte, *tailRead) {
-	read := &tailRead{from: t.consumed()}
+	read := &tailRead{from: t.consumed(), redaction: t.redaction}
 
 	if t.file == nil {
 		return nil, read
@@ -915,7 +925,7 @@ func (t *logTail) readDrain() (*tailRead, bool) {
 
 	defer t.closeFile()
 
-	read := &tailRead{from: t.consumed()}
+	read := &tailRead{from: t.consumed(), redaction: t.redaction}
 
 	t.readOpenFile(read, time.Now().Add(LogDrainBudget))
 	t.flushPending(read)
@@ -1035,10 +1045,13 @@ func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, 
 
 	body := read.body()
 
-	fields = append(fields,
-		headerField{"matched", strconv.Itoa(read.matched)},
-		headerField{"bytes", strconv.Itoa(len(body))},
-	)
+	fields = append(fields, headerField{"matched", strconv.Itoa(read.matched)})
+
+	if t.redaction != nil {
+		fields = append(fields, headerField{"redacted", strconv.Itoa(read.redacted)})
+	}
+
+	fields = append(fields, headerField{"bytes", strconv.Itoa(len(body))})
 
 	t.announced = true
 
@@ -1363,7 +1376,7 @@ func (t *logTail) flushPending(read *tailRead) {
 	}
 
 	if t.pendingIsEvent {
-		read.events = appendEvent(read.events, t.pending, read)
+		read.events = appendEvent(read.events, t.pending, t.source.format, read)
 		read.matched++
 		read.partial = true
 	} else {
@@ -1453,7 +1466,7 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 				eventLines++
 
 				if eventLines >= MaxEventLines || lineEnd-eventStart >= MaxEventBytes {
-					events = appendEvent(events, data[eventStart:lineEnd], read)
+					events = appendEvent(events, data[eventStart:lineEnd], logFormatStderr, read)
 					matched++
 					inEvent = false
 				}
@@ -1461,7 +1474,7 @@ func matchStderr(data []byte, m eventMatch, read *tailRead) (
 				continue
 			}
 
-			events = appendEvent(events, data[eventStart:lineStart], read)
+			events = appendEvent(events, data[eventStart:lineStart], logFormatStderr, read)
 			matched++
 			inEvent = false
 		}
@@ -1545,17 +1558,21 @@ func isNewStderrEntry(line, prefix string) bool {
 // csvlog column indices, stable across PG 14-18 (26 columns; the two added in 14 are the last two).
 // FieldsPerRecord = -1 tolerates a version that appends more; a short record is treated as a corrupt tail, not a panic.
 const (
-	csvSeverityIndex = 11
-	csvStateIndex    = 12
-	csvMessageIndex  = 13
-	csvDetailIndex   = 14
+	csvSeverityIndex      = 11
+	csvStateIndex         = 12
+	csvMessageIndex       = 13
+	csvDetailIndex        = 14
+	csvHintIndex          = 15
+	csvInternalQueryIndex = 16
+	csvContextIndex       = 18
+	csvStatementIndex     = 19
 
 	// csvQueryIDIndex is the 26th column, added in 14 with leader_pid before it.
 	csvQueryIDIndex = 25
 )
 
 // matchCSVLog reads records, not lines (a deadlock's quoted DETAIL field spans several physical lines with real newlines).
-// Matches are copied as original bytes via InputOffset, never re-encoded — encoding/csv's quoting rules aren't the server's.
+// Matches are copied as original bytes via InputOffset, never re-encoded by encoding/csv, whose quoting rules aren't the server's.
 func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 	events [][]byte, pending []byte, pendingIsEvent bool, matched int,
 ) {
@@ -1583,7 +1600,7 @@ func matchCSVLog(data []byte, m eventMatch, read *tailRead) (
 
 		if len(record) > csvMessageIndex &&
 			m.matchesRecord(record[csvSeverityIndex], record[csvStateIndex], record[csvMessageIndex]) {
-			events = appendEvent(events, complete[start:end], read)
+			events = appendEvent(events, complete[start:end], logFormatCSV, read)
 			matched++
 		}
 	}
@@ -1633,7 +1650,7 @@ func matchJSONLog(data []byte, m eventMatch, read *tailRead) (
 		}
 
 		if m.matchesRecord(entry.ErrorSeverity, entry.StateCode, entry.Message) {
-			events = appendEvent(events, data[lineStart:lineEnd], read)
+			events = appendEvent(events, data[lineStart:lineEnd], logFormatJSON, read)
 			matched++
 		}
 	}
@@ -1652,10 +1669,17 @@ func splitAtLastLine(data []byte) (complete, tail []byte) {
 	return data[:at+1], data[at+1:]
 }
 
-// appendEvent truncates in bytes, never runes: SQL_ASCII log bytes must pass through unencoded.
+// appendEvent redacts, then truncates in bytes, never runes: SQL_ASCII log bytes must pass through unencoded.
 // Trailing newline is for readability/grep only — bytes= is the actual parsing contract.
 // The event is copied, never aliased: readEvents' caller keeps it past the read.
-func appendEvent(events [][]byte, event []byte, read *tailRead) [][]byte {
+func appendEvent(events [][]byte, event []byte, format logFormat, read *tailRead) [][]byte {
+	if read.redaction != nil {
+		var redacted int
+
+		event, redacted = read.redaction.event(event, format)
+		read.redacted += redacted
+	}
+
 	if len(event) > MaxEventBytes {
 		read.eventsTruncated++
 
