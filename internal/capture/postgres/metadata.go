@@ -264,7 +264,7 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 		ExplainMode: explainModeText(explainMode),
 
 		// Stated rather than assumed: plans and query text carry the customer's literals.
-		ExplainLiterals: explainLiteralsVerbatim,
+		ExplainLiterals: explainLiteralsRedacted,
 
 		// Unknown until collectLogLocation says otherwise; true for a run whose connection was refused.
 		LogAccess:       LogAccessUnknown,

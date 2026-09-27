@@ -654,6 +654,18 @@ identity and its clock read are readable without parsing the middle.
   connection block goes further and drops its three count keys when the read
   failed: `groups_total=0` would assert that the server has no connections,
   where the truth is that nobody could count them.
+- `redacted=` counts the values a block's text had replaced with `<redacted>`,
+  `0` included, on every block that carries captured text: each
+  `pg_nondefault_settings.txt` sample, each `pg_deadlocks.txt` and
+  `pg_errors.txt` block that reports a read (the drain too), and each
+  `pg_explain.txt` plan block, whose count takes in the literal tier's `error=`.
+  It is absent where no text was read or written — a log tail's `reason=`
+  block, `pg_explain.txt`'s summaries and its disabled marker — as `matched=`
+  is. A plan keeps its nodes, costs, row counts, settings and identifier; only
+  the constants in its expressions and its `Query Text` go
+  (`pg_explain_literal.txt`: `order_id = <redacted>`), and `pg_metadata.txt`
+  says so with `explain_literals=redacted`. In an XML plan the placeholder is
+  written `&lt;redacted&gt;`, as the server escapes any `<` in element text.
 - An artifact's preamble carries `schedule=` (`start_end`, `every` or `once`)
   and `interval=` (`10s`, or empty on the other two). Both are written for every
   artifact on every schedule, so the preamble is one fixed key set:

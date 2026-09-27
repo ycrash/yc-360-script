@@ -13,5 +13,5 @@ target_tls_verify,false
 target_tls_ca_file,
 target_tls_server_name,
 explain_mode,all
-explain_literals,verbatim
+explain_literals,redacted
 # engine=postgres source=pg_metadata v=1 format=csv scope=cluster db=orders_db dbid= status=connect_failed samples_expected=1 samples_written=0 connect_error=too_many_connections ts=2026-08-04T09:12:54.215Z

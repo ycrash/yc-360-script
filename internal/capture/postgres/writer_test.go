@@ -33,7 +33,7 @@ func fullArtifactMetadata() Metadata {
 		TargetTLSVerify:  "false",
 
 		ExplainMode:     ExplainModeAll,
-		ExplainLiterals: explainLiteralsVerbatim,
+		ExplainLiterals: explainLiteralsRedacted,
 
 		LogAccess: LogAccessDirect,
 
@@ -126,7 +126,7 @@ func connectFailureMetadata() Metadata {
 		TargetTLSVerify:  "false",
 
 		ExplainMode:     ExplainModeAll,
-		ExplainLiterals: explainLiteralsVerbatim,
+		ExplainLiterals: explainLiteralsRedacted,
 
 		LogAccess:    LogAccessUnknown,
 		ConnectError: ErrTooManyConnections.Error(),
@@ -471,7 +471,7 @@ func TestTargetFieldsAreWhatWasConfigured(t *testing.T) {
 
 	assert.Equal(t, ExplainModeAll, values["explain_mode"],
 		"the run's intent, in the block written before dialling")
-	assert.Equal(t, "verbatim", values["explain_literals"])
+	assert.Equal(t, "redacted", values["explain_literals"])
 }
 
 func TestHostMetricsAvailableRestatesHostArtifacts(t *testing.T) {

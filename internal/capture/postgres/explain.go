@@ -30,8 +30,9 @@ const (
 	// accepted input, since presence is the switch.
 	explainModeOff = "off"
 
-	// explainLiteralsVerbatim states the literals policy as a fact in the bundle.
-	explainLiteralsVerbatim = "verbatim"
+	// explainLiteralsRedacted states the literals policy as a fact in the bundle: a
+	// plan's constants are replaced before it is written.
+	explainLiteralsRedacted = "redacted"
 )
 
 // explainModeText renders the configured mode; anything unrecognised is off.
@@ -1442,9 +1443,15 @@ func (e *Explain) writeCandidate(
 		fields = append(fields, headerField{"plan_truncated", "true"})
 	}
 
+	plan, redacted := e.redactedPlan(c.mode, c.plan)
+
 	switch {
 	case c.err != "":
-		fields = append(fields, headerField{"error", c.err})
+		// The literal tier's statement carries the log's values, which an error can quote.
+		text, n := redactErrorText(c.err)
+		redacted += n
+
+		fields = append(fields, headerField{"error", text})
 
 	case c.reason != "":
 		fields = append(fields, headerField{"reason", c.reason})
@@ -1455,7 +1462,9 @@ func (e *Explain) writeCandidate(
 		fields = append(fields, headerField{"reason", reasonNoLoggedPlan})
 	}
 
-	return e.writeBlock(w, s, fields, c.plan)
+	fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
+
+	return e.writeBlock(w, s, fields, plan)
 }
 
 // writePlan writes a stored plan no candidate is carrying. An empty queryid= is
@@ -1480,7 +1489,33 @@ func (e *Explain) writePlan(w io.Writer, s SampleContext, plan *loggedPlan) erro
 
 	fields = append(fields, headerField{"reason", reason})
 
-	return e.writeBlock(w, s, fields, plan.body)
+	body, redacted := e.redactedPlan(planModeLogged, plan.body)
+
+	fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
+
+	return e.writeBlock(w, s, fields, body)
+}
+
+// loggedPlanRedaction is what a logged plan's entry has replaced: the plan's constants,
+// and the statement and context lines as in the other log files.
+var loggedPlanRedaction = &logRedaction{plans: true}
+
+// redactedPlan is a plan block's body with its constants replaced, and how many. A
+// logged plan is its log entry, redacted inside the log's own encoding; an estimated
+// one is the agent's own EXPLAIN text. The store keeps the entries as read, since the
+// query identifier and the duration are read from them.
+func (e *Explain) redactedPlan(mode string, plan []byte) ([]byte, int) {
+	if len(plan) == 0 {
+		return plan, 0
+	}
+
+	if mode == planModeLogged {
+		return loggedPlanRedaction.event(plan, e.tail.source.format)
+	}
+
+	text, redacted := redactPlan(string(plan))
+
+	return []byte(text), redacted
 }
 
 // writeSummary is the collector's own administrative block, one per sample: the

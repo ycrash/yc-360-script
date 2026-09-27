@@ -5035,6 +5035,46 @@ func TestMatrixExplainAutoExplainEntries(t *testing.T) {
 
 // matrixExplainTailAtEnd opens a tail with the artifact's own matcher, positioned past
 // everything already in the log.
+// Each plan format auto_explain writes, on every version: the constants replaced, and the
+// names and the plan's own figures kept.
+func TestMatrixExplainLoggedPlansAreRedacted(t *testing.T) {
+	for _, server := range matrixServers {
+		requireMatrixLogDir(t, server)
+
+		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
+			matrixExplainFixture(t, server)
+
+			for _, format := range []string{"text", "json", "xml", "yaml"} {
+				t.Run(format, func(t *testing.T) {
+					tail := matrixExplainTailAtEnd(t, server)
+
+					workload := matrixLogConn(t, server, matrixSecondDB)
+					for _, sql := range []string{
+						"LOAD 'auto_explain'",
+						"SET auto_explain.log_min_duration = 0",
+						"SET auto_explain.log_verbose = on",
+						"SET auto_explain.log_format = '" + format + "'",
+						"SELECT count(*) FROM " + matrixExplainTable + " WHERE id > 7 AND note <> 'yc-360 plan secret'",
+					} {
+						require.NoError(t, matrixLogExec(t, workload, sql))
+					}
+
+					event := matrixExplainUntilStored(t, server, tail)
+					require.Contains(t, event, "yc-360 plan secret", "the server logged the constant")
+
+					written, redacted := loggedPlanRedaction.event([]byte(event), tail.source.format)
+
+					assert.NotContains(t, string(written), "yc-360 plan secret")
+					assert.Equal(t, 4, redacted, "two constants in the Query Text and the same two in the plan")
+					assert.Contains(t, string(written), matrixExplainTable, "names stay")
+					assert.Equal(t, planQueryIdentifier([]byte(event)), planQueryIdentifier(written),
+						"and so does the identifier the LOGGED mode joins by")
+				})
+			}
+		})
+	}
+}
+
 func matrixExplainTailAtEnd(t *testing.T, server matrixServer) *logTail {
 	t.Helper()
 
@@ -5344,6 +5384,14 @@ func TestMatrixExplainLiteralTierFromTheLog(t *testing.T) {
 				assert.Contains(t, plan, "Query Identifier: "+record.queryID,
 					"the log's text under the log's identifier: queryid_match=true by construction")
 				assert.NotContains(t, plan, "$1")
+
+				written, redacted := redactPlan(plan)
+				assert.Contains(t, written, "id = <redacted>", "and the file gets neither value")
+				assert.Contains(t, written, "'<redacted>'::text")
+				assert.Contains(t, written, "Query Identifier: "+record.queryID)
+				assert.NotContains(t, written, "id = 42")
+				assert.NotContains(t, written, "it''s")
+				assert.Equal(t, 2, redacted)
 
 				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
 				defer cancel()
