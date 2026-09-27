@@ -8,18 +8,26 @@ same bundle.
 ```yaml
 options:
   postgres:
-    host: db.internal
-    port: 5432
-    database: orders_db
-    username: yc_monitor
-    password: ${YC_PG_PASSWORD}
-    tls:
-      verifyServerCertificate: true
-      caFile: /etc/ycrash/ca.pem
-    captureDuration: 120s
-    frequency: 30s
-    explain: logged
+    - id: orders-primary
+      host: db.internal
+      port: 5432
+      database: orders_db
+      username: yc_monitor
+      password: ${YC_PG_PASSWORD}
+      tls:
+        verifyServerCertificate: true
+        caFile: /etc/ycrash/ca.pem
+      captureDuration: 120s
+      frequency: 30s
+      explain: logged
 ```
+
+`postgres:` is a list of targets, and it takes exactly one: a run captures one
+database. `id` names that target and is required; it can be any name you choose,
+and every sample the capture writes carries it as `target_id` (see *What a
+capture writes*). A block written without the leading `- `, as the agent took it
+before, is refused with a message saying what to write, and so is an empty list
+or a list of two; to capture two databases, run the agent once for each.
 
 `port`, `database` and `tls` may be omitted; they default to `5432`,
 `postgres` and an encrypted connection whose certificate is not checked.
@@ -261,7 +269,7 @@ Two limits to know:
 Every artifact is a `pg_*.txt` file in the bundle, uploaded under a type of its
 own. Read once, at the start:
 
-- `pg_metadata.txt` — the target as configured, its `tls:` settings included;
+- `pg_metadata.txt` — the target as configured, its `id` and `tls:` settings included;
   the server's version, settings and capabilities; its uptime as
   `uptime_seconds`; the same-host verdict and what it decided; and the
   tablespace locations.
@@ -304,6 +312,22 @@ closing one:
 - `pg_slow_queries.txt` — `pg_stat_statements`.
 - `pg_explain.txt` — query plans, when `explain:` is set, their constants
   replaced.
+
+In these twelve files each sample block begins with two header lines. The
+first names the capture: `capture_id`, one UUID for the run and the same in
+every file; `target_id`, the configured `id`; the engine and its version,
+`engine_version`, the server's `server_version_num` (`170004` for 17.4). The
+second describes the read: `sample_id`, the sample it belongs to; `source`,
+what was read; `start_ts`, `end_ts` and `duration_ms`, when its statements ran
+and how long they took; `status`; `rows`, how many rows the block holds (plans,
+in `pg_explain.txt`); and `truncated`, whether a cap cut them. `status` is `OK`,
+`ERROR` for a statement that failed, `TIMEOUT` for one the server cancelled at
+its 5s limit or that ran out the agent's own time, and `TRUNCATED` for a plan
+cut at its size cap. A block with nothing to show by design — a view the role
+may not read, an extension that is not created — is `OK` and says why with
+`reason=`. The rest of each file, and the files read once and copied from the
+log, keep one header line; `pg_metadata.txt` records the `target_id` in its
+target block.
 
 Copied from the server's log every 10 seconds, where the log is readable (see
 *Where to run it*): `pg_deadlocks.txt`, `pg_timeouts.txt`,
@@ -758,7 +782,8 @@ agent's own deadline where the server stopped answering. That is the first
 error the connection met, kept on purpose: a collector may fold it into its own
 block header rather than return it, and every statement after it fails on the
 driver's cleanup of a cached statement against the closed socket, which names
-nothing. The sample that found out either writes a `sample_error=` block or,
+nothing. The sample that found out either writes a `sample_error=` block
+(`status=ERROR`) or,
 for a collector that localises failures to a block, carries the error on that
 block's header — or shows nothing at all, when it is a log tail: a tail's only
 statement per sample re-checks the log's location, and a failed re-check keeps
@@ -772,7 +797,8 @@ merely failed leaves the connection open and stops nothing: that artifact's
 closing block says `status=partial` and the next tick proceeds. A statement that
 runs to the server's `statement_timeout` (5s) is such a failure: the server
 cancels it and answers, and the agent's own deadline on the statement sits 5s
-above the server's so that the server's answer is the one that arrives. A
+above the server's so that the server's answer is the one that arrives. The
+block it ends says `status=TIMEOUT`. A
 capture stopped from the agent's side while a statement is in flight, by a kill
 or the window's deadline, reports `cancelled` or `deadline_exceeded`, not a lost
 connection. There is no bundle-level marker file yet; each artifact carries its
