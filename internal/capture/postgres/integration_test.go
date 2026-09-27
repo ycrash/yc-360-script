@@ -1462,7 +1462,7 @@ WHERE source != 'default' AND source != 'override'`)
 
 					for name, want := range map[string][]string{
 						"application_name":              {ApplicationName, ""},
-						"statement_timeout":             {"10000", "ms"},
+						"statement_timeout":             {strconv.FormatInt(StatementTimeout.Milliseconds(), 10), "ms"},
 						"default_transaction_read_only": {"on", ""},
 					} {
 						require.Contains(t, rows, name, "block %d: the agent's own session settings are listed", i)

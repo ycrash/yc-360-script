@@ -57,7 +57,7 @@ func nonDefaultSettingsSample(logMinDuration string) [][]any {
 			"Sets the connection string to be used to connect to the sending server."),
 		settingRow("shared_buffers", "524288", nullable("8kB"), "configuration file", "postmaster",
 			"Sets the number of shared memory buffers used by the server."),
-		settingRow("statement_timeout", "10000", nullable("ms"), "client", "user",
+		settingRow("statement_timeout", "5000", nullable("ms"), "client", "user",
 			"Sets the maximum allowed duration of any statement."),
 		settingRow("TimeZone", "Etc/UTC", nil, "configuration file", "user",
 			"Sets the time zone for displaying and interpreting time stamps."),

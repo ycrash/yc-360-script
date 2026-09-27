@@ -379,12 +379,13 @@ func TestPostgresValidateFrequency(t *testing.T) {
 		assert.Equal(t, MinPostgresFrequency, p.Frequency.Duration())
 
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "2s is below", "the warning must name what was asked for")
-		assert.Contains(t, warnings[0], "10s", "the warning must name what was done")
+		assert.Equal(t, "postgres.frequency 2s is below the 5s minimum - sampling every 5s instead. "+
+			"A sample's statements are bounded at 5s, so a faster cadence would let one slow "+
+			"sample outrun the tick behind it.", warnings[0], "naming what was asked for and what was done")
 	})
 
 	t.Run("the floor itself is not clamped", func(t *testing.T) {
-		p := withTarget(t, "frequency: 10s")
+		p := withTarget(t, "frequency: 5s")
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
@@ -457,6 +458,7 @@ func TestPostgresSpeeds(t *testing.T) {
 	for _, tt := range []struct {
 		frequency, fast, expensive time.Duration
 	}{
+		{5 * time.Second, 5 * time.Second, 5 * time.Minute},
 		{10 * time.Second, 10 * time.Second, 5 * time.Minute},
 		{15 * time.Second, 15 * time.Second, 5 * time.Minute},
 		{30 * time.Second, 15 * time.Second, 5 * time.Minute},

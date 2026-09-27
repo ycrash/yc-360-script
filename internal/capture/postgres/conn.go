@@ -33,7 +33,7 @@ const (
 	// (MinPostgresFrequency, pinned equal by a test in internal/capture), so a
 	// maxed-out sample consumes at most its whole interval - the timeline can't
 	// catch up under load.
-	StatementTimeout = 10 * time.Second
+	StatementTimeout = 5 * time.Second
 
 	// StatementDeadline is the client-side bound on the same statement, the
 	// backstop for a server that never answers. It sits above StatementTimeout so
