@@ -279,7 +279,7 @@ func TestEveryShippedGoldenDeclaresOneFormat(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 			want := "format=csv"
-			for _, prefix := range []string{"pg_deadlocks_", "pg_timeouts_", "pg_checkpoint_log_", "pg_explain_"} {
+			for _, prefix := range []string{"pg_deadlocks_", "pg_timeouts_", "pg_checkpoint_log_", "pg_errors_", "pg_explain_"} {
 				if strings.HasPrefix(name, prefix) {
 					want = "format=text"
 				}

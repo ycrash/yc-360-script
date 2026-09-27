@@ -1,0 +1,14 @@
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid= status=started window=30s schedule=every interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=stderr log_formats=stderr log_path=log/postgresql-2026-08-15_100224.log log_resolved_by=current_logfiles log_access=direct matched_by=severity from_offset=153 to_offset=153 matched=0 bytes=0 ts=2026-08-07T14:32:05.020Z
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=stderr log_resolved_by=current_logfiles matched_by=severity from_offset=153 to_offset=638 matched=1 bytes=304 ts=2026-08-07T14:32:15.020Z
+2026-09-27 01:49:46.564 UTC [12395] ERROR:  duplicate key value violates unique constraint "yc_errs_orders_pkey"
+2026-09-27 01:49:46.564 UTC [12395] DETAIL:  Key (id)=(4021) already exists.
+2026-09-27 01:49:46.564 UTC [12395] STATEMENT:  INSERT INTO yc_errs_orders (id, status) VALUES (4021, 'pending');
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 sample=3 log_format=stderr log_resolved_by=current_logfiles matched_by=severity from_offset=638 to_offset=885 matched=1 bytes=90 ts=2026-08-07T14:32:25.020Z
+2026-09-27 01:49:46.933 UTC [12402] FATAL:  database "yc_no_such_database" does not exist
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=stderr log_resolved_by=current_logfiles from_offset=885 to_offset=1444 matched=2 bytes=358 ts=2026-08-07T14:32:35.040Z
+2026-09-27 01:50:00.075 UTC [12463] ERROR:  canceling statement due to user request
+2026-09-27 01:50:00.075 UTC [12463] STATEMENT:  SELECT pg_sleep(5)
+2026-09-27 01:50:01.159 UTC [12492] ERROR:  could not obtain lock on row in relation "yc_errs_lock"
+2026-09-27 01:50:01.159 UTC [12492] STATEMENT:  SELECT id FROM yc_errs_lock WHERE id = 1 FOR UPDATE NOWAIT
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z

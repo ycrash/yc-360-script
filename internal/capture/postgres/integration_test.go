@@ -4528,7 +4528,7 @@ func TestMatrixLogTailErrors(t *testing.T) {
 				}
 
 				superuser := matrixSuperuser(t)
-				tail := newMatrixTail(t, matrixTarget(server, superuser), newErrorTail())
+				tail := newMatrixTail(t, matrixTarget(server, superuser), NewErrors())
 
 				// Opened with it, so the two events it must leave are shown to be in its window.
 				deadlocks := newMatrixTail(t, matrixTarget(server, superuser), NewDeadlocks())
@@ -4590,88 +4590,6 @@ func TestMatrixLogTailErrors(t *testing.T) {
 			})
 		}
 	}
-}
-
-// db_errors.log in a real window: the server's lines and nothing of the agent's, with the
-// account on pg_metadata.txt's closing block; and no log to read, no lines.
-func TestMatrixDBErrors(t *testing.T) {
-	for _, server := range matrixServers {
-		requireMatrixLogDir(t, server)
-
-		for _, role := range []matrixRole{matrixSuperuser(t), matrixRoles[2]} {
-			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
-				require.False(t, role.privileged() && !role.superuser, "the superuser and the LOGIN-only role")
-
-				t.Chdir(t.TempDir())
-
-				target := matrixTarget(server, role)
-				dbErrors := NewDBErrors("1.appLogs.db_errors.log")
-				metadata := NewMetadata(target, "3.6.1", time.Now(), "")
-				metadata.ReportDBErrors(dbErrors)
-
-				sentinel := fmt.Sprintf("yc-360 db_errors %d", time.Now().UnixNano())
-
-				// Health's closing sample holds the window open to its close, as the
-				// periodic collectors do in a run; the drain then reads the error.
-				window := &Window{
-					Duration:   3 * time.Second,
-					Target:     target,
-					Collectors: []Collector{dbErrors, metadata, Health{}},
-				}
-
-				var wg sync.WaitGroup
-
-				wg.Add(1)
-
-				go func() {
-					defer wg.Done()
-
-					time.Sleep(time.Second)
-
-					worker := matrixLogConn(t, server, "postgres")
-					_ = matrixLogExec(t, worker, fmt.Sprintf(`SELECT 1/0 AS "%s"`, sentinel))
-
-					// On stderr an entry's end is proven only by the next one.
-					matrixLogMarker(t, server)
-				}()
-
-				results := window.Run(context.Background())
-				wg.Wait()
-
-				require.Len(t, results, 3)
-				require.NoError(t, results[0].IOErr)
-				matrixArtifactText(t, results[2])
-
-				body := matrixArtifactText(t, results[0])
-				closing := lastLine(matrixArtifactText(t, results[1]))
-
-				if !role.superuser {
-					assert.False(t, dbErrors.LogRead(), "the LOGIN-only role has no route to the log")
-					assert.Empty(t, body)
-					assert.Contains(t, closing, "db_errors_log_access=none db_errors_log_access_reason=unresolved")
-					assert.NotContains(t, closing, "db_errors_matched", "no count beside a log never read")
-
-					return
-				}
-
-				assert.True(t, dbErrors.LogRead())
-				assert.Contains(t, body, sentinel, "the error the window saw, with its statement")
-				assert.Contains(t, body, "division by zero")
-				assert.NotContains(t, body, "# engine=", "and not one line of the agent's")
-				assert.NotContains(t, body, "yc-360 log tail marker", "nor the WARNING after it")
-
-				assert.Contains(t, closing, "db_errors_log_access=direct db_errors_log_format=stderr db_errors_matched=")
-				assert.Contains(t, closing, "db_errors_dropped=0")
-				assert.NotContains(t, closing, "db_errors_matched=0")
-			})
-		}
-	}
-}
-
-func lastLine(text string) string {
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-
-	return lines[len(lines)-1]
 }
 
 func TestMatrixLogTailUnreadable(t *testing.T) {

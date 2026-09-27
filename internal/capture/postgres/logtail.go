@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Shared engine for pg_deadlocks.txt/pg_timeouts.txt/pg_checkpoint_log.txt and the errors tail; only the matcher differs. Body is raw bytes, not per-row.
+// Shared engine for pg_deadlocks.txt/pg_timeouts.txt/pg_checkpoint_log.txt/pg_errors.txt; only the matcher differs. Body is raw bytes, not per-row.
 // log_line_prefix may start with '#' and csvlog DETAIL fields hold real newlines, so no scan finds a terminator — bytes= marks the end.
 const (
 	// DefaultLogTailInterval is the poll cadence. Log is append-only (rotation renames, not truncates) so polling loses nothing, unlike pg_stat_activity's missed-sample loss.
@@ -90,11 +90,12 @@ const (
 	resolvedByGlob            = "glob"
 )
 
-// matchedBy is how events were recognised; on stderr always message.
+// matchedBy is how events were recognised; on stderr always message, unless by level.
 // SQLSTATE-via-%e was dropped: the one path where a match could succeed while the boundary rule ran blind.
 const (
 	matchedBySQLState = "sqlstate"
 	matchedByMessage  = "message"
+	matchedBySeverity = "severity"
 )
 
 // logSettings holds what log resolution needs, read on the tail's first sample.
@@ -247,6 +248,10 @@ func (s logSource) logAccessReason() string { return s.reason }
 // where no code is available, and wherever the matcher's every code is paired
 // with its message - a LOG line's 00000 names nothing, so the message decided.
 func (t *logTail) matchedBy() string {
+	if len(t.match.severity) > 0 {
+		return matchedBySeverity
+	}
+
 	if t.source.format == logFormatStderr || t.match.messageDecides() {
 		return matchedByMessage
 	}
