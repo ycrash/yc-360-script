@@ -310,6 +310,15 @@ func TestLogRedactionReEncodesOnlyTheFieldsItChanged(t *testing.T) {
 	})
 }
 
+// matchWritten is matchBody through a collector's redaction: what its file gets.
+func matchWritten(format logFormat, m eventMatch, redaction *logRedaction, data string) (body string, matched, redacted int) {
+	read := &tailRead{redaction: redaction}
+
+	events, _, _, matched := matchEvents([]byte(data), format, m, read)
+
+	return string(bytes.Join(events, nil)), matched, read.redacted
+}
+
 func readCSVRecord(t *testing.T, record string) []string {
 	t.Helper()
 

@@ -4562,9 +4562,12 @@ func TestMatrixLogTailErrors(t *testing.T) {
 				_, err := Connect(ctx, matrixTargetDB(server, superuser, "yc_no_such_database"))
 				require.Error(t, err, "a FATAL at connection")
 
-				// Last, so its arrival says every event before it has been read.
+				require.Error(t, matrixLogExec(t, worker, "SELECT 1/0"))
+
+				// Last, so its arrival says every event before it has been read. In a relation's
+				// name, which is kept where a statement is not.
 				sentinel := fmt.Sprintf("yc-360 errors tail %d", time.Now().UnixNano())
-				require.Error(t, matrixLogExec(t, worker, fmt.Sprintf(`SELECT 1/0 AS "%s"`, sentinel)))
+				require.Error(t, matrixLogExec(t, worker, fmt.Sprintf(`SELECT 1 FROM "%s"`, sentinel)))
 
 				var body strings.Builder
 
@@ -4583,9 +4586,10 @@ func TestMatrixLogTailErrors(t *testing.T) {
 				read := body.String()
 
 				assert.Equal(t, 1, strings.Count(read, "division by zero"))
-				assert.Equal(t, 1, strings.Count(read, "does not exist"), "the FATAL is taken")
-				assert.Contains(t, read, "SELECT 1/0 AS ",
-					"the statement comes with its error: a STATEMENT line, or the record's own field")
+				assert.Equal(t, 2, strings.Count(read, "does not exist"), "the FATAL is taken, and the sentinel")
+				assert.Contains(t, read, "<redacted>",
+					"the statement comes with its error, replaced: a STATEMENT line, or the record's own field")
+				assert.NotContains(t, read, "SELECT 1", "no statement's text is written")
 
 				assert.NotContains(t, read, "deadlock detected", "pg_deadlocks.txt's")
 				assert.NotContains(t, read, "statement timeout", "pg_timeouts.txt's")
