@@ -69,6 +69,7 @@ func (u IndexUsage) Artifact() Artifact {
 		Scope:      "database",
 		Schedule:   Periodic(u.Interval),
 		Connection: ConnectionExpensive,
+		Version:    sampleHeaderVersion,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already, and that
 		// is what this collector adds to the closing tick - Periodic's last sample
@@ -80,6 +81,8 @@ func (u IndexUsage) Artifact() Artifact {
 // S1 errors and writes nothing; a failed S2 leaves the size column empty but
 // still writes the sample.
 func (u IndexUsage) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, total, err := u.readStats(ctx, q)
 	if err != nil {
 		return err
@@ -87,13 +90,11 @@ func (u IndexUsage) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sam
 
 	sizesErr := readIndexSizes(ctx, q, rows)
 
+	reads := span{start, s.now()}
+
 	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
 		{"indexes_written", strconv.Itoa(len(rows))},
 		{"indexes_total", strconv.FormatInt(total, 10)},
-		{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 	}
 
 	if sizesErr != nil {
@@ -107,7 +108,15 @@ func (u IndexUsage) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sam
 	var block bytes.Buffer
 
 	// Named for the view read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_stat_user_indexes", u.Artifact().Scope, fields, s.At); err != nil {
+	// A failed size read is the block's status; its rows are still written.
+	if err := writeSampleHeader(&block, u.Artifact(), s, sampleHeader{
+		source:    "pg_stat_user_indexes",
+		reads:     reads,
+		status:    readStatus(sizesErr),
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}); err != nil {
 		return err
 	}
 

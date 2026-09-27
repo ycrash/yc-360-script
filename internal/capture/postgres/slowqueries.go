@@ -320,6 +320,7 @@ func (sq *SlowQueries) Artifact() Artifact {
 
 		Schedule:   Periodic(sq.Interval),
 		Connection: ConnectionNormal,
+		Version:    sampleHeaderVersion,
 
 		// Preflight + two reads on every sample: 3x StatementTimeout. Periodic's last sample is the close, so moduleDeadline sums this against Capacity and the connection's other closing-tick collectors.
 		SampleBudget: 3 * StatementTimeout,
@@ -330,7 +331,9 @@ func (sq *SlowQueries) Artifact() Artifact {
 // Info reads bracket the window (first on the opening sample, last on every later one) so the first and last stats_reset readings enclose everything between the endpoints.
 // Errors returned here are write failures; read errors are captured as error= header fields instead.
 func (sq *SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	ext, extErr := readExtension(ctx, q)
+	ext.reads = span{start, s.now()}
 
 	var sample bytes.Buffer
 
@@ -363,27 +366,25 @@ func (sq *SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s 
 // since an invented value would assert something nobody read;
 // library_loaded rides every capture so a "never created + never preloaded" combination stays visible, schema_usage rides only with reason=not_in_search_path,
 // and optional_columns rides wherever the view was readable even if the read then failed.
-// statements_total/truncated are likewise dropped, not zeroed, on a failed read.
+// statements_written/statements_total are likewise dropped, not zeroed, on a failed read.
 func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w io.Writer,
 	s SampleContext, ext extensionFacts, extErr error,
 ) error {
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
-
 	if extErr != nil {
 		sq.retainReason(s, s.errorText(extErr))
 
-		return sq.writeStatements(w, append(fields, headerField{"error", s.errorText(extErr)}), s.At, nil)
+		return sq.writeStatements(w, s, sampleHeader{
+			reads:  ext.reads,
+			status: readStatus(extErr),
+			fields: []headerField{{"error", s.errorText(extErr)}},
+		}, nil)
 	}
 
-	fields = append(fields,
-		headerField{"extension_version", ext.version},
-		headerField{"extension_schema", ext.schema},
-		headerField{"library_loaded", strconv.FormatBool(ext.libraryLoaded)},
-	)
+	fields := []headerField{
+		{"extension_version", ext.version},
+		{"extension_schema", ext.schema},
+		{"library_loaded", strconv.FormatBool(ext.libraryLoaded)},
+	}
 
 	if reason := ext.reason(); reason != "" {
 		if reason == reasonNotInSearchPath {
@@ -392,10 +393,16 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 
 		sq.retainReason(s, reason)
 
-		return sq.writeStatements(w, append(fields, headerField{"reason", reason}), s.At, nil)
+		return sq.writeStatements(w, s, sampleHeader{
+			reads:  ext.reads,
+			status: statusOK,
+			fields: append(fields, headerField{"reason", reason}),
+		}, nil)
 	}
 
+	start := s.now()
 	rows, total, err := sq.readStatements(ctx, q)
+	reads := span{start, s.now()}
 
 	cells, queriesTruncated := statementCells(rows)
 
@@ -410,24 +417,35 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	}
 
 	if err != nil {
-		return sq.writeStatements(w, append(fields, headerField{"error", s.errorText(err)}), s.At, nil)
+		return sq.writeStatements(w, s, sampleHeader{
+			reads:  reads,
+			status: readStatus(err),
+			fields: append(fields, headerField{"error", s.errorText(err)}),
+		}, nil)
 	}
 
 	fields = append(fields,
 		headerField{"statements_written", strconv.Itoa(len(rows))},
 		headerField{"statements_total", strconv.FormatInt(total, 10)},
-		headerField{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 	)
 
 	if queriesTruncated > 0 {
 		fields = append(fields, headerField{"queries_truncated", strconv.Itoa(queriesTruncated)})
 	}
 
-	return sq.writeStatements(w, fields, s.At, cells)
+	return sq.writeStatements(w, s, sampleHeader{
+		reads:     reads,
+		status:    statusOK,
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}, cells)
 }
 
-func (sq *SlowQueries) writeStatements(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
-	if err := writeBlockHeader(w, "pg_stat_statements", sq.Artifact().Scope, fields, at); err != nil {
+func (sq *SlowQueries) writeStatements(w io.Writer, s SampleContext, h sampleHeader, cells [][]string) error {
+	h.source = "pg_stat_statements"
+
+	if err := writeSampleHeader(w, sq.Artifact(), s, h); err != nil {
 		return err
 	}
 
@@ -435,36 +453,49 @@ func (sq *SlowQueries) writeStatements(w io.Writer, fields []headerField, at tim
 }
 
 // writeInfoBlock mirrors the statements block's reason= wherever the cause is shared,
-// and adds reasonViewAbsent, which is its alone.
+// and adds reasonViewAbsent, which is its alone. A block the preflight decided is
+// timed over the preflight.
 func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Writer,
 	s SampleContext, ext extensionFacts, extErr error,
 ) error {
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
-
 	if extErr != nil {
-		return sq.writeInfo(w, append(fields, headerField{"error", s.errorText(extErr)}), s.At, nil)
+		return sq.writeInfo(w, s, sampleHeader{
+			reads:  ext.reads,
+			status: readStatus(extErr),
+			fields: []headerField{{"error", s.errorText(extErr)}},
+		}, nil)
 	}
 
-	fields = append(fields, headerField{"extension_version", ext.version})
+	fields := []headerField{{"extension_version", ext.version}}
 
-	if reason := ext.reason(); reason != "" {
-		return sq.writeInfo(w, append(fields, headerField{"reason", reason}), s.At, nil)
+	reason := ext.reason()
+	if reason == "" && !ext.hasInfo {
+		reason = reasonViewAbsent
 	}
 
-	if !ext.hasInfo {
-		return sq.writeInfo(w, append(fields, headerField{"reason", reasonViewAbsent}), s.At, nil)
+	if reason != "" {
+		return sq.writeInfo(w, s, sampleHeader{
+			reads:  ext.reads,
+			status: statusOK,
+			fields: append(fields, headerField{"reason", reason}),
+		}, nil)
 	}
 
+	start := s.now()
 	row, err := readInfo(ctx, q)
+	reads := span{start, s.now()}
+
 	if err != nil {
-		return sq.writeInfo(w, append(fields, headerField{"error", s.errorText(err)}), s.At, nil)
+		return sq.writeInfo(w, s, sampleHeader{
+			reads:  reads,
+			status: readStatus(err),
+			fields: append(fields, headerField{"error", s.errorText(err)}),
+		}, nil)
 	}
 
-	return sq.writeInfo(w, fields, s.At, infoCells(row))
+	cells := infoCells(row)
+
+	return sq.writeInfo(w, s, sampleHeader{reads: reads, status: statusOK, rows: len(cells), fields: fields}, cells)
 }
 
 // retain offers every sample's read to Explain, which walks it for shapes it has not
@@ -479,8 +510,10 @@ func (sq *SlowQueries) retainReason(s SampleContext, reason string) {
 	sq.offer(statementFeed{sample: s.Index, reason: reason})
 }
 
-func (sq *SlowQueries) writeInfo(w io.Writer, fields []headerField, at time.Time, cells [][]string) error {
-	if err := writeBlockHeader(w, "pg_stat_statements_info", sq.Artifact().Scope, fields, at); err != nil {
+func (sq *SlowQueries) writeInfo(w io.Writer, s SampleContext, h sampleHeader, cells [][]string) error {
+	h.source = "pg_stat_statements_info"
+
+	if err := writeSampleHeader(w, sq.Artifact(), s, h); err != nil {
 		return err
 	}
 
@@ -717,6 +750,9 @@ type extensionFacts struct {
 	hasInfo         bool
 	meetsMinVersion bool
 	optionalColumns *string
+
+	// reads is when the preflight ran.
+	reads span
 }
 
 // reason returns which of the four absences applies, empty when the view can be read.

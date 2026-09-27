@@ -61,7 +61,7 @@ require (
 	github.com/go-openapi/swag v0.29.0 // indirect
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/google/gnostic-models v0.7.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/google/uuid v1.6.0
 	github.com/gookit/color v1.6.1 // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

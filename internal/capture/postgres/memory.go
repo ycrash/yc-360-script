@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"strconv"
 	"time"
 )
 
@@ -66,6 +65,7 @@ func (m Memory) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(m.Interval),
 		Connection: ConnectionNormal,
+		Version:    sampleHeaderVersion,
 
 		// No SampleBudget: the privilege check and the read are DefaultSampleBudget's
 		// two statements.
@@ -76,16 +76,16 @@ func (m Memory) Artifact() Artifact {
 // with no rows, since it recurs every sample for this role; any other failure
 // errors and writes nothing, and the window writes the stub.
 func (m Memory) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, denied, err := readMemory(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
+	reads := span{start, s.now()}
+
+	var fields []headerField
 
 	if denied {
 		fields = append(fields, headerField{"reason", reasonPermissionDenied})
@@ -95,7 +95,13 @@ func (m Memory) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 	var block bytes.Buffer
 
 	// Named for the view read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_shmem_allocations", m.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(&block, m.Artifact(), s, sampleHeader{
+		source: "pg_shmem_allocations",
+		reads:  reads,
+		status: statusOK,
+		rows:   len(rows),
+		fields: fields,
+	}); err != nil {
 		return err
 	}
 

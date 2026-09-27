@@ -214,12 +214,14 @@ func runCapacityWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{Capacity{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{Capacity{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -247,13 +249,23 @@ func capacityBlocks(t *testing.T, sample string) map[string]capacityBlock {
 
 	blocks := make(map[string]capacityBlock)
 
-	var current string
+	var current, capture string
 
 	for line := range strings.SplitSeq(strings.TrimSuffix(sample, "\n"), "\n") {
+		if strings.HasPrefix(line, "# capture_id=") {
+			require.Empty(t, capture, "a capture line is followed by its sample line")
+			capture = line
+
+			continue
+		}
+
 		if strings.HasPrefix(line, "#") {
+			require.NotEmpty(t, capture, "a sample line follows its capture line")
+
 			current = sourceOf(t, line)
 			require.NotContains(t, blocks, current, "one block per source in one sample")
-			blocks[current] = capacityBlock{header: line}
+			blocks[current] = capacityBlock{header: capture + "\n" + line}
+			capture = ""
 
 			continue
 		}
@@ -268,6 +280,7 @@ func capacityBlocks(t *testing.T, sample string) map[string]capacityBlock {
 	return blocks
 }
 
+// capacityBlock's header is both of its header lines.
 type capacityBlock struct {
 	header string
 	body   []string
@@ -314,8 +327,9 @@ func TestCapacityArtifact(t *testing.T) {
 		"seven statements on every sample from 17, and Periodic's last sample is the close, "+
 			"which moduleDeadline sums - leaving it zero would size the shared tick for two")
 
-	assert.Equal(t, 2, artifact.Version,
-		"the checkpoint counters' blocks and columns were renamed, which a reader of v=1 gets wrong")
+	assert.Equal(t, 3, artifact.Version,
+		"the checkpoint counters' blocks and columns were renamed at 2, and a sample block's "+
+			"header became two lines at 3; a reader of either earlier version gets this one wrong")
 }
 
 func TestCapacityColumnOrder(t *testing.T) {
@@ -623,7 +637,7 @@ func TestCapacityWritesTheWholeSampleInOneWrite(t *testing.T) {
 	assert.Equal(t, 1, writer.writes,
 		"six blocks, one buffer, one Write: a write failing between two of them would leave "+
 			"the window's stub behind a half-written sample")
-	assert.Equal(t, 6, strings.Count(writer.buf.String(), "# engine=postgres"))
+	assert.Equal(t, 6, strings.Count(writer.buf.String(), "# capture_id="))
 }
 
 func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
@@ -654,17 +668,17 @@ func TestCapacityStampsItsOwnVersionOnEveryBlock(t *testing.T) {
 
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
-	headers := 0
+	blocks := 0
 
 	for line := range strings.SplitSeq(artifactText(t, results[0]), "\n") {
-		if strings.HasPrefix(line, "#") {
-			headers++
+		if strings.HasPrefix(line, "# engine=") || strings.HasPrefix(line, "# capture_id=") {
+			blocks++
 
-			assert.Contains(t, line, " v=2 ", "the window's blocks and the collector's alike")
+			assert.Contains(t, line, " v=3 ", "the window's blocks and the collector's alike")
 		}
 	}
 
-	assert.Equal(t, 14, headers, "the preamble, six blocks in each of two samples, and the close")
+	assert.Equal(t, 14, blocks, "the preamble, six blocks in each of two samples, and the close")
 }
 
 func TestCapacityDatabaseBlockIsTheConnectedDatabasesRow(t *testing.T) {
@@ -673,7 +687,8 @@ func TestCapacityDatabaseBlockIsTheConnectedDatabasesRow(t *testing.T) {
 
 	block := capacityBlocks(t, takeCapacitySample(t, newFakeCapacityConn(), Capacity{}))["pg_stat_database"]
 
-	assert.Contains(t, block.header, "scope=database db=orders_db dbid=16401 sample=2",
+	assert.Contains(t, block.header, " db=orders_db dbid=16401\n# sample_id=2 source=pg_stat_database ")
+	assert.Contains(t, block.header, " scope=database ",
 		"the row is one database's, in a file whose other blocks are the server's")
 	assert.Equal(t, [][]string{{"442198", "9532", "8823401", "158220", "268435456"}},
 		block.rows(t, databaseColumns))
@@ -703,7 +718,7 @@ func TestCapacityConnectionBlockGroupsRatherThanFilters(t *testing.T) {
 
 	block := capacityBlocks(t, takeCapacitySample(t, newFakeCapacityConn(), Capacity{}))["pg_stat_activity_by_app"]
 
-	assert.Contains(t, block.header, "groups_written=10 groups_total=10 truncated=false")
+	assert.Contains(t, block.header, "rows=10 truncated=false scope=cluster groups_written=10 groups_total=10")
 
 	rows := block.rows(t, connectionColumns)
 	require.Len(t, rows, 10)
@@ -749,7 +764,7 @@ func TestCapacityCapCutsOnIdentitySoSamplesAgree(t *testing.T) {
 
 	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{MaxConnectionGroups: 3}))["pg_stat_activity_by_app"]
 
-	assert.Contains(t, block.header, "groups_written=3 groups_total=4120 truncated=true",
+	assert.Contains(t, block.header, "rows=3 truncated=true scope=cluster groups_written=3 groups_total=4120",
 		"a capped block must not read as a complete one")
 
 	require.Len(t, block.rows(t, connectionColumns), 3)
@@ -857,6 +872,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 func TestCapacityGoldenPre17(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.hasPgStatCheckpointer = false
+	conn.engineVersion = "160008"
 
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 

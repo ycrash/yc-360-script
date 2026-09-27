@@ -26,6 +26,7 @@ const testPassword = "s3cr3t-do-not-log"
 
 func testTarget() Target {
 	return Target{
+		ID:       "orders-primary",
 		Host:     "db-prod-01.internal",
 		Port:     5432,
 		Database: "orders_db",
@@ -571,4 +572,16 @@ func TestStatementDeadlineSitsAboveTheServerTimeout(t *testing.T) {
 			"equal values the client's timer fires first, pgx closes the connection when a "+
 			"context expires mid-statement, and one slow statement ends the window as "+
 			"connection_lost instead of one error= block")
+}
+
+func TestTargetIDIsItsNameOrItsAddress(t *testing.T) {
+	assert.Equal(t, "orders-primary", testTarget().id())
+
+	unnamed := testTarget()
+	unnamed.ID = ""
+	assert.Equal(t, "db-prod-01.internal:5432/orders_db", unnamed.id(),
+		"a target built without a name is named by what it connects to")
+
+	unnamed.Host = "fd00::12"
+	assert.Equal(t, "[fd00::12]:5432/orders_db", unnamed.id(), "an IPv6 address keeps its port apart")
 }

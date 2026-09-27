@@ -86,12 +86,14 @@ func runTablespacesWindow(t *testing.T, clock *scriptedClock, target Target,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     target,
-		Duration:   120 * time.Second,
-		Collectors: []Collector{Tablespaces{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         target,
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{Tablespaces{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -193,7 +195,7 @@ func TestTablespacesGoldenSampleError(t *testing.T) {
 
 	conn := newFakeTablespacesConn()
 	conn.sizes = queue(
-		errResult(errors.New("ERROR: canceling statement due to statement timeout")),
+		errResult(statementTimedOut()),
 		rowsResult(tablespaceSizesEnd()),
 	)
 
@@ -289,7 +291,7 @@ func TestTablespacesIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	block := takeTablespaceSample(t, conn)
 
 	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
-	require.Len(t, lines, 3, "block header, column header, and exactly one data line")
+	require.Len(t, lines, 4, "the two header lines, the column header, and exactly one data line")
 
 	rows := tablespaceRows(t, block)
 	require.Len(t, rows, 1)

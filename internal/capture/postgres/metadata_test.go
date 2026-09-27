@@ -61,12 +61,14 @@ func runMetadataWindow(t *testing.T, clock *scriptedClock, collector *MetadataCo
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{collector},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{collector},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())

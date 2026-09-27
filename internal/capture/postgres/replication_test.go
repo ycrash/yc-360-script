@@ -210,12 +210,14 @@ func runReplicationWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   20 * time.Second,
-		Collectors: []Collector{Replication{Interval: 10 * time.Second}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       20 * time.Second,
+		Collectors:     []Collector{Replication{Interval: 10 * time.Second}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -452,10 +454,10 @@ func TestReplicationWritesBothBlocksOnEverySample(t *testing.T) {
 
 	assert.Less(t, strings.Index(sample, "source=pg_stat_replication"),
 		strings.Index(sample, "source=pg_replication_slots"),
-		"senders first, and the sample= key is what groups the two")
+		"senders first, and the sample_id= key is what groups the two")
 
 	for _, source := range []string{"pg_stat_replication", "pg_replication_slots"} {
-		assert.Contains(t, blocks[source].header, "sample=1", source)
+		assert.Contains(t, blocks[source].header, "sample_id=1", source)
 		assert.Contains(t, blocks[source].header, "scope=cluster", source)
 		assert.Contains(t, blocks[source].header, "db=orders_db dbid=16401", source)
 	}
@@ -473,7 +475,7 @@ func TestReplicationWritesTheWholeSampleInOneWrite(t *testing.T) {
 	assert.Equal(t, 1, writer.writes,
 		"two blocks, one buffer, one Write: a write failing between them would leave the "+
 			"window's stub behind a half-written sample")
-	assert.Equal(t, 2, strings.Count(writer.buf.String(), "# engine=postgres"))
+	assert.Equal(t, 2, strings.Count(writer.buf.String(), "# capture_id="))
 }
 
 func TestReplicationZeroRowsWritesTheColumnHeadersAlone(t *testing.T) {

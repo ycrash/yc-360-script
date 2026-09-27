@@ -55,13 +55,17 @@ The goldens:
   connection it would be `unknown` by construction, and the closing block says
   the same thing about the capture rather than about the server.
 - `pg_bloat_full.txt` — a complete sampled capture: the preamble, two sample
-  blocks, and the closing block that says both were written.
+  blocks, and the closing block that says both were written. Each sample block
+  opens with two header lines, the capture line and the sample line (see *Reader
+  requirements*); the preamble and the closing block keep one.
 - `pg_bloat_connect_failure.txt` — the sampled equivalent of the above. Two
   lines, and the file exists at all because the preamble is written and synced
   before the connection is attempted.
 - `pg_bloat_sample_error.txt` — one sample's statement timed out. The window
-  writes the stub block carrying `sample_error=`, the window does not stop, and
-  the closing block says `status=partial`.
+  writes the stub block carrying `sample_error=`, a sample block like the others
+  with `status=TIMEOUT`, `rows=0` and the times of the whole sample; the window
+  does not stop, and the closing block says `status=partial`. The error is the
+  server's `57014`, which is what makes it `TIMEOUT` rather than `ERROR`.
 - `pg_bloat_connection_lost.txt` — the connection died under the window (spec
   v1.2 §6's mid-capture disconnect). The sample that found out writes its stub,
   the timeline stops there rather than ticking against a closed connection, and
@@ -131,7 +135,8 @@ The goldens:
   catalog's own order, with no sort and no cap. The first two are
   `scope=database`: they are the connected database's own catalogs, so a lock in
   another database keeps its OIDs. `pg_database` is `scope=cluster`. Blocks carry
-  `sample=1`, as `pg_metadata.txt`'s server block does. Uploads under
+  `sample=1` on their one header line, as `pg_metadata.txt`'s server block
+  does: the file is read once, not sampled. Uploads under
   `dt=pgCatalogMap`, proposed and unconfirmed.
 - `pg_catalog_map_connect_failure.txt` — two lines, `samples_expected=1`.
 - `pg_catalog_map_block_error.txt` — the `pg_class` read timed out: its block
@@ -179,7 +184,8 @@ The goldens:
   a buffer). Each carries its own view's `stats_reset`, and the three differ:
   the views reset independently from 17 on. Then the connected database's
   `pg_stat_database` row, `scope=database` in a cluster file, the connection
-  groups and the WAL size. Every block is `v=2`, the file's own version.
+  groups and the WAL size. Every block is `v=3`, the file's own version, on the
+  capture line of a sample block and on the preamble and the closing block.
 - `pg_capacity_pre17.txt` — the same capture against 14–16. One checkpoint
   block, `source=pg_stat_bgwriter`, the view that held all five counters then,
   under their old names and with its one `stats_reset`. The counters carry the
@@ -197,7 +203,7 @@ The goldens:
 - `pg_replication_full.txt` — a complete interval capture of a primary, on a 30s
   window so three samples fit on a page. **Two blocks per sample**: the
   connected WAL senders and the replication slots, in that order, sharing one
-  `sample=` and one `ts=`. One replica and two slots — a physical slot held by
+  `sample_id=` and one `ts=`. One replica and two slots — a physical slot held by
   the replica whose `active_pid` equals the `pid` in the block above it, and an
   abandoned logical slot with no consumer, which is the WAL-exhaustion incident.
   The slots are ordered by `slot_name`, so the logical one leads. `safe_wal_size`
@@ -241,7 +247,7 @@ The goldens:
 - `pg_sessions_full.txt` — a complete interval capture on a 6s window at a 2s
   cadence, so three samples fit on a page; the default 120s window is the same
   shape with sixty. **Two blocks per sample**, `pg_stat_activity` then `pg_locks`,
-  sharing one `sample=` and one `ts=`. The cluster is a blocking chain: 1093 holds
+  sharing one `sample_id=` and one `ts=`. The cluster is a blocking chain: 1093 holds
   a row lock and sleeps inside its transaction, 1105 waits on 1093's transaction
   id and 1106 waits on the tuple lock 1105 now holds. The head of a chain is the
   session waiting on nothing — 1093 is `active` on `wait_event_type=Timeout`, not
@@ -349,7 +355,7 @@ The goldens:
   reset landing between the opening statements read and its info read would
   invalidate the whole file while leaving the two `stats_reset` values equal.
   Read outermost, the two readings enclose every other read in the window.
-  Within one `sample=` the block order is parser-neutral — it dispatches on
+  Within one `sample_id=` the block order is parser-neutral — it dispatches on
   `source=` — and both blocks carry the sample's single clock read as `ts=`.
   What the block cannot see is a **targeted** `pg_stat_statements_reset(userid,
   dbid, queryid)`: verified live on 18, it moves neither value. On extension
@@ -578,6 +584,30 @@ pin the rule below against the driver text that motivates it.
   The lines are unambiguous — the writer flattens every value onto one line, so
   one record is one line, and a line beginning with `#` is a block header and
   nothing else is.
+- **A periodic file's sample block has two header lines**, the capture line and
+  then the sample line:
+
+  ```
+  # capture_id=<uuid> target_id=<id> engine=postgres engine_version=<server_version_num> v=<n> format=<f> db=<db> dbid=<oid>
+  # sample_id=<n> source=<source> start_ts=<ts> end_ts=<ts> duration_ms=<n> status=<status> rows=<n> truncated=<bool> scope=<scope> [k=v ...] ts=<ts>
+  ```
+
+  A block begins at a line starting `# capture_id=` or `# engine=`; a capture
+  line is always followed by its sample line, and the body follows the sample
+  line. The periodic files are the twelve SQL-sampled ones: `pg_sessions.txt`,
+  `pg_health.txt`, `pg_xid_age.txt`, `pg_replication.txt`,
+  `pg_nondefault_settings.txt`, `pg_memory.txt`, `pg_capacity.txt`,
+  `pg_bloat.txt`, `pg_index_usage.txt`, `pg_tablespaces.txt`,
+  `pg_slow_queries.txt` and `pg_explain.txt`, whose plan blocks are its sample
+  blocks. Their preamble and closing block, `pg_explain.txt`'s summaries, its
+  unclaimed logged plans and its disabled marker, and every block of
+  `pg_metadata.txt`, `pg_catalog_map.txt`, the four log tails and `pg_m3.txt`
+  keep one line. On each line the spec's keys come first, in the spec's order,
+  and ours after them. The capture line is the same on every sample block of a
+  file: `capture_id` is one UUID for the whole run, the same in every file;
+  `target_id` names the target; `engine_version` is the server's
+  `server_version_num`, read when the connection is identified, and empty if that
+  read failed. Across files only `v=` and `format=` may differ.
 - **Parse each block's body separately**, between its own header and the next.
   Every block that has a body opens it with its own column header, so a block is
   readable without the one before it — and a parser that concatenates the bodies
@@ -620,7 +650,8 @@ pin the rule below against the driver text that motivates it.
   count is never their sample count — on the default window `pg_sessions.txt`
   writes 120 sample blocks for 60 samples. Group a
   collector's
-  blocks into samples by `sample=`, which every one of them carries; the
+  blocks into samples by `sample_id=`, which every one of them carries (`sample=`
+  on a block with one header line); the
   artifact's own `samples_expected` and `samples_written` are about samples and
   nothing else.
 - **A block whose own read failed is still written**, with `error=` in its
@@ -629,13 +660,37 @@ pin the rule below against the driver text that motivates it.
   one that says why it is empty, and it is still a complete sample. The
   artifact-level stub — `sample_error=` on a block naming the artifact — is a
   different thing, and means the collector could not localise the failure at
-  all.
+  all. In a periodic file both are sample blocks, and `status=` says how the
+  read ended.
 
 ### Block header keys
 
-Split the header on unquoted whitespace into `k=v` tokens. `engine`, `source`,
-`v`, `format` and `scope` always lead and `ts` always closes, so a block's
-identity and its clock read are readable without parsing the middle.
+Split the header on unquoted whitespace into `k=v` tokens. On a one-line header
+`engine`, `source`, `v`, `format` and `scope` always lead and `ts` always closes,
+so a block's identity and its clock read are readable without parsing the
+middle; on a sample block the capture line's eight keys are fixed, and the
+sample line's nine lead and `ts` closes it.
+
+- The sample line's keys are the block's own read. `start_ts` and `end_ts` are
+  when the block's first statement began and its last ended, and `duration_ms`
+  the difference in whole milliseconds; all three are empty on a block no
+  statement was run for (a logged plan, a shape past the plan limit). A
+  statement two blocks rely on is timed on the block its answer decides:
+  `pg_slow_queries.txt`'s preflight on a block whose `reason=` or `error=` is
+  its. A stub is timed over the whole sample. `rows` is the body's data rows,
+  and on a plan block the plans in it, `1` or `0`. `truncated` is `true` where a
+  row cap cut the block, and on a plan block where the plan was cut at its size
+  cap, `false` everywhere else.
+- `status=` on a sample block is `OK`, `ERROR` or `TIMEOUT`, and `TRUNCATED` on
+  a plan cut at its cap, which its `plan_truncated=true` also says. `OK` includes a block whose data is absent by design
+  and says why with `reason=` (a refused privilege, an extension not created, a
+  server without the column). `ERROR` is a failed statement behind the block,
+  with its `error=` or, on a stub, `sample_error=`; a block that still wrote its
+  rows after one of its statements failed (`sizes=unavailable`) is `ERROR` too.
+  `TIMEOUT` is that failure being SQLSTATE `57014` or the client's own
+  deadline. A cancelled window is `ERROR`. On a preamble or closing block,
+  `status=` keeps its own values: `started`, `complete`, `partial`,
+  `connection_lost`, `connect_failed`, `cancelled` and `deadline_exceeded`.
 
 - A key written with an empty value means "not read" — `dbid=` before a
   connection exists. It is not the same as the key being absent.
@@ -657,9 +712,11 @@ identity and its clock read are readable without parsing the middle.
   `track_activity_query_size`, ends a statement mid-token with no marker at all —
   `pg_metadata.txt` records that limit so the two stay tellable apart.
   `pg_capacity.txt`'s
-  connection block goes further and drops its three count keys when the read
+  connection block goes further and drops its two count keys when the read
   failed: `groups_total=0` would assert that the server has no connections,
-  where the truth is that nobody could count them.
+  where the truth is that nobody could count them. Its sample line still says
+  `rows=0 truncated=false`, which count what the block holds, beside
+  `status=ERROR` or `TIMEOUT`.
 - `redacted=` counts the values a block's text had replaced with `<redacted>`,
   `0` included, on every block that carries captured text: each
   `pg_nondefault_settings.txt` sample, each `pg_deadlocks.txt` and
@@ -682,11 +739,11 @@ identity and its clock read are readable without parsing the middle.
   with near-identical `ts=` mean the sampler was catching up. `interval=` is
   the nominal cadence, there to be compared against `ts=`.
 - **`ts=` is the sample's clock read, not the block's.** Every block of one
-  `sample=` carries the same value, taken before the sample's first statement
+  `sample_id=` carries the same value, taken before the sample's first statement
   ran — so in `pg_capacity.txt` the WAL block's `ts=` can precede its own read
-  by as much as six statement timeouts. Equal `ts=` within one `sample=` is by
-  construction and says nothing about the sampler catching up; the rule above
-  applies across samples.
+  by as much as six statement timeouts, which its `start_ts=` shows. Equal `ts=`
+  within one `sample_id=` is by construction and says nothing about the sampler
+  catching up; the rule above applies across samples.
 
 ### Versioning
 
@@ -707,11 +764,18 @@ has ever been classified and nothing has ever read one.
 **That exemption is spent**, and the next shape change moved `v` onto
 `Artifact` (`Version`, `1` when unset), so a break in one file bumps that file
 alone and does not announce one in `pg_bloat.txt` or `pg_health.txt`.
-`pg_capacity.txt` is `v=2`, on every one of its blocks: its checkpoint counters
-left one `source=pg_checkpointer` block, with the pre-17 names on every version
-and `views=` saying which views were read, for a block per view under the
-view's own names, which a reader of `v=1` gets wrong. Every other artifact is
-`v=1`.
+`pg_capacity.txt` went to `v=2` when its checkpoint counters left one
+`source=pg_checkpointer` block, with the pre-17 names on every version and
+`views=` saying which views were read, for a block per view under the view's
+own names, which a reader of `v=1` gets wrong.
+
+The twelve periodic files then went up one more, `pg_capacity.txt` to `v=3` and
+the other eleven to `v=2`, on every one of their blocks: a sample block's header
+became two lines, its `sample=` became `sample_id=`, and `truncated=` moved from
+among the collector's keys to the sample line's fixed ones, where it is now on
+every sample block. A reader of the earlier version reads the capture line as a
+block of its own and finds no `sample=`. `pg_metadata.txt`, `pg_catalog_map.txt`,
+the four log tails and `pg_m3.txt` did not change and are `v=1`.
 
 The tablespace block added to `pg_metadata.txt` on 2026-09-02 is not that case,
 and the distinction is worth stating once: it is a **fifth block under a new

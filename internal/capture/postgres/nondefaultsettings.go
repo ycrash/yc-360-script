@@ -48,6 +48,7 @@ func (n NonDefaultSettings) Artifact() Artifact {
 		Scope:      "database",
 		Schedule:   Periodic(n.Interval),
 		Connection: ConnectionExpensive,
+		Version:    sampleHeaderVersion,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
 		// the close, and the connection's closing tick is sized from this.
@@ -58,25 +59,28 @@ func (n NonDefaultSettings) Artifact() Artifact {
 // Sample runs the one statement and writes one block. A statement that fails
 // errors and writes nothing, and the window writes the stub.
 func (n NonDefaultSettings) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, err := readNonDefaultSettings(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	cells, redacted := nonDefaultSettingsCells(rows)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-		{"redacted", strconv.Itoa(redacted)},
-	}
+	cells, redacted := nonDefaultSettingsCells(rows)
 
 	// Buffered so a write failure never leaves a half-written body.
 	var block bytes.Buffer
 
 	// Named for the view read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_settings", n.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(&block, n.Artifact(), s, sampleHeader{
+		source: "pg_settings",
+		reads:  reads,
+		status: statusOK,
+		rows:   len(rows),
+		fields: []headerField{{"redacted", strconv.Itoa(redacted)}},
+	}); err != nil {
 		return err
 	}
 

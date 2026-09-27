@@ -76,12 +76,14 @@ func runXIDAgeWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{XIDAge{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{XIDAge{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -181,7 +183,7 @@ func TestXIDAgeGoldenSampleError(t *testing.T) {
 
 	conn := newFakeXIDAgeConn()
 	conn.ages = queue(
-		errResult(errors.New("ERROR: canceling statement due to statement timeout")),
+		errResult(statementTimedOut()),
 		rowsResult(xidAgesEnd()),
 	)
 
@@ -233,7 +235,7 @@ func TestXIDAgeIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	block := takeXIDAgeSample(t, conn)
 
 	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
-	require.Len(t, lines, 3, "block header, column header, and exactly one data line")
+	require.Len(t, lines, 4, "the two header lines, the column header, and exactly one data line")
 
 	rows := xidAgeRows(t, block)
 	require.Len(t, rows, 1)

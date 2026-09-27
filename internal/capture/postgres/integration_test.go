@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -781,18 +782,32 @@ func parseSampleBlocks(t *testing.T, artifact, source string) []sampleBlock {
 	var (
 		blocks  []sampleBlock
 		current *sampleBlock
+		capture string
 	)
 
 	for _, line := range strings.Split(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "# capture_id=") {
+			current, capture = nil, line
+
+			continue
+		}
+
 		if strings.HasPrefix(line, "#") {
 			current = nil
+
+			head := line
+			if capture != "" {
+				head = capture + "\n" + line
+			}
+
+			capture = ""
 
 			if !strings.Contains(line, "source="+source+" ") {
 				continue
 			}
 
 			header := map[string]string{}
-			for _, token := range strings.Fields(strings.TrimPrefix(line, "# ")) {
+			for _, token := range strings.Fields(strings.ReplaceAll(head, "# ", " ")) {
 				key, value, found := strings.Cut(token, "=")
 				if found {
 					header[key] = value
@@ -800,7 +815,7 @@ func parseSampleBlocks(t *testing.T, artifact, source string) []sampleBlock {
 			}
 
 			blocks = append(blocks, sampleBlock{
-				header: header, rawHead: line, rows: map[string][]string{},
+				header: header, rawHead: head, rows: map[string][]string{},
 			})
 			current = &blocks[len(blocks)-1]
 
@@ -1860,9 +1875,10 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 		database              string
 		dbid                  *string
 		hasPgStatCheckpointer bool
+		engineVersion         string
 	)
 	require.NoError(t, conn.QueryRow(ctx, currentDatabaseSQL).
-		Scan(&database, &dbid, &hasPgStatCheckpointer))
+		Scan(&database, &dbid, &hasPgStatCheckpointer, &engineVersion))
 	require.Equal(t, "yc_second", database)
 	require.NotNil(t, dbid)
 
@@ -1943,24 +1959,38 @@ func parseCapacityBlocks(t *testing.T, artifact, source string) []capacityMatrix
 	var (
 		blocks  []capacityMatrixBlock
 		current *capacityMatrixBlock
+		capture string
 	)
 
 	for _, line := range strings.Split(strings.TrimSuffix(artifact, "\n"), "\n") {
+		if strings.HasPrefix(line, "# capture_id=") {
+			current, capture = nil, line
+
+			continue
+		}
+
 		if strings.HasPrefix(line, "#") {
 			current = nil
+
+			head := line
+			if capture != "" {
+				head = capture + "\n" + line
+			}
+
+			capture = ""
 
 			if !strings.Contains(line, "source="+source+" ") {
 				continue
 			}
 
 			header := map[string]string{}
-			for _, token := range strings.Fields(strings.TrimPrefix(line, "# ")) {
+			for _, token := range strings.Fields(strings.ReplaceAll(head, "# ", " ")) {
 				if key, value, found := strings.Cut(token, "="); found {
 					header[key] = value
 				}
 			}
 
-			blocks = append(blocks, capacityMatrixBlock{header: header, rawHead: line})
+			blocks = append(blocks, capacityMatrixBlock{header: header, rawHead: head})
 			current = &blocks[len(blocks)-1]
 
 			continue
@@ -2117,7 +2147,7 @@ func assertMatrixCheckpointShape(t *testing.T, server matrixServer, artifact str
 		for i, block := range blocks[want.source] {
 			assert.NotContains(t, block.rawHead, "error=",
 				"%s block %d: reading the checkpoint counters needs no grant", want.source, i)
-			assert.Equal(t, "2", block.header["v"], "%s block %d", want.source, i)
+			assert.Equal(t, "3", block.header["v"], "%s block %d", want.source, i)
 			assert.Equal(t, want.columns, block.columns,
 				"%s block %d: the view's own column names, on the server that has the view", want.source, i)
 
@@ -5997,6 +6027,7 @@ func TestMatrixSlowStatementFailsWithoutLosingTheConnection(t *testing.T) {
 			require.Error(t, err, "the statement was expected to be cancelled")
 			assert.True(t, hasSQLState(err, "57014"),
 				"query_canceled from the server, not the client's deadline: %v", err)
+			assert.Equal(t, statusTimeout, readStatus(err), "the block it ends says status=TIMEOUT")
 			assert.False(t, conn.Lost(), "the connection survives a statement the server cancelled")
 			assert.Less(t, elapsed, StatementDeadline, "the server answered before the client deadline")
 
@@ -6010,5 +6041,162 @@ func TestMatrixSlowStatementFailsWithoutLosingTheConnection(t *testing.T) {
 			t.Logf("pg%d: cancelled by the server after %s: %v",
 				server.major, elapsed.Round(time.Millisecond), err)
 		})
+	}
+}
+
+const matrixSampleHeaderWindow = 2 * time.Second
+
+// matrixHeaderBlock is one sample block: its two header lines and its body's lines.
+type matrixHeaderBlock struct {
+	capture string
+	sample  string
+	body    []string
+}
+
+func matrixSampleHeaderBlocks(t *testing.T, artifact string) []matrixHeaderBlock {
+	t.Helper()
+
+	var (
+		blocks  []matrixHeaderBlock
+		current *matrixHeaderBlock
+	)
+
+	lines := strings.Split(strings.TrimSuffix(artifact, "\n"), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		switch {
+		case strings.HasPrefix(line, "# capture_id="):
+			require.Less(t, i+1, len(lines), "a capture line is followed by its sample line")
+			require.True(t, strings.HasPrefix(lines[i+1], "# sample_id="), "a capture line is followed by its sample line")
+
+			blocks = append(blocks, matrixHeaderBlock{capture: line, sample: lines[i+1]})
+			current = &blocks[len(blocks)-1]
+			i++
+
+		case strings.HasPrefix(line, "#"):
+			current = nil
+
+		case current != nil:
+			current.body = append(current.body, line)
+		}
+	}
+
+	return blocks
+}
+
+// Every periodic file's sample blocks carry the capture line and the sample line on a real
+// server, for every role, and the other files keep their one line.
+func TestMatrixSampleHeader(t *testing.T) {
+	for _, server := range matrixServers {
+		for _, role := range matrixRoles {
+			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
+				target := matrixTarget(server, role)
+				target.ID = fmt.Sprintf("matrix-pg%d", server.major)
+
+				ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+				defer cancel()
+
+				conn, err := Connect(ctx, target)
+				require.NoError(t, err)
+
+				var versionNum string
+				require.NoError(t, conn.QueryRow(ctx, "SELECT current_setting('server_version_num')").Scan(&versionNum))
+				require.NoError(t, conn.Close(ctx))
+
+				t.Chdir(t.TempDir())
+
+				slowQueries := NewSlowQueries()
+				slowQueries.Interval = time.Second
+
+				window := &Window{
+					Duration: matrixSampleHeaderWindow,
+					Target:   target,
+					Collectors: []Collector{
+						NewMetadata(target, "matrix", time.Now(), ""),
+						Sessions{Interval: time.Second},
+						Health{Interval: time.Second},
+						XIDAge{Interval: time.Second},
+						Replication{Interval: time.Second},
+						Memory{Interval: time.Second},
+						Capacity{Interval: time.Second},
+						slowQueries,
+						NonDefaultSettings{Interval: time.Second},
+						Bloat{Interval: time.Second},
+						IndexUsage{Interval: time.Second},
+						Tablespaces{Interval: time.Second},
+					},
+				}
+
+				var capture map[string]string
+
+				for _, result := range window.Run(context.Background()) {
+					name := result.Artifact.Name
+					require.Equal(t, StatusComplete, result.Status, name)
+
+					blocks := matrixSampleHeaderBlocks(t, matrixArtifactText(t, result))
+
+					if !result.Artifact.periodic() {
+						assert.Empty(t, blocks, "%s keeps its one header line", name)
+
+						continue
+					}
+
+					require.NotEmpty(t, blocks, name)
+
+					for i, block := range blocks {
+						assert.Equal(t, blocks[0].capture, block.capture, "%s block %d: one capture line in a file", name, i)
+						assert.Contains(t, block.capture, fmt.Sprintf(" v=%d ", artifactVersion(result.Artifact)), name)
+
+						run := headerFields(t, block.capture)
+						delete(run, "v")
+
+						if capture == nil {
+							capture = run
+						}
+
+						assert.Equal(t, capture, run, "%s block %d: the run, target and server are every file's", name, i)
+
+						fields := headerFields(t, block.sample)
+						assert.Equal(t, statusOK, fields["status"], "%s block %d: %s", name, i, block.sample)
+						assert.NotContains(t, fields, "error", "%s block %d", name, i)
+						assert.Equal(t, "false", fields["truncated"], "%s block %d: the fixture is under every cap", name, i)
+						assert.Equal(t, strconv.Itoa(len(block.body)-1), fields["rows"],
+							"%s block %d: rows= is the body's data rows", name, i)
+
+						sampleID, err := strconv.Atoi(fields["sample_id"])
+						require.NoError(t, err)
+						assert.GreaterOrEqual(t, sampleID, 1)
+						assert.LessOrEqual(t, sampleID, result.SamplesExpected)
+
+						ts, err := time.Parse(timestampLayout, fields["ts"])
+						require.NoError(t, err)
+						start, err := time.Parse(timestampLayout, fields["start_ts"])
+						require.NoError(t, err, "%s block %d: every block here ran a statement", name, i)
+						end, err := time.Parse(timestampLayout, fields["end_ts"])
+						require.NoError(t, err)
+
+						assert.False(t, start.Before(ts), "%s block %d: the statement starts after the sample's clock read", name, i)
+						assert.False(t, end.Before(start), "%s block %d", name, i)
+
+						duration, err := strconv.ParseInt(fields["duration_ms"], 10, 64)
+						require.NoError(t, err)
+						assert.InDelta(t, end.Sub(start).Milliseconds(), duration, 1,
+							"%s block %d: duration_ms is end_ts less start_ts, to the millisecond", name, i)
+						assert.Less(t, time.Duration(duration)*time.Millisecond, StatementDeadline, "%s block %d", name, i)
+					}
+				}
+
+				fields := capture
+
+				_, err = uuid.Parse(fields["capture_id"])
+				require.NoError(t, err, "capture_id is a UUID")
+				assert.Equal(t, target.ID, fields["target_id"])
+				assert.Equal(t, "postgres", fields["engine"])
+				assert.Equal(t, versionNum, fields["engine_version"], "the server's server_version_num")
+				assert.Equal(t, target.Database, fields["db"])
+				assert.NotEmpty(t, fields["dbid"])
+			})
+		}
 	}
 }

@@ -1,6 +1,8 @@
-# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_shmem_allocations v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 reason=permission_denied ts=2026-08-07T14:32:05.112Z
+# engine=postgres source=pg_memory v=2 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_shmem_allocations start_ts=2026-08-07T14:32:05.116Z end_ts=2026-08-07T14:32:05.118Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-08-07T14:32:05.112Z
 name,off,size,allocated_size
-# engine=postgres source=pg_shmem_allocations v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 reason=permission_denied ts=2026-08-07T14:34:05.140Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_shmem_allocations start_ts=2026-08-07T14:34:05.144Z end_ts=2026-08-07T14:34:05.146Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-08-07T14:34:05.140Z
 name,off,size,allocated_size
-# engine=postgres source=pg_memory v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_memory v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z

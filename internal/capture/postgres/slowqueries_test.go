@@ -320,10 +320,20 @@ func takeSlowQueriesSample(t *testing.T, conn *fakeSlowQueriesConn, s SampleCont
 	return buf.String()
 }
 
+// splitBlocks returns each block's header as both of its lines.
 func splitBlocks(sample string) (headers, body []string) {
+	var capture string
+
 	for line := range strings.SplitSeq(strings.TrimSuffix(sample, "\n"), "\n") {
+		if strings.HasPrefix(line, "# capture_id=") {
+			capture = line + "\n"
+
+			continue
+		}
+
 		if strings.HasPrefix(line, "#") {
-			headers = append(headers, line)
+			headers = append(headers, capture+line)
+			capture = ""
 
 			continue
 		}
@@ -345,7 +355,7 @@ func statementBody(sample string) []string {
 	for line := range strings.SplitSeq(strings.TrimSuffix(sample, "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(line, "#"):
-			in = strings.Contains(line, "source=pg_stat_statements v=")
+			in = strings.Contains(line, "source=pg_stat_statements start_ts=")
 
 		case in && line != header:
 			rows = append(rows, line)
@@ -446,7 +456,8 @@ func TestSlowQueriesMaskedRowsScan(t *testing.T) {
 
 	headers, _ := splitBlocks(sample)
 	assert.NotContains(t, headers[1], "error=")
-	assert.Contains(t, headers[1], "statements_written=1 statements_total=1 truncated=false")
+	assert.Contains(t, headers[1], " rows=1 truncated=false ")
+	assert.Contains(t, headers[1], " statements_written=1 statements_total=1 ")
 
 	body := statementBody(sample)
 	require.Len(t, body, 1)
@@ -474,7 +485,8 @@ func TestSlowQueriesCaps(t *testing.T) {
 		conn.statements = repeat(rowsResult(statementValues(rows, 3)))
 
 		headers, _ := splitBlocks(takeSlowQueriesSample(t, conn, slowQueriesSampleContext()))
-		assert.Contains(t, headers[1], "statements_written=3 statements_total=3 truncated=false")
+		assert.Contains(t, headers[1], " rows=3 truncated=false ")
+		assert.Contains(t, headers[1], " statements_written=3 statements_total=3 ")
 		assert.NotContains(t, headers[1], "queries_truncated=")
 	})
 
@@ -488,7 +500,8 @@ func TestSlowQueriesCaps(t *testing.T) {
 			slowQueriesSampleContext()))
 
 		headers, _ := splitBlocks(buf.String())
-		assert.Contains(t, headers[1], "statements_written=2 statements_total=9412 truncated=true")
+		assert.Contains(t, headers[1], " rows=2 truncated=true ")
+		assert.Contains(t, headers[1], " statements_written=2 statements_total=9412 ")
 		assert.Equal(t, []any{2, DefaultMaxQueryText + 1}, conn.statementsArgs[0])
 	})
 
@@ -667,7 +680,7 @@ func TestSlowQueriesBracketsTheWindowWithTheInfoBlock(t *testing.T) {
 	headers, _ := splitBlocks(takeSlowQueriesSample(t, conn, opening))
 
 	assert.Contains(t, headers[0], "source=pg_stat_statements_info", "the info block leads the opening sample")
-	assert.Contains(t, headers[1], "source=pg_stat_statements v=")
+	assert.Contains(t, headers[1], "source=pg_stat_statements start_ts=")
 	assert.Equal(t, []string{extensionSQL, infoSQL, statementsSQL}, conn.sql,
 		"and the read really did run first, which is the half the block order alone cannot show")
 
@@ -677,7 +690,7 @@ func TestSlowQueriesBracketsTheWindowWithTheInfoBlock(t *testing.T) {
 	conn = newFakeSlowQueriesConn(healthyExtension())
 	headers, _ = splitBlocks(takeSlowQueriesSample(t, conn, closing))
 
-	assert.Contains(t, headers[0], "source=pg_stat_statements v=", "and closes the last one")
+	assert.Contains(t, headers[0], "source=pg_stat_statements start_ts=", "and closes the last one")
 	assert.Contains(t, headers[1], "source=pg_stat_statements_info")
 	assert.Equal(t, []string{extensionSQL, statementsSQL, infoSQL}, conn.sql,
 		"so the two stats_reset readings enclose every other read in the window")
@@ -832,12 +845,14 @@ func runSlowQueriesWindow(t *testing.T, clock *scriptedClock, conn windowConn) [
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   6 * time.Second,
-		Collectors: []Collector{NewSlowQueries()},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connectTo(conn),
+		Target:         testTarget(),
+		Duration:       6 * time.Second,
+		Collectors:     []Collector{NewSlowQueries()},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connectTo(conn),
 	}
 
 	return window.Run(context.Background())

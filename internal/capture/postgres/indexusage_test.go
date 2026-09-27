@@ -106,12 +106,14 @@ func runIndexUsageWindow(t *testing.T, clock *scriptedClock, target Target,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     target,
-		Duration:   120 * time.Second,
-		Collectors: []Collector{IndexUsage{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         target,
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{IndexUsage{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -220,7 +222,7 @@ func TestIndexUsageGoldenSampleError(t *testing.T) {
 
 	conn := newFakeIndexUsageConn()
 	conn.stats = queue(
-		errResult(errors.New("ERROR: canceling statement due to statement timeout")),
+		errResult(statementTimedOut()),
 		rowsResult(ordersIndexesEnd()),
 	)
 
@@ -296,12 +298,13 @@ func TestIndexUsageIndexMissingFromTheSizeJoinHasAnEmptySize(t *testing.T) {
 
 func TestIndexUsageSizesUnavailableCostsOneColumnNotTheSample(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		err  error
+		name   string
+		err    error
+		status string
 	}{
-		{"statement timeout", errors.New("ERROR: canceling statement due to statement timeout")},
-		{"module deadline mid-S2", context.DeadlineExceeded},
-		{"cancellation mid-S2", context.Canceled},
+		{"statement timeout", statementTimedOut(), statusTimeout},
+		{"module deadline mid-S2", context.DeadlineExceeded, statusTimeout},
+		{"cancellation mid-S2", context.Canceled, statusError},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := newFakeIndexUsageConn()
@@ -310,7 +313,9 @@ func TestIndexUsageSizesUnavailableCostsOneColumnNotTheSample(t *testing.T) {
 			block := takeIndexSample(t, conn, IndexUsage{})
 
 			assert.Contains(t, block, "sizes=unavailable")
-			assert.Contains(t, block, "indexes_written=4 indexes_total=4 truncated=false",
+			assert.Contains(t, block, " status="+tt.status+" ",
+				"a failed statement is the block's status, whatever of it was still written")
+			assert.Contains(t, block, "rows=4 truncated=false scope=database indexes_written=4 indexes_total=4",
 				"the sample is still written and still counted")
 
 			for _, row := range indexUsageRows(t, block) {
@@ -377,7 +382,7 @@ func TestIndexUsageCapFiresVisibly(t *testing.T) {
 	conn.sizes = repeat(rowsResult([][]any{indexSizeRow(16396, counted(8192))}))
 
 	assert.Contains(t, takeIndexSample(t, conn, IndexUsage{MaxIndexes: 1}),
-		"indexes_written=1 indexes_total=41220 truncated=true",
+		"rows=1 truncated=true scope=database indexes_written=1 indexes_total=41220",
 		"a capped file must not read as a complete one")
 
 	require.Len(t, conn.statsArgs, 1)
@@ -411,7 +416,7 @@ func TestIndexUsageEmptyDatabaseSkipsTheSizeQuery(t *testing.T) {
 
 	block := takeIndexSample(t, conn, IndexUsage{})
 
-	assert.Contains(t, block, "indexes_written=0 indexes_total=0 truncated=false")
+	assert.Contains(t, block, "rows=0 truncated=false scope=database indexes_written=0 indexes_total=0")
 	assert.Empty(t, conn.sizesArgs, "there is nothing to size")
 	assert.Empty(t, indexUsageRows(t, block), "the column header is written with no rows under it")
 }
@@ -426,7 +431,7 @@ func TestIndexUsageIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	block := takeIndexSample(t, conn, IndexUsage{})
 
 	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
-	require.Len(t, lines, 3, "block header, column header, and exactly one data line")
+	require.Len(t, lines, 4, "the two header lines, the column header, and exactly one data line")
 
 	rows := indexUsageRows(t, block)
 	require.Len(t, rows, 1)

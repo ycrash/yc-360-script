@@ -12,12 +12,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var testWindowStart = time.Date(2026, 8, 7, 14, 32, 4, 980_000_000, time.UTC)
+
+// testCaptureID is every golden's capture_id=.
+const testCaptureID = "3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90"
+
+// statementTimedOut is the server's error for a statement past statement_timeout.
+func statementTimedOut() error {
+	return &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     queryCanceled,
+		Message:  "canceling statement due to statement timeout",
+	}
+}
+
+// steppedStatements times a sample's statements from its clock read, 2ms a read.
+func steppedStatements(at time.Time) func() time.Time {
+	reads := 0
+
+	return func() time.Time {
+		reads++
+
+		return at.Add(time.Duration(reads) * 2 * time.Millisecond)
+	}
+}
 
 func testWindowTarget() Target {
 	target := testTarget()
@@ -144,6 +169,7 @@ type fakeWindowConn struct {
 	database              string
 	dbid                  *string
 	hasPgStatCheckpointer bool
+	engineVersion         string
 	identifyErr           error
 
 	closed bool
@@ -160,7 +186,7 @@ func (c *fakeWindowConn) Lost() bool { return c.lost }
 func (c *fakeWindowConn) LossError() error { return c.lossErr }
 
 func newFakeWindowConn() *fakeWindowConn {
-	return &fakeWindowConn{database: "orders_db", dbid: ptr("16401")}
+	return &fakeWindowConn{database: "orders_db", dbid: ptr("16401"), engineVersion: "170004"}
 }
 
 func (c *fakeWindowConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
@@ -172,7 +198,7 @@ func (c *fakeWindowConn) QueryRow(ctx context.Context, sql string, args ...any) 
 		return fakeRow{err: c.identifyErr}
 	}
 
-	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer}}
+	return fakeRow{values: []any{c.database, c.dbid, c.hasPgStatCheckpointer, c.engineVersion}}
 }
 
 func (c *fakeWindowConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -189,11 +215,13 @@ func newTestWindow(t *testing.T, clock *fakeClock, collectors ...Collector) *Win
 	t.Chdir(t.TempDir())
 
 	return &Window{
-		Target:     testWindowTarget(),
-		Duration:   120 * time.Second,
-		Collectors: collectors,
-		now:        clock.now,
-		after:      clock.after,
+		Target:         testWindowTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     collectors,
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
 		connect: func(ctx context.Context, target Target) (windowConn, error) {
 			return newFakeWindowConn(), nil
 		},
@@ -2128,4 +2156,104 @@ func TestWindowASlowReadDoesNotHoldUpAnotherConnection(t *testing.T) {
 	for _, result := range results {
 		assert.Equal(t, StatusComplete, result.Status, result.Artifact.Name)
 	}
+}
+
+func TestWindowStubInAPeriodicFileIsASampleBlock(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_fake")
+	collector.artifact.Schedule = Periodic(0)
+	collector.artifact.Version = 2
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		s.now()
+
+		return statementTimedOut()
+	}
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	lines := headersOf(t, results[0])
+	require.Len(t, lines, 6, "preamble, two stubs of two lines each, and the closing block")
+
+	assert.Equal(t, "# capture_id="+testCaptureID+" target_id=orders-primary engine=postgres engine_version=170004 "+
+		"v=2 format=csv db=orders_db dbid=16401", lines[1])
+	assert.Equal(t, "# sample_id=1 source=pg_fake start_ts=2026-08-07T14:32:04.982Z end_ts=2026-08-07T14:32:04.986Z "+
+		"duration_ms=4 status=TIMEOUT rows=0 truncated=false scope=database "+
+		`sample_error="ERROR: canceling statement due to statement timeout (SQLSTATE 57014)" `+
+		"ts=2026-08-07T14:32:04.980Z", lines[2],
+		"the stub is timed over the whole sample, and its status is the error's")
+	assert.Equal(t, lines[1], lines[3], "the same capture line on every sample block")
+}
+
+func TestWindowStubInAnotherFileKeepsItsOneLine(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_fake")
+	collector.artifact.Schedule = Once()
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		return statementTimedOut()
+	}
+
+	results := newTestWindow(t, clock, collector).Run(context.Background())
+
+	headers := headersOf(t, results[0])
+	require.Len(t, headers, 3)
+	assert.Contains(t, headers[1], " dbid=16401 sample=1 sample_error=",
+		"only a periodic file's sample blocks carry the capture and sample lines")
+	assert.NotContains(t, artifactText(t, results[0]), "capture_id=")
+}
+
+func TestWindowCaptureIDIsOnePerRunAndSharedByEveryFile(t *testing.T) {
+	periodic := func(name, connection string) *fakeCollector {
+		collector := newFakeCollector(name)
+		collector.artifact.Schedule = Periodic(0)
+		collector.artifact.Connection = connection
+		collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+			return writeSampleHeader(w, collector.artifact, s, sampleHeader{source: "fake_view", status: statusOK})
+		}
+
+		return collector
+	}
+
+	captureIDs := func() []string {
+		window := newTestWindow(t, newFakeClock(),
+			periodic("pg_fast", ConnectionFast), periodic("pg_expensive", ConnectionExpensive))
+		window.CaptureID = ""
+
+		var ids []string
+
+		for _, result := range window.Run(context.Background()) {
+			for _, line := range headersOf(t, result) {
+				if strings.HasPrefix(line, "# capture_id=") {
+					ids = append(ids, headerFields(t, line)["capture_id"])
+				}
+			}
+		}
+
+		require.Len(t, ids, 4, "two sample blocks in each of two files")
+
+		return ids
+	}
+
+	first := captureIDs()
+	for _, id := range first {
+		assert.Equal(t, first[0], id, "one run, one capture_id, whichever connection wrote the file")
+	}
+
+	_, err := uuid.Parse(first[0])
+	require.NoError(t, err, "a UUID")
+
+	assert.NotEqual(t, first[0], captureIDs()[0], "and the next run gets its own")
+}
+
+func TestWindowReadsTheEngineVersionWhenItIdentifies(t *testing.T) {
+	conn := newFakeWindowConn()
+	conn.engineVersion = "160008"
+
+	window := &Window{Target: testWindowTarget()}
+	assert.Equal(t, "160008", window.identify(context.Background(), conn).EngineVersion)
+
+	conn.identifyErr = errors.New("ERROR: canceling statement due to statement timeout")
+	assert.Empty(t, window.identify(context.Background(), conn).EngineVersion,
+		"not read is empty, never a guess")
 }

@@ -96,12 +96,14 @@ func runMemoryWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{Memory{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{Memory{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -223,7 +225,7 @@ func TestMemoryGoldenSampleError(t *testing.T) {
 
 	conn := newFakeMemoryConn()
 	conn.memory = queue(
-		errResult(errors.New("ERROR: canceling statement due to statement timeout")),
+		errResult(statementTimedOut()),
 		rowsResult(memorySample()),
 	)
 

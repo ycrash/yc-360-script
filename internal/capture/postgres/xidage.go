@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"strconv"
 	"time"
 )
 
@@ -36,6 +35,7 @@ func (x XIDAge) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(x.Interval),
 		Connection: ConnectionNormal,
+		Version:    sampleHeaderVersion,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
 		// the close, and the connection's closing tick is sized from this.
@@ -46,22 +46,25 @@ func (x XIDAge) Artifact() Artifact {
 // Sample runs the one statement and writes one block. A statement that fails
 // errors and writes nothing, and the window writes the stub.
 func (x XIDAge) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, err := readXIDAges(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
+	reads := span{start, s.now()}
 
 	// Buffered so a write failure never leaves a half-written body.
 	var block bytes.Buffer
 
 	// Named for the catalog read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_database", x.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(&block, x.Artifact(), s, sampleHeader{
+		source: "pg_database",
+		reads:  reads,
+		status: statusOK,
+		rows:   len(rows),
+	}); err != nil {
 		return err
 	}
 
