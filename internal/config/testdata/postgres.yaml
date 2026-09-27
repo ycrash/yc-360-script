@@ -1,6 +1,6 @@
 version: "1"
 options:
-  k: buggycompany@e094a34e-c3eb-4c9a-8254-f0dd107245cc
+  k: buggycompany@00000000-0000-0000-0000-000000000000
   s: https://ycrash.companyname.com
   postgres:
     host: db-prod-01.internal
