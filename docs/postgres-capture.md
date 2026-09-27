@@ -288,7 +288,14 @@ closing one:
 - `pg_memory.txt` — `pg_shmem_allocations`, the server's shared memory by
   allocation, largest first. There is no per-connection figure; where
   `host_artifacts=captured`, `top` has each backend's resident and shared memory.
-- `pg_capacity.txt` — checkpoints, connections by application, and WAL volume.
+- `pg_capacity.txt` — the checkpoint counters, a block per view under the
+  view's own column names (`pg_stat_bgwriter` before PostgreSQL 17;
+  `pg_stat_checkpointer`, `pg_stat_bgwriter` and `pg_stat_io` from 17); the
+  connected database's commits, rollbacks, cache hits, reads and temporary
+  bytes; connections by application; and WAL volume. From 17, `buffers_backend`
+  is summed from `pg_stat_io` and counts what it counted before 17, apart from
+  the few sync requests a `CREATE TABLE` or `DROP TABLE` makes without writing
+  a buffer.
 - `pg_bloat.txt` — `pg_stat_user_tables` with table and index sizes, including
   `last_analyze`, `last_autoanalyze` and `n_mod_since_analyze`: when the
   planner's statistics were last taken, and how many rows have changed since.
