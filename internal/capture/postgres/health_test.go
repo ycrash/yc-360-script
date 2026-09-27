@@ -186,12 +186,14 @@ func runHealthWindow(t *testing.T, clock *scriptedClock, target Target,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     target,
-		Duration:   20 * time.Second,
-		Collectors: []Collector{Health{Interval: 10 * time.Second}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         target,
+		Duration:       20 * time.Second,
+		Collectors:     []Collector{Health{Interval: 10 * time.Second}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -289,7 +291,7 @@ func TestHealthGoldenSampleError(t *testing.T) {
 	conn := newFakeHealthConn()
 	conn.stats = queue(
 		rowsResult(ordersHealthSample1().rows()),
-		errResult(errors.New("ERROR: canceling statement due to statement timeout")),
+		errResult(statementTimedOut()),
 		rowsResult(ordersHealthSample3().rows()),
 	)
 
@@ -340,9 +342,10 @@ func TestHealthWritesNullsEmptyNeverZero(t *testing.T) {
 func TestHealthUnfilteredKeepsDatabasesTheAgentIsNotConnectedTo(t *testing.T) {
 	block := takeHealthSample(t, newFakeHealthConn(), Health{})
 
-	assert.Contains(t, block, "scope=cluster db=orders_db dbid=16401",
+	assert.Contains(t, block, " db=orders_db dbid=16401\n",
 		"db= and dbid= mean connected through, not about")
-	assert.Contains(t, block, "databases_written=5 databases_total=5 truncated=false")
+	assert.Contains(t, block, " scope=cluster ")
+	assert.Contains(t, block, "rows=5 truncated=false scope=cluster databases_written=5 databases_total=5")
 
 	rows := healthSampleRows(t, block)
 	require.Len(t, rows, 5)
@@ -367,7 +370,7 @@ func TestHealthRetriesWithoutSessionsFatalOnlyOn42703(t *testing.T) {
 		assert.Contains(t, block,
 			`sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)"`,
 			"the reason is quoted, so driver text cannot break k=v tokenisation")
-		assert.Contains(t, block, "databases_written=5 databases_total=5 truncated=false",
+		assert.Contains(t, block, "rows=5 truncated=false scope=cluster databases_written=5 databases_total=5",
 			"the sample is still written and still counted")
 
 		rows := healthSampleRows(t, block)
@@ -436,7 +439,7 @@ func TestHealthCapKeepsTheSharedRowAndTheConnectedDatabase(t *testing.T) {
 
 	block := takeHealthSample(t, conn, Health{MaxDatabases: 3})
 
-	assert.Contains(t, block, "databases_written=3 databases_total=4120 truncated=true",
+	assert.Contains(t, block, "rows=3 truncated=true scope=cluster databases_written=3 databases_total=4120",
 		"a capped block must not read as a complete one")
 
 	rows := healthSampleRows(t, block)
@@ -500,7 +503,7 @@ func TestHealthDatabaseNamesWithSeparatorsRoundTrip(t *testing.T) {
 	block := takeHealthSample(t, conn, Health{})
 
 	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
-	require.Len(t, lines, 3, "block header, column header, and exactly one data line")
+	require.Len(t, lines, 4, "the two header lines, the column header, and exactly one data line")
 
 	rows := healthSampleRows(t, block)
 	require.Len(t, rows, 1)

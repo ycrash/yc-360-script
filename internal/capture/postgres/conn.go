@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -79,6 +80,9 @@ var sessionParams = map[string]string{
 // Target is config.Postgres narrowed to what this package needs, keeping
 // config out of this package's imports.
 type Target struct {
+	// ID names the target on every sample block, as target_id=.
+	ID string
+
 	Host     string
 	Port     int
 	Database string
@@ -86,6 +90,15 @@ type Target struct {
 	Password string
 
 	TLS TLS
+}
+
+// id is the target's name, or its address where it has none.
+func (t Target) id() string {
+	if t.ID != "" {
+		return t.ID
+	}
+
+	return net.JoinHostPort(t.Host, strconv.Itoa(t.Port)) + "/" + t.Database
 }
 
 // TLS is how the connection is encrypted and checked. The zero value is

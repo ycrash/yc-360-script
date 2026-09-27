@@ -156,6 +156,7 @@ func (s Sessions) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(s.Interval),
 		Connection: ConnectionFast,
+		Version:    sampleHeaderVersion,
 
 		// Periodic's last sample is the close, so moduleDeadline sums this one.
 		// The SET in Sample is what enforces the timeout.
@@ -192,15 +193,13 @@ func (s Sessions) Sample(ctx context.Context, q RowQuerier, w io.Writer, sc Samp
 }
 
 func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Writer, sc SampleContext) error {
+	start := sc.now()
 	rows, total, err := s.readSessions(ctx, q)
+	reads := span{start, sc.now()}
 
 	cells, queriesTruncated := sessionCells(rows)
 
-	fields := []headerField{
-		{"db", sc.Database},
-		{"dbid", sc.DBID},
-		{"sample", strconv.Itoa(sc.Index)},
-	}
+	var fields []headerField
 
 	if err != nil {
 		fields = append(fields, headerField{"error", sc.errorText(err)})
@@ -208,7 +207,6 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 		fields = append(fields,
 			headerField{"sessions_written", strconv.Itoa(len(rows))},
 			headerField{"sessions_total", strconv.FormatInt(total, 10)},
-			headerField{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 		)
 
 		if queriesTruncated > 0 {
@@ -216,7 +214,14 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 		}
 	}
 
-	if err := writeBlockHeader(w, "pg_stat_activity", s.Artifact().Scope, fields, sc.At); err != nil {
+	if err := writeSampleHeader(w, s.Artifact(), sc, sampleHeader{
+		source:    "pg_stat_activity",
+		reads:     reads,
+		status:    readStatus(err),
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}); err != nil {
 		return err
 	}
 
@@ -224,13 +229,11 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 }
 
 func (s Sessions) writeLocksBlock(ctx context.Context, q RowQuerier, w io.Writer, sc SampleContext) error {
+	start := sc.now()
 	rows, total, err := s.readLocks(ctx, q)
+	reads := span{start, sc.now()}
 
-	fields := []headerField{
-		{"db", sc.Database},
-		{"dbid", sc.DBID},
-		{"sample", strconv.Itoa(sc.Index)},
-	}
+	var fields []headerField
 
 	if err != nil {
 		fields = append(fields, headerField{"error", sc.errorText(err)})
@@ -238,11 +241,17 @@ func (s Sessions) writeLocksBlock(ctx context.Context, q RowQuerier, w io.Writer
 		fields = append(fields,
 			headerField{"locks_written", strconv.Itoa(len(rows))},
 			headerField{"locks_total", strconv.FormatInt(total, 10)},
-			headerField{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 		)
 	}
 
-	if err := writeBlockHeader(w, "pg_locks", s.Artifact().Scope, fields, sc.At); err != nil {
+	if err := writeSampleHeader(w, s.Artifact(), sc, sampleHeader{
+		source:    "pg_locks",
+		reads:     reads,
+		status:    readStatus(err),
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}); err != nil {
 		return err
 	}
 

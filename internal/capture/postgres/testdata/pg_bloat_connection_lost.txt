@@ -1,3 +1,4 @@
-# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid=16401 sample=1 sample_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)" ts=2026-08-07T14:32:05.112Z
-# engine=postgres source=pg_bloat v=1 format=csv scope=database db=orders_db dbid=16401 status=connection_lost samples_expected=2 samples_written=0 connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)" ts=2026-08-07T14:32:05.201Z
+# engine=postgres source=pg_bloat v=2 format=csv scope=database db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_bloat start_ts=2026-08-07T14:32:05.114Z end_ts=2026-08-07T14:32:05.118Z duration_ms=4 status=ERROR rows=0 truncated=false scope=database sample_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)" ts=2026-08-07T14:32:05.112Z
+# engine=postgres source=pg_bloat v=2 format=csv scope=database db=orders_db dbid=16401 status=connection_lost samples_expected=2 samples_written=0 connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)" ts=2026-08-07T14:32:05.201Z

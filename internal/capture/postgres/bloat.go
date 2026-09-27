@@ -82,6 +82,7 @@ func (b Bloat) Artifact() Artifact {
 		Scope:      "database",
 		Schedule:   Periodic(b.Interval),
 		Connection: ConnectionExpensive,
+		Version:    sampleHeaderVersion,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already. Periodic's
 		// last sample is the close, so moduleDeadline sums it there like the others.
@@ -92,6 +93,8 @@ func (b Bloat) Artifact() Artifact {
 // errors and writes nothing; a failed S2 leaves sizes empty but still writes
 // the sample.
 func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, total, err := b.readStats(ctx, q)
 	if err != nil {
 		return err
@@ -99,13 +102,11 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 
 	sizesErr := readBloatSizes(ctx, q, rows)
 
+	reads := span{start, s.now()}
+
 	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
 		{"tables_written", strconv.Itoa(len(rows))},
 		{"tables_total", strconv.FormatInt(total, 10)},
-		{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 	}
 
 	if sizesErr != nil {
@@ -119,7 +120,15 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 	var block bytes.Buffer
 
 	// Named for the view read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_stat_user_tables", b.Artifact().Scope, fields, s.At); err != nil {
+	// A failed size read is the block's status; its rows are still written.
+	if err := writeSampleHeader(&block, b.Artifact(), s, sampleHeader{
+		source:    "pg_stat_user_tables",
+		reads:     reads,
+		status:    readStatus(sizesErr),
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}); err != nil {
 		return err
 	}
 

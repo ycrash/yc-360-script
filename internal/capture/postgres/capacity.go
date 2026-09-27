@@ -12,9 +12,9 @@ import (
 // (application_name, backend_type) pairs rather than applications.
 const DefaultMaxConnectionGroups = 1000
 
-// capacityVersion is pg_capacity.txt's v=: 2 since each view's checkpoint counters became a block
-// under the view's own name and column names.
-const capacityVersion = 2
+// capacityVersion is pg_capacity.txt's v=: 2 when each view's checkpoint counters became a block
+// under the view's own name and column names, 3 with the two-line sample header.
+const capacityVersion = 3
 
 var connectionColumns = []string{
 	"application_name",
@@ -179,19 +179,11 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 
 func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	for _, block := range checkpointBlocks(s.HasPgStatCheckpointer) {
+		start := s.now()
 		cells, err := readCounterBlock(ctx, q, block)
+		reads := span{start, s.now()}
 
-		fields := []headerField{
-			{"db", s.Database},
-			{"dbid", s.DBID},
-			{"sample", strconv.Itoa(s.Index)},
-		}
-
-		if err != nil {
-			fields = append(fields, headerField{"error", s.errorText(err)})
-		}
-
-		if err := c.writeHeader(w, block.source, c.Artifact().Scope, fields, s.At); err != nil {
+		if err := c.writeHeader(w, s, block.source, "", reads, err, len(cells), false, nil); err != nil {
 			return err
 		}
 
@@ -205,47 +197,37 @@ func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.
 
 // writeDatabaseBlock is scope=database in a cluster file: its row is the connected database's.
 func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	row, err := readDatabase(ctx, q)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
+	cells := databaseCells(row)
 
-	if err != nil {
-		fields = append(fields, headerField{"error", s.errorText(err)})
-	}
-
-	if err := c.writeHeader(w, "pg_stat_database", "database", fields, s.At); err != nil {
+	if err := c.writeHeader(w, s, "pg_stat_database", "database", reads, err, len(cells), false, nil); err != nil {
 		return err
 	}
 
-	return writeRows(w, databaseColumns, databaseCells(row))
+	return writeRows(w, databaseColumns, cells)
 }
 
 // writeConnectionsBlock drops the count keys on a failed read rather than writing zeroes:
 // groups_total=0 would falsely assert zero connections.
 func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	rows, total, err := c.readConnections(ctx, q)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
+	var fields []headerField
+
+	if err == nil {
+		fields = []headerField{
+			{"groups_written", strconv.Itoa(len(rows))},
+			{"groups_total", strconv.FormatInt(total, 10)},
+		}
 	}
 
-	if err != nil {
-		fields = append(fields, headerField{"error", s.errorText(err)})
-	} else {
-		fields = append(fields,
-			headerField{"groups_written", strconv.Itoa(len(rows))},
-			headerField{"groups_total", strconv.FormatInt(total, 10)},
-			headerField{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
-		)
-	}
-
-	if err := c.writeHeader(w, "pg_stat_activity_by_app", c.Artifact().Scope, fields, s.At); err != nil {
+	if err := c.writeHeader(w, s, "pg_stat_activity_by_app", "", reads, err, len(rows),
+		int64(len(rows)) < total, fields); err != nil {
 		return err
 	}
 
@@ -253,23 +235,13 @@ func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.
 }
 
 func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	bytesWritten, denied, err := readWAL(ctx, q)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
-
-	switch {
-	case err != nil:
-		fields = append(fields, headerField{"error", s.errorText(err)})
-	case denied:
-		fields = append(fields, headerField{"reason", reasonPermissionDenied})
-	}
-
-	if err := c.writeHeader(w, "pg_ls_waldir", c.Artifact().Scope, fields, s.At); err != nil {
-		return err
+	var fields []headerField
+	if denied {
+		fields = []headerField{{"reason", reasonPermissionDenied}}
 	}
 
 	// NULL sum writes no row, not an empty cell: the only single-column body in the package, so an
@@ -278,6 +250,10 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	var cells [][]string
 	if bytesWritten != nil {
 		cells = [][]string{{int64Text(bytesWritten)}}
+	}
+
+	if err := c.writeHeader(w, s, "pg_ls_waldir", "", reads, err, len(cells), false, fields); err != nil {
+		return err
 	}
 
 	return writeRows(w, walColumns, cells)
@@ -430,9 +406,24 @@ func readWAL(ctx context.Context, q RowQuerier) (walBytes *int64, denied bool, e
 	return walBytes, false, nil
 }
 
-// writeHeader stamps the file's own v= on a block.
-func (c Capacity) writeHeader(w io.Writer, source, scope string, fields []headerField, at time.Time) error {
-	return writeVersionedBlockHeader(w, source, artifactVersion(c.Artifact()), scope, formatCSV, fields, at)
+// writeHeader writes one block's envelope; a failed read is its status and its error=,
+// after the block's own keys.
+func (c Capacity) writeHeader(w io.Writer, s SampleContext, source, scope string, reads span, err error,
+	rows int, truncated bool, fields []headerField,
+) error {
+	if err != nil {
+		fields = append(fields, headerField{"error", s.errorText(err)})
+	}
+
+	return writeSampleHeader(w, c.Artifact(), s, sampleHeader{
+		source:    source,
+		scope:     scope,
+		reads:     reads,
+		status:    readStatus(err),
+		rows:      rows,
+		truncated: truncated,
+		fields:    fields,
+	})
 }
 
 func (c Capacity) maxConnectionGroups() int {

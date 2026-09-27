@@ -771,8 +771,7 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 
 	q := newFakeExplainConn(readableLog(t, unrelatedTraffic))
 	q.plans = map[string]fakeResult{
-		ordersItemsEnd.query: errResult(errors.New(
-			"ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")),
+		ordersItemsEnd.query: errResult(statementTimedOut()),
 	}
 
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, sq), q)
@@ -784,10 +783,14 @@ func TestExplainPerCandidateErrorLeavesTheRestIntact(t *testing.T) {
 	assert.Contains(t, failed.fields["error"], "57014")
 	assert.Equal(t, planModeNone, failed.fields["mode"])
 	assert.Equal(t, "0", failed.fields["bytes"])
+	assert.Equal(t, statusTimeout, failed.fields["status"], "the server's statement timeout")
+	assert.Equal(t, "0", failed.fields["rows"], "no plan")
 
 	survived, ok := blockByQueryID(blocks, ordersInventoryEnd.queryid)
 	require.True(t, ok)
 	assert.Equal(t, planModeEstimatedGeneric, survived.fields["mode"])
+	assert.Equal(t, statusOK, survived.fields["status"])
+	assert.Equal(t, "1", survived.fields["rows"], "rows= counts plans on a plan block")
 	assert.NotEmpty(t, survived.body,
 		"a server-side timeout is a per-candidate error; the connection is still usable")
 }
@@ -878,12 +881,14 @@ func runExplainWindow(t *testing.T, e *Explain, clock *scriptedClock, conn windo
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{e},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connectTo(conn),
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{e},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connectTo(conn),
 	}
 
 	return window.Run(context.Background())
@@ -1356,12 +1361,14 @@ func explainLoggedWindow(t *testing.T, e *Explain, q *fakeExplainConn, entries s
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{e, writer},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connectTo(explainConnFor(t, q)),
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{e, writer},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connectTo(explainConnFor(t, q)),
 	}
 
 	return window.Run(context.Background())
@@ -1530,8 +1537,23 @@ func TestExplainBoundsASubmittedPlan(t *testing.T) {
 	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q)
 
 	assert.Equal(t, "true", blocks[0].fields["plan_truncated"])
+	assert.Equal(t, statusTruncated, blocks[0].fields["status"])
+	assert.Equal(t, "true", blocks[0].fields["truncated"])
 	assert.LessOrEqual(t, len(blocks[0].body), MaxPlanBytes+len(line)+1,
 		"the body stops at the cap rather than holding whatever the server sent")
+}
+
+func TestExplainSummaryKeepsItsOneLine(t *testing.T) {
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, itemsFeed()), newFakeExplainConn(readableLog(t, unrelatedTraffic)))
+
+	require.Len(t, blocks, 2, "the one shape, and the sample's summary")
+	assert.Equal(t, "2", blocks[0].fields["sample_id"], "a plan is a sample block")
+	assert.Contains(t, blocks[0].header, "# capture_id=")
+
+	summary := summaryOf(t, blocks)
+	assert.NotContains(t, summary.header, "capture_id=", "the summary is the collector's account, not a read")
+	assert.Equal(t, "2", summary.fields["sample"])
+	assert.Equal(t, "2", summary.fields["v"], "and carries the file's version")
 }
 
 func TestExplainClosingIsSilentWhenNothingWasEverAttempted(t *testing.T) {
@@ -1628,7 +1650,7 @@ func TestExplainAttemptsEachShapeOnceAcrossSamples(t *testing.T) {
 	one := parseTextArtifact(t, first.String())
 	require.Len(t, one, 2, "the one shape, and the sample's summary")
 	assert.Equal(t, strconv.FormatInt(ordersItemsEnd.queryid, 10), one[0].fields["queryid"])
-	assert.Equal(t, "1", one[0].fields["sample"])
+	assert.Equal(t, "1", one[0].fields["sample_id"])
 	assert.Equal(t, "1", one[0].fields["first_seen"])
 	assert.Equal(t, "1", one[1].fields["candidates_new"])
 	assert.Equal(t, "1", one[1].fields["candidates_written"])
@@ -1684,7 +1706,7 @@ func TestExplainDefersBeyondTheCapToTheNextSample(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(1000+DefaultMaxExplains), two[0].fields["queryid"],
 		"in the order they were first seen")
 	assert.Equal(t, "1", two[0].fields["first_seen"], "seen at the first sample, attempted at the second")
-	assert.Equal(t, "2", two[0].fields["sample"])
+	assert.Equal(t, "2", two[0].fields["sample_id"])
 	assert.False(t, summaryOf(t, two).has("candidates_queued"), "nothing left waiting")
 	assert.False(t, summaryOf(t, two).has("candidates_new"),
 		"the second read showed the same shapes, and none of them is new")

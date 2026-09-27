@@ -88,6 +88,7 @@ func (h Health) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(h.Interval),
 		Connection: ConnectionNormal,
+		Version:    sampleHeaderVersion,
 
 		// One statement, not DefaultSampleBudget's two. Periodic's last sample is
 		// the close, so this is summed against the connection's other closing-tick collectors.
@@ -99,6 +100,8 @@ func (h Health) Artifact() Artifact {
 // sessions_fatal arrived in PG14 (our floor), so the 42703 retry below is
 // currently unreachable but keeps pre-14 servers at ten of eleven columns instead of a stub block.
 func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, total, err := h.read(ctx, q, healthSQL, s)
 
 	var withoutSessionsFatal error
@@ -115,13 +118,11 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 		}
 	}
 
+	reads := span{start, s.now()}
+
 	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
 		{"databases_written", strconv.Itoa(len(rows))},
 		{"databases_total", strconv.FormatInt(total, 10)},
-		{"truncated", strconv.FormatBool(int64(len(rows)) < total)},
 	}
 
 	if withoutSessionsFatal != nil {
@@ -135,8 +136,15 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 	var block bytes.Buffer
 
 	// The block names the view it read; the window's own blocks name the
-	// artifact.
-	if err := writeBlockHeader(&block, "pg_stat_database", h.Artifact().Scope, fields, s.At); err != nil {
+	// artifact. A server without sessions_fatal is read in full without it.
+	if err := writeSampleHeader(&block, h.Artifact(), s, sampleHeader{
+		source:    "pg_stat_database",
+		reads:     reads,
+		status:    statusOK,
+		rows:      len(rows),
+		truncated: int64(len(rows)) < total,
+		fields:    fields,
+	}); err != nil {
 		return err
 	}
 

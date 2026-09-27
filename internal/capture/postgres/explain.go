@@ -330,6 +330,8 @@ func (e *Explain) Artifact() Artifact {
 		// on the same tick, just before this one.
 		Connection: ConnectionNormal,
 
+		Version: sampleHeaderVersion,
+
 		SampleBudget: e.sampleBudget(),
 	}
 }
@@ -881,6 +883,11 @@ type explainCandidate struct {
 	reason string
 	err    string
 
+	// reads is when the attempt's statements ran, and errStatus how the failed one
+	// ended.
+	reads     span
+	errStatus string
+
 	planQueryID  string
 	queryIDMatch string
 
@@ -1237,6 +1244,8 @@ func (e *Explain) submitOne(
 		err       error
 	)
 
+	start := s.now()
+
 	if mode == planModeEstimatedLiteral {
 		arguments := make([]string, len(c.literal.values))
 		for i, v := range c.literal.values {
@@ -1254,8 +1263,11 @@ func (e *Explain) submitOne(
 			forceGenericPlanSQL, nullArguments(c.parameters))
 	}
 
+	c.reads = span{start, s.now()}
+
 	if err != nil {
 		c.err = s.errorText(err)
+		c.errStatus = readStatus(err)
 
 		return
 	}
@@ -1448,7 +1460,6 @@ func (e *Explain) writeCandidate(
 	w io.Writer, s SampleContext, c *explainCandidate, facts explainFacts,
 ) error {
 	fields := []headerField{
-		{"sample", strconv.Itoa(s.Index)},
 		{"queryid", int64Text(c.queryid)},
 		{"first_seen", strconv.Itoa(c.firstSeen)},
 		{"mode", c.mode},
@@ -1494,6 +1505,15 @@ func (e *Explain) writeCandidate(
 
 	plan, redacted := e.redactedPlan(c.mode, c.plan)
 
+	status := statusOK
+
+	switch {
+	case c.err != "":
+		status = c.errStatus
+	case c.planTruncated:
+		status = statusTruncated
+	}
+
 	switch {
 	case c.err != "":
 		// The literal tier's statement carries the log's values, which an error can quote.
@@ -1513,7 +1533,37 @@ func (e *Explain) writeCandidate(
 
 	fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
 
-	return e.writeBlock(w, s, fields, plan)
+	// rows= counts plans: the body is one, or nothing.
+	rows := 0
+	if len(plan) > 0 {
+		rows = 1
+	}
+
+	return e.writePlanBlock(w, s, sampleHeader{
+		reads:     c.reads,
+		status:    status,
+		rows:      rows,
+		truncated: c.planTruncated,
+		fields:    fields,
+	}, plan)
+}
+
+// writePlanBlock is writeBlock for a candidate's plan, a sample block of the file.
+func (e *Explain) writePlanBlock(w io.Writer, s SampleContext, h sampleHeader, body []byte) error {
+	h.source = "pg_explain"
+	h.fields = append(h.fields, headerField{"bytes", strconv.Itoa(len(body))})
+
+	var block bytes.Buffer
+
+	if err := writeSampleHeader(&block, e.Artifact(), s, h); err != nil {
+		return err
+	}
+
+	block.Write(body)
+
+	_, err := w.Write(block.Bytes())
+
+	return err
 }
 
 // writePlan writes a stored plan no candidate is carrying. An empty queryid= is
@@ -1699,7 +1749,8 @@ func (e *Explain) writeBlock(w io.Writer, s SampleContext, fields []headerField,
 	// after it unparseable.
 	var block bytes.Buffer
 
-	if err := writeBlockHeaderFormat(&block, "pg_explain", "database", formatText, header, s.At); err != nil {
+	if err := writeVersionedBlockHeader(&block, "pg_explain", artifactVersion(e.Artifact()), "database", formatText,
+		header, s.At); err != nil {
 		return err
 	}
 

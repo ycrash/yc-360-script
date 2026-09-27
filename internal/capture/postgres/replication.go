@@ -185,6 +185,7 @@ func (r Replication) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(r.Interval),
 		Connection: ConnectionNormal,
+		Version:    sampleHeaderVersion,
 
 		// No SampleBudget: two statements is DefaultSampleBudget already, which is
 		// what Periodic's closing sample contributes to moduleDeadline.
@@ -212,19 +213,23 @@ func (r Replication) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sa
 }
 
 func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	rows, err := readSenders(ctx, q)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
+	var fields []headerField
 
 	if err != nil {
 		fields = append(fields, headerField{"error", s.errorText(err)})
 	}
 
-	if err := writeBlockHeader(w, "pg_stat_replication", r.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(w, r.Artifact(), s, sampleHeader{
+		source: "pg_stat_replication",
+		reads:  reads,
+		status: readStatus(err),
+		rows:   len(rows),
+		fields: fields,
+	}); err != nil {
 		return err
 	}
 
@@ -234,13 +239,11 @@ func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.W
 // optional_columns= appears only when the probe returned a value (NULL on PG
 // 14/15, absent when the slots view has no rows).
 func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
 	rows, optionalColumns, err := readSlots(ctx, q)
+	reads := span{start, s.now()}
 
-	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
-	}
+	var fields []headerField
 
 	switch {
 	case err != nil:
@@ -250,7 +253,13 @@ func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Wri
 		fields = append(fields, headerField{"optional_columns", *optionalColumns})
 	}
 
-	if err := writeBlockHeader(w, "pg_replication_slots", r.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(w, r.Artifact(), s, sampleHeader{
+		source: "pg_replication_slots",
+		reads:  reads,
+		status: readStatus(err),
+		rows:   len(rows),
+		fields: fields,
+	}); err != nil {
 		return err
 	}
 

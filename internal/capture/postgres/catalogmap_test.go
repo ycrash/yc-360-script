@@ -123,12 +123,14 @@ func runCatalogMapWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   120 * time.Second,
-		Collectors: []Collector{CatalogMap{}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       120 * time.Second,
+		Collectors:     []Collector{CatalogMap{}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())

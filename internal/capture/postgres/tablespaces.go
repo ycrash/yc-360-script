@@ -98,6 +98,7 @@ func (ts Tablespaces) Artifact() Artifact {
 		Scope:      "cluster",
 		Schedule:   Periodic(ts.Interval),
 		Connection: ConnectionExpensive,
+		Version:    sampleHeaderVersion,
 
 		// One statement, not DefaultSampleBudget's two: Periodic's last sample is
 		// the close, and the connection's closing tick is sized from this.
@@ -109,10 +110,14 @@ func (ts Tablespaces) Artifact() Artifact {
 // errors and writes nothing; a tablespace the role may not read is an empty
 // cell in a written block.
 func (ts Tablespaces) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
+	start := s.now()
+
 	rows, err := readTablespaceSizes(ctx, q)
 	if err != nil {
 		return err
 	}
+
+	reads := span{start, s.now()}
 
 	unread := 0
 
@@ -123,9 +128,6 @@ func (ts Tablespaces) Sample(ctx context.Context, q RowQuerier, w io.Writer, s S
 	}
 
 	fields := []headerField{
-		{"db", s.Database},
-		{"dbid", s.DBID},
-		{"sample", strconv.Itoa(s.Index)},
 		{"tablespaces", strconv.Itoa(len(rows))},
 		{"sizes_unread", strconv.Itoa(unread)},
 	}
@@ -134,7 +136,13 @@ func (ts Tablespaces) Sample(ctx context.Context, q RowQuerier, w io.Writer, s S
 	var block bytes.Buffer
 
 	// Named for the function read; the window's own blocks name the artifact.
-	if err := writeBlockHeader(&block, "pg_tablespace_size", ts.Artifact().Scope, fields, s.At); err != nil {
+	if err := writeSampleHeader(&block, ts.Artifact(), s, sampleHeader{
+		source: "pg_tablespace_size",
+		reads:  reads,
+		status: statusOK,
+		rows:   len(rows),
+		fields: fields,
+	}); err != nil {
 		return err
 	}
 

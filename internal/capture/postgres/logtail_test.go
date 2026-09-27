@@ -166,6 +166,7 @@ func newDeadlockHarness(t *testing.T, q *fakeLogQuerier) *tailHarness {
 	return &tailHarness{t: t, collector: NewDeadlocks(), q: q}
 }
 
+// textBlock's header is both of a sample block's header lines, and fields holds the keys of both.
 type textBlock struct {
 	header string
 	fields map[string]string
@@ -184,13 +185,29 @@ func parseTextArtifact(t *testing.T, artifact string) []textBlock {
 	var blocks []textBlock
 
 	for data := artifact; data != ""; {
-		require.True(t, strings.HasPrefix(data, "# engine=postgres "),
-			"a block begins with its header, and the one before it ended exactly where bytes= said: %.80q", data)
+		var capture string
+
+		if strings.HasPrefix(data, "# capture_id=") {
+			end := strings.IndexByte(data, '\n')
+			require.GreaterOrEqual(t, end, 0, "an unterminated capture line")
+
+			capture, data = data[:end+1], data[end+1:]
+			require.True(t, strings.HasPrefix(data, "# sample_id="), "a capture line is followed by its sample line")
+		} else {
+			require.True(t, strings.HasPrefix(data, "# engine=postgres "),
+				"a block begins with its header, and the one before it ended exactly where bytes= said: %.80q", data)
+		}
 
 		end := strings.IndexByte(data, '\n')
 		require.GreaterOrEqual(t, end, 0, "an unterminated block header")
 
-		block := textBlock{header: data[:end], fields: headerFields(t, data[:end])}
+		block := textBlock{header: capture + data[:end], fields: headerFields(t, data[:end])}
+		if capture != "" {
+			for key, value := range headerFields(t, strings.TrimSuffix(capture, "\n")) {
+				block.fields[key] = value
+			}
+		}
+
 		data = data[end+1:]
 
 		if raw, ok := block.fields["bytes"]; ok {
@@ -432,11 +449,13 @@ func runLogGoldenWindow(t *testing.T, collector Collector, format logFormat,
 	}
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   duration,
-		Collectors: []Collector{collector, writer},
-		now:        clock.now,
-		after:      clock.after,
+		Target:         testTarget(),
+		Duration:       duration,
+		Collectors:     []Collector{collector, writer},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
 		connect: connectTo(&fakeLogConn{
 			fakeWindowConn: newFakeWindowConn(),
 			q:              deniedQuerier(settings),
@@ -475,11 +494,13 @@ func runRemoteGoldenWindow(t *testing.T, collector Collector, duration time.Dura
 	writer.artifact.Schedule = Every(DefaultLogTailInterval)
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   duration,
-		Collectors: []Collector{collector, writer},
-		now:        clock.now,
-		after:      clock.after,
+		Target:         testTarget(),
+		Duration:       duration,
+		Collectors:     []Collector{collector, writer},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
 		connect: connectTo(&fakeLogConn{
 			fakeWindowConn: newFakeWindowConn(),
 			q:              q,

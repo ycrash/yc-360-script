@@ -384,12 +384,14 @@ func runSessionsWindow(t *testing.T, clock *scriptedClock,
 	t.Chdir(t.TempDir())
 
 	window := &Window{
-		Target:     testTarget(),
-		Duration:   4 * time.Second,
-		Collectors: []Collector{Sessions{Interval: 2 * time.Second}},
-		now:        clock.now,
-		after:      clock.after,
-		connect:    connect,
+		Target:         testTarget(),
+		Duration:       4 * time.Second,
+		Collectors:     []Collector{Sessions{Interval: 2 * time.Second}},
+		now:            clock.now,
+		CaptureID:      testCaptureID,
+		statementClock: steppedStatements,
+		after:          clock.after,
+		connect:        connect,
 	}
 
 	return window.Run(context.Background())
@@ -516,10 +518,10 @@ func TestSessionsWritesBothBlocksOnEverySample(t *testing.T) {
 
 	assert.Less(t, strings.Index(sample, "source=pg_stat_activity"),
 		strings.Index(sample, "source=pg_locks"),
-		"sessions first, and the sample= key is what groups the two")
+		"sessions first, and the sample_id= key is what groups the two")
 
 	for _, source := range []string{"pg_stat_activity", "pg_locks"} {
-		assert.Contains(t, blocks[source].header, "sample=1", source)
+		assert.Contains(t, blocks[source].header, "sample_id=1", source)
 		assert.Contains(t, blocks[source].header, "scope=cluster", source)
 		assert.Contains(t, blocks[source].header, "db=orders_db dbid=16401", source)
 		assert.Contains(t, blocks[source].header, "ts=2026-08-07T14:32:05.061Z",
@@ -820,7 +822,7 @@ func TestSessionsMaskedRowScansRatherThanCostingTheBlock(t *testing.T) {
 		"a role holding only LOGIN is not denied this view: it sees every row, twelve columns "+
 			"masked, and nothing anywhere says so. That silence is the artifact's highest "+
 			"report-side risk")
-	assert.Contains(t, block.header, "sessions_written=1 sessions_total=1 truncated=false",
+	assert.Contains(t, block.header, "rows=1 truncated=false scope=cluster sessions_written=1 sessions_total=1",
 		"and the counts are right, which is what makes the file look complete")
 
 	rows := block.rows(t, sessionColumns)
@@ -907,7 +909,7 @@ func TestSessionsNullPIDCostsTheBlockRatherThanWritingAKeylessRow(t *testing.T) 
 func TestSessionsCapsDeclareThemselvesInTheHeader(t *testing.T) {
 	t.Run("under the cap", func(t *testing.T) {
 		assert.Contains(t, sessionsBlock(t, newFakeSessionsConn()).header,
-			"sessions_written=4 sessions_total=4 truncated=false")
+			"rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4")
 	})
 
 	t.Run("over it", func(t *testing.T) {
@@ -919,7 +921,7 @@ func TestSessionsCapsDeclareThemselvesInTheHeader(t *testing.T) {
 
 		block := sessionsBlock(t, conn)
 
-		assert.Contains(t, block.header, "sessions_written=2 sessions_total=430 truncated=true",
+		assert.Contains(t, block.header, "rows=2 truncated=true scope=cluster sessions_written=2 sessions_total=430",
 			"ORDER BY pid ... LIMIT keeps the lowest PIDs - usually, but not always, the "+
 				"oldest backends, since PIDs wrap - so a cap that binds during a connection "+
 				"storm tends to shed the incident's arrivals first: truncated=true means "+
@@ -929,7 +931,7 @@ func TestSessionsCapsDeclareThemselvesInTheHeader(t *testing.T) {
 
 	t.Run("and the locks block carries its own three keys", func(t *testing.T) {
 		assert.Contains(t, locksBlock(t, newFakeSessionsConn()).header,
-			"locks_written=17 locks_total=17 truncated=false")
+			"rows=17 truncated=false scope=cluster locks_written=17 locks_total=17")
 
 		wait := at(32, 3, 144)
 
@@ -939,7 +941,7 @@ func TestSessionsCapsDeclareThemselvesInTheHeader(t *testing.T) {
 		}))
 
 		assert.Contains(t, locksBlock(t, conn).header,
-			"locks_written=1 locks_total=8102 truncated=true",
+			"rows=1 truncated=true scope=cluster locks_written=1 locks_total=8102",
 			"an ungranted row is where it is because of ORDER BY pid, not because anything "+
 				"protects it: nothing does, and that is the priced cost of ordering on a key "+
 				"that does not move between samples")
@@ -1026,16 +1028,16 @@ func TestSessionsQueryTextIsOneLinePerRowWhateverItContains(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 2, headers, "two block headers, and no data line begins with '#'")
+	assert.Equal(t, 4, headers, "two blocks of two header lines, and no data line begins with '#'")
 	assert.Equal(t, 11, data,
 		"two column headers, three activity rows and six lock rows - a query carrying three "+
 			"embedded newlines added no line of its own. singleLine is what buys that, and it "+
 			"is what lets a line-oriented parser and a record-aware parser read this file "+
 			"identically")
 
-	assert.Contains(t, lines[3], "# engine=postgres source=spoofed",
+	assert.Contains(t, lines[4], "# engine=postgres source=spoofed",
 		"a query can carry a line that looks exactly like a block header")
-	assert.True(t, strings.HasPrefix(lines[3], "1202,"),
+	assert.True(t, strings.HasPrefix(lines[4], "1202,"),
 		"and it can never start one, because pid is the first cell. That is why pid leading is "+
 			"a decision rather than an aesthetic")
 
@@ -1064,7 +1066,7 @@ func TestSessionsWritesTheWholeSampleInOneWrite(t *testing.T) {
 	assert.Equal(t, 1, writer.writes,
 		"two blocks, one buffer, one Write: a write failing between them would leave the "+
 			"window's stub behind a half-written sample")
-	assert.Equal(t, 2, strings.Count(writer.buf.String(), "# engine=postgres"))
+	assert.Equal(t, 2, strings.Count(writer.buf.String(), "# capture_id="))
 }
 
 func TestSessionsZeroRowsWritesTheColumnHeadersAlone(t *testing.T) {

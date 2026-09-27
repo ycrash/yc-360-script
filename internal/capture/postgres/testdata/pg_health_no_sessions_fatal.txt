@@ -1,23 +1,26 @@
-# engine=postgres source=pg_health v=1 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_stat_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 databases_written=5 databases_total=5 truncated=false sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:05.061Z
+# engine=postgres source=pg_health v=2 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_database start_ts=2026-08-07T14:32:05.065Z end_ts=2026-08-07T14:32:05.067Z duration_ms=2 status=OK rows=5 truncated=false scope=cluster databases_written=5 databases_total=5 sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:05.061Z
 datid,datname,blks_hit,blks_read,xact_commit,xact_rollback,temp_files,temp_bytes,deadlocks,sessions_fatal,stats_reset
 0,,182044,9120,0,0,0,0,0,,
 1,template1,88210,4021,1204,0,0,0,0,,2026-07-20T02:00:00.000Z
 4,template0,0,0,0,0,0,0,0,,
 5,postgres,412008,18804,8821,12,0,0,0,,2026-07-20T02:00:00.000Z
 16401,orders_db,8823401,158220,442198,9532,4,268435456,12,,2026-07-20T02:00:00.000Z
-# engine=postgres source=pg_stat_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 databases_written=5 databases_total=5 truncated=false sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:15.058Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_database start_ts=2026-08-07T14:32:15.062Z end_ts=2026-08-07T14:32:15.064Z duration_ms=2 status=OK rows=5 truncated=false scope=cluster databases_written=5 databases_total=5 sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:15.058Z
 datid,datname,blks_hit,blks_read,xact_commit,xact_rollback,temp_files,temp_bytes,deadlocks,sessions_fatal,stats_reset
 0,,182101,9120,0,0,0,0,0,,
 1,template1,88210,4021,1204,0,0,0,0,,2026-07-20T02:00:00.000Z
 4,template0,0,0,0,0,0,0,0,,
 5,postgres,412160,18804,8823,12,0,0,0,,2026-07-20T02:00:00.000Z
 16401,orders_db,8841820,158910,442340,9538,5,356515840,13,,2026-07-20T02:00:00.000Z
-# engine=postgres source=pg_stat_database v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 databases_written=5 databases_total=5 truncated=false sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:25.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=3 source=pg_stat_database start_ts=2026-08-07T14:32:25.059Z end_ts=2026-08-07T14:32:25.061Z duration_ms=2 status=OK rows=5 truncated=false scope=cluster databases_written=5 databases_total=5 sessions_fatal=unavailable reason="ERROR: column \"sessions_fatal\" does not exist (SQLSTATE 42703)" ts=2026-08-07T14:32:25.055Z
 datid,datname,blks_hit,blks_read,xact_commit,xact_rollback,temp_files,temp_bytes,deadlocks,sessions_fatal,stats_reset
 0,,182166,9121,0,0,0,0,0,,
 1,template1,88210,4021,1204,0,0,0,0,,2026-07-20T02:00:00.000Z
 4,template0,0,0,0,0,0,0,0,,
 5,postgres,412311,18804,8825,12,0,0,0,,2026-07-20T02:00:00.000Z
 16401,orders_db,8859944,159602,442481,9544,5,356515840,15,,2026-07-20T02:00:00.000Z
-# engine=postgres source=pg_health v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z
+# engine=postgres source=pg_health v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z

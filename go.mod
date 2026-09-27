@@ -8,6 +8,7 @@ require (
 	github.com/gentlemanautomaton/cmdline v0.0.0-20250112024754-4dfcc3d8ef7a
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/go-sql-driver/mysql v1.10.1
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/klauspost/compress v1.20.3
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
@@ -52,7 +53,6 @@ require (
 	github.com/go-openapi/swag/typeutils v0.29.2 // indirect
 	github.com/go-openapi/swag/yamlutils v0.27.1 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect

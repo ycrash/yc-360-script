@@ -1,17 +1,22 @@
-# engine=postgres source=pg_capacity v=2 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_stat_checkpointer v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# engine=postgres source=pg_capacity v=3 format=csv scope=cluster db=orders_db dbid= status=started window=120s schedule=periodic interval= samples_expected=2 ts=2026-08-07T14:32:04.980Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_checkpointer start_ts=2026-08-07T14:32:05.065Z end_ts=2026-08-07T14:32:05.067Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:32:05.061Z
 num_timed,num_requested,buffers_written,stats_reset
 842,12,1204882,2026-07-20T02:00:00.000Z
-# engine=postgres source=pg_stat_bgwriter v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_bgwriter start_ts=2026-08-07T14:32:05.069Z end_ts=2026-08-07T14:32:05.071Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:32:05.061Z
 buffers_clean,stats_reset
 88104,2026-08-01T09:15:00.000Z
-# engine=postgres source=pg_stat_io v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_io start_ts=2026-08-07T14:32:05.073Z end_ts=2026-08-07T14:32:05.075Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:32:05.061Z
 buffers_backend,stats_reset
 310884,2026-08-03T11:40:00.000Z
-# engine=postgres source=pg_stat_database v=2 format=csv scope=database db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_database start_ts=2026-08-07T14:32:05.077Z end_ts=2026-08-07T14:32:05.079Z duration_ms=2 status=OK rows=1 truncated=false scope=database ts=2026-08-07T14:32:05.061Z
 xact_commit,xact_rollback,blks_hit,blks_read,temp_bytes
 442198,9532,8823401,158220,268435456
-# engine=postgres source=pg_stat_activity_by_app v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=1 groups_written=10 groups_total=10 truncated=false ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_activity_by_app start_ts=2026-08-07T14:32:05.081Z end_ts=2026-08-07T14:32:05.083Z duration_ms=2 status=OK rows=10 truncated=false scope=cluster groups_written=10 groups_total=10 ts=2026-08-07T14:32:05.061Z
 application_name,backend_type,active_connections
 ,autovacuum launcher,1
 ,background writer,1
@@ -23,21 +28,27 @@ inventory-service,client backend,31
 orders-service,client backend,86
 reporting-worker,client backend,14
 yCrash-DB-Agent,client backend,1
-# engine=postgres source=pg_ls_waldir v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=1 reason=permission_denied ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_ls_waldir start_ts=2026-08-07T14:32:05.085Z end_ts=2026-08-07T14:32:05.087Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-08-07T14:32:05.061Z
 wal_bytes
-# engine=postgres source=pg_stat_checkpointer v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_checkpointer start_ts=2026-08-07T14:34:05.059Z end_ts=2026-08-07T14:34:05.061Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:34:05.055Z
 num_timed,num_requested,buffers_written,stats_reset
 842,15,1205410,2026-07-20T02:00:00.000Z
-# engine=postgres source=pg_stat_bgwriter v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_bgwriter start_ts=2026-08-07T14:34:05.063Z end_ts=2026-08-07T14:34:05.065Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:34:05.055Z
 buffers_clean,stats_reset
 88220,2026-08-01T09:15:00.000Z
-# engine=postgres source=pg_stat_io v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_io start_ts=2026-08-07T14:34:05.067Z end_ts=2026-08-07T14:34:05.069Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster ts=2026-08-07T14:34:05.055Z
 buffers_backend,stats_reset
 311002,2026-08-03T11:40:00.000Z
-# engine=postgres source=pg_stat_database v=2 format=csv scope=database db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_database start_ts=2026-08-07T14:34:05.071Z end_ts=2026-08-07T14:34:05.073Z duration_ms=2 status=OK rows=1 truncated=false scope=database ts=2026-08-07T14:34:05.055Z
 xact_commit,xact_rollback,blks_hit,blks_read,temp_bytes
 442340,9538,8841820,158910,356515840
-# engine=postgres source=pg_stat_activity_by_app v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=2 groups_written=10 groups_total=10 truncated=false ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_activity_by_app start_ts=2026-08-07T14:34:05.075Z end_ts=2026-08-07T14:34:05.077Z duration_ms=2 status=OK rows=10 truncated=false scope=cluster groups_written=10 groups_total=10 ts=2026-08-07T14:34:05.055Z
 application_name,backend_type,active_connections
 ,autovacuum launcher,1
 ,background writer,1
@@ -49,6 +60,7 @@ inventory-service,client backend,31
 orders-service,client backend,86
 reporting-worker,client backend,14
 yCrash-DB-Agent,client backend,1
-# engine=postgres source=pg_ls_waldir v=2 format=csv scope=cluster db=orders_db dbid=16401 sample=2 reason=permission_denied ts=2026-08-07T14:34:05.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=3 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_ls_waldir start_ts=2026-08-07T14:34:05.079Z end_ts=2026-08-07T14:34:05.081Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-08-07T14:34:05.055Z
 wal_bytes
-# engine=postgres source=pg_capacity v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.070Z
+# engine=postgres source=pg_capacity v=3 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.070Z

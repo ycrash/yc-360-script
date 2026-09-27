@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -13,6 +15,10 @@ import (
 // defaultArtifactVersion is v= for an artifact that sets no Version. An artifact's version changes
 // when its key set or value forms change in a way an existing reader would get wrong.
 const defaultArtifactVersion = 1
+
+// sampleHeaderVersion is v= for a periodic file whose one break is the two-line sample
+// header.
+const sampleHeaderVersion = 2
 
 // The two body formats; a receiver dispatches on format=, not
 // filename. formatText's end is given by the block header's bytes= key, never
@@ -208,25 +214,135 @@ func writeBlockHeaderFormat(w io.Writer, source, scope, format string, fields []
 func writeVersionedBlockHeader(w io.Writer, source string, version int, scope, format string,
 	fields []headerField, ts time.Time,
 ) error {
-	tokens := make([]string, 0, len(fields)+6)
-
-	tokens = append(tokens,
-		"engine=postgres",
-		"source="+headerValue(source),
-		"v="+strconv.Itoa(version),
-		"format="+headerValue(format),
-		"scope="+headerValue(scope),
+	line := make([]headerField, 0, len(fields)+6)
+	line = append(line,
+		headerField{"engine", "postgres"},
+		headerField{"source", source},
+		headerField{"v", strconv.Itoa(version)},
+		headerField{"format", format},
+		headerField{"scope", scope},
 	)
+	line = append(line, fields...)
+	line = append(line, headerField{"ts", timestamp(ts)})
 
-	for _, f := range fields {
-		tokens = append(tokens, f.key+"="+headerValue(f.value))
+	return writeHeaderLine(w, line)
+}
+
+func writeHeaderLine(w io.Writer, fields []headerField) error {
+	tokens := make([]string, len(fields))
+	for i, f := range fields {
+		tokens[i] = f.key + "=" + headerValue(f.value)
 	}
-
-	tokens = append(tokens, "ts="+timestamp(ts))
 
 	_, err := io.WriteString(w, "# "+strings.Join(tokens, " ")+"\n")
 
 	return err
+}
+
+// A sample block's status=: its reads succeeded, or found by design that there was
+// nothing to read (reason=); a read failed; a read ran out of time; a plan was cut at
+// its size cap.
+const (
+	statusOK        = "OK"
+	statusError     = "ERROR"
+	statusTimeout   = "TIMEOUT"
+	statusTruncated = "TRUNCATED"
+)
+
+// queryCanceled is the server's statement timeout, and a cancelled statement.
+const queryCanceled = "57014"
+
+// readStatus is the status of a block whose read ended in err.
+func readStatus(err error) string {
+	switch {
+	case err == nil:
+		return statusOK
+
+	case hasSQLState(err, queryCanceled), errors.Is(err, context.DeadlineExceeded):
+		return statusTimeout
+	}
+
+	return statusError
+}
+
+// span is when a block's statements ran, from the first one's start to the last one's
+// end. Zero when none ran.
+type span struct {
+	start time.Time
+	end   time.Time
+}
+
+// sampleHeader is what a sample block's second header line says about the block.
+type sampleHeader struct {
+	source string
+
+	// scope is the artifact's when empty.
+	scope string
+
+	reads span
+
+	// status is readStatus's, or statusTruncated.
+	status string
+
+	rows      int
+	truncated bool
+
+	// fields are the block's own keys, written after the envelope's.
+	fields []headerField
+}
+
+// writeSampleHeader writes a periodic file's two header lines for one sample block:
+//
+//	# capture_id=<uuid> target_id=<id> engine=postgres engine_version=<n> v=<n> format=<f> db=<db> dbid=<oid>
+//	# sample_id=<n> source=<source> start_ts=<ts> end_ts=<ts> duration_ms=<n> status=<status> rows=<n> truncated=<bool> scope=<scope> [k=v ...] ts=<ts>
+//
+// The first line is the same on every sample block of a file, the second is the
+// block's own; on each, the envelope's keys come first. The times are empty on a block
+// no statement was run for.
+func writeSampleHeader(w io.Writer, artifact Artifact, s SampleContext, h sampleHeader) error {
+	if err := writeHeaderLine(w, []headerField{
+		{"capture_id", s.CaptureID},
+		{"target_id", s.TargetID},
+		{"engine", "postgres"},
+		{"engine_version", s.EngineVersion},
+		{"v", strconv.Itoa(artifactVersion(artifact))},
+		{"format", artifactFormat(artifact)},
+		{"db", s.Database},
+		{"dbid", s.DBID},
+	}); err != nil {
+		return err
+	}
+
+	scope := h.scope
+	if scope == "" {
+		scope = artifact.Scope
+	}
+
+	fields := make([]headerField, 0, len(h.fields)+10)
+	fields = append(fields,
+		headerField{"sample_id", strconv.Itoa(s.Index)},
+		headerField{"source", h.source},
+		headerField{"start_ts", clockRead(h.reads.start)},
+		headerField{"end_ts", clockRead(h.reads.end)},
+		headerField{"duration_ms", durationMillis(h.reads)},
+		headerField{"status", h.status},
+		headerField{"rows", strconv.Itoa(h.rows)},
+		headerField{"truncated", strconv.FormatBool(h.truncated)},
+		headerField{"scope", scope},
+	)
+	fields = append(fields, h.fields...)
+	fields = append(fields, headerField{"ts", timestamp(s.At)})
+
+	return writeHeaderLine(w, fields)
+}
+
+// durationMillis is a span's length in whole milliseconds, empty where nothing ran.
+func durationMillis(reads span) string {
+	if reads.start.IsZero() {
+		return ""
+	}
+
+	return strconv.FormatInt(reads.end.Sub(reads.start).Milliseconds(), 10)
 }
 
 // maxHeaderValue bounds a header value in runes: a PostgreSQL error carries

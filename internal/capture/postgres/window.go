@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // One connection per timeline: pgx connections aren't safe for concurrent use.
@@ -193,6 +195,10 @@ type Artifact struct {
 	Version int
 }
 
+// periodic reports a periodic file, whose sample blocks carry the capture line and the
+// sample line: the window's own stub for a failed sample does too.
+func (a Artifact) periodic() bool { return a.Schedule.kind == schedulePeriodic }
+
 func artifactFormat(artifact Artifact) string {
 	if artifact.Format == "" {
 		return formatCSV
@@ -249,8 +255,27 @@ type SampleContext struct {
 	// every path that never dialled.
 	ConnectDuration time.Duration
 
+	// CaptureID is the run's, the same in every file; TargetID names the target;
+	// EngineVersion is the server's server_version_num, empty when identify fails.
+	CaptureID     string
+	TargetID      string
+	EngineVersion string
+
 	// redact centralizes the window's password redaction.
 	redact func(error) string
+
+	// clock times the sample's statements.
+	clock func() time.Time
+}
+
+// now is a clock read for timing a statement; the sample's own instant where no clock
+// was given.
+func (s SampleContext) now() time.Time {
+	if s.clock == nil {
+		return s.At
+	}
+
+	return s.clock()
 }
 
 func (s SampleContext) errorText(err error) string {
@@ -334,11 +359,17 @@ type Window struct {
 	Duration   time.Duration
 	Collectors []Collector
 
-	// Test seams, zero in production: now/after skip real waits, connect skips a server, grace shortens the deadline.
-	now     func() time.Time
-	after   func(time.Duration) <-chan time.Time
-	connect func(ctx context.Context, t Target) (windowConn, error)
-	grace   time.Duration
+	// CaptureID is written on every sample block of every file. A run without one
+	// gets its own.
+	CaptureID string
+
+	// Test seams, zero in production: now/after skip real waits, connect skips a server, grace shortens the deadline,
+	// statementClock times each sample's statements from its clock read.
+	now            func() time.Time
+	after          func(time.Duration) <-chan time.Time
+	connect        func(ctx context.Context, t Target) (windowConn, error)
+	grace          time.Duration
+	statementClock func(at time.Time) func() time.Time
 }
 
 // moduleDeadline: Duration + the closing tick's SampleBudgets + WindowCloseMargin.
@@ -441,6 +472,10 @@ func (w *Window) timelines() ([]*connectionTimeline, []*connectionTimeline) {
 // Run returns one result per artifact; no error return, since a refused connection is itself a captured outcome.
 // Files are left open at their end offset for the caller to upload and close.
 func (w *Window) Run(ctx context.Context) []ArtifactResult {
+	if w.CaptureID == "" {
+		w.CaptureID = uuid.NewString()
+	}
+
 	results := make([]ArtifactResult, len(w.Collectors))
 	for i, collector := range w.Collectors {
 		artifact := collector.Artifact()
@@ -772,9 +807,12 @@ func (w *Window) sampleOnce(
 	at.Index = event.index
 	at.Total = result.SamplesExpected
 	at.At = w.clock()
+	at.clock = w.statementTimer(at.At)
+
+	start := at.now()
 
 	if sampleErr := w.Collectors[event.collector].Sample(ctx, conn, result.File, at); sampleErr != nil {
-		w.writeSampleError(result, at, sampleErr)
+		w.writeSampleError(result, at, span{start, at.now()}, sampleErr)
 	} else {
 		result.SamplesWritten++
 	}
@@ -793,28 +831,43 @@ func (w *Window) sampleOnce(
 }
 
 // writeSampleError records a failed sample so numbering doesn't gap silently; the block names the artifact, not a view.
-func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContext, sampleErr error) {
+// In a periodic file it is a sample block like the others, timed over the whole sample.
+func (w *Window) writeSampleError(result *ArtifactResult, sampleCtx SampleContext, reads span, sampleErr error) {
 	result.Err = errorText(sampleErr, w.Target.Password)
 
 	artifact := result.Artifact
 
-	err := writeVersionedBlockHeader(result.File, artifact.Name, artifactVersion(artifact), artifact.Scope,
-		artifactFormat(artifact), []headerField{
-			{"db", sampleCtx.Database},
-			{"dbid", sampleCtx.DBID},
-			{"sample", strconv.Itoa(sampleCtx.Index)},
-			{"sample_error", result.Err},
-		}, sampleCtx.At)
+	var err error
+
+	if artifact.periodic() {
+		err = writeSampleHeader(result.File, artifact, sampleCtx, sampleHeader{
+			source: artifact.Name,
+			reads:  reads,
+			status: readStatus(sampleErr),
+			fields: []headerField{{"sample_error", result.Err}},
+		})
+	} else {
+		err = writeVersionedBlockHeader(result.File, artifact.Name, artifactVersion(artifact), artifact.Scope,
+			artifactFormat(artifact), []headerField{
+				{"db", sampleCtx.Database},
+				{"dbid", sampleCtx.DBID},
+				{"sample", strconv.Itoa(sampleCtx.Index)},
+				{"sample_error", result.Err},
+			}, sampleCtx.At)
+	}
+
 	if err != nil {
 		result.IOErr = fmt.Errorf("failed to write %s: %w", artifact.FileName, err)
 	}
 }
 
 // OID comes from pg_database, not a name cast: survives mid-run renames.
-// Capability expressions must match serverFactsSQL's exactly.
+// Capability expressions must match serverFactsSQL's exactly. server_version_num is
+// written as engine_version=, never tested: capabilities come from the catalog.
 const currentDatabaseSQL = `SELECT current_database()::text,
        (SELECT oid::text FROM pg_catalog.pg_database WHERE datname = current_database()),
-       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL`
+       to_regclass('pg_catalog.pg_stat_checkpointer') IS NOT NULL,
+       current_setting('server_version_num')`
 
 // identify reads the database, OID and capability flags once for every collector.
 // On failure, HasPgStatCheckpointer stays false, so a PG17 server gets the pre-17 statement and errors.
@@ -827,9 +880,10 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 	var database string
 	var dbid *string
 	var hasPgStatCheckpointer bool
+	var engineVersion string
 
 	if err := conn.QueryRow(stmtCtx, currentDatabaseSQL).
-		Scan(&database, &dbid, &hasPgStatCheckpointer); err != nil {
+		Scan(&database, &dbid, &hasPgStatCheckpointer, &engineVersion); err != nil {
 		return sampleCtx
 	}
 
@@ -838,6 +892,7 @@ func (w *Window) identify(ctx context.Context, conn RowQuerier) SampleContext {
 		sampleCtx.DBID = *dbid
 	}
 	sampleCtx.HasPgStatCheckpointer = hasPgStatCheckpointer
+	sampleCtx.EngineVersion = engineVersion
 
 	return sampleCtx
 }
@@ -870,8 +925,10 @@ func (w *Window) baseSampleContext() SampleContext {
 	password := w.Target.Password
 
 	return SampleContext{
-		Database: w.Target.Database,
-		redact:   func(err error) string { return errorText(err, password) },
+		Database:  w.Target.Database,
+		CaptureID: w.CaptureID,
+		TargetID:  w.Target.id(),
+		redact:    func(err error) string { return errorText(err, password) },
 	}
 }
 
@@ -900,6 +957,15 @@ func (w *Window) clock() time.Time {
 	}
 
 	return time.Now()
+}
+
+// statementTimer is the clock a sample's statements are timed by.
+func (w *Window) statementTimer(at time.Time) func() time.Time {
+	if w.statementClock != nil {
+		return w.statementClock(at)
+	}
+
+	return time.Now
 }
 
 func (w *Window) timer(d time.Duration) <-chan time.Time {

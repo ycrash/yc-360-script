@@ -2,16 +2,20 @@ package postgres
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -287,13 +291,14 @@ func TestEveryShippedGoldenDeclaresOneFormat(t *testing.T) {
 
 			headers := 0
 			for line := range strings.SplitSeq(golden(t, name), "\n") {
-				if !strings.HasPrefix(line, "# engine=postgres ") {
+				if !strings.HasPrefix(line, "# engine=postgres ") && !strings.HasPrefix(line, "# capture_id=") {
 					continue
 				}
 
 				headers++
 				assert.Contains(t, strings.Fields(line), want,
-					"every block of one file declares that file's format, the header-only ones included")
+					"every block of one file declares that file's format, the header-only ones included, "+
+						"on a sample block's capture line")
 			}
 
 			assert.NotZero(t, headers, "a golden with no block header is not a golden")
@@ -661,4 +666,155 @@ func TestWriteRowsErrorsPropagate(t *testing.T) {
 	assert.ErrorIs(t,
 		writeRows(failingWriter{err: sinkErr}, []string{"relid"}, [][]string{{"16390"}}),
 		sinkErr)
+}
+
+// periodicGoldens are the fixtures of the periodic files, whose sample blocks carry two header lines.
+var periodicGoldens = []string{
+	"pg_bloat_", "pg_capacity_", "pg_explain_", "pg_health_", "pg_index_usage_", "pg_memory_",
+	"pg_nondefault_settings_", "pg_replication_", "pg_sessions_", "pg_slow_queries_", "pg_tablespaces_",
+	"pg_xid_age_",
+}
+
+func TestGoldensCarryTheSampleHeaderOnPeriodicFilesAlone(t *testing.T) {
+	entries, err := filepath.Glob(filepath.Join("testdata", "*.txt"))
+	require.NoError(t, err)
+
+	for _, path := range entries {
+		name := filepath.Base(path)
+
+		t.Run(name, func(t *testing.T) {
+			periodic := slices.ContainsFunc(periodicGoldens, func(prefix string) bool {
+				return strings.HasPrefix(name, prefix)
+			})
+
+			var captures, versions []string
+
+			lines := strings.Split(golden(t, name), "\n")
+			for i, line := range lines {
+				switch {
+				case strings.HasPrefix(line, "# capture_id="):
+					require.True(t, periodic, "only a periodic file has a capture line: %s", line)
+					require.Less(t, i+1, len(lines))
+					require.True(t, strings.HasPrefix(lines[i+1], "# sample_id="),
+						"a capture line is followed by its sample line")
+
+					captures = append(captures, line)
+					versions = append(versions, headerFields(t, line)["v"])
+
+				case strings.HasPrefix(line, "# sample_id="):
+					require.True(t, strings.HasPrefix(lines[i-1], "# capture_id="),
+						"a sample line follows its capture line")
+					assert.NotContains(t, headerFields(t, line), "sample",
+						"a sample block numbers its sample as sample_id=")
+
+				case strings.HasPrefix(line, "# engine=postgres "):
+					versions = append(versions, headerFields(t, line)["v"])
+				}
+			}
+
+			for _, capture := range captures {
+				assert.Equal(t, captures[0], capture, "the capture line is the same on every sample block of a file")
+			}
+
+			for _, version := range versions {
+				assert.Equal(t, versions[0], version, "every block of a file carries the file's v=")
+			}
+
+			if periodic && !strings.HasSuffix(name, "_connect_failure.txt") && name != "pg_explain_disabled.txt" {
+				assert.NotEmpty(t, captures, "a periodic file that sampled has sample blocks")
+			}
+		})
+	}
+}
+
+func TestSampleHeaderIsTheCaptureLineThenTheSampleLine(t *testing.T) {
+	var buf bytes.Buffer
+
+	require.NoError(t, writeSampleHeader(&buf, Health{}.Artifact(), SampleContext{
+		At: testAgentNow, Index: 3, Database: "orders_db", DBID: "16401",
+		CaptureID: testCaptureID, TargetID: "orders-primary", EngineVersion: "170004",
+	}, sampleHeader{
+		source:    "pg_stat_database",
+		reads:     span{testAgentNow.Add(2 * time.Millisecond), testAgentNow.Add(9 * time.Millisecond)},
+		status:    statusOK,
+		rows:      5,
+		truncated: true,
+		fields:    []headerField{{"databases_written", "5"}, {"databases_total", "9"}},
+	}))
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2)
+
+	assert.Equal(t, []string{
+		"#",
+		"capture_id=" + testCaptureID,
+		"target_id=orders-primary",
+		"engine=postgres",
+		"engine_version=170004",
+		"v=2",
+		"format=csv",
+		"db=orders_db",
+		"dbid=16401",
+	}, strings.Fields(lines[0]), "the run, target and server, then the file's own keys that every sample block shares")
+
+	assert.Equal(t, []string{
+		"#",
+		"sample_id=3",
+		"source=pg_stat_database",
+		"start_ts=2026-08-04T09:12:44.120Z",
+		"end_ts=2026-08-04T09:12:44.127Z",
+		"duration_ms=7",
+		"status=OK",
+		"rows=5",
+		"truncated=true",
+		"scope=cluster",
+		"databases_written=5",
+		"databases_total=9",
+		"ts=2026-08-04T09:12:44.118Z",
+	}, strings.Fields(lines[1]), "the read's eight keys and scope, then the block's own, and the sample's clock read last")
+}
+
+func TestSampleHeaderLeavesTheTimesEmptyWhereNoStatementRan(t *testing.T) {
+	var buf bytes.Buffer
+
+	require.NoError(t, writeSampleHeader(&buf, Health{}.Artifact(), SampleContext{At: testAgentNow, Index: 1},
+		sampleHeader{source: "pg_stat_database", status: statusOK}))
+
+	assert.Contains(t, buf.String(), " start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false ",
+		"no statement, no times: empty is not read, where a zero would be a statement that took no time")
+}
+
+func TestSampleHeaderScopeIsTheArtifactsUnlessTheBlockSaysOtherwise(t *testing.T) {
+	var buf bytes.Buffer
+
+	require.NoError(t, writeSampleHeader(&buf, Capacity{}.Artifact(), SampleContext{At: testAgentNow, Index: 1},
+		sampleHeader{source: "pg_stat_database", scope: "database", status: statusOK}))
+	require.NoError(t, writeSampleHeader(&buf, Capacity{}.Artifact(), SampleContext{At: testAgentNow, Index: 1},
+		sampleHeader{source: "pg_ls_waldir", status: statusOK}))
+
+	assert.Contains(t, buf.String(), " scope=database ")
+	assert.Contains(t, buf.String(), " scope=cluster ")
+	assert.Equal(t, 2, strings.Count(buf.String(), " v=3 "), "and the file's version on each capture line")
+}
+
+func TestReadStatus(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no error", nil, statusOK},
+		{"the server's statement timeout", statementTimedOut(), statusTimeout},
+		{"the timeout wrapped", fmt.Errorf("read: %w", statementTimedOut()), statusTimeout},
+		{"the client's deadline", context.DeadlineExceeded, statusTimeout},
+		{"the client's deadline wrapped", fmt.Errorf("timeout: %w", context.DeadlineExceeded), statusTimeout},
+		{"a cancelled window", context.Canceled, statusError},
+		{"a refusal", &pgconn.PgError{Severity: "ERROR", Code: "42501", Message: "permission denied"}, statusError},
+		{"a plain error", errors.New("ERROR: canceling statement due to statement timeout"), statusError},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, readStatus(tt.err),
+				"TIMEOUT is SQLSTATE 57014 or the client's deadline, never a message")
+		})
+	}
 }

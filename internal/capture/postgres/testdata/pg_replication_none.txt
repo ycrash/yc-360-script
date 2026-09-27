@@ -1,14 +1,20 @@
-# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
-# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# engine=postgres source=pg_replication v=2 format=csv scope=cluster db=orders_db dbid= status=started window=20s schedule=periodic interval=10s samples_expected=3 ts=2026-08-07T14:32:04.980Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_stat_replication start_ts=2026-08-07T14:32:05.065Z end_ts=2026-08-07T14:32:05.067Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:05.061Z
 pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
-# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=1 ts=2026-08-07T14:32:05.061Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=1 source=pg_replication_slots start_ts=2026-08-07T14:32:05.069Z end_ts=2026-08-07T14:32:05.071Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:05.061Z
 slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,retained_bytes,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase,conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at
-# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_stat_replication start_ts=2026-08-07T14:32:15.062Z end_ts=2026-08-07T14:32:15.064Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:15.058Z
 pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
-# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=2 ts=2026-08-07T14:32:15.058Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=2 source=pg_replication_slots start_ts=2026-08-07T14:32:15.066Z end_ts=2026-08-07T14:32:15.068Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:15.058Z
 slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,retained_bytes,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase,conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at
-# engine=postgres source=pg_stat_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=3 source=pg_stat_replication start_ts=2026-08-07T14:32:25.059Z end_ts=2026-08-07T14:32:25.061Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:25.055Z
 pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,backend_start,backend_xmin,state,sent_lsn,write_lsn,flush_lsn,replay_lsn,write_lag_seconds,flush_lag_seconds,replay_lag_seconds,sync_priority,sync_state,reply_time
-# engine=postgres source=pg_replication_slots v=1 format=csv scope=cluster db=orders_db dbid=16401 sample=3 ts=2026-08-07T14:32:25.055Z
+# capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
+# sample_id=3 source=pg_replication_slots start_ts=2026-08-07T14:32:25.063Z end_ts=2026-08-07T14:32:25.065Z duration_ms=2 status=OK rows=0 truncated=false scope=cluster ts=2026-08-07T14:32:25.055Z
 slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,retained_bytes,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase,conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at
-# engine=postgres source=pg_replication v=1 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z
+# engine=postgres source=pg_replication v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z
