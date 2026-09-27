@@ -34,7 +34,7 @@ ORDER BY name`
 // NonDefaultSettings captures the settings changed from their defaults every
 // sample, with any password in a setting's value replaced.
 type NonDefaultSettings struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's expensive speed. Zero is the bookend alone.
 	Interval time.Duration
 }
 

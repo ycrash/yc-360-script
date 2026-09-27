@@ -197,9 +197,12 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	duration := p.captureDuration()
 
-	// One cadence for every sampled artifact, postgres.frequency: the sampled
-	// collectors below take it rather than each carrying its own constant.
-	interval := p.frequency()
+	// Three speeds derived from postgres.frequency, each a fixed property of the
+	// file: session state at fast, cumulative counters at normal, whole-table
+	// reads and settings at expensive.
+	normal := p.frequency()
+	fast := config.PostgresFastFrequency(normal)
+	expensive := config.PostgresExpensiveFrequency(normal)
 
 	// Written by the callback below and read once the window closes. Window.Run is
 	// synchronous on this goroutine, so the two never overlap.
@@ -217,10 +220,10 @@ func (p *PostgresCapture) Run() (Result, error) {
 	// Shared, not two collectors: Explain walks the read this one offers each sample,
 	// and never re-runs the statement behind it.
 	slowQueries := postgres.NewSlowQueries()
-	slowQueries.Interval = interval
+	slowQueries.Interval = normal
 
 	explain := postgres.NewExplain(p.explainMode(), slowQueries)
-	explain.Interval = interval
+	explain.Interval = normal
 
 	window := &postgres.Window{
 		Target:   target,
@@ -244,18 +247,18 @@ func (p *PostgresCapture) Run() (Result, error) {
 			postgres.NewTimeouts(),
 			postgres.NewCheckpointLog(),
 			postgres.NewErrors(),
-			postgres.Sessions{Interval: interval},
-			postgres.Health{Interval: interval},
-			postgres.XIDAge{Interval: interval},
-			postgres.Replication{Interval: interval},
-			postgres.NonDefaultSettings{Interval: interval},
-			postgres.Memory{Interval: interval},
+			postgres.Sessions{Interval: fast},
+			postgres.Health{Interval: normal},
+			postgres.XIDAge{Interval: normal},
+			postgres.Replication{Interval: normal},
+			postgres.NonDefaultSettings{Interval: expensive},
+			postgres.Memory{Interval: normal},
 			metadata,
 			postgres.CatalogMap{},
-			postgres.Capacity{Interval: interval},
-			postgres.Bloat{Interval: interval},
-			postgres.IndexUsage{Interval: interval},
-			postgres.Tablespaces{Interval: interval},
+			postgres.Capacity{Interval: normal},
+			postgres.Bloat{Interval: expensive},
+			postgres.IndexUsage{Interval: expensive},
+			postgres.Tablespaces{Interval: expensive},
 			slowQueries,
 			explain,
 		},
@@ -304,11 +307,15 @@ func (p *PostgresCapture) setCancel(cancel context.CancelFunc) {
 	p.cancel = cancel
 }
 
-// captureDuration returns the configured window, defaulting a nil duration
-// (a config block that never went through Validate).
+// unvalidatedCaptureDuration is the window for a block that never went through
+// Validate, which refuses one without captureDuration: the application capture's
+// nominal span.
+const unvalidatedCaptureDuration = 120 * time.Second
+
+// captureDuration returns the configured window.
 func (p *PostgresCapture) captureDuration() time.Duration {
 	if p.Target.CaptureDuration == nil {
-		return config.DefaultPostgresCaptureDuration
+		return unvalidatedCaptureDuration
 	}
 
 	return p.Target.CaptureDuration.Duration()

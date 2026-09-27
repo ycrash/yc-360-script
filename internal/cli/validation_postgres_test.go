@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -43,7 +44,9 @@ func TestValidatePostgres(t *testing.T) {
 			Host:     "  db-prod-01.internal  ",
 			Database: "orders_db",
 			Username: "ycrash_monitor",
-			Password: "${PG_YCRASH_PASSWORD}",
+
+			CaptureDuration: twoMinutes(),
+			Password:        "${PG_YCRASH_PASSWORD}",
 		})
 
 		require.NoError(t, validate())
@@ -63,7 +66,9 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			TLS:      &config.PostgresTLS{Enabled: new(bool)},
+
+			CaptureDuration: twoMinutes(),
+			TLS:             &config.PostgresTLS{Enabled: new(bool)},
 		})
 
 		require.NoError(t, validate(), "a plaintext connection is warned about, not refused")
@@ -73,9 +78,20 @@ func TestValidatePostgres(t *testing.T) {
 	t.Run("missing host stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Username: "ycrash_monitor",
+
+			CaptureDuration: twoMinutes(),
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
+	})
+
+	t.Run("a block without captureDuration stops the run", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
+			Host:     "db-prod-01.internal",
+			Username: "ycrash_monitor",
+		})
+
+		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(), "there is no default window")
 	})
 
 	t.Run("empty block stops the run", func(t *testing.T) {
@@ -90,7 +106,9 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			Password: "${PG_YCRASH_PASSWORD}",
+
+			CaptureDuration: twoMinutes(),
+			Password:        "${PG_YCRASH_PASSWORD}",
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
@@ -104,6 +122,8 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
+
+			CaptureDuration: twoMinutes(),
 		})
 		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o644)
 
@@ -115,6 +135,8 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
+
+			CaptureDuration: twoMinutes(),
 		})
 		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o600)
 
@@ -132,7 +154,9 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			SSLMode:  "verify-full",
+
+			CaptureDuration: twoMinutes(),
+			SSLMode:         "verify-full",
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(),
@@ -145,11 +169,19 @@ func TestValidatePostgres(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
 			Host:     "db-prod-01.internal",
 			Username: "ycrash_monitor",
-			TLS:      &config.PostgresTLS{Enabled: new(bool), VerifyServerCertificate: &verify},
+
+			CaptureDuration: twoMinutes(),
+			TLS:             &config.PostgresTLS{Enabled: new(bool), VerifyServerCertificate: &verify},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
 	})
+}
+
+func twoMinutes() *config.Duration {
+	window := config.Duration(2 * time.Minute)
+
+	return &window
 }
 
 func configFileWithMode(t *testing.T, mode os.FileMode) string {

@@ -174,7 +174,7 @@ func buildSlotsSQL() string {
 // pg_stat_replication masks every column past application_name to NULL without
 // pg_monitor, so a healthy and an hour-behind replica look byte-identical here.
 type Replication struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
 }
 

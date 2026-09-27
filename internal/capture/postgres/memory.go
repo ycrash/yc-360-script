@@ -55,7 +55,7 @@ ORDER BY allocated_size DESC`
 // allocation is the buffer pool, and which the engine's own, is the server's
 // reading.
 type Memory struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
 }
 

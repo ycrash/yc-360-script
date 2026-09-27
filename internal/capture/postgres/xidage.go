@@ -25,7 +25,7 @@ ORDER BY xid_age DESC`
 // XIDAge captures each database's transaction-ID age every sample. How close is
 // too close is the server's call.
 type XIDAge struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
 }
 

@@ -87,7 +87,7 @@ ORDER BY spcname`
 // against the volume behind it, which pg_metadata.txt names and df.out measures
 // where the agent runs on the database's machine.
 type Tablespaces struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's expensive speed. Zero is the bookend alone.
 	Interval time.Duration
 }
 

@@ -27,13 +27,15 @@ type Postgres struct {
 	// sslmode: verify-full into an unverified connection.
 	SSLMode string `yaml:"sslmode"`
 
-	// Pointer: nil (key omitted) takes the default; 0s is a configuration error.
+	// CaptureDuration is how long to capture. Required: nil (key omitted) and 0s are
+	// configuration errors.
 	CaptureDuration *Duration `yaml:"captureDuration"`
 
-	// Frequency is how often the periodic artifacts are sampled. Pointer: nil (key
-	// omitted) takes the default; 0s is a configuration error. Whatever the value,
-	// the opening and closing samples are always taken, so a frequency no shorter
-	// than the window leaves exactly those two - and Validate says so.
+	// Frequency is how often the periodic artifacts are sampled, and the source of
+	// the three speeds (PostgresFastFrequency, PostgresExpensiveFrequency). Pointer:
+	// nil (key omitted) takes the default; 0s is a configuration error. Whatever the
+	// value, the opening and closing samples are always taken, so a frequency no
+	// shorter than the window leaves exactly those two - and Validate says so.
 	Frequency *Duration `yaml:"frequency"`
 
 	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
@@ -80,19 +82,23 @@ const (
 	// DefaultPostgresDatabase exists on effectively every cluster.
 	DefaultPostgresDatabase = "postgres"
 
-	// DefaultPostgresCaptureDuration matches SCRIPT_SPAN, the application capture's
-	// nominal span - not the host collectors' real one: top and vmstat run ~20s.
-	DefaultPostgresCaptureDuration = 120 * time.Second
-
 	// MaxPostgresCaptureDuration caps captureDuration: a load commitment against a
 	// shared database. Two hours is the longest window supported; the host
 	// files stretch with it, so a long window's netstat and ps readings are far apart.
 	MaxPostgresCaptureDuration = 2 * time.Hour
 
-	// DefaultPostgresFrequency is 5m. Longer than the default window, so an
-	// incident capture that wants samples between the endpoints sets frequency
-	// itself (30s, for example), and one that does not is warned.
+	// DefaultPostgresFrequency is 5m. A short incident capture that wants samples
+	// between the endpoints sets frequency itself (30s, for example), and one that
+	// does not is warned.
 	DefaultPostgresFrequency = 5 * time.Minute
+
+	// MaxPostgresFastFrequency caps the fast speed, session and lock state: a
+	// blocking episode shorter than one sampling interval can pass unseen.
+	MaxPostgresFastFrequency = 15 * time.Second
+
+	// MinPostgresExpensiveFrequency floors the expensive speed: whole-table reads
+	// and settings, costly to take and slow to change.
+	MinPostgresExpensiveFrequency = 5 * time.Minute
 
 	// MinPostgresFrequency floors frequency. It equals the capture's per-statement
 	// timeout, pinned by a test there, so a maxed-out sample can never outrun the
@@ -133,7 +139,7 @@ func (p *Postgres) String() string {
 	}
 
 	// Non-nil after Validate; this covers a block rendered before it.
-	window := fmt.Sprintf("(unset, defaults to %s)", DefaultPostgresCaptureDuration)
+	window := "(unset, required)"
 	if p.CaptureDuration != nil {
 		window = p.CaptureDuration.String()
 	}
@@ -156,6 +162,16 @@ func (p *Postgres) String() string {
 		p.TLSEnabled(), p.TLSVerified(), caFile, serverName,
 		window, frequency, p.ExplainMode(), p.AgentOnDBHost,
 	)
+}
+
+// PostgresFastFrequency is the fast speed for a frequency: at most 15s.
+func PostgresFastFrequency(frequency time.Duration) time.Duration {
+	return min(frequency, MaxPostgresFastFrequency)
+}
+
+// PostgresExpensiveFrequency is the expensive speed for a frequency: at least 5m.
+func PostgresExpensiveFrequency(frequency time.Duration) time.Duration {
+	return max(frequency, MinPostgresExpensiveFrequency)
 }
 
 // ExplainMode is the run's plan-capture intent as a token: an accepted value, or
@@ -217,15 +233,17 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 			DefaultPostgresDatabase,
 		))
 	}
-	// Over-ceiling clamps and warns (partial intent); non-positive is rejected outright.
+	// Over-ceiling clamps and warns (partial intent); missing or non-positive is rejected outright.
 	switch {
 	case p.CaptureDuration == nil:
-		p.CaptureDuration = newDuration(DefaultPostgresCaptureDuration)
+		errs = append(errs, fmt.Errorf(
+			"postgres.captureDuration is required - how long to capture, for example 2m (at most %s)",
+			MaxPostgresCaptureDuration))
 
 	case p.CaptureDuration.Duration() <= 0:
 		errs = append(errs, fmt.Errorf(
-			"postgres.captureDuration is %s - it must be positive (omit the key for the %s default)",
-			p.CaptureDuration, DefaultPostgresCaptureDuration))
+			"postgres.captureDuration is %s - it must be positive (at most %s)",
+			p.CaptureDuration, MaxPostgresCaptureDuration))
 
 	case p.CaptureDuration.Duration() > MaxPostgresCaptureDuration:
 		warnings = append(warnings, fmt.Sprintf(
@@ -259,23 +277,12 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		p.Frequency = newDuration(MinPostgresFrequency)
 	}
 
-	// The bookend is always taken, so this is a warning and not an error - but on
-	// the default window the default frequency lands here, and a capture that was
-	// never told a cadence would otherwise be silently two samples of everything.
-	if p.Frequency.Duration() > 0 && p.CaptureDuration.Duration() > 0 &&
+	// The bookend is always taken, so this is a warning and not an error - but a
+	// short window with the default frequency lands here, and a capture that was
+	// never told a cadence would otherwise be silently two samples of most files.
+	if p.CaptureDuration != nil && p.Frequency.Duration() > 0 && p.CaptureDuration.Duration() > 0 &&
 		p.Frequency.Duration() >= p.CaptureDuration.Duration() {
-		if frequencyDefaulted {
-			warnings = append(warnings, fmt.Sprintf(
-				"postgres.frequency is unset and defaults to %s, which is not shorter than the %s "+
-					"window - only the opening and closing samples will be taken. Set "+
-					"postgres.frequency (for example 30s) to sample within the window.",
-				DefaultPostgresFrequency, p.CaptureDuration))
-		} else {
-			warnings = append(warnings, fmt.Sprintf(
-				"postgres.frequency %s is not shorter than the %s window - only the opening and "+
-					"closing samples will be taken.",
-				p.Frequency, p.CaptureDuration))
-		}
+		warnings = append(warnings, p.bookendWarning(frequencyDefaulted))
 	}
 
 	if p.Host == "" {
@@ -325,6 +332,31 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 	}
 
 	return warnings, errors.Join(errs...)
+}
+
+// bookendWarning says which files keep only the opening and closing samples when
+// frequency meets or exceeds the window. The fast speed is capped below
+// frequency, so session state still samples within a window longer than it.
+func (p *Postgres) bookendWarning(frequencyDefaulted bool) string {
+	window := p.CaptureDuration.Duration()
+	fast := PostgresFastFrequency(p.Frequency.Duration())
+
+	consequence := "normal-speed and expensive-speed files will produce only the opening and " +
+		"closing samples, no samples in between"
+	if fast < window {
+		consequence += fmt.Sprintf("; fast-speed files (pg_sessions.txt) are unaffected, "+
+			"sampled every %s", fast)
+	}
+
+	if frequencyDefaulted {
+		return fmt.Sprintf("postgres.frequency is unset and defaults to %s, which meets or exceeds "+
+			"postgres.captureDuration (%s) - %s. Set postgres.frequency (for example 30s) to sample "+
+			"the normal-speed files within the window.",
+			DefaultPostgresFrequency, p.CaptureDuration, consequence)
+	}
+
+	return fmt.Sprintf("postgres.frequency (%s) meets or exceeds postgres.captureDuration (%s) - %s.",
+		p.Frequency, p.CaptureDuration, consequence)
 }
 
 // validateTLS fills in the block's defaults, so what the run uses is what it

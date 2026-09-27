@@ -55,7 +55,7 @@ LEFT JOIN pg_catalog.pg_class c ON c.oid = o`
 // downstream by joining consecutive blocks on indexrelid. An index whose
 // idx_scan never moves across the window is the finding this artifact exists for.
 type IndexUsage struct {
-	// Interval is the cadence, one run's frequency. Zero is the bookend alone.
+	// Interval is the cadence, the run's expensive speed. Zero is the bookend alone.
 	Interval time.Duration
 
 	// MaxIndexes bounds one sample. Zero takes DefaultMaxIndexes.
