@@ -2079,6 +2079,11 @@ func TestMatrixCapacity(t *testing.T) {
 				assertMatrixCheckpointShape(t, server, checkpoints)
 				assertMatrixCheckpointCounters(t, role, checkpoints)
 
+				databases := parseCapacityBlocks(t, artifact, "pg_stat_database")
+				require.Len(t, databases, matrixCapacitySamples, "the connected database is read on every sample")
+
+				assertMatrixDatabaseBlocks(t, target, databases)
+
 				connections := parseCapacityBlocks(t, artifact, "pg_stat_activity_by_app")
 				require.Len(t, connections, matrixCapacitySamples,
 					"a gauge, once a single closing reading, is now one reading per sample")
@@ -2150,6 +2155,25 @@ func assertMatrixCheckpointCounters(t *testing.T, role matrixRole, blocks []capa
 
 	assert.GreaterOrEqual(t, last, first,
 		"an unprivileged role cannot force a checkpoint, so only the direction is assertable")
+}
+
+func assertMatrixDatabaseBlocks(t *testing.T, target Target, blocks []capacityMatrixBlock) {
+	t.Helper()
+
+	for i, block := range blocks {
+		assert.NotContains(t, block.rawHead, "error=", "block %d: reading pg_stat_database needs no grant", i)
+		assert.Equal(t, "database", block.header["scope"], "block %d: one database's row", i)
+		assert.Equal(t, target.Database, block.header["db"], "block %d: the connected one", i)
+		assert.Equal(t, databaseColumns, block.columns, "block %d", i)
+
+		for _, column := range databaseColumns {
+			matrixCheckpointCounter(t, block, column)
+		}
+	}
+
+	first := matrixCheckpointCounter(t, blocks[0], "xact_commit")
+	last := matrixCheckpointCounter(t, blocks[len(blocks)-1], "xact_commit")
+	assert.GreaterOrEqual(t, last, first, "xact_commit is a cumulative counter")
 }
 
 func matrixCheckpointCounter(t *testing.T, block capacityMatrixBlock, column string) int64 {

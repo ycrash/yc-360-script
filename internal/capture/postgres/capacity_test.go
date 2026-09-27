@@ -80,6 +80,16 @@ func ordersCheckpointsPG17() []fakeRow {
 	)
 }
 
+// ordersDatabase is orders_db's row in pg_health's samples, so the two files agree.
+func ordersDatabase() []fakeRow {
+	return queueRow(
+		rowResult(ptr(int64(442198)), ptr(int64(9532)), ptr(int64(8823401)), ptr(int64(158220)),
+			ptr(int64(268435456))),
+		rowResult(ptr(int64(442340)), ptr(int64(9538)), ptr(int64(8841820)), ptr(int64(158910)),
+			ptr(int64(356515840))),
+	)
+}
+
 func connectionGroup(application, backendType string, connections, total int64) []any {
 	return []any{ptr(application), ptr(backendType), connections, total}
 }
@@ -108,6 +118,7 @@ type fakeCapacityConn struct {
 
 	checkpoint      []fakeRow
 	checkpointPre17 []fakeRow
+	database        []fakeRow
 	connections     []fakeResult
 	walAllowed      []fakeRow
 	wal             []fakeRow
@@ -121,6 +132,7 @@ func newFakeCapacityConn() *fakeCapacityConn {
 		fakeWindowConn:  newFakeWindowConn(),
 		checkpoint:      ordersCheckpointsPG17(),
 		checkpointPre17: ordersCheckpointsPre17(),
+		database:        ordersDatabase(),
 		connections:     repeat(rowsResult(ordersConnections())),
 		walAllowed:      repeatRow(rowResult(ptr(true))),
 		wal:             repeatRow(rowResult(ptr(int64(2254857830)))),
@@ -136,6 +148,9 @@ func (c *fakeCapacityConn) QueryRow(ctx context.Context, sql string, args ...any
 
 	case checkpointSQLPre17:
 		return answerRow(&c.checkpointPre17)
+
+	case databaseSQL:
+		return answerRow(&c.database)
 
 	case walPrivilegeSQL:
 		return answerRow(&c.walAllowed)
@@ -274,8 +289,8 @@ func TestCapacityArtifact(t *testing.T) {
 	assert.Equal(t, Periodic(15*time.Second), Capacity{Interval: 15 * time.Second}.Artifact().Schedule,
 		"the run's cadence, with the close as the last sample")
 
-	assert.Equal(t, 4*StatementTimeout, artifact.SampleBudget,
-		"four statements on every sample, and Periodic's last sample is the close, which "+
+	assert.Equal(t, 5*StatementTimeout, artifact.SampleBudget,
+		"five statements on every sample, and Periodic's last sample is the close, which "+
 			"moduleDeadline sums - leaving it zero would size the shared tick for two")
 }
 
@@ -294,6 +309,9 @@ func TestCapacityColumnOrder(t *testing.T) {
 		connectionColumns, "backend_type is a grouping dimension, so it is in the contract")
 
 	assert.Equal(t, []string{"wal_bytes"}, walColumns)
+
+	assert.Equal(t, []string{"xact_commit", "xact_rollback", "blks_hit", "blks_read", "temp_bytes"},
+		databaseColumns, "the counters of the cache hit, rollback and throughput ratios")
 }
 
 func TestCapacitySelectsTheStatementOnTheCapability(t *testing.T) {
@@ -418,7 +436,7 @@ func TestCapacityWritesBothResetClocks(t *testing.T) {
 	assert.NotEmpty(t, rows[0][colCheckpointerReset], "which is a value, not two empty cells")
 }
 
-func TestCapacityWritesAllThreeBlocksOnEverySample(t *testing.T) {
+func TestCapacityWritesAllFourBlocksOnEverySample(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		index, total int
@@ -440,7 +458,8 @@ func TestCapacityWritesAllThreeBlocksOnEverySample(t *testing.T) {
 				sources = append(sources, source)
 			}
 
-			assert.ElementsMatch(t, []string{"pg_checkpointer", "pg_stat_activity_by_app", "pg_ls_waldir"}, sources,
+			assert.ElementsMatch(t,
+				[]string{"pg_checkpointer", "pg_stat_database", "pg_stat_activity_by_app", "pg_ls_waldir"}, sources,
 				"the gauges once landed on the closing sample alone; as a series they show "+
 					"connections climbing and WAL growing through the window")
 		})
@@ -487,20 +506,22 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 	t.Run("every read in the sample", func(t *testing.T) {
 		conn := newFakeCapacityConn()
 		conn.checkpoint = repeatRow(errRow(timedOut))
+		conn.database = repeatRow(errRow(timedOut))
 		conn.connections = repeat(errResult(timedOut))
 		conn.wal = repeatRow(errRow(denied))
 
 		var buf bytes.Buffer
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, capacitySampleContext(2, 2)),
-			"three refused reads are not an error: Sample fails only when it cannot write")
+			"four refused reads are not an error: Sample fails only when it cannot write")
 
 		blocks := capacityBlocks(t, buf.String())
-		require.Len(t, blocks, 3,
-			"three header-only blocks carrying three reasons, rather than one stub saying "+
+		require.Len(t, blocks, 4,
+			"four header-only blocks carrying four reasons, rather than one stub saying "+
 				"the sample could not be taken")
 
 		for source, columns := range map[string][]string{
 			"pg_checkpointer":         checkpointColumns,
+			"pg_stat_database":        databaseColumns,
 			"pg_stat_activity_by_app": connectionColumns,
 			"pg_ls_waldir":            walColumns,
 		} {
@@ -517,6 +538,7 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 func TestCapacityFailedSampleIsStillACompleteSample(t *testing.T) {
 	conn := newFakeCapacityConn()
 	conn.checkpoint = repeatRow(errRow(errors.New("ERROR: permission denied")))
+	conn.database = repeatRow(errRow(errors.New("ERROR: permission denied")))
 	conn.connections = repeat(errResult(errors.New("ERROR: permission denied")))
 	conn.wal = repeatRow(errRow(errors.New("ERROR: permission denied")))
 
@@ -545,9 +567,9 @@ func TestCapacityWritesTheWholeSampleInOneWrite(t *testing.T) {
 		capacitySampleContext(2, 2)))
 
 	assert.Equal(t, 1, writer.writes,
-		"three blocks, one buffer, one Write: a write failing between two of them would leave "+
+		"four blocks, one buffer, one Write: a write failing between two of them would leave "+
 			"the window's stub behind a half-written sample")
-	assert.Equal(t, 3, strings.Count(writer.buf.String(), "# engine=postgres"))
+	assert.Equal(t, 4, strings.Count(writer.buf.String(), "# engine=postgres"))
 }
 
 func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
@@ -555,10 +577,38 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 		conn := newFakeCapacityConn()
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, s))
 
-		assert.Equal(t, []string{checkpointSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
-			"sample %d: four statements, which is what Artifact().SampleBudget declares and "+
+		assert.Equal(t, []string{checkpointSQL, databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
+			"sample %d: five statements, which is what Artifact().SampleBudget declares and "+
 				"what Window.moduleDeadline sizes the shared closing tick from", s.Index)
 	}
+}
+
+func TestCapacityDatabaseBlockIsTheConnectedDatabasesRow(t *testing.T) {
+	assert.Contains(t, databaseSQL, "WHERE datname = current_database()",
+		"the connected database alone: pg_health.txt has every database's row")
+
+	block := capacityBlocks(t, takeCapacitySample(t, newFakeCapacityConn(), Capacity{}))["pg_stat_database"]
+
+	assert.Contains(t, block.header, "scope=database db=orders_db dbid=16401 sample=2",
+		"the row is one database's, in a file whose other blocks are the server's")
+	assert.Equal(t, [][]string{{"442198", "9532", "8823401", "158220", "268435456"}},
+		block.rows(t, databaseColumns))
+}
+
+func TestCapacityDatabaseBlockFailsAlone(t *testing.T) {
+	conn := newFakeCapacityConn()
+	conn.database = repeatRow(errRow(errors.New(
+		"ERROR: canceling statement due to statement timeout (SQLSTATE 57014)")))
+
+	blocks := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))
+
+	assert.Contains(t, blocks["pg_stat_database"].header,
+		`error="ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"`)
+	assert.Empty(t, blocks["pg_stat_database"].rows(t, databaseColumns), "no row, not a row of zeroes")
+
+	assert.Len(t, blocks["pg_checkpointer"].rows(t, checkpointColumns), 1, "the blocks beside it still land")
+	assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
+	assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
 }
 
 func TestCapacityConnectionBlockGroupsRatherThanFilters(t *testing.T) {
@@ -715,7 +765,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, six sample blocks")
+	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, eight sample blocks")
 	assert.Equal(t, bloatGolden(t, "pg_capacity_pg17.txt"), artifactText(t, results[0]))
 }
 
