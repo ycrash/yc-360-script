@@ -75,8 +75,8 @@ func ordersCheckpointsPre17() []fakeRow {
 
 func ordersCheckpointsPG17() []fakeRow {
 	return queueRow(
-		checkpointValues(12, 1204882, 88104, nil, testDBStatsReset, testBgwriterReset),
-		checkpointValues(15, 1205410, 88220, nil, testDBStatsReset, testBgwriterReset),
+		checkpointValues(12, 1204882, 88104, ptr(int64(310884)), testDBStatsReset, testBgwriterReset),
+		checkpointValues(15, 1205410, 88220, ptr(int64(311002)), testDBStatsReset, testBgwriterReset),
 	)
 }
 
@@ -356,16 +356,37 @@ func TestCapacityWritesTheSameColumnsOnBothPaths(t *testing.T) {
 	require.Len(t, pre17, 1)
 	require.Len(t, pg17, 1)
 
-	assert.Equal(t, "310884", pre17[0][colBuffersBackend],
-		"the column is a reading below 17")
-	assert.Empty(t, pg17[0][colBuffersBackend],
-		"and empty at and above it: 0 would mean backends wrote no buffers, which is a finding, "+
-			"where the truth is that PostgreSQL 17 stopped counting")
+	assert.Equal(t, "310884", pre17[0][colBuffersBackend], "the column is a reading below 17")
 
-	for _, column := range []int{colCheckpointsTimed, colCheckpointsReq, colBuffersCheckpoint, colBuffersClean} {
+	for _, column := range []int{
+		colCheckpointsTimed, colCheckpointsReq, colBuffersCheckpoint, colBuffersClean, colBuffersBackend,
+	} {
 		assert.Equal(t, pre17[0][column], pg17[0][column],
-			"every counter but buffers_backend is normalised to one name and one meaning")
+			"every counter is normalised to one name and one meaning")
 	}
+}
+
+func TestCapacityCountsBackendBuffersFromPgStatIOOnPG17(t *testing.T) {
+	assert.Contains(t, checkpointSQL, buffersBackendSQL, "17 moved buffers_backend to pg_stat_io")
+
+	assert.Contains(t, buffersBackendSQL, "COALESCE(io.writes, 0) + COALESCE(io.extends, 0)",
+		"writes and extensions, as the old column counted, and a NULL extends on a bulkread "+
+			"row must not drop that row's writes")
+	assert.Contains(t, buffersBackendSQL, "io.object = 'relation'",
+		"temporary relations were never counted: they are not synced")
+	assert.Contains(t, buffersBackendSQL, "NOT IN ('checkpointer', 'background writer')",
+		"every other process's writes counted, parallel and autovacuum workers included")
+
+	conn := newFakeCapacityConn()
+	conn.checkpoint = repeatRow(checkpointValues(12, 1204882, 88104, nil, testDBStatsReset, testBgwriterReset))
+
+	var buf bytes.Buffer
+	require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, capacitySampleContext(1, 2)))
+
+	rows := capacityBlocks(t, buf.String())["pg_checkpointer"].rows(t, checkpointColumns)
+	require.Len(t, rows, 1)
+	assert.Empty(t, rows[0][colBuffersBackend],
+		"no pg_stat_io row to sum is empty, not 0: 0 would say backends wrote no buffers")
 }
 
 func TestCapacityWritesBothResetClocks(t *testing.T) {

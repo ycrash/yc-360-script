@@ -2120,13 +2120,9 @@ func assertMatrixCheckpointShape(t *testing.T, server matrixServer, blocks []cap
 			"block %d: three of the five counters moved views in 17, and views= is where the "+
 				"artifact says which server it read", i)
 
-		if server.major >= 17 {
-			assert.Empty(t, block.only(t, "buffers_backend"),
-				"block %d: the column was removed in 17, and empty is not 0", i)
-		} else {
-			assert.NotEmpty(t, block.only(t, "buffers_backend"),
-				"block %d: below 17 it is a reading", i)
-		}
+		assert.NotEmpty(t, block.only(t, "buffers_backend"),
+			"block %d: a reading on every version, from pg_stat_io on 17 and above, "+
+				"which every role may read", i)
 
 		assert.NotEmpty(t, block.only(t, "buffers_clean"),
 			"block %d: the one counter that stayed in pg_stat_bgwriter", i)
@@ -2137,6 +2133,10 @@ func assertMatrixCheckpointShape(t *testing.T, server matrixServer, blocks []cap
 
 func assertMatrixCheckpointCounters(t *testing.T, role matrixRole, blocks []capacityMatrixBlock) {
 	t.Helper()
+
+	firstBackend := matrixCheckpointCounter(t, blocks[0], "buffers_backend")
+	lastBackend := matrixCheckpointCounter(t, blocks[len(blocks)-1], "buffers_backend")
+	assert.GreaterOrEqual(t, lastBackend, firstBackend, "buffers_backend is a cumulative counter")
 
 	first := matrixCheckpointCounter(t, blocks[0], "checkpoints_req")
 	last := matrixCheckpointCounter(t, blocks[len(blocks)-1], "checkpoints_req")
