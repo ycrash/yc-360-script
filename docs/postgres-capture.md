@@ -130,7 +130,7 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 | --- | --- | --- |
 | *(omitted)* | nothing — `pg_explain.txt` is one `reason=explain_disabled` block | — |
 | `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
-| `all` | the above, plus plans the agent asks the server for | captured query text is prepared on your database and its plan asked for, on every supported version; with the server log readable and the prerequisites below met, the values your application bound are planned too |
+| `all` | the above, plus plans the agent asks the server for | captured query text is prepared on your database and its plan asked for, on every supported version; with the server log readable and the prerequisites below met, the values your application bound are planned too — they go to the server, and the plan in the bundle has them replaced |
 
 Which queries get a plan is not a judgment the agent makes. Every distinct query
 shape in `pg_stat_statements` is attempted once, in the first sample it is seen
@@ -267,7 +267,8 @@ Read on every `frequency` tick, from the opening sample to the closing one:
 - `pg_index_usage.txt` — `pg_stat_user_indexes`.
 - `pg_tablespaces.txt` — each tablespace's size.
 - `pg_slow_queries.txt` — `pg_stat_statements`.
-- `pg_explain.txt` — query plans, when `explain:` is set.
+- `pg_explain.txt` — query plans, when `explain:` is set, their constants
+  replaced.
 
 Copied from the server's log every 10 seconds, where the log is readable (see
 *Where to run it*): `pg_deadlocks.txt`, `pg_timeouts.txt`,
@@ -276,9 +277,10 @@ Copied from the server's log every 10 seconds, where the log is readable (see
 `pg_errors.txt` holds every entry the server logged at `ERROR`, `FATAL` or
 `PANIC` during the window, except the deadlocks and timeouts the two files before
 it copy, so no entry is in two files. Each comes with the lines that belong to it
-— `DETAIL`, `HINT`, `QUERY`, `CONTEXT`, `STATEMENT` — exactly as the server wrote
-them, in whichever log format the capture reads (jsonlog, then csvlog, then
-stderr), and its blocks say `matched_by=severity`: the entry's level decides.
+— `DETAIL`, `HINT`, `QUERY`, `CONTEXT`, `STATEMENT` — as the server wrote them,
+statements and quoted values replaced (see *What leaves the database*), in
+whichever log format the capture reads (jsonlog, then csvlog, then stderr), and
+its blocks say `matched_by=severity`: the entry's level decides.
 Like the other log tails it records where the log could not be read with a
 `reason=` and no `matched=`, and stops copying at 32 MB, keeping the window's
 first errors. The levels are matched by their English names, as the other log
@@ -485,10 +487,10 @@ may be short.
 
 Read this before the first capture goes anywhere outside your perimeter.
 
-`pg_slow_queries.txt`, `pg_sessions.txt` and `pg_explain.txt` carry **SQL
-statement text**. In `pg_slow_queries.txt` that text is normalised for ordinary
-queries — constants are replaced with `$1`, `$2` and so on, so values from your
-data do not travel with it.
+`pg_slow_queries.txt` and `pg_sessions.txt` carry **SQL statement text**, and
+`pg_explain.txt` carries it with its values replaced. In `pg_slow_queries.txt`
+that text is normalised for ordinary queries — constants are replaced with `$1`,
+`$2` and so on, so values from your data do not travel with it.
 
 **`pg_sessions.txt` is not normalised.** It carries `pg_stat_activity.query` as
 submitted, in every mode, literals included.
@@ -508,19 +510,50 @@ in `pg_stat_statements` and a capture will pick it up. Any role holding
 `pg_read_all_stats` — which is to say the role this document recommends — can
 read it.
 
-**In Mode H the exposure is larger, and it is not normalised at all.**
-`pg_deadlocks.txt`, `pg_timeouts.txt` and `pg_errors.txt` copy the server's log
-verbatim, and a deadlock's `DETAIL` reproduces each participant's statement **as
-submitted** — literals included — as does every `STATEMENT:` line beside a
-timeout or an error. An error's own message and `DETAIL` often quote the value
-itself: `Key (id)=(4021) already exists`, `invalid input syntax for type integer:
-"abc"`, a `COPY` row in its `CONTEXT`. On a real
-application that is `UPDATE customers SET ssn = '…' WHERE email = '…'`.
-`log_parameter_max_length` does **not** bound this, though it looks as though it
-should: that setting bounds bind parameters logged with a statement, and the
-text here is the statement. The agent cannot redact it and does not try — a
-redacting agent is an agent parsing SQL. `MaxEventBytes` bounds the volume, not
-the sensitivity, and `-onlyCapture` is the control that exists.
+**In Mode H the log is copied, and `pg_timeouts.txt` copies it as written.** A
+timeout's `STATEMENT:` line reproduces the statement **as submitted**, literals
+included; on a real application that is `UPDATE customers SET ssn = '…' WHERE
+email = '…'`. `log_parameter_max_length` does **not** bound this, though it looks
+as though it should: that setting bounds bind parameters logged with a statement,
+and the text here is the statement. `MaxEventBytes` bounds the volume, not the
+sensitivity.
+
+**`pg_deadlocks.txt`, `pg_errors.txt` and `pg_explain.txt` have their values
+replaced** with `<redacted>`, and each block that carries captured text counts the
+replacements as `redacted=`, `0` included. What goes and what stays:
+
+- **Statements go.** Every `STATEMENT:` and `QUERY:` line is replaced whole, and so
+  is the text after each `Process <n>: ` in a deadlock's `DETAIL`. The processes,
+  the locks and transactions they wait on, the relation and the tuple stay: they
+  are the finding.
+- **`CONTEXT` keeps its frames and loses what they quote**: the SQL a function ran
+  (`SQL statement "<redacted>"`), a `COPY` value or input line, the input a JSON
+  error stopped at, and a portal's bind values (`$1 = '<redacted>'`).
+- **An error's values go, its names stay.** `Key (id)=(<redacted>) already
+  exists`, `Failing row contains (<redacted>)`, `invalid input syntax for type
+  integer: "<redacted>"`. PostgreSQL quotes names and values alike, so values in a
+  message are found by a list of known message shapes, and `relation "orders"`,
+  `database "…"` and `constraint "…"` stay.
+- **A plan keeps its shape.** Node names, costs, row estimates, settings and the
+  query identifier stay; the constants in every expression — `Filter`, `Index
+  Cond`, `Sort Key`, `Output` and the rest — and in `auto_explain`'s `Query Text`
+  and `Query Parameters` are replaced, their types kept:
+  `(status = '<redacted>'::text)`, `(id = <redacted>)`. `$1` parameters stay. This
+  holds in every tier and in `auto_explain`'s text, JSON, XML and YAML formats. In
+  an XML plan the placeholder is escaped, `&lt;redacted&gt;`, as the server
+  escapes any `<`.
+- In csvlog and jsonlog only the fields that changed are encoded again, the way the
+  server encodes them; everything else in the record is as read.
+
+**What this does not catch:** text an application writes itself — a `RAISE
+EXCEPTION` message, `DETAIL` or `HINT`, such as `customer 12345 over limit` — is in
+no shape the agent knows, and stays; so do comments in a plan's `Query Text`. The
+message shapes are English, as the tails' matching is: a server whose `lc_messages`
+translates them writes values the shapes do not find. In csvlog and jsonlog a
+deadlock's `DETAIL` in another language is replaced whole, and so is a translated
+constraint violation's, by its SQLSTATE; other translated messages pass as written.
+There is no switch to turn the redaction off, and `-onlyCapture` is still the
+control for a bundle that must not leave your perimeter.
 
 Three things follow:
 
@@ -531,12 +564,13 @@ Three things follow:
   statements it built from captured text — and, for the literal tier, the bind
   values the server logged — and a submission that errors can be written into
   your own server log by `log_min_error_statement` (default `error`), literals
-  included, and from there into `pg_errors.txt` when the agent reads that log.
+  included. `pg_errors.txt` copies such an entry, with its values replaced as any
+  other's are; your server log keeps it as written.
   Those entries are the agent's own: in csvlog and jsonlog they carry
   `application_name` `yCrash-DB-Agent`, and in stderr only when
   `log_line_prefix` includes `%a`. The exposure is small and your logging policy
   governs it, but the agent is a party to it there and nowhere else.
-  `pg_metadata.txt` records `explain_mode=` and `explain_literals=verbatim` so
+  `pg_metadata.txt` records `explain_mode=` and `explain_literals=redacted` so
   the bundle says which.
 - **`pg_metadata.txt` records whether the exposure is possible.** The
   `pg_stat_statements.track_utility` row says whether utility statements are
@@ -599,7 +633,9 @@ record's own statement text under a name of its own, forces `plan_cache_mode` to
 `force_custom_plan`, asks for `EXPLAIN EXECUTE` with each decoded value as a
 literal, then resets and deallocates as above. The result is the server's custom
 plan for the values that actually ran, and its `Query Identifier:` is the
-statement's own, so `queryid_match=true` is expected. A block that fell to the
+statement's own, so `queryid_match=true` is expected. The values reach the
+server and not the bundle: the plan is written with them replaced, and so is an
+`error=` that quotes one. A block that fell to the
 generic tier says why in `literal_reason=`. Three things have to be true on the
 server side, none of which the agent will set for you:
 
