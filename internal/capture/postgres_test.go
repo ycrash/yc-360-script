@@ -161,6 +161,7 @@ func TestPostgresDataTypeConstant(t *testing.T) {
 		"pgDTNonDefaultSettings": pgDTNonDefaultSettings,
 		"pgDTCatalogMap":         pgDTCatalogMap,
 		"pgDTMemory":             pgDTMemory,
+		"pgDTErrors":             pgDTErrors,
 	}
 
 	assert.Len(t, postgresDataTypes, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
@@ -196,6 +197,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 	assert.Equal(t, "pg_nondefault_settings.txt", PostgresNonDefaultSettingsFileName)
 	assert.Equal(t, "pg_catalog_map.txt", PostgresCatalogMapFileName)
 	assert.Equal(t, "pg_memory.txt", PostgresMemoryFileName)
+	assert.Equal(t, "pg_errors.txt", PostgresErrorsFileName)
 
 	seen := map[string]bool{}
 	for _, name := range postgresArtifactFiles {
@@ -209,7 +211,7 @@ func TestPostgresBundleFileNames(t *testing.T) {
 		seen[name] = true
 	}
 
-	assert.Len(t, seen, 17, "every artifact the run writes is named here")
+	assert.Len(t, seen, 18, "every artifact the run writes is named here")
 }
 
 func TestPostgresSampledDataTypeGate(t *testing.T) {
@@ -267,6 +269,9 @@ func TestPostgresSampledDataTypeGate(t *testing.T) {
 
 	assert.Equal(t, pgDTMemory, pgSampledDataType(postgres.Memory{}.Artifact()),
 		"and pg_memory.txt")
+
+	assert.Equal(t, pgDTErrors, pgSampledDataType(postgres.NewErrors().Artifact()),
+		"and pg_errors.txt, under a dt of its own rather than as an application log")
 
 	assert.Empty(t, pgSampledDataType(postgres.Artifact{Name: "pg_future"}),
 		"and an artifact with no dt at all is still refused rather than guessed at - the "+
@@ -331,6 +336,10 @@ func TestPostgresCatalogMapFileNameMatchesTheArtifact(t *testing.T) {
 
 func TestPostgresMemoryFileNameMatchesTheArtifact(t *testing.T) {
 	assert.Equal(t, PostgresMemoryFileName, postgres.Memory{}.Artifact().FileName)
+}
+
+func TestPostgresErrorsFileNameMatchesTheArtifact(t *testing.T) {
+	assert.Equal(t, PostgresErrorsFileName, postgres.NewErrors().Artifact().FileName)
 }
 
 func TestPostgresSlowQueriesReachesTheClosingTick(t *testing.T) {
@@ -568,6 +577,7 @@ var postgresArtifactFiles = []string{
 	PostgresDeadlocksFileName,
 	PostgresTimeoutsFileName,
 	PostgresCheckpointLogFileName,
+	PostgresErrorsFileName,
 	PostgresSessionsFileName,
 	PostgresHealthFileName,
 	PostgresXIDAgeFileName,
@@ -645,17 +655,12 @@ func TestPostgresCaptureRunUnreachableTarget(t *testing.T) {
 		"and pg_explain takes the cadence too: every sample walks that tick's statements read")
 	assert.Contains(t, result.Msg, PostgresMetadataFileName+" written; postgres connect failed",
 		"every artifact reports the one refusal, and they report it identically")
-	assert.Contains(t, result.Msg, "db_errors.log not written: log_access=unknown (settings_unread)",
-		"the log was never reached, so there is no file, and the run says why")
+	assert.Contains(t, result.Msg, PostgresErrorsFileName+" written (0/12 samples); postgres connect failed",
+		"and the fourth log tail, on the same 10s poll")
 	assert.Less(t, strings.Index(result.Msg, PostgresCheckpointLogFileName),
-		strings.Index(result.Msg, "db_errors.log"), "the fourth log tail, after the other three")
-	assert.Less(t, strings.Index(result.Msg, "db_errors.log"),
+		strings.Index(result.Msg, PostgresErrorsFileName), "after the other three tails")
+	assert.Less(t, strings.Index(result.Msg, PostgresErrorsFileName),
 		strings.Index(result.Msg, PostgresSessionsFileName), "and before the first SQL read")
-	assert.NoFileExists(t, filepath.Join(dir, "1.appLogs.db_errors.log"),
-		"an empty file would read as a window with no errors")
-	assert.Contains(t, readSampledArtifact(t, PostgresMetadataFileName),
-		"db_errors_log_access=unknown db_errors_log_access_reason=settings_unread",
-		"and pg_metadata.txt's closing block says why")
 
 	assert.Less(t, strings.Index(result.Msg, PostgresCapacityFileName),
 		strings.Index(result.Msg, PostgresBloatFileName),
@@ -799,6 +804,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		pgDTNonDefaultSettings: "source=pg_nondefault_settings",
 		pgDTCatalogMap:         "source=pg_catalog_map",
 		pgDTMemory:             "source=pg_memory",
+		pgDTErrors:             "source=pg_errors",
 	} {
 		assert.Contains(t, byDT[dt], source, "dt=%s carried another artifact's body", dt)
 		assert.Contains(t, byDT[dt], "status=connect_failed",
@@ -812,10 +818,8 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 		assert.FileExists(t, name, "%s: an uploaded artifact is still written into the bundle", name)
 	}
 
-	assert.Equal(t, len(postgresArtifactFiles), strings.Count(result.Msg, " | "),
-		"one summary per artifact written, and db_errors.log's account of why it was not, "+
-			"joined into one run-level record")
-	assert.NotContains(t, byDT, "applog", "a log never read uploads nothing")
+	assert.Equal(t, len(postgresArtifactFiles)-1, strings.Count(result.Msg, " | "),
+		"one summary per artifact written, joined into one run-level record")
 
 	assert.NotContains(t, byDT, "pgRepl",
 		"and none of them under the abbreviation the replication slice proposed and the server "+
@@ -1178,151 +1182,4 @@ func TestPostgresCaptureMessage(t *testing.T) {
 			assert.Equal(t, tt.want, postgresArtifactMessage(tt.result))
 		})
 	}
-}
-
-type fakeDBErrorsAccount struct {
-	read           bool
-	kept, dropped  int
-	access, reason string
-}
-
-func (f fakeDBErrorsAccount) LogRead() bool               { return f.read }
-func (f fakeDBErrorsAccount) Kept() int                   { return f.kept }
-func (f fakeDBErrorsAccount) Dropped() int                { return f.dropped }
-func (f fakeDBErrorsAccount) LogAccess() (string, string) { return f.access, f.reason }
-
-// dbErrorsArtifact is the window's result for db_errors.log: the file open, as the window
-// leaves it, at its end.
-func dbErrorsArtifact(t *testing.T, content string) *postgres.ArtifactResult {
-	t.Helper()
-
-	name := "1.appLogs.db_errors.log"
-
-	file, err := os.Create(name)
-	require.NoError(t, err)
-
-	_, err = io.WriteString(file, content)
-	require.NoError(t, err)
-
-	t.Cleanup(func() { file.Close() })
-
-	return &postgres.ArtifactResult{
-		Artifact: postgres.NewDBErrors(name).Artifact(),
-		File:     file,
-	}
-}
-
-type recordedAppLogUpload struct {
-	dt, logName, body string
-}
-
-func appLogReceiver(t *testing.T) (*PostgresCapture, *[]recordedAppLogUpload) {
-	t.Helper()
-
-	previous := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	t.Cleanup(func() { config.GlobalConfig.OnlyCapture = previous })
-
-	var (
-		mu      sync.Mutex
-		uploads []recordedAppLogUpload
-	)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-
-		mu.Lock()
-		uploads = append(uploads, recordedAppLogUpload{
-			dt:      r.URL.Query().Get("dt"),
-			logName: r.URL.Query().Get("logName"),
-			body:    string(body),
-		})
-		mu.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(server.Close)
-
-	task := &PostgresCapture{Target: withWindow(t, time.Second)}
-	task.SetEndpoint(server.URL + "?de=test")
-
-	return task, &uploads
-}
-
-const measuredDBError = "2026-09-27 01:49:46.933 UTC [12402] FATAL:  database \"yc_no_such_database\" does not exist\n"
-
-func TestPostgresDBErrorsUploadsThroughTheAppLogPath(t *testing.T) {
-	chdirToCaptureDir(t)
-
-	task, uploads := appLogReceiver(t)
-	artifact := dbErrorsArtifact(t, measuredDBError)
-
-	msg, ok := task.uploadDBErrors(artifact, fakeDBErrorsAccount{read: true, kept: 1, access: "direct"})
-
-	require.True(t, ok)
-	assert.True(t, strings.HasPrefix(msg, "1.appLogs.db_errors.log written (1 errors); "), msg)
-
-	require.Len(t, *uploads, 1)
-	assert.Equal(t, recordedAppLogUpload{dt: "applog", logName: "db_errors.log", body: measuredDBError}, (*uploads)[0],
-		"where an application's logs go, under the file's own name: no dt of its own")
-	assert.FileExists(t, "1.appLogs.db_errors.log", "and it stays in the bundle")
-}
-
-func TestPostgresDBErrorsUploadsAnEmptyFile(t *testing.T) {
-	chdirToCaptureDir(t)
-
-	task, uploads := appLogReceiver(t)
-
-	msg, ok := task.uploadDBErrors(dbErrorsArtifact(t, ""), fakeDBErrorsAccount{read: true, access: "direct"})
-
-	require.True(t, ok, msg)
-	assert.True(t, strings.HasPrefix(msg, "1.appLogs.db_errors.log written (0 errors); "), msg)
-
-	require.Len(t, *uploads, 1,
-		"the log was read and nothing matched: sent all the same, where PostData skips an empty file")
-	assert.Equal(t, "applog", (*uploads)[0].dt)
-	assert.Empty(t, (*uploads)[0].body)
-}
-
-func TestPostgresDBErrorsWithoutTheLogLeavesNoFile(t *testing.T) {
-	chdirToCaptureDir(t)
-
-	task, uploads := appLogReceiver(t)
-	artifact := dbErrorsArtifact(t, "")
-
-	msg, ok := task.uploadDBErrors(artifact,
-		fakeDBErrorsAccount{access: postgres.LogAccessNone, reason: "unresolved"})
-
-	assert.True(t, ok, "no file is the outcome decided for no log access, not a failure")
-	assert.Equal(t, "db_errors.log not written: log_access=none (unresolved)", msg)
-	assert.Empty(t, *uploads)
-	assert.NoFileExists(t, "1.appLogs.db_errors.log",
-		"an empty file would read as a window with no errors; pg_metadata.txt says why there is none")
-	assert.Nil(t, artifact.File, "closed, so the upload's cleanup does not close it twice")
-}
-
-func TestPostgresDBErrorsNamesWhatTheSizeCapLeftOut(t *testing.T) {
-	chdirToCaptureDir(t)
-
-	task, _ := appLogReceiver(t)
-
-	msg, ok := task.uploadDBErrors(dbErrorsArtifact(t, measuredDBError),
-		fakeDBErrorsAccount{read: true, kept: 3, dropped: 2, access: "direct"})
-
-	require.True(t, ok)
-	assert.True(t, strings.HasPrefix(msg, "1.appLogs.db_errors.log written (3 errors, 2 more past the size cap); "), msg)
-}
-
-func TestPostgresDBErrorsStaysInTheBundleInOnlyCaptureMode(t *testing.T) {
-	chdirToCaptureDir(t)
-
-	task, uploads := appLogReceiver(t)
-	config.GlobalConfig.OnlyCapture = true
-
-	msg, _ := task.uploadDBErrors(dbErrorsArtifact(t, measuredDBError),
-		fakeDBErrorsAccount{read: true, kept: 1, access: "direct"})
-
-	assert.Contains(t, msg, "in only capture mode")
-	assert.Empty(t, *uploads)
-	assert.FileExists(t, "1.appLogs.db_errors.log")
 }

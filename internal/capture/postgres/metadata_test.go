@@ -106,12 +106,6 @@ func TestMetadataGoldenFull(t *testing.T) {
 
 	collector := collecting(fullArtifactMetadata())
 
-	// A run always reports the errors tail here; this one read the fixture's csvlog.
-	dbErrors := NewDBErrors("1.appLogs.db_errors.log")
-	dbErrors.sampled, dbErrors.read, dbErrors.format = true, true, logFormatCSV
-	dbErrors.matched, dbErrors.kept = 4, 4
-	collector.ReportDBErrors(dbErrors)
-
 	results := runMetadataWindow(t, clock, collector, connectTo(newFakeMetadataConn()))
 
 	require.Equal(t, StatusComplete, results[0].Status)
@@ -127,7 +121,6 @@ func TestMetadataGoldenConnectFailure(t *testing.T) {
 	)
 
 	collector := NewMetadata(testTarget(), "3.6.1", testConnectFailureNow, ExplainModeAll)
-	collector.ReportDBErrors(NewDBErrors("1.appLogs.db_errors.log"))
 
 	results := runMetadataWindow(t, clock, collector,
 		func(context.Context, Target) (windowConn, error) { return nil, ErrTooManyConnections })

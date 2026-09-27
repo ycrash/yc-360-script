@@ -10,15 +10,7 @@ owns.
 The goldens:
 
 - `pg_metadata_full.txt` — a complete capture: the preamble, the target block,
-  the server block, the tablespace block, and the closing block. The closing
-  block carries `db_errors.log`'s account, since that file holds the server's
-  log lines and nothing of the agent's: `db_errors_log_access`, the format its
-  lines are in (`db_errors_log_format`, csvlog here), how many errors the tail
-  matched and how many the 32 MB cap dropped, and any limit a read reached
-  (`db_errors_skipped_bytes`, `db_errors_events_truncated`, `db_errors_rotations`,
-  `db_errors_file_truncations`, `db_errors_carry_dropped`,
-  `db_errors_partial_events`, `db_errors_resolved_late`), each only when reached.
-  The keys are additive, so `v` stays 1. The target
+  the server block, the tablespace block, and the closing block. The target
   block's `target_tls_*` rows are the `tls:` settings the connection uses, and
   `target_sslmode` the libpq mode they amount to; `target_tls_ca_file` is
   `system` when the certificate is verified against the system's trust store,
@@ -61,10 +53,7 @@ The goldens:
   absence of the server block is the discriminator, and `connect_error=` in the
   closing block's header says why. There is no `log_access` row: with no
   connection it would be `unknown` by construction, and the closing block says
-  the same thing about the capture rather than about the server. The errors
-  tail never sampled either, so its account is
-  `db_errors_log_access=unknown db_errors_log_access_reason=settings_unread` and
-  no count: no `db_errors.log` is written.
+  the same thing about the capture rather than about the server.
 - `pg_bloat_full.txt` — a complete sampled capture: the preamble, two sample
   blocks, and the closing block that says both were written.
 - `pg_bloat_connect_failure.txt` — the sampled equivalent of the above. Two
@@ -535,6 +524,19 @@ The goldens:
   artifact in the feature with no fallback of any kind. `pg_health.txt`'s
   `pg_stat_database.deadlocks` counter is a substitute for deadlocks in Mode R;
   **nothing anywhere counts timeouts.**
+- `pg_errors_full.txt` — the fourth log tail, uploading under `dt=pgErrors`,
+  proposed and unconfirmed. The events are measured from the matrix's
+  postgres:18 container on 2026-09-27: a unique violation with its `DETAIL` and
+  `STATEMENT` lines, a `FATAL` at connection, a client's cancel (`57014`, like a
+  statement timeout) and a `NOWAIT` refusal (`55P03`, like a lock timeout).
+  Between them sit a statement timeout, which this file leaves to
+  `pg_timeouts.txt`, a `WARNING`, below the three levels, and `LOG` lines.
+  **`matched_by=severity` on every sample:** the entry's level decides, and the
+  deadlock and timeout matchers are run as their own tails run them to exclude
+  what they take, so no event is in two files. The client's cancel is held from
+  sample 3 to the drain: on stderr only the next entry proves where one ends.
+- `pg_errors_unreadable.txt` — the remote regime, three samples with
+  `reason=unreadable` and no `matched=` anywhere, as the other tails.
 
 ## Reader requirements
 
@@ -688,7 +690,7 @@ To change a fixture, change the writer or the samples in `writer_test.go`,
 `sessions_test.go`, `deadlocks_test.go` and `timeouts_test.go`, and argue the
 resulting diff — never hand-edit these files.
 
-The six `pg_deadlocks_*` and `pg_timeouts_*` goldens are written by a real
+The `pg_deadlocks_*`, `pg_timeouts_*` and `pg_errors_*` goldens are written by a real
 `Window` over a real log file in a temporary directory, so what is checked in is
 the bytes the agent wrote rather than a transcription. The log bytes those tests
 feed it are themselves measured from a running server — which is the whole

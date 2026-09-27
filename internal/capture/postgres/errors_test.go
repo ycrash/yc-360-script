@@ -1,10 +1,6 @@
 package postgres
 
 import (
-	"context"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,20 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// errorTail runs errorMatch through the engine as a tail collector does, so a test can
-// read what it matched from real log files with the engine's block headers beside it.
-type errorTail struct{ tail logTail }
-
-func newErrorTail() *errorTail { return &errorTail{tail: newLogTail("pg_errors", errorMatch)} }
-
-func (e *errorTail) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	return e.tail.sample(ctx, q, w, s)
-}
-
-func (e *errorTail) WriteClosing(w io.Writer, s SampleContext) error {
-	return e.tail.writeClosing(w, s)
-}
 
 // measured on postgres:18, 2026-09-27, one session per event, with log_destination set to
 // stderr,csvlog,jsonlog so the three files hold the same events.
@@ -306,222 +288,50 @@ func TestStderrSeverityNamesTheLevel(t *testing.T) {
 	}
 }
 
-// runDBErrorsWindow runs d over a log file in format, the writes landing one per tick
-// just after d's sample, so each is read by the next sample or by the drain.
-func runDBErrorsWindow(t *testing.T, d *DBErrors, format logFormat, writes []string) ArtifactResult {
-	t.Helper()
-	t.Chdir(t.TempDir())
+func TestErrorsArtifact(t *testing.T) {
+	artifact := NewErrors().Artifact()
 
-	require.NoError(t, os.Mkdir("log", 0o755))
-
-	name := "postgresql-2026-09-27_014945" + formatExtension(format)
-	path := filepath.Join("log", name)
-
-	require.NoError(t, os.WriteFile(path, []byte(priorTraffic), 0o644))
-	require.NoError(t, os.WriteFile("current_logfiles", []byte(string(format)+" log/"+name+"\n"), 0o644))
-
-	settings := logSettings{
-		dataDirectory:    ".",
-		logDirectory:     "log",
-		loggingCollector: "on",
-		logDestination:   string(format),
-		read:             true,
-	}
-
-	writer := newFakeCollector("pg_log_writer")
-	writer.artifact.Schedule = Every(DefaultLogTailInterval)
-
-	tick := 0
-	writer.sample = func(context.Context, SampleContext, io.Writer) error {
-		if tick < len(writes) {
-			appendFile(t, path, writes[tick])
-		}
-
-		tick++
-
-		return nil
-	}
-
-	clock := newFakeClock()
-
-	window := &Window{
-		Target:     testTarget(),
-		Duration:   time.Duration(len(writes)) * DefaultLogTailInterval,
-		Collectors: []Collector{d, writer},
-		now:        clock.now,
-		after:      clock.after,
-		connect: connectTo(&fakeLogConn{
-			fakeWindowConn: newFakeWindowConn(),
-			q:              deniedQuerier(settings),
-		}),
-	}
-
-	results := window.Run(context.Background())
-	results[1].File.Close()
-
-	return results[0]
-}
-
-func dbErrorsFile(t *testing.T, result ArtifactResult) string {
-	t.Helper()
-
-	require.NoError(t, result.IOErr)
-	result.File.Close()
-
-	content, err := os.ReadFile(result.Artifact.FileName)
-	require.NoError(t, err)
-
-	return string(content)
-}
-
-func closingFieldMap(fields []headerField) map[string]string {
-	out := map[string]string{}
-	for _, f := range fields {
-		out[f.key] = f.value
-	}
-
-	return out
-}
-
-func TestDBErrorsArtifact(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
-	artifact := d.Artifact()
-
-	assert.Equal(t, "db_errors.log", DBErrorsLogName)
 	assert.Equal(t, "pg_errors", artifact.Name)
-	assert.Equal(t, "1.appLogs.db_errors.log", artifact.FileName, "the bundle's name, given by the caller")
+	assert.Equal(t, "pg_errors.txt", artifact.FileName)
 	assert.Equal(t, "cluster", artifact.Scope)
+	assert.Equal(t, formatText, artifact.Format, "the body is the server's log bytes")
 	assert.Equal(t, Every(DefaultLogTailInterval), artifact.Schedule, "the other tails' 10s poll")
-	assert.True(t, artifact.Bare, "no line in the file is the agent's")
 
-	var _ Collector = d
-	var _ Closing = d
+	var _ Collector = NewErrors()
+	var _ Closing = NewErrors()
 }
 
-func TestDBErrorsWritesTheServersEntriesAlone(t *testing.T) {
-	for _, stream := range errorStreams() {
-		t.Run(string(stream.format), func(t *testing.T) {
-			d := NewDBErrors("1.appLogs.db_errors.log")
-
-			result := runDBErrorsWindow(t, d, stream.format, []string{"", stream.log, ""})
-
-			assert.Equal(t, stream.taken, dbErrorsFile(t, result),
-				"the four entries in the server's own bytes and format, and not one line of the "+
-					"agent's: no preamble, no block header, no closing block")
-			assert.Equal(t, StatusComplete, result.Status)
-			assert.True(t, d.LogRead())
-			assert.Equal(t, 4, d.Kept())
-
-			fields := closingFieldMap(d.closingFields())
-			assert.Equal(t, map[string]string{
-				"db_errors_log_access": "direct",
-				"db_errors_log_format": string(stream.format),
-				"db_errors_matched":    "4",
-				"db_errors_dropped":    "0",
-			}, fields, "the file cannot say which format its lines are in, so the account does")
-		})
-	}
+// The measured stream across a 30s window: the WARNING ends the unique violation in
+// the first write, and the NOWAIT refusal ends the client's cancel held since the second.
+var errorsGoldenWrites = []string{
+	measuredUniqueViolation + measuredWarning,
+	measuredTimeoutBeside + measuredMissingDatabase + measuredUserCancel,
+	measuredNowait + measuredReload,
 }
 
-func TestDBErrorsWritesAnEventHeldAcrossSamplesWhole(t *testing.T) {
-	first, rest, _ := strings.Cut(measuredUniqueViolation, "STATEMENT:")
-	cut := strings.LastIndex(first, "\n") + 1
+func TestErrorsGoldenFull(t *testing.T) {
+	results := runLogGoldenWindow(t, NewErrors(), logFormatStderr,
+		priorTraffic, errorsGoldenWrites, 30*time.Second, logGoldenClock(t, 3))
 
-	d := NewDBErrors("1.appLogs.db_errors.log")
+	require.Equal(t, StatusComplete, results[0].Status)
 
-	result := runDBErrorsWindow(t, d, logFormatStderr, []string{
-		"", first[:cut], first[cut:] + "STATEMENT:" + rest + measuredReload,
-	})
+	artifact := artifactText(t, results[0])
 
-	assert.Equal(t, measuredUniqueViolation, dbErrorsFile(t, result),
-		"a sample ending between the DETAIL and the STATEMENT holds the event, not writes half of it")
-	assert.NotContains(t, closingFieldMap(d.closingFields()), "db_errors_partial_events")
+	assert.Contains(t, artifact, "matched_by=severity", "by level, where the other tails match by code or message")
+	assert.NotContains(t, artifact, "statement timeout", "pg_timeouts.txt's")
+	assert.NotContains(t, artifact, "WARNING:", "below the three levels")
+
+	assert.Equal(t, bloatGolden(t, "pg_errors_full.txt"), artifact)
 }
 
-func TestDBErrorsWritesAnEmptyFileWhenTheLogHadNoErrors(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
+func TestErrorsGoldenUnreadable(t *testing.T) {
+	results := runRemoteGoldenWindow(t, NewErrors(), 30*time.Second, logGoldenClock(t, 3))
 
-	result := runDBErrorsWindow(t, d, logFormatStderr, []string{"", measuredWarning + measuredReload, ""})
+	require.Equal(t, StatusComplete, results[0].Status)
 
-	assert.Empty(t, dbErrorsFile(t, result))
-	assert.True(t, d.LogRead(), "read, and nothing matched: an empty file rather than none")
+	artifact := artifactText(t, results[0])
 
-	fields := closingFieldMap(d.closingFields())
-	assert.Equal(t, "0", fields["db_errors_matched"], "a measured zero, beside direct access")
-	assert.Equal(t, "direct", fields["db_errors_log_access"])
-}
+	assert.NotContains(t, artifact, "matched=", "no count beside a log that was never read")
 
-func TestDBErrorsWithoutTheLogWritesNothingAndSaysWhy(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
-
-	results := runRemoteGoldenWindow(t, d, 30*time.Second, logGoldenClock(t, 3))
-	results[1].File.Close()
-
-	assert.Empty(t, dbErrorsFile(t, results[0]))
-	assert.False(t, d.LogRead(), "so the caller removes the file rather than upload an empty one")
-
-	access, reason := d.LogAccess()
-	assert.Equal(t, LogAccessNone, access)
-	assert.Equal(t, reasonUnreadable, reason)
-
-	assert.Equal(t, []headerField{
-		{"db_errors_log_access", "none"},
-		{"db_errors_log_access_reason", "unreadable"},
-	}, d.closingFields(), "no count beside a log that was never read: absent, not 0")
-}
-
-func TestDBErrorsBeforeAnySampleIsUnknown(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
-
-	assert.Equal(t, []headerField{
-		{"db_errors_log_access", "unknown"},
-		{"db_errors_log_access_reason", "settings_unread"},
-	}, d.closingFields(), "a refused connection never reached the log's settings")
-	assert.False(t, d.LogRead())
-}
-
-func TestDBErrorsKeepsTheFirstEventsAndCountsTheRest(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
-	d.sampled, d.read = true, true
-	d.written = MaxArtifactBytes - int64(len(measuredMissingDatabase))
-
-	var buf strings.Builder
-
-	require.NoError(t, d.write(&buf, &tailRead{
-		events:  [][]byte{[]byte(measuredMissingDatabase), []byte(measuredUniqueViolation), []byte(measuredMissingDatabase)},
-		matched: 3,
-	}))
-
-	assert.Equal(t, measuredMissingDatabase, buf.String(), "the first fits exactly")
-	assert.Equal(t, 1, d.Kept())
-	assert.Equal(t, 2, d.Dropped(),
-		"the second does not fit, and the third, which would, is dropped too: the file keeps "+
-			"the window's first errors, never a gap in the middle of them")
-
-	fields := closingFieldMap(d.closingFields())
-	assert.Equal(t, "3", fields["db_errors_matched"])
-	assert.Equal(t, "2", fields["db_errors_dropped"])
-}
-
-func TestDBErrorsCountsEveryLimitItsReadsReached(t *testing.T) {
-	d := NewDBErrors("1.appLogs.db_errors.log")
-	d.sampled, d.read = true, true
-
-	for _, read := range []*tailRead{
-		{resolvedLate: true, rotated: true, skipped: 1024, scanTruncated: true},
-		{rotated: true, truncated: true, carryDropped: true, eventsTruncated: 2},
-		{partial: true, skipped: 2048, scanTruncated: true},
-	} {
-		require.NoError(t, d.write(io.Discard, read))
-	}
-
-	fields := closingFieldMap(d.closingFields())
-
-	assert.Equal(t, "true", fields["db_errors_resolved_late"], "the window's start went unread")
-	assert.Equal(t, "3072", fields["db_errors_skipped_bytes"], "past the per-sample read cap, summed")
-	assert.Equal(t, "2", fields["db_errors_events_truncated"], "cut at 256 KB or 200 lines")
-	assert.Equal(t, "2", fields["db_errors_rotations"])
-	assert.Equal(t, "1", fields["db_errors_file_truncations"])
-	assert.Equal(t, "1", fields["db_errors_carry_dropped"])
-	assert.Equal(t, "1", fields["db_errors_partial_events"])
+	assert.Equal(t, bloatGolden(t, "pg_errors_unreadable.txt"), artifact)
 }
