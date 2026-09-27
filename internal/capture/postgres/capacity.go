@@ -33,16 +33,25 @@ var connectionColumns = []string{
 var walColumns = []string{"wal_bytes"}
 
 // checkpointSQL reads the two views PG17 split counters across (both single-row, so the cross join
-// is safe). buffers_backend is a typed NULL, not dropped: 0 would wrongly mean "wrote no buffers".
+// is safe), and buffers_backend from pg_stat_io, where 17 moved it.
 const checkpointSQL = `SELECT c.num_timed,
        c.num_requested,
        c.buffers_written,
        b.buffers_clean,
-       NULL::bigint AS buffers_backend,
+       (` + buffersBackendSQL + `) AS buffers_backend,
        c.stats_reset AS checkpointer_stats_reset,
        b.stats_reset AS bgwriter_stats_reset
 FROM pg_catalog.pg_stat_checkpointer c,
      pg_catalog.pg_stat_bgwriter b`
+
+// buffersBackendSQL is what buffers_backend counted before 17: the relation writes and extensions
+// of every process but these two, which on PostgreSQL 16 matched it apart from the sync requests
+// DDL makes without writing a buffer. A NULL cell is an operation its context never does; summed
+// as it is, it would drop the row's writes.
+const buffersBackendSQL = `SELECT sum(COALESCE(io.writes, 0) + COALESCE(io.extends, 0))::bigint
+        FROM pg_catalog.pg_stat_io io
+        WHERE io.object = 'relation'
+          AND io.backend_type NOT IN ('checkpointer', 'background writer')`
 
 // checkpointSQLPre17 reads the same columns from the one view that held them before PG17 split it.
 const checkpointSQLPre17 = `SELECT checkpoints_timed,
@@ -205,8 +214,8 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 	return writeRows(w, walColumns, cells)
 }
 
-// checkpointRow's columns are pointers: buffers_backend is a typed NULL from PG17 on; stats_reset
-// is NULL if the server was never reset.
+// checkpointRow's columns are pointers: buffers_backend is NULL from PG17 on if pg_stat_io has no
+// row to sum; stats_reset is NULL if the server was never reset.
 type checkpointRow struct {
 	checkpointsTimed  *int64
 	checkpointsReq    *int64
