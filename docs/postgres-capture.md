@@ -21,9 +21,10 @@ options:
     explain: logged
 ```
 
-`port`, `database`, `tls` and `captureDuration` may be omitted; they default
-to `5432`, `postgres`, an encrypted connection whose certificate is not checked,
-and `120s`. `captureDuration` is capped at `2h`.
+`port`, `database` and `tls` may be omitted; they default to `5432`,
+`postgres` and an encrypted connection whose certificate is not checked.
+`captureDuration`, how long to capture, is required and has no default; it is
+capped at `2h`.
 
 ### The file must be readable by its owner alone
 
@@ -94,13 +95,30 @@ to: `disable`, `require` or `verify-full`.
 ```
 
 It defaults to `5m`, which suits a long capture: a two-hour window samples
-twenty-five times. It does not fit the default two-minute window, so a block that
-sets neither key takes the opening and closing samples only, and the run warns
-that it will. An incident capture that wants to see a blocking chain form and
-clear sets `frequency: 30s`, as the example above does. A value below `10s` is
-raised to `10s` with a warning, because a sample's statements are bounded at
-`10s` and a faster cadence would let one slow sample outrun the tick behind it.
-Whatever the value, the opening and closing samples are always taken.
+twenty-five times. Each file is sampled at one of three speeds derived from it,
+a fixed property of the file:
+
+| speed | how often | files |
+| --- | --- | --- |
+| fast | `frequency`, at most every `15s` | `pg_sessions.txt` |
+| normal | `frequency` | `pg_health.txt`, `pg_xid_age.txt`, `pg_replication.txt`, `pg_memory.txt`, `pg_capacity.txt`, `pg_slow_queries.txt`, `pg_explain.txt` |
+| expensive | `frequency`, at least every `5m` | `pg_nondefault_settings.txt`, `pg_bloat.txt`, `pg_index_usage.txt`, `pg_tablespaces.txt` |
+
+`pg_metadata.txt` and `pg_catalog_map.txt` are read once, at the start, and the
+log tails every 10 seconds, whatever the frequency. Session and lock state is fast
+because a blocking episode shorter than one interval can start and clear between
+two samples unseen; table sizes and settings change slowly and cost more to read.
+
+A frequency no shorter than the window leaves the normal- and expensive-speed
+files with the opening and closing samples only, and the run warns that it will —
+the default `5m` on a two-minute window does this, while `pg_sessions.txt` still
+samples every 15 seconds. An incident capture that wants to see a blocking chain
+form and clear sets `frequency: 30s`, as the example above does. A window shorter
+than five minutes gives the expensive-speed files their opening and closing
+samples only, whatever the frequency. A value below `5s` is raised to `5s` with a
+warning, because each statement is bounded at `5s` and a faster cadence would let
+one slow sample outrun the tick behind it. Whatever the value, the opening and
+closing samples are always taken.
 
 ### `agentOnDbHost` — only for a database that cannot answer
 
@@ -139,6 +157,15 @@ server's call. A sample attempts at most ten, and the rest wait for the next
 sample, so a database that walks in tracking thousands of shapes is explained as
 a drip across the window rather than a burst at its start. Each block records
 `first_seen=`, and each sample's summary says how many shapes still wait.
+
+Under `all`, the agent asks the server for at most **five plans in a capture**,
+each given two seconds; every `EXPLAIN` it submits counts, whether a plan comes
+back or not. A shape whose plan `auto_explain` already logged takes that plan and
+does not count, since it costs the database nothing. A shape attempted after the
+fifth with no logged plan is written with `reason=plan_limit_reached`, and each
+sample's summary counts those as `candidates_skipped_limit=`. Five in the order
+shapes are first seen is a real limit on a database with many shapes: the first
+five get the generated plans, whichever they are. A plan is cut at 1 MB.
 
 `all` is the only setting in this block that makes the agent *write* to your
 database connection rather than read from it, which is why it is opt-in and why
@@ -244,7 +271,8 @@ own. Read once, at the start:
   two are the connected database's own catalogs, so a lock in another database
   keeps its OIDs, and so does a lock on a view, a sequence or a TOAST table.
 
-Read on every `frequency` tick, from the opening sample to the closing one:
+Read at the file's speed (see *`frequency`*), from the opening sample to the
+closing one:
 
 - `pg_sessions.txt` — `pg_stat_activity` and `pg_locks`.
 - `pg_health.txt` — `pg_stat_database`, every database in the cluster.
@@ -344,9 +372,12 @@ GRANT pg_monitor TO yc_monitor;
 
 The capture is read-only — it sets `default_transaction_read_only`,
 `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` on
-its own session — so `pg_monitor` is the whole grant it needs. The session names
-itself `application_name=yCrash-DB-Agent`, so it is easy to pick out in
-`pg_stat_activity` and in the server log.
+its own sessions — so `pg_monitor` is the whole grant it needs. It opens three
+sessions, one per speed (see *`frequency`*), so that a slow read on one never
+delays the samples on another; each names itself
+`application_name=yCrash-DB-Agent`, so they are easy to pick out in
+`pg_stat_activity` and in the server log. Leave the role, and the database, at
+least three connections under any `CONNECTION LIMIT`.
 
 ### One exception: `explain: all`
 
@@ -686,7 +717,7 @@ clocks are:
 
 | row | what it is |
 | --- | --- |
-| `connect_ms` | how long establishing the connection took — TCP, TLS and authentication together, against the endpoint the run actually reached |
+| `connect_ms` | how long establishing the connection took — TCP, TLS and authentication together, against the endpoint the run actually reached; the expensive-speed connection, the one `pg_metadata.txt` is read on |
 | `server_clock_timestamp` / `agent_ts_at_clock_read` | the server's clock and the agent's, read together; the difference is the skew between the two machines |
 | `clock_read_rtt_ms` | the round trip of the query that read them, which is the error bar on that skew |
 
@@ -696,12 +727,23 @@ the database — pointing it at the database instead would be worse, since manag
 endpoints do not answer ICMP at all and would report 100% packet loss next to a
 database report during an incident.
 
-**A connection lost mid-capture.** The capture is one connection for the whole
-window, and the agent does not reconnect: a second connection would restart every
-delta baseline under the same artifact. When the driver reports the connection
-closed — a terminated backend, a broken network, a failover — the timeline stops
-at the sample that found out, and every artifact's closing block says
-`status=connection_lost` with a `samples_written` below `samples_expected` and,
+**A connection refused at the start.** The three connections are opened in turn,
+the fast one first, so on a server with one slot left, session state is what gets
+it. A connection refused for want of a slot — SQLSTATE 53300: `max_connections`,
+or the role's or the database's `CONNECTION LIMIT` — fails only the files sampled
+on it, which close with `status=connect_failed` and
+`connect_error=too_many_connections`; the next connection is still tried, and
+the ones that opened run to the end. Any other refusal — the address, TLS, the
+password, the database — would fail every connection the same way, so it is
+tried once, and every file closes `connect_failed`.
+
+**A connection lost mid-capture.** Each connection is held for the whole
+window, and the agent does not reconnect: a new connection would restart every
+delta baseline under the same artifact. When the driver reports one closed — a
+terminated backend, a broken network, a failover — that connection's timeline
+stops at the sample that found out, and the closing block of every file sampled
+on it says `status=connection_lost` with a `samples_written` below
+`samples_expected` and,
 in `connection_error=`, the error the driver closed the connection on: the
 server's own message where it sent one — `FATAL: terminating connection due to
 administrator command (SQLSTATE 57P01)` for a terminated backend — or the
@@ -713,13 +755,15 @@ nothing. The sample that found out either writes a `sample_error=` block or,
 for a collector that localises failures to a block, carries the error on that
 block's header — or shows nothing at all, when it is a log tail: a tail's only
 statement per sample re-checks the log's location, and a failed re-check keeps
-the file it has. The tails sample on their own shorter cadence, so a connection
-lost between two periodic ticks is usually found by a tail before the next
-periodic tick, and the run ends there. Everything written up to that point stays in the bundle; the
-run reports `connection lost: …` for each file and still uploads them. A statement that
+the file it has. The tails share the normal-speed connection and sample every 10
+seconds, so that connection lost between two periodic ticks is usually found by a
+tail before the next one. The files on the other two connections go on to the end
+of the window, and a failover that drops all three is found on each. Everything
+written stays in the bundle; the run reports `connection lost: …` for each file
+that lost its connection and still uploads them. A statement that
 merely failed leaves the connection open and stops nothing: that artifact's
 closing block says `status=partial` and the next tick proceeds. A statement that
-runs to the server's `statement_timeout` (10s) is such a failure: the server
+runs to the server's `statement_timeout` (5s) is such a failure: the server
 cancels it and answers, and the agent's own deadline on the statement sits 5s
 above the server's so that the server's answer is the one that arrives. A
 capture stopped from the agent's side while a statement is in flight, by a kill
