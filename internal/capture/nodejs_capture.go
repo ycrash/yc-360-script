@@ -79,7 +79,7 @@ func (t *NodeProcessOverview) Run() (Result, error) {
 
 func (t *NodeProcessOverview) runHook(outPath string) (Result, error) {
 	if t.Ctx == nil || !t.Ctx.HookAvailable() {
-		return Result{Msg: fmt.Sprintf("node process overview skipped for pid %d: hook not available", t.Pid), Ok: false}, nil
+		return Result{Msg: nodeHookNotAvailableMsg("Process Overview", t.Pid), Ok: false}, nil
 	}
 	if err := prepareNodeHookOutPath(outPath); err != nil {
 		return Result{Msg: err.Error(), Ok: false}, nil
@@ -163,10 +163,10 @@ type NodeHeapSummary struct {
 
 func (t *NodeHeapSummary) Run() (Result, error) {
 	if t.Ctx != nil && t.Ctx.Mode == NodeCaptureModeSignal {
-		return Result{Msg: "node heap summary is unavailable in signal mode (no native-flag equivalent)", Ok: false}, nil
+		return Result{Msg: "Heap Summary is unavailable in Signal Mode (requires Hook Mode; no native-flag equivalent).", Ok: false}, nil
 	}
 	if t.Ctx == nil || !t.Ctx.HookAvailable() {
-		return Result{Msg: fmt.Sprintf("node heap summary skipped for pid %d: hook not available", t.Pid), Ok: false}, nil
+		return Result{Msg: nodeHookNotAvailableMsg("Heap Summary", t.Pid), Ok: false}, nil
 	}
 	if !IsProcessExists(t.Pid) {
 		return Result{Msg: fmt.Sprintf("process %d does not exist", t.Pid), Ok: false}, nil
@@ -207,7 +207,7 @@ type NodeCPUProfile struct {
 
 func (t *NodeCPUProfile) Run() (Result, error) {
 	if t.Ctx == nil || !t.Ctx.HookAvailable() {
-		return Result{Msg: fmt.Sprintf("node cpu profile skipped for pid %d: hook not available", t.Pid), Ok: false}, nil
+		return Result{Msg: nodeHookNotAvailableMsg("CPU Profile", t.Pid), Ok: false}, nil
 	}
 	if !IsProcessExists(t.Pid) {
 		return Result{Msg: fmt.Sprintf("process %d does not exist", t.Pid), Ok: false}, nil
@@ -258,7 +258,7 @@ type NodeWorkerCPUProfiles struct {
 
 func (t *NodeWorkerCPUProfiles) Run() (Result, error) {
 	if t.Ctx == nil || !t.Ctx.HookAvailable() {
-		return Result{Msg: fmt.Sprintf("node worker cpu profiles skipped for pid %d: hook not available", t.Pid), Ok: false}, nil
+		return Result{Msg: nodeHookNotAvailableMsg("Worker CPU Profiles", t.Pid), Ok: false}, nil
 	}
 	if !IsProcessExists(t.Pid) {
 		return Result{Msg: fmt.Sprintf("process %d does not exist", t.Pid), Ok: false}, nil
@@ -289,10 +289,10 @@ func (t *NodeWorkerCPUProfiles) Run() (Result, error) {
 
 func nodeDiagnosticCapture(endpoint string, pid int, ctx *NodeCaptureContext, outDir, fileName, label, dt string, doRPC func(outPath string) error) (Result, error) {
 	if ctx != nil && ctx.Mode == NodeCaptureModeSignal {
-		return Result{Msg: fmt.Sprintf("node %s is unavailable in signal mode (hook-only)", label), Ok: false}, nil
+		return Result{Msg: fmt.Sprintf("%s is unavailable in Signal Mode (requires Hook Mode).", label), Ok: false}, nil
 	}
 	if ctx == nil || !ctx.HookAvailable() {
-		return Result{Msg: fmt.Sprintf("node %s skipped for pid %d: hook not available", label, pid), Ok: false}, nil
+		return Result{Msg: nodeHookNotAvailableMsg(label, pid), Ok: false}, nil
 	}
 	if !IsProcessExists(pid) {
 		return Result{Msg: fmt.Sprintf("process %d does not exist", pid), Ok: false}, nil
@@ -328,7 +328,7 @@ type NodeEventLoopLag struct {
 
 func (t *NodeEventLoopLag) Run() (Result, error) {
 	window := nodeDiagnosticWindowSeconds()
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeEventLoopLagFileName, "event loop lag", nodeDTEventLoopLag, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeEventLoopLagFileName, "Event Loop Lag", nodeDTEventLoopLag, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpEventLoopLag(outPath, window)
 		return err
 	})
@@ -344,7 +344,7 @@ type NodeUnhandledRejections struct {
 
 func (t *NodeUnhandledRejections) Run() (Result, error) {
 	window := nodeDiagnosticWindowSeconds()
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeUnhandledRejectionsFileName, "unhandled rejections", nodeDTUnhandledRejections, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeUnhandledRejectionsFileName, "Unhandled Rejections", nodeDTUnhandledRejections, func(outPath string) error {
 		res, err := t.Ctx.Client.DumpUnhandledRejections(outPath, window)
 		if err == nil && res != nil && res.Truncated {
 			logger.Log("node unhandled rejections pid=%d: captured %d of %d events (truncated at hook cap)", t.Pid, res.EventCount, res.TotalCount)
@@ -363,7 +363,7 @@ type NodeModuleInventory struct {
 }
 
 func (t *NodeModuleInventory) Run() (Result, error) {
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeModuleInventoryFileName, "module inventory", nodeDTModuleInventory, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeModuleInventoryFileName, "Module Inventory", nodeDTModuleInventory, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpModuleInventory(outPath)
 		return err
 	})
@@ -381,7 +381,7 @@ type NodeHandleGrowth struct {
 func (t *NodeHandleGrowth) Run() (Result, error) {
 	window := nodeDiagnosticWindowSeconds()
 	interval := nodeHandleGrowthIntervalSeconds(window)
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeHandleGrowthFileName, "handle growth", nodeDTHandleGrowth, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeHandleGrowthFileName, "Handle Growth", nodeDTHandleGrowth, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpHandleGrowth(outPath, window, interval)
 		return err
 	})
@@ -399,7 +399,7 @@ type NodePendingPromises struct {
 func (t *NodePendingPromises) Run() (Result, error) {
 	window := nodeDiagnosticWindowSeconds()
 	interval := nodeHandleGrowthIntervalSeconds(window)
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodePendingPromisesFileName, "pending promises", nodeDTPendingPromises, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodePendingPromisesFileName, "Pending Promises", nodeDTPendingPromises, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpPendingPromises(outPath, window, interval)
 		return err
 	})
@@ -416,7 +416,7 @@ type NodeGCStats struct {
 
 func (t *NodeGCStats) Run() (Result, error) {
 	window := nodeDiagnosticWindowSeconds()
-	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeGCStatsFileName, "gc stats", nodeDTGCStats, func(outPath string) error {
+	return nodeDiagnosticCapture(t.Endpoint(), t.Pid, t.Ctx, t.OutDir, NodeGCStatsFileName, "GC Stats", nodeDTGCStats, func(outPath string) error {
 		_, err := t.Ctx.Client.DumpGCStats(outPath, window)
 		return err
 	})
@@ -614,6 +614,18 @@ func (t *NodeGC) uploadAppFile(appOutPath string) {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+// nodeHookNotAvailableMsg is the user-facing skip reason when Hook Mode
+// capture is attempted against a PID that has no responsive yc-360 Node.js
+// hook. Keep this wording actionable: customers often hit this by picking an
+// npm wrapper PID (npm run …) instead of the app process, or by forgetting
+// NODE_OPTIONS=--require.
+func nodeHookNotAvailableMsg(feature string, pid int) string {
+	return fmt.Sprintf("%s skipped for PID %d: the yCrash Node.js hook is not loaded in this process. "+
+		"Start the app with NODE_OPTIONS=--require=<path-to-yc360-node-hook.js>, then re-run yc-360. "+
+		"If several node.exe / node processes are running, confirm you passed the application PID (not an npm wrapper).",
+		feature, pid)
+}
 
 func nodeSignalCaptureTimeout() time.Duration {
 	if d := config.GlobalConfig.CmdTimeout.Duration(); d > 0 {

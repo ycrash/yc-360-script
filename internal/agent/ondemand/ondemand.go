@@ -375,7 +375,7 @@ Ignored errors: %v
 				Ctx: nodeCtx,
 			}))})
 		} else {
-			logger.Log("node worker CPU profiles skipped for pid %d: -nodejsWorkerCPUProfile not set", pid)
+			logger.Log("Worker CPU Profiles skipped for PID %d: -nodejsWorkerCPUProfile argument is not passed to the command", pid)
 		}
 
 		// Diagnostic Report page artifacts (hook-only).
