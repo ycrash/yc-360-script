@@ -840,7 +840,8 @@ func TestLoggedPlanRedactionInEveryLogAndPlanFormat(t *testing.T) {
 }
 
 func TestLoggedPlanRedactionKeepsEachPlanFormatsOwnEncoding(t *testing.T) {
-	entries, _, _, _ := matchEvents([]byte(measuredAutoExplain+unrelatedTraffic), logFormatStderr, explainMatch, &tailRead{})
+	entries, _, _, matched := matchEvents([]byte(measuredAutoExplain+unrelatedTraffic), logFormatStderr, explainMatch, &tailRead{})
+	require.Equal(t, 8, matched, "two statements in four plan formats")
 
 	for _, tt := range []struct {
 		name string
