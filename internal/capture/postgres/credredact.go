@@ -1,10 +1,30 @@
 package postgres
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// explainExecuteArguments matches the literal tier's EXPLAIN EXECUTE argument list,
+// which track_utility = on stores verbatim - the application's bind values.
+var explainExecuteArguments = regexp.MustCompile(
+	`(?s)(EXECUTE\s+` + preparedStatementPrefix + `[0-9]+\s*)\(.*$`)
+
+// redactExplainArguments keeps the statement name and replaces the arguments.
+func redactExplainArguments(query string) (string, int) {
+	if !explainExecuteArguments.MatchString(query) {
+		return query, 0
+	}
+
+	return explainExecuteArguments.ReplaceAllString(query, "${1}(<redacted>)"), 1
+}
 
 // queryCell caps a statement, then replaces its credentials, so a literal the cap split is
 // still found; the cap's "..." goes back on after, where no replacement can swallow it.
+// The agent's own EXPLAIN EXECUTE arguments are replaced first, whole.
 func queryCell(query string) (string, bool, int) {
+	query, explained := redactExplainArguments(query)
+
 	capped := truncateRunes(query, DefaultMaxQueryText)
 	cut := capped != query
 
@@ -18,7 +38,7 @@ func queryCell(query string) (string, bool, int) {
 		capped += "..."
 	}
 
-	return capped, cut, redacted
+	return capped, cut, redacted + explained
 }
 
 // redactCredentials replaces the string after a word ending in "password" (PASSWORD '…',

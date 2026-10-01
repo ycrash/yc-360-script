@@ -168,7 +168,12 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 Which queries get a plan is not a judgment the agent makes. Every distinct query
 shape in `pg_stat_statements` is attempted once, in the first sample it is seen
 in, and never again; the agent ranks nothing, and which shapes matter is the
-server's call. A sample attempts at most ten, and the rest wait for the next
+server's call. A shape is a query identifier in the connected database: the same
+statement recorded under two roles is attempted once. The agent's own statements
+are never attempted, whichever role ran them, and are counted as `excluded_self=`:
+every statement the agent sends opens with the comment `/* yCrash-DB-Agent */`,
+which `pg_stat_statements` keeps in its text, and a row recorded before that
+marker existed is recognised by a query identifier the capture's own role also ran. A sample attempts at most ten, and the rest wait for the next
 sample, so a database that walks in tracking thousands of shapes is explained as
 a drip across the window rather than a burst at its start. Each block records
 `first_seen=`, and each sample's summary says how many shapes still wait.
@@ -176,7 +181,13 @@ a drip across the window rather than a burst at its start. Each block records
 Under `all`, the agent asks the server for at most **five plans in a capture**,
 each given two seconds; every `EXPLAIN` it submits counts, whether a plan comes
 back or not. A shape whose plan `auto_explain` already logged takes that plan and
-does not count, since it costs the database nothing. A shape attempted after the
+does not count, since it costs the database nothing. A logged plan is joined to
+its shape by query identifier: the plan's own `Query Identifier:` line where
+`auto_explain.log_verbose` writes one, otherwise the log record's (jsonlog
+`query_id`, csvlog's column, or `%Q` in a stderr `log_line_prefix`). With
+neither, the plan is written with `reason=no_query_identifier`. Only
+`auto_explain` plans are copied; `log_min_duration_statement`'s own `duration:`
+lines are not. A shape attempted after the
 fifth with no logged plan is written with `reason=plan_limit_reached`, and each
 sample's summary counts those as `candidates_skipped_limit=`. Five in the order
 shapes are first seen is a real limit on a database with many shapes: the first
@@ -416,7 +427,8 @@ its own sessions — so `pg_monitor` is the whole grant it needs. It opens three
 sessions, one per speed (see *`frequency`*), so that a slow read on one never
 delays the samples on another; each names itself
 `application_name=yCrash-DB-Agent`, so they are easy to pick out in
-`pg_stat_activity` and in the server log. Leave the role, and the database, at
+`pg_stat_activity` and in the server log, and every statement opens with the
+comment `/* yCrash-DB-Agent */`, which `pg_stat_statements` keeps. Leave the role, and the database, at
 least three connections under any `CONNECTION LIMIT`.
 
 ### One exception: `explain: all`
@@ -732,7 +744,10 @@ literal, then resets and deallocates as above. The result is the server's custom
 plan for the values that actually ran, and its `Query Identifier:` is the
 statement's own, so `queryid_match=true` is expected. The values reach the
 server and not the bundle: the plan is written with them replaced, and so is an
-`error=` that quotes one. A block that fell to the
+`error=` that quotes one. Under `track_utility = on`, `pg_stat_statements` records
+the agent's `EXPLAIN … EXECUTE yc_explain_<n>(…)` with the values in it; in
+`pg_slow_queries.txt` and `pg_sessions.txt` that argument list is written as
+`(<redacted>)`. A block that fell to the
 generic tier says why in `literal_reason=`. Three things have to be true on the
 server side, none of which the agent will set for you:
 
@@ -772,7 +787,11 @@ different schema and yield a confidently wrong plan for the wrong table.
 Three things in each block are the reader's tells: `VERBOSE` schema-qualifies
 every relation the plan actually resolved to, `search_path=` records the agent's
 own resolution context, and `plan_queryid=` with `queryid_match=false` is the
-one machine-checkable symptom of a wrong resolution. `mode=LOGGED` blocks do not
+one machine-checkable symptom of a wrong resolution. It is not proof of one: a
+driver that binds a string as `varchar` (JDBC's `setString`) gets a different
+identifier from the agent's `PREPARE`, which infers `text`, so a correctly
+resolved plan can still read `false`; check the relations in the plan before
+concluding anything. `mode=LOGGED` blocks do not
 have this problem at all — they are the server's own plan for the execution that
 really happened, which is why that tier is tried first.
 

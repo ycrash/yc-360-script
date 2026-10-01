@@ -88,8 +88,12 @@ func parseLogEntry(event []byte, format logFormat, prefix *linePrefix) (logEntry
 // line's text after the severity keyword plus its TAB-continued lines, and the detail
 // is the DETAIL: line's text plus its own. The server writes one TAB after every
 // embedded newline (append_with_tabs), so removing exactly one restores the text.
+// CRLF line endings (Windows) are stripped, or the CR fails the bind parse.
 func parseStderrEntry(event []byte, prefix *linePrefix) (logEntry, bool) {
 	lines := strings.Split(strings.TrimSuffix(string(event), "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSuffix(line, "\r")
+	}
 
 	at, _, message := stderrSeverity(lines[0])
 	if at < 0 {
