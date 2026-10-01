@@ -1,6 +1,6 @@
 # engine=postgres source=pg_sessions v=2 format=csv scope=cluster db=orders_db dbid= status=started window=4s schedule=periodic interval=2s samples_expected=3 ts=2026-08-07T14:32:04.980Z
 # capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
-# sample_id=1 source=pg_stat_activity start_ts=2026-08-07T14:32:05.065Z end_ts=2026-08-07T14:32:05.067Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 ts=2026-08-07T14:32:05.061Z
+# sample_id=1 source=pg_stat_activity start_ts=2026-08-07T14:32:05.065Z end_ts=2026-08-07T14:32:05.067Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 redacted=0 ts=2026-08-07T14:32:05.061Z
 pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
@@ -27,7 +27,7 @@ pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid
 1116,relation,16401,12073,,,,,,,,3/88,AccessShareLock,true,true,
 1116,virtualxid,,,,,3/88,,,,,3/88,ExclusiveLock,true,true,
 # capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
-# sample_id=2 source=pg_stat_activity start_ts=2026-08-07T14:32:07.059Z end_ts=2026-08-07T14:32:07.061Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 ts=2026-08-07T14:32:07.055Z
+# sample_id=2 source=pg_stat_activity start_ts=2026-08-07T14:32:07.059Z end_ts=2026-08-07T14:32:07.061Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 redacted=0 ts=2026-08-07T14:32:07.055Z
 pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>
@@ -54,7 +54,7 @@ pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid
 1116,relation,16401,12073,,,,,,,,3/88,AccessShareLock,true,true,
 1116,virtualxid,,,,,3/88,,,,,3/88,ExclusiveLock,true,true,
 # capture_id=3b9d2f64-7c1e-4a58-9f02-6d8e1c4b7a90 target_id=orders-primary engine=postgres engine_version=170004 v=2 format=csv db=orders_db dbid=16401
-# sample_id=3 source=pg_stat_activity start_ts=2026-08-07T14:32:09.056Z end_ts=2026-08-07T14:32:09.058Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 ts=2026-08-07T14:32:09.052Z
+# sample_id=3 source=pg_stat_activity start_ts=2026-08-07T14:32:09.056Z end_ts=2026-08-07T14:32:09.058Z duration_ms=2 status=OK rows=4 truncated=false scope=cluster sessions_written=4 sessions_total=4 redacted=0 ts=2026-08-07T14:32:09.052Z
 pid,datid,datname,leader_pid,usesysid,usename,application_name,backend_type,state,wait_event_type,wait_event,backend_start,xact_start,query_start,state_change,backend_xid,backend_xmin,query_id,client_addr,client_hostname,client_port,query
 1093,16401,orders_db,,10,postgres,psql,,,,,,,,,789,789,,,,,<insufficient privilege>
 1105,16401,orders_db,,10,postgres,psql,,,,,,,,,790,789,,,,,<insufficient privilege>

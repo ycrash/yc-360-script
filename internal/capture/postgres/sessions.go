@@ -198,7 +198,7 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 	rows, total, err := s.readSessions(ctx, q)
 	reads := span{start, sc.now()}
 
-	cells, queriesTruncated := sessionCells(rows)
+	cells, queriesTruncated, redacted := sessionCells(rows)
 
 	var fields []headerField
 
@@ -213,6 +213,8 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 		if queriesTruncated > 0 {
 			fields = append(fields, headerField{"queries_truncated", strconv.Itoa(queriesTruncated)})
 		}
+
+		fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
 	}
 
 	if err := writeSampleHeader(w, s.Artifact(), sc, sampleHeader{
@@ -346,16 +348,17 @@ func (s Sessions) readSessions(ctx context.Context, q RowQuerier) ([]sessionRow,
 	return collected, total, nil
 }
 
-func sessionCells(rows []sessionRow) ([][]string, int) {
+// sessionCells renders rows and returns how many query cells the agent's own cap
+// truncated and how many credentials it replaced in them.
+func sessionCells(rows []sessionRow) ([][]string, int, int) {
 	cells := make([][]string, len(rows))
-	truncated := 0
+	truncated, redacted := 0, 0
 
 	for i, row := range rows {
-		query := text(row.query)
+		query, cut, n := queryCell(text(row.query))
+		redacted += n
 
-		// truncateRunes returns the value unchanged when under the limit, so this can't drift from it.
-		if capped := truncateRunes(query, DefaultMaxQueryText); capped != query {
-			query = capped
+		if cut {
 			truncated++
 		}
 
@@ -385,7 +388,7 @@ func sessionCells(rows []sessionRow) ([][]string, int) {
 		}
 	}
 
-	return cells, truncated
+	return cells, truncated, redacted
 }
 
 // pid is a pointer here, unlike sessionRow's: pg_locks.pid is NULL for a prepared transaction's

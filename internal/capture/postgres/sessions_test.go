@@ -288,7 +288,7 @@ func sessionWithQuery(pid int32, query string, total int64) []any {
 }
 
 func ordersQueryText() [][]any {
-	const total = 3
+	const total = 4
 
 	return [][]any{
 		sessionWithQuery(1201,
@@ -297,6 +297,7 @@ func ordersQueryText() [][]any {
 			"INSERT INTO notes (body) VALUES ('\n# engine=postgres source=spoofed\nnot a header\n');", total),
 		sessionWithQuery(1203,
 			`SELECT "order,id", count(*) FROM "orders,archive" WHERE note = 'a "quoted" value, with a comma';`, total),
+		sessionWithQuery(1204, "ALTER ROLE app_writer PASSWORD 'not-a-real-secret';", total),
 	}
 }
 
@@ -1030,8 +1031,8 @@ func TestSessionsQueryTextIsOneLinePerRowWhateverItContains(t *testing.T) {
 	}
 
 	assert.Equal(t, 4, headers, "two blocks of two header lines, and no data line begins with '#'")
-	assert.Equal(t, 11, data,
-		"two column headers, three activity rows and six lock rows - a query carrying three "+
+	assert.Equal(t, 12, data,
+		"two column headers, four activity rows and six lock rows - a query carrying three "+
 			"embedded newlines added no line of its own. singleLine is what buys that, and it "+
 			"is what lets a line-oriented parser and a record-aware parser read this file "+
 			"identically")
@@ -1043,7 +1044,7 @@ func TestSessionsQueryTextIsOneLinePerRowWhateverItContains(t *testing.T) {
 			"a decision rather than an aesthetic")
 
 	rows := capacityBlocks(t, sample)["pg_stat_activity"].rows(t, sessionColumns)
-	require.Len(t, rows, 3)
+	require.Len(t, rows, 4)
 
 	assert.Equal(t, "SELECT o.id,        o.status   FROM orders o  WHERE o.id = 300;",
 		rows[0][colSessionQuery],
@@ -1154,6 +1155,7 @@ func TestSessionsFailedReadsAreStillACompleteSample(t *testing.T) {
 			"cannot localise a failure, and this one always can")
 	assert.Equal(t, 3, results[0].SamplesWritten)
 	assert.NotContains(t, artifactText(t, results[0]), "sample_error=", "so no stub was written")
+	assert.NotContains(t, artifactText(t, results[0]), "redacted=", "a failed read wrote no text to count")
 }
 
 func TestSessionsWriteFailureIsTheSamplesError(t *testing.T) {

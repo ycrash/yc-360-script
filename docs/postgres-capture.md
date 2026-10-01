@@ -289,7 +289,8 @@ own. Read once, at the start:
 Read at the file's speed (see *`frequency`*), from the opening sample to the
 closing one:
 
-- `pg_sessions.txt` — `pg_stat_activity` and `pg_locks`.
+- `pg_sessions.txt` — `pg_stat_activity` and `pg_locks`, with passwords in the
+  statement text replaced (see *What leaves the database*).
 - `pg_health.txt` — `pg_stat_database`, every database in the cluster.
 - `pg_xid_age.txt` — each database's transaction-ID age, `age(datfrozenxid)`,
   oldest first and `template0` included: how far each is from wraparound.
@@ -316,7 +317,8 @@ closing one:
   planner's statistics were last taken, and how many rows have changed since.
 - `pg_index_usage.txt` — `pg_stat_user_indexes`.
 - `pg_tablespaces.txt` — each tablespace's size.
-- `pg_slow_queries.txt` — `pg_stat_statements`.
+- `pg_slow_queries.txt` — `pg_stat_statements`, with passwords in the statement
+  text replaced.
 - `pg_explain.txt` — query plans, when `explain:` is set, their constants
   replaced.
 
@@ -566,7 +568,8 @@ submitted, in every mode, literals included.
 
 **Utility statements are the exception, and they are stored verbatim.** Under the
 default `pg_stat_statements.track_utility = on`, DDL and other utility commands
-are recorded exactly as submitted, literals included. Measured on PostgreSQL 18:
+are recorded exactly as submitted, literals included. Measured on PostgreSQL 14
+to 18:
 
 ```
 CREATE ROLE app_user LOGIN PASSWORD 'hunter2'   ← stored complete, with the password
@@ -575,9 +578,29 @@ COPY t FROM PROGRAM 'some command'              ← likewise
 ```
 
 So if anyone has ever run role DDL against a cluster, that cleartext is sitting
-in `pg_stat_statements` and a capture will pick it up. Any role holding
-`pg_read_all_stats` — which is to say the role this document recommends — can
-read it.
+in `pg_stat_statements`, and any role holding `pg_read_all_stats` — which is to
+say the role this document recommends — can read it.
+
+**The agent replaces the passwords in both files' statement text** with
+`<redacted>` before writing it, and keeps the rest of the statement:
+
+- the string after a word ending in `password`, with or without `=` between:
+  `CREATE ROLE app_user LOGIN PASSWORD '<redacted>'`, `ALTER USER … ENCRYPTED
+  PASSWORD '<redacted>'` (the verifier `psql`'s `\password` sends is a credential
+  too), a user mapping's `OPTIONS (password '<redacted>')`,
+  `UPDATE app_users SET password = '<redacted>'`;
+- inside any string literal, a connection string's password in the two forms
+  `pg_nondefault_settings.txt` covers (below):
+  `CONNECTION 'host=pub password=<redacted>'`,
+  `dblink_connect('postgresql://u:<redacted>@h/db')`;
+- the same inside a `DO` block's or a function's body, and inside a statement
+  quoted in one: `EXECUTE 'CREATE ROLE r PASSWORD ''<redacted>'''`.
+
+Each `pg_stat_activity` and `pg_stat_statements` block that read rows counts the
+replacements as `redacted=`, `0` included. A statement cut at the agent's
+8192-character cap is searched as cut, and keeps its trailing `...`. Everything
+else stays as captured: `COPY t FROM PROGRAM 'some command'` above, every other
+literal in `pg_sessions.txt`, and a secret in any shape other than these.
 
 **In Mode H the log is copied, and `pg_timeouts.txt` copies it as written.** A
 timeout's `STATEMENT:` line reproduces the statement **as submitted**, literals

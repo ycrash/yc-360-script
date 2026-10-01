@@ -404,7 +404,7 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	rows, total, err := sq.readStatements(ctx, q)
 	reads := span{start, s.now()}
 
-	cells, queriesTruncated := statementCells(rows)
+	cells, queriesTruncated, redacted := statementCells(rows)
 
 	if err == nil {
 		sq.retain(s, rows, int64(len(rows)) < total)
@@ -432,6 +432,8 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	if queriesTruncated > 0 {
 		fields = append(fields, headerField{"queries_truncated", strconv.Itoa(queriesTruncated)})
 	}
+
+	fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
 
 	return sq.writeStatements(w, s, sampleHeader{
 		reads:     reads,
@@ -679,16 +681,17 @@ func (sq *SlowQueries) readStatements(ctx context.Context, q RowQuerier) ([]stat
 	return collected, total, nil
 }
 
-// statementCells renders rows and returns how many query cells the agent's own cap (not the server's) truncated.
-func statementCells(rows []statementRow) ([][]string, int) {
+// statementCells renders rows and returns how many query cells the agent's own cap (not the server's) truncated
+// and how many credentials it replaced in them. The rows keep the server's text, which Explain submits.
+func statementCells(rows []statementRow) ([][]string, int, int) {
 	cells := make([][]string, len(rows))
-	truncated := 0
+	truncated, redacted := 0, 0
 
 	for i, row := range rows {
-		query := text(row.query)
+		query, cut, n := queryCell(text(row.query))
+		redacted += n
 
-		if capped := truncateRunes(query, DefaultMaxQueryText); capped != query {
-			query = capped
+		if cut {
 			truncated++
 		}
 
@@ -734,7 +737,7 @@ func statementCells(rows []statementRow) ([][]string, int) {
 		}
 	}
 
-	return cells, truncated
+	return cells, truncated, redacted
 }
 
 // extensionFacts is extensionSQL's one row.

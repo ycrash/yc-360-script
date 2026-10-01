@@ -322,9 +322,9 @@ The goldens:
   the tuple — while being unable to quote a single statement. A report that
   suppressed this artifact for being under-privileged would throw that away.
 - `pg_sessions_query_text.txt` — the fixture the parse contract has been missing.
-  Three sessions: one whose `query` carries embedded newlines, one whose `query`
-  carries a line beginning with `#` — the exact shape of a block header — and one
-  carrying commas and double quotes. What it pins: **every data row is exactly
+  Four sessions: one whose `query` carries embedded newlines, one whose `query`
+  carries a line beginning with `#` — the exact shape of a block header — one
+  carrying commas and double quotes, and one changing a role's password. What it pins: **every data row is exactly
   one physical line, and no line but a block header begins with `#`.** The first
   holds because `singleLine` replaces every line break before the row is written,
   so `encoding/csv` never emits a multi-line record. The second holds because
@@ -334,7 +334,10 @@ The goldens:
   visible in the first row and is deliberate: the agent collapses *line breaks*
   only, so the query's internal runs of spaces survive. That is a smaller
   mutation than "collapse whitespace runs", and it is the one that buys the parse
-  property without further rewriting what the application submitted.
+  property without further rewriting what the application submitted. The fourth
+  session, an `ALTER ROLE … PASSWORD` in flight, is the one rewrite the agent does
+  make: its password is written `'<redacted>'` and every activity block says
+  `redacted=1`.
 - `pg_slow_queries_full.txt` — a complete start-and-end capture against an
   extension-1.12 server. **Two blocks per sample and 37 columns**, the widest
   block in the feature, where the requirements document names eight. Read the
@@ -418,12 +421,14 @@ The goldens:
   `pg_metadata.txt`'s `has_pg_read_all_stats` does, and the count of empty lead
   cells does; that is the whole of the discriminator.
 - `pg_slow_queries_query_text.txt` — this artifact's half of the parse contract,
-  and it has one case `pg_sessions_query_text.txt` does not. Six rows: a query
+  and it has one case `pg_sessions_query_text.txt` does not. Seven rows: a query
   with embedded newlines, one carrying a line that begins with `#`, one with
   commas and double quotes, one multi-byte, one whose `query` is **NULL** — the
   shape the extension's documentation permits when its external query-text file
-  has been discarded, where the row costs a cell rather than the block — and one
-  masked row. What it pins is the same claim: **every data row is exactly one
+  has been discarded, where the row costs a cell rather than the block — a
+  `CREATE ROLE … PASSWORD`, which the view keeps with its literal and the file
+  writes `'<redacted>'` (`redacted=1`), and one masked row. What it pins is the
+  same claim: **every data row is exactly one
   physical line, and no line but a block header begins with `#`.**
   **The second half of that claim holds for a different reason here, which is
   the thing a reviewer should check rather than assume.** In `pg_sessions.txt`
@@ -725,7 +730,9 @@ sample line's nine lead and `ts` closes it.
   `status=ERROR` or `TIMEOUT`.
 - `redacted=` counts the values a block's text had replaced with `<redacted>`,
   `0` included, on every block that carries captured text: each
-  `pg_nondefault_settings.txt` sample, each `pg_deadlocks.txt` and
+  `pg_nondefault_settings.txt` sample, each `pg_sessions.txt` `pg_stat_activity`
+  block and `pg_slow_queries.txt` `pg_stat_statements` block that read rows (only
+  passwords go from their statement text), each `pg_deadlocks.txt` and
   `pg_errors.txt` block that reports a read (the drain too), and each
   `pg_explain.txt` plan block, whose count takes in the literal tier's `error=`.
   It is absent where no text was read or written — a log tail's `reason=`
