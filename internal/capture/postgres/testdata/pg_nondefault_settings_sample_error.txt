@@ -17,4 +17,4 @@ shared_buffers,524288,8kB,configuration file,postmaster,Sets the number of share
 statement_timeout,5000,ms,client,user,Sets the maximum allowed duration of any statement.
 TimeZone,Etc/UTC,,configuration file,user,Sets the time zone for displaying and interpreting time stamps.
 work_mem,16384,kB,configuration file,user,Sets the maximum memory to be used for query workspaces.
-# engine=postgres source=pg_nondefault_settings v=2 format=csv scope=database db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_nondefault_settings v=2 format=csv scope=database db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 samples_skipped=0 ts=2026-08-07T14:34:05.201Z

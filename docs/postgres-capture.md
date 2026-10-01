@@ -128,6 +128,13 @@ warning, because each statement is bounded at `5s` and a faster cadence would le
 one slow sample outrun the tick behind it. Whatever the value, the opening and
 closing samples are always taken.
 
+A sample that runs past its file's next tick is not caught up on. A tick that
+fell due before the file's previous sample ended is skipped rather than run
+late, so a slow database is never read faster than planned to make up lost
+ground. The opening and closing samples are never skipped. The file's closing
+block counts the skipped ticks in `samples_skipped=`, beside `samples_expected`
+and `samples_written`, and says `status=partial`.
+
 ### `agentOnDbHost` — only for a database that cannot answer
 
 ```yaml
@@ -794,7 +801,8 @@ of the window, and a failover that drops all three is found on each. Everything
 written stays in the bundle; the run reports `connection lost: …` for each file
 that lost its connection and still uploads them. A statement that
 merely failed leaves the connection open and stops nothing: that artifact's
-closing block says `status=partial` and the next tick proceeds. A statement that
+closing block says `status=partial`, as it does for a skipped tick, and the
+next tick proceeds. A statement that
 runs to the server's `statement_timeout` (5s) is such a failure: the server
 cancels it and answers, and the agent's own deadline on the statement sits 5s
 above the server's so that the server's answer is the one that arrives. The

@@ -11,4 +11,4 @@ spcname,pg_reported_size_bytes
 orders_archive,
 pg_default,3617382400
 pg_global,
-# engine=postgres source=pg_tablespaces v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_tablespaces v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 samples_skipped=0 ts=2026-08-07T14:34:05.201Z

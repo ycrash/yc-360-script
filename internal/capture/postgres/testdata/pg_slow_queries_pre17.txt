@@ -19,4 +19,4 @@ queryid,userid,dbid,toplevel,plans,total_plan_time,min_plan_time,max_plan_time,c
 # sample_id=2 source=pg_stat_statements_info start_ts=2026-08-07T14:32:11.032Z end_ts=2026-08-07T14:32:11.034Z duration_ms=2 status=OK rows=1 truncated=false scope=cluster extension_version=1.10 ts=2026-08-07T14:32:11.020Z
 dealloc,stats_reset
 0,2026-08-07T03:06:21.693Z
-# engine=postgres source=pg_slow_queries v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:32:11.084Z
+# engine=postgres source=pg_slow_queries v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 samples_skipped=0 ts=2026-08-07T14:32:11.084Z

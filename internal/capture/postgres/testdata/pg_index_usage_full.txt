@@ -13,4 +13,4 @@ indexrelid,relid,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch,index_size_byt
 16397,16390,orders_status_idx,0,0,0,207618048
 16487,16482,orders_line_items_pkey,88110,88110,88110,99999744
 16488,16482,orders_line_items_order_id_idx,1113870,2404210,2403987,92512256
-# engine=postgres source=pg_index_usage v=2 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_index_usage v=2 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 samples_skipped=0 ts=2026-08-07T14:34:05.201Z

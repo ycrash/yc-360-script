@@ -12,4 +12,4 @@ Buffer Descriptors,5731328,8388608,8388608
 Checkpointer Data,1095617536,3932216,3932288
 Shared Memory Stats,1096295424,279992,280064
 subtransaction,5061376,267424,267520
-# engine=postgres source=pg_memory v=2 format=csv scope=cluster db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_memory v=2 format=csv scope=cluster db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 samples_skipped=0 ts=2026-08-07T14:34:05.201Z

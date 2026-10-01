@@ -410,6 +410,10 @@ func postgresArtifactSummary(artifact postgres.ArtifactResult, collected postgre
 func postgresArtifactMessage(artifact postgres.ArtifactResult) string {
 	summary := fmt.Sprintf("%s written (%d/%d samples)",
 		artifact.Artifact.FileName, artifact.SamplesWritten, artifact.SamplesExpected)
+	if artifact.SamplesSkipped > 0 {
+		summary = fmt.Sprintf("%s written (%d/%d samples, %d skipped as overdue)",
+			artifact.Artifact.FileName, artifact.SamplesWritten, artifact.SamplesExpected, artifact.SamplesSkipped)
+	}
 
 	switch artifact.Status {
 	case postgres.StatusConnectFailed:
@@ -422,6 +426,11 @@ func postgresArtifactMessage(artifact postgres.ArtifactResult) string {
 		return summary + "; window deadline exceeded"
 
 	case postgres.StatusPartial:
+		// Skipped ticks alone make a file partial with no error to report.
+		if artifact.Err == "" {
+			return summary
+		}
+
 		return summary + "; last sample error: " + artifact.Err
 
 	case postgres.StatusConnectionLost:

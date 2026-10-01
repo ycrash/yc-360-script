@@ -26,4 +26,4 @@ pid,usesysid,usename,application_name,client_addr,client_hostname,client_port,ba
 slot_name,plugin,slot_type,datoid,database,temporary,active,active_pid,xmin,catalog_xmin,restart_lsn,retained_bytes,confirmed_flush_lsn,wal_status,safe_wal_size,two_phase,conflicting,failover,inactive_since,invalidation_reason,synced,two_phase_at
 orders_cdc_slot,pgoutput,logical,16401,orders_db,false,false,,,5518821,2A/A1002000,322429248,2A/A1002000,extended,1069547520,true,false,false,2026-08-07T11:02:41.330Z,,false,
 replica_01_slot,,physical,,,false,true,4021,,,2A/B4370000,65856,,reserved,3221225472,false,,false,,,false,
-# engine=postgres source=pg_replication v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.002Z
+# engine=postgres source=pg_replication v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-08-07T14:32:35.002Z

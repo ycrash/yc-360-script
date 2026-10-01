@@ -1190,6 +1190,24 @@ func TestPostgresCaptureMessage(t *testing.T) {
 				"ERROR: canceling statement due to statement timeout",
 		},
 		{
+			name: "partial by skipped ticks alone",
+			result: postgres.ArtifactResult{
+				Artifact: artifact, Status: postgres.StatusPartial,
+				SamplesExpected: 25, SamplesWritten: 22, SamplesSkipped: 3,
+			},
+			want: "pg_bloat.txt written (22/25 samples, 3 skipped as overdue)",
+		},
+		{
+			name: "partial by skipped ticks and a failed read",
+			result: postgres.ArtifactResult{
+				Artifact: artifact, Status: postgres.StatusPartial,
+				SamplesExpected: 25, SamplesWritten: 21, SamplesSkipped: 3,
+				Err: "ERROR: canceling statement due to statement timeout",
+			},
+			want: "pg_bloat.txt written (21/25 samples, 3 skipped as overdue); last sample error: " +
+				"ERROR: canceling statement due to statement timeout",
+		},
+		{
 			name: "cancelled",
 			result: postgres.ArtifactResult{
 				Artifact: artifact, Status: postgres.StatusCancelled,
