@@ -395,7 +395,7 @@ func TestPostgresBookendCollectorsDeclareTheirClosingBudgets(t *testing.T) {
 	health := postgres.Health{}.Artifact()
 	replication := postgres.Replication{}.Artifact()
 
-	assert.Equal(t, 3*time.Second, sessions.SampleBudget,
+	assert.Equal(t, 4*time.Second, sessions.SampleBudget,
 		"two statements at this collector's own timeout, declared so the next reader "+
 			"computing the deadline by hand does not have to derive it")
 	assert.Equal(t, postgres.StatementTimeout, health.SampleBudget,
@@ -409,7 +409,7 @@ func TestPostgresBookendCollectorsDeclareTheirClosingBudgets(t *testing.T) {
 
 	assert.Equal(t, 15*time.Second, health.SampleBudget+postgres.DefaultSampleBudget,
 		"what the bookend costs the normal connection's closing tick: health and replication "+
-			"land on it, one after the other. Sessions' 3s is on the fast connection, beside it")
+			"land on it, one after the other. Sessions' 4s is on the fast connection, beside it")
 }
 
 func TestPostgresCapacityDeclaresTheClosingTicksBudget(t *testing.T) {

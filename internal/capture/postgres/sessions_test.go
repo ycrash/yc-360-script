@@ -439,7 +439,7 @@ func TestSessionsArtifact(t *testing.T) {
 		"a run with no cadence still bookends: two samples, never one. A blocking chain is a "+
 			"thing that develops, so the first reading always has a second to be read against")
 
-	assert.Equal(t, 3*time.Second, artifact.SampleBudget,
+	assert.Equal(t, 4*time.Second, artifact.SampleBudget,
 		"two statements at this collector's own timeout. Periodic's last sample is the close, "+
 			"so moduleDeadline sums this - the SET in Sample is what enforces it")
 
@@ -745,10 +745,11 @@ func TestSessionsCastsEveryColumnTheDriverHasNoPlanFor(t *testing.T) {
 }
 
 func TestSessionsStatementTimeoutIsServerSideAndAlwaysRestored(t *testing.T) {
-	assert.Equal(t, 1500*time.Millisecond, SessionsStatementTimeout,
-		"well under StatementTimeout, because this collector samples 60 times against the "+
-			"same worst case the others meet twelve times or twice")
-	assert.Equal(t, "SET statement_timeout TO '1500ms'", setSessionsTimeoutSQL,
+	assert.Equal(t, 2*time.Second, SessionsStatementTimeout)
+	assert.Less(t, 2*SessionsStatementTimeout, StatementTimeout,
+		"a sample's two reads must fit inside the shortest fast speed, which the frequency "+
+			"floor sets equal to StatementTimeout, or a slow sample outruns its own next tick")
+	assert.Equal(t, "SET statement_timeout TO '2000ms'", setSessionsTimeoutSQL,
 		"formatted from the constant, so the literal the server sees and the Go value behind "+
 			"SampleBudget cannot drift apart")
 

@@ -10,8 +10,9 @@ import (
 )
 
 // SessionsStatementTimeout is applied server-side (SET/RESET), never as a context deadline:
-// pgx closes the connection on context expiry, and this window never reconnects.
-const SessionsStatementTimeout = 1500 * time.Millisecond
+// pgx closes the connection on context expiry, and this window never reconnects. Its two
+// reads fit inside the shortest fast speed, which is StatementTimeout.
+const SessionsStatementTimeout = 2 * time.Second
 
 // setSessionsTimeoutSQL is formatted from the constant so the literal can't drift.
 // RESET restores the startup-packet value rather than restating it.
