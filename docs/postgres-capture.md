@@ -602,13 +602,18 @@ replacements as `redacted=`, `0` included. A statement cut at the agent's
 else stays as captured: `COPY t FROM PROGRAM 'some command'` above, every other
 literal in `pg_sessions.txt`, and a secret in any shape other than these.
 
-**In Mode H the log is copied, and `pg_timeouts.txt` copies it as written.** A
-timeout's `STATEMENT:` line reproduces the statement **as submitted**, literals
-included; on a real application that is `UPDATE customers SET ssn = '…' WHERE
-email = '…'`. `log_parameter_max_length` does **not** bound this, though it looks
-as though it should: that setting bounds bind parameters logged with a statement,
-and the text here is the statement. `MaxEventBytes` bounds the volume, not the
-sensitivity.
+**In Mode H the log is copied, and `pg_timeouts.txt` copies it as written, but
+for passwords.** A timeout's `STATEMENT:` line reproduces the statement **as
+submitted**, literals included; on a real application that is `UPDATE customers
+SET ssn = '…' WHERE email = '…'`. `log_parameter_max_length` does **not** bound
+this, though it looks as though it should: that setting bounds bind parameters
+logged with a statement, and the text here is the statement. `MaxEventBytes`
+bounds the volume, not the sensitivity. The passwords are the exception: the rule
+above applies to the `STATEMENT:` and `QUERY:` lines and to the SQL a `CONTEXT`
+frame quotes (`SQL statement "ALTER ROLE app_user PASSWORD '<redacted>'"`), in
+stderr, csvlog and jsonlog alike, and each block that read the log counts the
+replacements as `redacted=`. An entry the agent cannot split into its fields is
+searched whole, never dropped.
 
 **`pg_deadlocks.txt`, `pg_errors.txt` and `pg_explain.txt` have their values
 replaced** with `<redacted>`, and each block that carries captured text counts the

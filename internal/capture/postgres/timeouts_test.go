@@ -21,6 +21,10 @@ const (
 	measuredIdleTimeout = "2026-08-15 10:00:41.302 UTC [7301] FATAL:  terminating connection due to idle-in-transaction timeout\n"
 )
 
+// lockTimeoutOnRoleChange is measuredLockTimeout's shape on a statement that sets a password.
+const lockTimeoutOnRoleChange = "2026-08-15 10:01:41.910 UTC [26011] ERROR:  canceling statement due to lock timeout\n" +
+	"2026-08-15 10:01:41.910 UTC [26011] STATEMENT:  ALTER ROLE app_writer PASSWORD 'not-a-real-secret';\n"
+
 func TestTimeoutsArtifact(t *testing.T) {
 	artifact := NewTimeouts().Artifact()
 
@@ -133,8 +137,74 @@ func TestTimeoutsSharedSQLStatesArePairedWithTheirMessage(t *testing.T) {
 
 var timeoutsGoldenWrites = []string{
 	measuredStatementTimeout + unrelatedTraffic,
-	measuredLockTimeout + unrelatedTraffic,
+	measuredLockTimeout + lockTimeoutOnRoleChange + unrelatedTraffic,
 	measuredIdleTimeout + unrelatedTraffic,
+}
+
+func TestTimeoutsKeepEveryMeasuredEventAsWritten(t *testing.T) {
+	redaction := NewTimeouts().tail.redaction
+
+	for _, fixture := range []string{measuredStatementTimeout, measuredLockTimeout, measuredIdleTimeout} {
+		event, redacted := redaction.event([]byte(fixture), logFormatStderr)
+
+		assert.Equal(t, fixture, string(event))
+		assert.Zero(t, redacted)
+	}
+}
+
+func TestTimeoutsReplaceOnlyThePasswordsTheirStatementsQuote(t *testing.T) {
+	redaction := NewTimeouts().tail.redaction
+	hidden := func(s string) string { return strings.ReplaceAll(s, "'not-a-real-secret'", "'<redacted>'") }
+
+	t.Run("stderr STATEMENT", func(t *testing.T) {
+		event, redacted := redaction.event([]byte(lockTimeoutOnRoleChange), logFormatStderr)
+
+		assert.Equal(t, hidden(lockTimeoutOnRoleChange), string(event))
+		assert.Equal(t, 1, redacted)
+	})
+
+	t.Run("a function's CONTEXT frame keeps its other frames", func(t *testing.T) {
+		in := "2026-08-15 10:01:41.910 UTC [26011] ERROR:  canceling statement due to lock timeout\n" +
+			"2026-08-15 10:01:41.910 UTC [26011] CONTEXT:  SQL statement \"ALTER ROLE app_writer PASSWORD 'not-a-real-secret'\"\n" +
+			"\tPL/pgSQL function rotate_password() line 3 at EXECUTE\n" +
+			"2026-08-15 10:01:41.910 UTC [26011] STATEMENT:  SELECT rotate_password();\n"
+
+		event, redacted := redaction.event([]byte(in), logFormatStderr)
+
+		assert.Equal(t, hidden(in), string(event))
+		assert.Equal(t, 1, redacted)
+	})
+
+	t.Run("csvlog", func(t *testing.T) {
+		in := `2026-08-15 10:01:41.910 UTC,"postgres","postgres",26011,"[local]",6a803945.70,1,"ALTER ROLE",` +
+			`2026-08-15 10:01:30.000 UTC,3/12,0,ERROR,55P03,"canceling statement due to lock timeout",,,,,,` +
+			`"ALTER ROLE app_writer PASSWORD 'not-a-real-secret';",,,"psql","client backend",,0` + "\n"
+
+		event, redacted := redaction.event([]byte(in), logFormatCSV)
+
+		assert.Equal(t, hidden(in), string(event))
+		assert.Equal(t, 1, redacted)
+	})
+
+	t.Run("jsonlog", func(t *testing.T) {
+		in := `{"timestamp":"2026-08-15 10:01:41.910 UTC","pid":26011,"error_severity":"ERROR","state_code":"55P03",` +
+			`"message":"canceling statement due to lock timeout",` +
+			`"statement":"ALTER ROLE app_writer PASSWORD 'not-a-real-secret';","backend_type":"client backend"}` + "\n"
+
+		event, redacted := redaction.event([]byte(in), logFormatJSON)
+
+		assert.Equal(t, hidden(in), string(event))
+		assert.Equal(t, 1, redacted)
+	})
+
+	t.Run("an event it cannot split is searched whole, not replaced", func(t *testing.T) {
+		in := "ALTER ROLE app_writer PASSWORD 'not-a-real-secret';\n"
+
+		event, redacted := redaction.event([]byte(in), logFormatStderr)
+
+		assert.Equal(t, hidden(in), string(event))
+		assert.Equal(t, 1, redacted)
+	})
 }
 
 func TestTimeoutsGoldenFull(t *testing.T) {

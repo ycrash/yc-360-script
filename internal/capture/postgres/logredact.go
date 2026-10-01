@@ -23,6 +23,10 @@ type logRedaction struct {
 	// plans reads the message as an auto_explain entry: its first line, then a plan,
 	// whose constants the plan rules replace.
 	plans bool
+
+	// credentialsOnly replaces only the passwords in the SQL an event quotes (STATEMENT,
+	// QUERY, a CONTEXT frame's SQL), as redactCredentials does; everything else is kept.
+	credentialsOnly bool
 }
 
 // logField is the part of an entry a text belongs to, which decides what is replaced.
@@ -44,6 +48,10 @@ const (
 func (r *logRedaction) field(sqlstate string, kind logField, text string) (string, int) {
 	if text == "" {
 		return text, 0
+	}
+
+	if r.credentialsOnly {
+		return credentialField(kind, text)
 	}
 
 	switch kind {
@@ -84,9 +92,30 @@ func (r *logRedaction) event(event []byte, format logFormat) ([]byte, int) {
 	return r.stderrEvent(event)
 }
 
-// redactedEvent stands in for an event whose fields could not be told apart, so that
-// nothing in it is written.
-func redactedEvent() ([]byte, int) { return []byte(redactedValue + "\n"), 1 }
+// unsplit is an event whose fields could not be told apart: replaced whole, so nothing
+// in it is written, or under credentialsOnly searched whole.
+func (r *logRedaction) unsplit(event []byte) ([]byte, int) {
+	if r.credentialsOnly {
+		text, n := redactCredentials(string(event))
+
+		return []byte(text), n
+	}
+
+	return []byte(redactedValue + "\n"), 1
+}
+
+// credentialField replaces the passwords in a field that quotes SQL, and nothing else.
+func credentialField(kind logField, text string) (string, int) {
+	switch kind {
+	case fieldStatement, fieldInternalQuery:
+		return redactCredentials(text)
+
+	case fieldContext:
+		return redactContextCredentials(text)
+	}
+
+	return text, 0
+}
 
 // redactShapes replaces the values in the first shape s is in: every group of a shape
 // is a value.
@@ -277,10 +306,13 @@ var (
 		open  *regexp.Regexp
 		close string
 	}{
-		{regexp.MustCompile(`^(?:SQL statement|SQL expression|PL/pgSQL assignment) "`), `"`},
+		{contextSQL, `"`},
 		{regexp.MustCompile(`^COPY .*?, line \d+(?:, column .*?)?: "`), `"`},
 		{regexp.MustCompile(`^JSON data, line \d+: `), ""},
 	}
+
+	// contextSQL opens a frame quoting the SQL a function ran or an expression it evaluated.
+	contextSQL = regexp.MustCompile(`^(?:SQL statement|SQL expression|PL/pgSQL assignment) "`)
 
 	// contextParameters is the extended protocol's frame for a portal's bind values.
 	contextParameters = regexp.MustCompile(`^(?:unnamed portal|portal ".*?") (?:with parameters: |parameter )`)
@@ -324,6 +356,50 @@ func redactContext(text string) (string, int) {
 		}
 
 		out = append(out, line)
+	}
+
+	if redacted == 0 {
+		return text, 0
+	}
+
+	return strings.Join(out, "\n"), redacted
+}
+
+// redactContextCredentials searches each frame's quoted SQL, which runs on until a line
+// opens the next frame, and keeps every frame's other text.
+func redactContextCredentials(text string) (string, int) {
+	lines := strings.Split(text, "\n")
+
+	var (
+		out      []string
+		redacted int
+	)
+
+	for i := 0; i < len(lines); {
+		end := i + 1
+		at := contextSQL.FindStringIndex(lines[i])
+
+		if at != nil {
+			for end < len(lines) && !contextFrame.MatchString(lines[end]) {
+				end++
+			}
+		}
+
+		frame := strings.Join(lines[i:end], "\n")
+
+		if at != nil {
+			sql, closing := frame[at[1]:], ""
+			if trimmed, found := strings.CutSuffix(sql, `"`); found {
+				sql, closing = trimmed, `"`
+			}
+
+			sql, n := redactCredentials(sql)
+			frame = frame[:at[1]] + sql + closing
+			redacted += n
+		}
+
+		out = append(out, frame)
+		i = end
 	}
 
 	if redacted == 0 {
@@ -425,7 +501,7 @@ func (r *logRedaction) stderrEvent(event []byte) ([]byte, int) {
 
 	at, _, message := stderrSeverity(first)
 	if at < 0 {
-		return redactedEvent()
+		return r.unsplit(event)
 	}
 
 	prefix := first[:at]
@@ -542,7 +618,7 @@ var csvFieldKinds = map[int]logField{
 func (r *logRedaction) csvRecord(record []byte) ([]byte, int) {
 	spans, ok := csvFieldSpans(record)
 	if !ok || len(spans) <= csvMessageIndex {
-		return redactedEvent()
+		return r.unsplit(record)
 	}
 
 	var (
@@ -663,7 +739,7 @@ var jsonFieldKinds = map[string]logField{
 func (r *logRedaction) jsonRecord(line []byte) ([]byte, int) {
 	values, ok := jsonValueSpans(line)
 	if !ok {
-		return redactedEvent()
+		return r.unsplit(line)
 	}
 
 	var (
