@@ -5,4 +5,4 @@
 # engine=postgres source=pg_checkpoint_log v=1 format=text scope=cluster db=orders_db dbid=16401 sample=3 log_format=stderr log_resolved_by=current_logfiles matched_by=message from_offset=649 to_offset=752 matched=0 bytes=0 ts=2026-08-07T14:32:25.020Z
 # engine=postgres source=pg_checkpoint_log v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=stderr log_resolved_by=current_logfiles from_offset=752 to_offset=1198 matched=1 bytes=262 ts=2026-08-07T14:32:35.040Z
 2026-07-25 14:33:47.220 UTC [412] LOG:  checkpoint complete: wrote 1204 buffers (7.3%); 0 WAL file(s) added, 0 removed, 2 recycled; write=4.812 s, sync=1.940 s, total=6.901 s; sync files=18, longest=0.612 s, average=0.108 s; distance=48210 kB, estimate=52104 kB
-# engine=postgres source=pg_checkpoint_log v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z
+# engine=postgres source=pg_checkpoint_log v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-08-07T14:32:35.052Z

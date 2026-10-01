@@ -44,4 +44,4 @@ pid,locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid
 1202,virtualxid,,,,,14/88,,,,,14/88,ExclusiveLock,true,true,
 1203,relation,16401,16432,,,,,,,,15/22,AccessShareLock,true,true,
 1203,virtualxid,,,,,15/22,,,,,15/22,ExclusiveLock,true,true,
-# engine=postgres source=pg_sessions v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:11.070Z
+# engine=postgres source=pg_sessions v=2 format=csv scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-08-07T14:32:11.070Z

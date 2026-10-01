@@ -8,4 +8,4 @@ orders_db,412973511
 postgres,201645304
 template1,201645302
 template0,198294725
-# engine=postgres source=pg_xid_age v=2 format=csv scope=cluster db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 ts=2026-08-07T14:34:05.201Z
+# engine=postgres source=pg_xid_age v=2 format=csv scope=cluster db=orders_db dbid=16401 status=partial samples_expected=2 samples_written=1 samples_skipped=0 ts=2026-08-07T14:34:05.201Z

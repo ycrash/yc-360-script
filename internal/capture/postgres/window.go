@@ -35,7 +35,7 @@ const (
 	// StatusComplete: an empty database still yields status=complete.
 	StatusComplete = "complete"
 
-	// StatusPartial: window ran its course but a sample failed.
+	// StatusPartial: window ran its course but a sample failed or was skipped.
 	StatusPartial = "partial"
 
 	StatusCancelled        = "cancelled"
@@ -293,6 +293,10 @@ type ArtifactResult struct {
 	Status          string
 	SamplesExpected int
 	SamplesWritten  int
+
+	// SamplesSkipped counts ticks that fell due before their collector's previous
+	// sample ended, and so were not run late.
+	SamplesSkipped int
 
 	// Err is the last capture-level error, already redacted. It reaches the agent
 	// log, never an artifact row, so it keeps the failure in full.
@@ -684,6 +688,7 @@ func (w *Window) closeArtifacts(results []ArtifactResult, owner []*connectionTim
 			{"status", results[i].Status},
 			{"samples_expected", strconv.Itoa(results[i].SamplesExpected)},
 			{"samples_written", strconv.Itoa(results[i].SamplesWritten)},
+			{"samples_skipped", strconv.Itoa(results[i].SamplesSkipped)},
 		}
 
 		if line.connectErr != "" {
@@ -757,13 +762,41 @@ func (w *Window) sample(
 	ctx context.Context, line *connectionTimeline, start time.Time, owner []*connectionTimeline,
 	results []ArtifactResult,
 ) (stopped, lostErr string) {
+	// finished is when each collector's latest sample ended. The timeline is serial, so
+	// that is the clock read the next tick takes; previous is the collector awaiting it.
+	finished := map[int]time.Time{}
+	previous := -1
+
 	for _, event := range timeline(w.Collectors, w.Duration) {
 		if owner[event.collector] != line {
 			continue
 		}
 
-		// Offsets are absolute: a slow sample doesn't delay the next tick; an overdue tick fires immediately.
-		if wait := start.Add(event.at).Sub(w.clock()); wait > 0 {
+		now := w.clock()
+		if previous >= 0 {
+			finished[previous] = now
+			previous = -1
+		}
+
+		// A stopped window counts nothing as skipped: those ticks were never going to run.
+		if ctx.Err() != nil {
+			return stoppedStatus(ctx), ""
+		}
+
+		// A tick that fell due before its collector's previous sample ended is skipped, not
+		// run late: back to back it would add load when the database is slowest, for a
+		// near-duplicate reading. The opening and closing samples always run.
+		result := &results[event.collector]
+		if event.index > 1 && event.index < result.SamplesExpected &&
+			start.Add(event.at).Before(finished[event.collector]) {
+			result.SamplesSkipped++
+
+			continue
+		}
+
+		// Offsets are absolute: a slow sample doesn't delay the next tick, and a tick
+		// late only because other collectors ran first fires immediately.
+		if wait := start.Add(event.at).Sub(now); wait > 0 {
 			select {
 			case <-ctx.Done():
 				return stoppedStatus(ctx), ""
@@ -779,7 +812,10 @@ func (w *Window) sample(
 		// tick proceeds; on a connection the driver has closed, whether the sample
 		// returned the error or folded it into its own block, every later tick would
 		// fail the same way, so the timeline stops here and its artifacts say why.
-		if lost, err := w.sampleOnce(ctx, line.conn, line.sampleCtx, results, event); lost {
+		lost, err := w.sampleOnce(ctx, line.conn, line.sampleCtx, results, event)
+		previous = event.collector
+
+		if lost {
 			// The driver also closes the connection when the window's context ends
 			// mid-statement. That is a cancel or a deadline, and it says so.
 			if ctx.Err() != nil {

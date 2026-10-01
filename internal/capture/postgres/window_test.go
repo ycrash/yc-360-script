@@ -395,7 +395,7 @@ func TestWindowConnectFailureDoesNotCostTheWindow(t *testing.T) {
 	require.Len(t, headers, 2, "a connect failure is two lines: what was attempted, and why not")
 	assert.Contains(t, headers[1],
 		"db=orders_configured dbid= status=connect_failed "+
-			"samples_expected=2 samples_written=0 connect_error=too_many_connections")
+			"samples_expected=2 samples_written=0 samples_skipped=0 connect_error=too_many_connections")
 
 	assert.NotEmpty(t, artifactText(t, results[0]),
 		"the file is never zero bytes, so the upload path cannot drop it")
@@ -817,7 +817,7 @@ func TestWindowStopsWhenTheConnectionIsLost(t *testing.T) {
 	healthyHeaders := headersOf(t, results[0])
 	require.Len(t, healthyHeaders, 3, "preamble, the one sample, the closing block")
 	assert.Contains(t, healthyHeaders[2],
-		`status=connection_lost samples_expected=2 samples_written=1 `+
+		`status=connection_lost samples_expected=2 samples_written=1 samples_skipped=0 `+
 			`connection_error="FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"`,
 		"each file says on its own what ended it")
 
@@ -874,7 +874,7 @@ func TestWindowReportsTheErrorTheConnectionClosedOn(t *testing.T) {
 		require.Len(t, headers, 3, "preamble, the sample that met the loss, the closing block")
 		assert.NotContains(t, artifactText(t, results[0]), "sample_error=", "the sample reported nothing to stub")
 		assert.Contains(t, headers[2],
-			`status=connection_lost samples_expected=2 samples_written=1 connection_error="`+lost+`"`)
+			`status=connection_lost samples_expected=2 samples_written=1 samples_skipped=0 connection_error="`+lost+`"`)
 	})
 
 	t.Run("returned as a later statement's cleanup error", func(t *testing.T) {
@@ -1828,7 +1828,7 @@ func TestWindowIntervalTicksAreAbsoluteNotRelativeToTheLastSample(t *testing.T) 
 	assert.Equal(t, 6*time.Second, clock.waits[0], "the wait is the offset minus what elapsed")
 }
 
-func TestWindowOverdueTicksFireImmediatelyRatherThanBeingSkipped(t *testing.T) {
+func TestWindowSkipsTicksThatFellDueWhileItsCollectorWasSampling(t *testing.T) {
 	clock := newFakeClock()
 
 	collector := newFakeCollector("pg_interval")
@@ -1842,17 +1842,72 @@ func TestWindowOverdueTicksFireImmediatelyRatherThanBeingSkipped(t *testing.T) {
 
 	results := newTestWindow(t, clock, collector).Run(context.Background())
 
-	assert.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 12, results[0].SamplesWritten,
-		"a slow sample costs cadence, never a sample: samples_written still reaches samples_expected")
+	require.Len(t, collector.seen, 10)
+	assert.Equal(t, 4, collector.seen[1].Index,
+		"the ticks due at 10s and 20s fell due during the first sample, so neither runs late")
+	assert.Equal(t, testWindowStart.Add(30*time.Second), collector.seen[1].At,
+		"the next sample keeps its own offset rather than following the slow one at once")
 
-	require.Len(t, collector.seen, 12)
-	assert.Equal(t, testWindowStart.Add(25*time.Second), collector.seen[1].At,
-		"the tick due at t0+10s was overdue and fired at once")
-	assert.Equal(t, testWindowStart.Add(25*time.Second), collector.seen[2].At,
-		"so did the one due at t0+20s - two blocks with near-identical ts=, which is a catch-up burst")
-	assert.Equal(t, testWindowStart.Add(30*time.Second), collector.seen[3].At,
-		"and then the cadence resumes, because offsets are absolute")
+	assert.Equal(t, 2, results[0].SamplesSkipped)
+	assert.Equal(t, 10, results[0].SamplesWritten)
+	assert.Equal(t, StatusPartial, results[0].Status, "fewer samples were written than planned")
+
+	headers := headersOf(t, results[0])
+	assert.Contains(t, headers[len(headers)-1],
+		"status=partial samples_expected=12 samples_written=10 samples_skipped=2",
+		"the closing block says the shortfall was skipped ticks, not failed reads")
+}
+
+func TestWindowRunsATickLateBehindAnotherCollectorOnceAndSkipsTheRest(t *testing.T) {
+	clock := newFakeClock()
+
+	prompt := newFakeCollector("pg_prompt")
+	prompt.artifact.Schedule = Every(10 * time.Second)
+
+	slow := newFakeCollector("pg_slow")
+	slow.artifact.Schedule = Every(10 * time.Second)
+	slow.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 1 {
+			clock.advance(25 * time.Second)
+		}
+		return nil
+	}
+
+	results := newTestWindow(t, clock, prompt, slow).Run(context.Background())
+
+	require.GreaterOrEqual(t, len(prompt.seen), 3)
+	assert.Equal(t, 2, prompt.seen[1].Index,
+		"its tick due at 10s was held up by the other collector, not by its own sample, so it runs")
+	assert.Equal(t, testWindowStart.Add(25*time.Second), prompt.seen[1].At)
+	assert.Equal(t, 4, prompt.seen[2].Index,
+		"and the tick due at 20s, already due when that late one ended, is skipped")
+	assert.Equal(t, 1, results[0].SamplesSkipped)
+	assert.Equal(t, 2, results[1].SamplesSkipped)
+}
+
+func TestWindowNeverSkipsTheClosingSample(t *testing.T) {
+	clock := newFakeClock()
+
+	collector := newFakeCollector("pg_periodic")
+	collector.artifact.Schedule = Periodic(10 * time.Second)
+	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
+		if s.Index == 1 {
+			clock.advance(35 * time.Second)
+		}
+		return nil
+	}
+
+	window := newTestWindow(t, clock, collector)
+	window.Duration = 30 * time.Second
+
+	results := window.Run(context.Background())
+
+	require.Len(t, collector.seen, 2,
+		"a first sample longer than the window still leaves the close to be read against")
+	assert.Equal(t, 1, collector.seen[0].Index)
+	assert.Equal(t, 4, collector.seen[1].Index)
+	assert.Equal(t, collector.seen[1].Total, collector.seen[1].Index, "the close is the last offset")
+	assert.Equal(t, 2, results[0].SamplesSkipped)
 }
 
 // One failure, two renderings: the artifact row carries the token a reader

@@ -655,8 +655,11 @@ pin the rule below against the driver text that motivates it.
   collector's
   blocks into samples by `sample_id=`, which every one of them carries (`sample=`
   on a block with one header line); the
-  artifact's own `samples_expected` and `samples_written` are about samples and
-  nothing else.
+  artifact's own `samples_expected`, `samples_written` and `samples_skipped` are
+  about samples and nothing else. A sample that was neither written nor skipped
+  failed. Every fixture here closes with `samples_skipped=0`: none has a sample
+  that outruns its file's next tick, and the window's own tests cover one that
+  does.
 - **A block whose own read failed is still written**, with `error=` in its
   header and no rows under its column header. Within one sample the blocks fail
   independently: a `pg_capacity.txt` sample can carry five populated blocks and
@@ -738,15 +741,18 @@ sample line's nine lead and `ts` closes it.
   `samples_expected` does not explain itself without the cadence, and the
   cadence is the agent's constant rather than the server's.
 - **Deltas are computed against each block's own `ts=`, never against
-  `interval=`.** A sample runs late rather than being skipped, so two blocks
-  with near-identical `ts=` mean the sampler was catching up. `interval=` is
-  the nominal cadence, there to be compared against `ts=`.
+  `interval=`.** A tick that fell due before its collector's previous sample
+  ended is skipped rather than run late, so two blocks can be further apart
+  than `interval=`; the closing block counts those ticks in
+  `samples_skipped=`. A tick that waited only behind other collectors on its
+  connection runs late, so two blocks can also be closer together. `interval=`
+  is the nominal cadence, there to be compared against `ts=`.
 - **`ts=` is the sample's clock read, not the block's.** Every block of one
   `sample_id=` carries the same value, taken before the sample's first statement
   ran — so in `pg_capacity.txt` the WAL block's `ts=` can precede its own read
   by as much as six statement timeouts, which its `start_ts=` shows. Equal `ts=`
   within one `sample_id=` is by construction and says nothing about the sampler
-  catching up; the rule above applies across samples.
+  running late; the rule above applies across samples.
 
 ### Versioning
 

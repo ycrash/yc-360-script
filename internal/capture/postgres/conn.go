@@ -31,9 +31,9 @@ const (
 	// StatementTimeout is the server-side statement_timeout, sent in the startup
 	// packet. A statement that reaches it fails with SQLSTATE 57014 and the
 	// connection stays open. It is also the floor config puts under postgres.frequency
-	// (MinPostgresFrequency, pinned equal by a test in internal/capture), so a
-	// maxed-out sample consumes at most its whole interval - the timeline can't
-	// catch up under load.
+	// (MinPostgresFrequency, pinned equal by a test in internal/capture), so one
+	// statement at its limit consumes at most its whole interval and does not by
+	// itself make the next tick late.
 	StatementTimeout = 5 * time.Second
 
 	// StatementDeadline is the client-side bound on the same statement, the

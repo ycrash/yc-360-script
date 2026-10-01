@@ -158,7 +158,7 @@ func TestMetadataConnectFailureWritesNoServerBlock(t *testing.T) {
 
 	headers := headersOf(t, results[0])
 	require.Len(t, headers, 3)
-	assert.Contains(t, headers[2], "status=connect_failed samples_expected=1 samples_written=0 "+
+	assert.Contains(t, headers[2], "status=connect_failed samples_expected=1 samples_written=0 samples_skipped=0 "+
 		"connect_error=too_many_connections")
 }
 

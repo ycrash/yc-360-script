@@ -11,4 +11,4 @@
 2026-09-27 01:50:00.075 UTC [12463] STATEMENT:  <redacted>
 2026-09-27 01:50:01.159 UTC [12492] ERROR:  could not obtain lock on row in relation "yc_errs_lock"
 2026-09-27 01:50:01.159 UTC [12492] STATEMENT:  <redacted>
-# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z
+# engine=postgres source=pg_errors v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-08-07T14:32:35.052Z

@@ -11,4 +11,4 @@
 2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation "yc_dl"
 2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>
 # engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=stderr log_resolved_by=current_logfiles from_offset=1284 to_offset=1439 matched=0 redacted=0 bytes=0 ts=2026-08-07T14:32:35.040Z
-# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 ts=2026-08-07T14:32:35.052Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-08-07T14:32:35.052Z

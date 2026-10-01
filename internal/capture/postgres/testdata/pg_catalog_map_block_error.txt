@@ -14,4 +14,4 @@ oid,datname
 16401,orders_db
 1,template1
 4,template0
-# engine=postgres source=pg_catalog_map v=1 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=1 samples_written=1 ts=2026-08-07T14:32:05.131Z
+# engine=postgres source=pg_catalog_map v=1 format=csv scope=database db=orders_db dbid=16401 status=complete samples_expected=1 samples_written=1 samples_skipped=0 ts=2026-08-07T14:32:05.131Z
