@@ -1184,3 +1184,19 @@ func TestSlowQueriesUntakenFeedsDoNotAccumulate(t *testing.T) {
 	assert.Equal(t, 5, sq.pending.sample,
 		"only the last sample's read is held, and only until the next one replaces it")
 }
+
+// track_utility stores the literal tier's EXPLAIN EXECUTE with the bind values.
+func TestStatementCellsRedactTheAgentsExplainArguments(t *testing.T) {
+	row := pg18Statement(ordersItemsEnd)
+	row.query = ptr(statementMarker +
+		"EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_2(E'0.3', E'SECRET-STATUS-4242', E'98765.43')")
+
+	cells, _, redacted := statementCells([]statementRow{row})
+	query := cells[0][len(cells[0])-1]
+
+	assert.Equal(t, statementMarker+"EXPLAIN (VERBOSE, SETTINGS) EXECUTE yc_explain_2(<redacted>)", query)
+	assert.Equal(t, 1, redacted, "counted with the credentials")
+	unchanged, n := redactExplainArguments("SELECT * FROM t WHERE note = 'EXECUTE (x)'")
+	assert.Equal(t, "SELECT * FROM t WHERE note = 'EXECUTE (x)'", unchanged, "only the agent's statement name matches")
+	assert.Zero(t, n)
+}

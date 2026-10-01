@@ -274,6 +274,12 @@ type Explain struct {
 	seen  map[statementKey]int
 	queue []*explainCandidate
 
+	// shapes is every shape queued, so another role's row for it is not queued again.
+	shapes map[explainShape]bool
+
+	// own is every queryid the agent's own rows carry.
+	own map[int64]bool
+
 	// now is the budget's clock, injectable so a test can spend it.
 	now func() time.Time
 
@@ -307,9 +313,22 @@ func NewExplain(mode string, sq *SlowQueries) *Explain {
 		tail:  newLogTail("pg_explain", explainMatch),
 		store: newPlanStore(nil),
 		binds: newBindStore(),
-		seen:  map[statementKey]int{},
-		now:   time.Now,
+		seen:   map[statementKey]int{},
+		shapes: map[explainShape]bool{},
+		own:    map[int64]bool{},
+		now:    time.Now,
 	}
+}
+
+// ownStatement reports a row of this capture's role, or one carrying the agent's marker.
+func ownStatement(row statementRow, facts explainFacts) bool {
+	return (facts.selfOID != "" && text(row.userid) == facts.selfOID) || agentStatement(text(row.query))
+}
+
+// explainShape is what one attempt covers: a query identifier in one database.
+type explainShape struct {
+	queryid int64
+	dbid    string
 }
 
 func (e *Explain) Artifact() Artifact {
@@ -439,22 +458,34 @@ func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 }
 
 // ingest sorts the tail's events into the two stores: a log_min_duration_statement
-// execute record carrying parameters is bind evidence, and everything else the matcher
-// passed is an auto_explain plan. retain is whether bind records are kept - the
-// literal tier on, and the source-side cap finite; otherwise they are counted and
-// their values dropped here.
+// execute record carrying parameters is bind evidence, and an auto_explain entry is a
+// plan. retain is whether bind records are kept - the literal tier on, and the
+// source-side cap finite; otherwise they are counted and their values dropped here.
+// Anything else (a parameterless execute record) is dropped: its text is unredacted.
 func (e *Explain) ingest(events [][]byte, retain bool) {
 	for _, event := range events {
-		if entry, ok := parseLogEntry(event, e.tail.source.format, e.linePrefix()); ok {
-			if record, ok := executeRecord(entry); ok {
-				e.binds.add(record, retain)
-
-				continue
-			}
+		entry, ok := parseLogEntry(event, e.tail.source.format, e.linePrefix())
+		if !ok {
+			continue
 		}
 
-		e.store.add(event)
+		if record, ok := executeRecord(entry); ok {
+			e.binds.add(record, retain)
+
+			continue
+		}
+
+		if isPlanEntry(entry) {
+			e.store.addEntry(event, entry.queryID)
+		}
 	}
+}
+
+// isPlanEntry reports an auto_explain entry: the message's first line ends "plan:".
+func isPlanEntry(entry logEntry) bool {
+	first, _, _ := strings.Cut(entry.message, "\n")
+
+	return strings.HasSuffix(strings.TrimRight(first, " \t\r"), "plan:")
 }
 
 // linePrefix compiles the tail's log_line_prefix once it is known.
@@ -614,9 +645,19 @@ func (p *planStore) addAll(events [][]byte) {
 }
 
 func (p *planStore) add(event []byte) {
+	p.addEntry(event, "")
+}
+
+// addEntry keys the entry by the plan's own Query Identifier, else by the log record's
+// (jsonlog query_id, csvlog column, stderr %Q). A nested plan shares the record's id
+// with its caller, whose slower plan is the one kept.
+func (p *planStore) addEntry(event []byte, recordQueryID string) {
 	p.total++
 
 	plan := parsePlanEvent(event)
+	if plan.queryID == "" {
+		plan.queryID = recordQueryID
+	}
 
 	if plan.queryID != "" {
 		p.seen[plan.queryID]++
@@ -936,6 +977,12 @@ func (e *Explain) selectCandidates(
 		counters.considered = len(feed.rows)
 
 		for _, row := range feed.rows {
+			if row.queryid != nil && ownStatement(row, facts) {
+				e.own[*row.queryid] = true
+			}
+		}
+
+		for _, row := range feed.rows {
 			if row.queryid == nil {
 				counters.excludedMasked++
 
@@ -950,9 +997,18 @@ func (e *Explain) selectCandidates(
 
 			e.seen[key] = s.Index
 
-			if !eligible(row, s, facts, counters) {
+			if !eligible(row, s, facts, e.own, counters) {
 				continue
 			}
+
+			// One attempt per queryid and database: the plan is made in the agent's
+			// session, so another role's row would only repeat it.
+			shape := explainShape{queryid: key.queryid, dbid: key.dbid}
+			if e.shapes[shape] {
+				continue
+			}
+
+			e.shapes[shape] = true
 
 			counters.observed++
 
@@ -988,14 +1044,18 @@ func (e *Explain) selectCandidates(
 // shape is first seen: a shape that cannot be planned from this connection is never
 // queued. The masked class is the caller's, since a masked row has no identity to
 // remember.
-func eligible(row statementRow, s SampleContext, facts explainFacts, counters *explainCounters) bool {
+func eligible(
+	row statementRow, s SampleContext, facts explainFacts, own map[int64]bool, counters *explainCounters,
+) bool {
 	if s.DBID != "" && text(row.dbid) != s.DBID {
 		counters.excludedOtherDatabase++
 
 		return false
 	}
 
-	if facts.selfOID != "" && text(row.userid) == facts.selfOID {
+	// Under another role (earlier captures, -m3), the agent's rows are known by the
+	// marker, or, for rows predating it, by a queryid this role also ran.
+	if ownStatement(row, facts) || own[*row.queryid] {
 		counters.excludedSelf++
 
 		return false

@@ -25,6 +25,11 @@ const (
 	// ApplicationName tags the session so pg_stat_activity can identify it.
 	ApplicationName = "yCrash-DB-Agent"
 
+	// statementMarker prefixes every statement the agent sends. pg_stat_statements
+	// keeps it in the stored text, so the agent's rows are recognisable under any role;
+	// queryid is unaffected.
+	statementMarker = "/* " + ApplicationName + " */ "
+
 	// ConnectTimeout bounds TCP connect plus authentication.
 	ConnectTimeout = 5 * time.Second
 
@@ -270,7 +275,7 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 // past the cap are drained and dropped so the statement still completes on the shared
 // connection, and the second return says the cut happened.
 func (c *Conn) ExecSimple(ctx context.Context, sql string, maxBytes int) ([]string, bool, error) {
-	mrr := c.conn.PgConn().Exec(ctx, sql)
+	mrr := c.conn.PgConn().Exec(ctx, statementMarker+sql)
 
 	var (
 		lines     []string
@@ -316,14 +321,19 @@ func statementContext(ctx context.Context) (context.Context, context.CancelFunc)
 	return context.WithTimeout(ctx, StatementDeadline)
 }
 
+// agentStatement reports a statement text the agent itself sent.
+func agentStatement(query string) bool {
+	return strings.HasPrefix(strings.TrimLeft(query, " \t\r\n"), statementMarker)
+}
+
 // QueryRow's per-statement deadline is the caller's: Scan reads the row after
 // this returns. Same for Query.
 func (c *Conn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return lossRow{Row: c.conn.QueryRow(ctx, sql, args...), loss: &c.loss}
+	return lossRow{Row: c.conn.QueryRow(ctx, statementMarker+sql, args...), loss: &c.loss}
 }
 
 func (c *Conn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	rows, err := c.conn.Query(ctx, sql, args...)
+	rows, err := c.conn.Query(ctx, statementMarker+sql, args...)
 	if err != nil {
 		c.loss.note(err)
 

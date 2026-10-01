@@ -1417,7 +1417,7 @@ func TestExplainNeverSubmitsTextTheAgentsOwnCapCut(t *testing.T) {
 		"the log's own text would have carried the candidate, had the log held a record")
 }
 
-func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
+func TestExplainLoggedPlanShapeUnderTwoRolesIsOneCandidate(t *testing.T) {
 	a, b := pg18Statement(ordersItemsEnd), pg18Statement(ordersItemsEnd)
 	b.userid = ptr("99")
 
@@ -1431,17 +1431,14 @@ func TestExplainLoggedPlanIsClaimedOnce(t *testing.T) {
 	require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
 
 	blocks := parseTextArtifact(t, buf.String())
-	require.Len(t, blocks, 3, "two candidates and the summary")
+	require.Len(t, blocks, 2, "one candidate and the summary")
 
-	assert.Equal(t, planModeLogged, blocks[0].fields["mode"], "the first claimant keeps it")
-	assert.Equal(t, planModeNone, blocks[1].fields["mode"])
-	assert.Equal(t, reasonNoLoggedPlan, blocks[1].fields["reason"])
+	assert.Equal(t, planModeLogged, blocks[0].fields["mode"])
 
 	summary := summaryOf(t, blocks)
-	assert.Equal(t, "1", summary.fields["plans_harvested"])
-	assert.Equal(t, "1", summary.fields["plans_written"],
-		"one stored entry can only be written once")
-	assert.Equal(t, "1", summary.fields["plans_ambiguous"])
+	assert.Equal(t, "1", summary.fields["candidates_new"], "a shape is its queryid in the database, whatever the role")
+	assert.Equal(t, "1", summary.fields["plans_written"])
+	assert.Empty(t, summary.fields["plans_ambiguous"])
 }
 
 func TestExplainSummaryCarriesTheLogReadsOwnState(t *testing.T) {
@@ -2260,7 +2257,7 @@ func TestExplainLiteralTierKeepsTheSlowestPerIdentifier(t *testing.T) {
 	assert.Equal(t, "2", summary.fields["binds_dropped"])
 }
 
-func TestExplainBindRecordIsClaimedOnce(t *testing.T) {
+func TestExplainShapeUnderTwoRolesIsSubmittedOnce(t *testing.T) {
 	a, b := pg18Statement(ordersItemsEnd), pg18Statement(ordersItemsEnd)
 	b.userid = ptr("99")
 
@@ -2269,12 +2266,10 @@ func TestExplainBindRecordIsClaimedOnce(t *testing.T) {
 	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, feedWith([]statementRow{a, b})), q,
 		itemsBindEntry("4.2", "$1 = '4021'"))
 
-	require.Len(t, blocks, 3, "two candidates and the summary")
-	assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"], "the first claimant keeps it")
-	assert.Equal(t, planModeEstimatedGeneric, blocks[1].fields["mode"])
-	assert.Equal(t, reasonBindClaimed, blocks[1].fields["literal_reason"],
-		"the log names an identifier and no role, so the values are not attached twice")
-	assert.Equal(t, 1, strings.Count(q.exchange(), "E'4021'"))
+	require.Len(t, blocks, 2, "one candidate and the summary")
+	assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"])
+	assert.Equal(t, 1, strings.Count(q.exchange(), "PREPARE "),
+		"the plan is made in the agent's session, so a second role's row would buy the same plan twice")
 }
 
 func TestExplainLiteralTierCleansUpAfterEveryFailure(t *testing.T) {
@@ -2428,4 +2423,107 @@ func TestExplainGoldenLiteral(t *testing.T) {
 
 	require.Equal(t, StatusComplete, results[0].Status)
 	assert.Equal(t, bloatGolden(t, "pg_explain_literal.txt"), artifactText(t, results[0]))
+}
+
+// --- log evidence and self-exclusion -----------------------------------------
+
+// a plan without VERBOSE's Query Identifier: line joins by the record's id.
+func TestExplainLoggedPlanTakesTheRecordsIdentifier(t *testing.T) {
+	id := strconv.FormatInt(ordersItemsEnd.queryid, 10)
+	message := "duration: 412.5 ms  plan:\nQuery Text: SELECT * FROM order_items WHERE order_id = $1\n" +
+		"Seq Scan on public.order_items  (cost=0.00..8420.00 rows=3 width=64)"
+
+	cases := map[string]struct {
+		q     func(t *testing.T) *fakeLogQuerier
+		entry func(t *testing.T) string
+	}{
+		"stderr %Q": {
+			q: readableLogWithQueryID,
+			entry: func(*testing.T) string {
+				return "2026-08-17 02:01:31.226 UTC [13031] qid=" + id + " LOG:  " +
+					strings.ReplaceAll(message, "\n", "\n\t") + "\n"
+			},
+		},
+		"jsonlog query_id": {
+			q: func(t *testing.T) *fakeLogQuerier { return readableLogAs(t, logFormatJSON, "") },
+			entry: func(t *testing.T) string {
+				return jsonBindEntryLine(t, message, "", ordersItemsEnd.queryid)
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := newFakeExplainConn(tc.q(t))
+
+			e := NewExplain(ExplainModeLogged, itemsFeed())
+
+			var buf bytes.Buffer
+			require.NoError(t, e.Sample(context.Background(), q, &bytes.Buffer{}, explainContext(1, 2)))
+			appendFile(t, currentLogPath(t, q), tc.entry(t))
+			require.NoError(t, e.Sample(context.Background(), q, &buf, explainContext(2, 2)))
+
+			blocks := parseTextArtifact(t, buf.String())
+			require.Len(t, blocks, 2, "the candidate and the summary")
+			assert.Equal(t, planModeLogged, blocks[0].fields["mode"])
+			assert.Equal(t, id, blocks[0].fields["plan_queryid"])
+		})
+	}
+}
+
+// an execute record with no parameters is a statement transcript, not a plan.
+func TestExplainParameterlessExecuteRecordIsNotCopied(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeLogged, itemsFeed()), q,
+		"2026-08-17 02:01:31.480 UTC [13031] qid=77 LOG:  duration: 10002.146 ms  execute <unnamed>: "+
+			"UPDATE accounts SET balance = balance + 100 WHERE id = 2\n")
+
+	for _, block := range blocks {
+		assert.NotContains(t, block.body, "accounts")
+	}
+
+	assert.Equal(t, "0", summaryOf(t, blocks).fields["plans_harvested"])
+}
+
+// The stderr log on Windows is written CRLF.
+func TestExplainLiteralTierReadsCRLFBindRecords(t *testing.T) {
+	q := newFakeExplainConn(readableLogWithQueryID(t))
+
+	blocks := runLiteralSamples(t, NewExplain(ExplainModeAll, itemsFeed()), q,
+		strings.ReplaceAll(itemsBindEntry("4.2", "$1 = '4021'"), "\n", "\r\n"))
+
+	assert.Equal(t, planModeEstimatedLiteral, blocks[0].fields["mode"])
+	assert.Contains(t, q.exchange(), "EXECUTE yc_explain_1(E'4021')")
+	assert.Empty(t, summaryOf(t, blocks).fields["binds_rejected"])
+}
+
+// the agent's own statements are excluded under any role.
+func TestExplainExcludesTheAgentsMarkedStatementsUnderAnyRole(t *testing.T) {
+	own := pg18Statement(ordersItemsEnd)
+	own.userid = ptr("99")
+	own.query = ptr(statementMarker + "SELECT count(*) FROM pg_stat_replication")
+
+	q := newFakeExplainConn(readableLog(t, ""))
+
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, feedWith([]statementRow{own})), q)
+
+	assert.Empty(t, q.submitted)
+	assert.Equal(t, "1", summaryOf(t, blocks).fields["excluded_self"])
+}
+
+// a row predating the marker is the agent's when this role ran the same queryid.
+func TestExplainExcludesAQueryIDTheCapturesRoleAlsoRan(t *testing.T) {
+	earlier := pg18Statement(ordersItemsEnd)
+	earlier.userid = ptr("99")
+
+	current := pg18Statement(ordersItemsEnd)
+	current.userid = ptr(explainSelfOID)
+
+	q := newFakeExplainConn(readableLog(t, ""))
+
+	blocks := runExplainSamples(t, NewExplain(ExplainModeAll, feedWith([]statementRow{earlier, current})), q)
+
+	assert.Empty(t, q.submitted)
+	assert.Equal(t, "2", summaryOf(t, blocks).fields["excluded_self"])
 }
