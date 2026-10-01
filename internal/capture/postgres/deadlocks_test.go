@@ -542,8 +542,9 @@ func TestDeadlocksRedactionRunsBeforeTheEventCap(t *testing.T) {
 	assert.Equal(t, 1, read.redacted)
 }
 
-func TestLogTailsThatKeepTextVerbatimCountNothing(t *testing.T) {
+func TestEachLogTailRedactsWhatItCarries(t *testing.T) {
 	assert.NotNil(t, NewDeadlocks().tail.redaction)
-	assert.Nil(t, NewTimeouts().tail.redaction, "a timeout's statement is kept")
+	assert.Equal(t, &logRedaction{credentialsOnly: true}, NewTimeouts().tail.redaction,
+		"a timeout's statement is kept but for its passwords")
 	assert.Nil(t, NewCheckpointLog().tail.redaction, "a checkpoint line carries no values")
 }

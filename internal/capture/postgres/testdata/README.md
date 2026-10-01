@@ -548,7 +548,11 @@ The goldens:
   the backend is running no statement. A parser implementing "the line plus the
   following `STATEMENT:` line" either drops the event or attaches the *next*
   event's statement to it — inventing a statement for the timeout a DBA uses to
-  find which application leaked a transaction.
+  find which application leaked a transaction. A second lock timeout, on an
+  `ALTER ROLE … PASSWORD` (constructed, in the measured shape), is the file's one
+  rewrite: its password is written `'<redacted>'`, so that block says `matched=2
+  redacted=1`; every other block that read the log says `redacted=0`, and the
+  measured events are byte for byte as logged.
 - `pg_timeouts_unreadable.txt` — the outcome an operator hits first, and the one
   artifact in the feature with no fallback of any kind. `pg_health.txt`'s
   `pg_stat_database.deadlocks` counter is a substitute for deadlocks in Mode R;
@@ -732,8 +736,9 @@ sample line's nine lead and `ts` closes it.
   `0` included, on every block that carries captured text: each
   `pg_nondefault_settings.txt` sample, each `pg_sessions.txt` `pg_stat_activity`
   block and `pg_slow_queries.txt` `pg_stat_statements` block that read rows (only
-  passwords go from their statement text), each `pg_deadlocks.txt` and
-  `pg_errors.txt` block that reports a read (the drain too), and each
+  passwords go from their statement text), each `pg_deadlocks.txt`,
+  `pg_errors.txt` and `pg_timeouts.txt` block that reports a read (the drain
+  too; `pg_timeouts.txt` loses only passwords), and each
   `pg_explain.txt` plan block, whose count takes in the literal tier's `error=`.
   It is absent where no text was read or written — a log tail's `reason=`
   block, `pg_explain.txt`'s summaries and its disabled marker — as `matched=`

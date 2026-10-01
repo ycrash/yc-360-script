@@ -5,14 +5,18 @@ import (
 	"io"
 )
 
-// Timeouts copies every statement timeout, lock timeout and idle-in-transaction termination logged, verbatim.
+// Timeouts copies every statement timeout, lock timeout and idle-in-transaction termination logged,
+// as written but for the passwords in the statements they quote.
 type Timeouts struct {
 	tail logTail
 }
 
 // NewTimeouts constructs the collector.
 func NewTimeouts() *Timeouts {
-	return &Timeouts{tail: newLogTail("pg_timeouts", timeoutMatch)}
+	tail := newLogTail("pg_timeouts", timeoutMatch)
+	tail.redaction = &logRedaction{credentialsOnly: true}
+
+	return &Timeouts{tail: tail}
 }
 
 func (*Timeouts) Artifact() Artifact {
