@@ -389,7 +389,7 @@ func TestSlowQueriesColumnSpecsDriveTheDerivedLists(t *testing.T) {
 	assert.Equal(t, "query", statementColumns[len(statementColumns)-1], "the only unbounded column closes")
 	assert.Equal(t, []string{"dealloc", "stats_reset"}, infoColumns)
 
-	cells, _ := statementCells([]statementRow{pg18Statement(ordersItemsStart)})
+	cells, _, _ := statementCells([]statementRow{pg18Statement(ordersItemsStart)})
 	require.Len(t, cells, 1)
 	assert.Len(t, cells[0], 37, "the render pass agrees with the header it is written under")
 
@@ -961,12 +961,20 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 	lost := pg18Statement(discarded)
 	lost.query = nil
 
+	// A utility statement keeps its literals in the view, a role's password included.
+	roleChange := statementFixture{
+		queryid: 4404882300112034551, userid: "10",
+		query: "CREATE ROLE app_writer LOGIN PASSWORD 'not-a-real-secret'",
+		calls: 1, execTime: 2.4, minExec: 2.4, maxExec: 2.4, hit: 8, walBytes: "0",
+	}
+
 	rows := []statementRow{
 		pg18Statement(multiline),
 		pg18Statement(hashLine),
 		pg18Statement(multibyte),
 		lost,
 		pg18Statement(quoted),
+		pg18Statement(roleChange),
 		maskedStatement(ordersUpdateEnd),
 	}
 
