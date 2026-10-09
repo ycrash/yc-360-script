@@ -324,9 +324,19 @@ closing one:
   the few sync requests a `CREATE TABLE` or `DROP TABLE` makes without writing
   a buffer.
 - `pg_bloat.txt` — `pg_stat_user_tables` with table and index sizes, including
-  `last_analyze`, `last_autoanalyze` and `n_mod_since_analyze`: when the
-  planner's statistics were last taken, and how many rows have changed since.
-- `pg_index_usage.txt` — `pg_stat_user_indexes`.
+  `seq_tup_read`, the rows sequential scans have read, and `last_analyze`,
+  `last_autoanalyze` and `n_mod_since_analyze`: when the planner's statistics
+  were last taken, and how many rows have changed since. Each sample holds the
+  50 tables with the most dead tuples and the 50 whose sequential scans have
+  read the most rows, a table in both written once, so 50 to 100 rows;
+  `tables_total` is how many tables they were chosen from. Each sample ranks
+  afresh, so a table can be in one sample and not the other.
+- `pg_index_usage.txt` — `pg_stat_user_indexes` with each index's size. Each
+  sample holds the 50 least-used indexes, the largest first where the scan
+  counts tie, and the 50 most-used, an index in both written once;
+  `indexes_total` is how many indexes they were chosen from. The sizes are read
+  in the same statement as the scan counts, so a filesystem slow enough to run
+  that statement past its 5s limit loses the sample.
 - `pg_tablespaces.txt` — each tablespace's size.
 - `pg_slow_queries.txt` — `pg_stat_statements`, with passwords in the statement
   text replaced.

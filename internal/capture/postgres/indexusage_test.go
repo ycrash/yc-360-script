@@ -25,12 +25,8 @@ const (
 	colIndexSizeBytes
 )
 
-func indexRow(indexrelid, relid uint32, name string, scan, read, fetch *int64, total int64) []any {
-	return []any{indexrelid, relid, name, scan, read, fetch, total}
-}
-
-func indexSizeRow(indexrelid uint32, size *int64) []any {
-	return []any{indexrelid, size}
+func indexRow(indexrelid, relid uint32, name string, scan, read, fetch, size *int64, total int64) []any {
+	return []any{indexrelid, relid, name, scan, read, fetch, size, total}
 }
 
 func counted(v int64) *int64 { return ptr(v) }
@@ -42,28 +38,19 @@ func counted(v int64) *int64 { return ptr(v) }
 // the finding the artifact exists for - an index nothing scans.
 func ordersIndexesStart() [][]any {
 	return [][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(4021884), counted(4102330), counted(4021884), 4),
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), 4),
-		indexRow(16487, 16482, "orders_line_items_pkey", counted(88104), counted(88104), counted(88104), 4),
-		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1112336), counted(2401103), counted(2400880), 4),
+		indexRow(16396, 16390, "orders_pkey", counted(4021884), counted(4102330), counted(4021884), counted(402653184), 4),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), 4),
+		indexRow(16487, 16482, "orders_line_items_pkey", counted(88104), counted(88104), counted(88104), counted(99999744), 4),
+		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1112336), counted(2401103), counted(2400880), counted(92512256), 4),
 	}
 }
 
 func ordersIndexesEnd() [][]any {
 	return [][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(4025901), counted(4106402), counted(4025901), 4),
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), 4),
-		indexRow(16487, 16482, "orders_line_items_pkey", counted(88110), counted(88110), counted(88110), 4),
-		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1113870), counted(2404210), counted(2403987), 4),
-	}
-}
-
-func ordersIndexSizes() [][]any {
-	return [][]any{
-		indexSizeRow(16396, counted(402653184)),
-		indexSizeRow(16397, counted(207618048)),
-		indexSizeRow(16487, counted(99999744)),
-		indexSizeRow(16488, counted(92512256)),
+		indexRow(16396, 16390, "orders_pkey", counted(4025901), counted(4106402), counted(4025901), counted(402653184), 4),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), 4),
+		indexRow(16487, 16482, "orders_line_items_pkey", counted(88110), counted(88110), counted(88110), counted(99999744), 4),
+		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1113870), counted(2404210), counted(2403987), counted(92512256), 4),
 	}
 }
 
@@ -71,29 +58,21 @@ type fakeIndexUsageConn struct {
 	*fakeWindowConn
 
 	stats []fakeResult
-	sizes []fakeResult
 
 	statsArgs [][]any
-	sizesArgs [][]any
 }
 
 func newFakeIndexUsageConn() *fakeIndexUsageConn {
 	return &fakeIndexUsageConn{
 		fakeWindowConn: newFakeWindowConn(),
 		stats:          queue(rowsResult(ordersIndexesStart()), rowsResult(ordersIndexesEnd())),
-		sizes:          repeat(rowsResult(ordersIndexSizes())),
 	}
 }
 
 func (c *fakeIndexUsageConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	switch sql {
-	case indexUsageStatsSQL:
+	if sql == indexUsageStatsSQL {
 		c.statsArgs = append(c.statsArgs, args)
 		return answer(&c.stats)
-
-	case indexUsageSizesSQL:
-		c.sizesArgs = append(c.sizesArgs, args)
-		return answer(&c.sizes)
 	}
 
 	return nil, fmt.Errorf("unexpected query: %s", sql)
@@ -160,7 +139,7 @@ func TestIndexUsageArtifact(t *testing.T) {
 		"no cadence given is the bookend alone, never a single sample")
 	assert.Equal(t, Periodic(15*time.Second), IndexUsage{Interval: 15 * time.Second}.Artifact().Schedule,
 		"born periodic: the run's cadence, with the close as the last sample")
-	assert.Zero(t, artifact.SampleBudget, "two statements is DefaultSampleBudget already")
+	assert.Zero(t, artifact.SampleBudget, "one statement is within DefaultSampleBudget")
 }
 
 func TestIndexUsageColumnOrder(t *testing.T) {
@@ -177,18 +156,19 @@ func TestIndexUsageColumnOrder(t *testing.T) {
 	assert.Equal(t, "indexrelid", indexUsageColumns[colIndexrelid], "the join key leads")
 }
 
-func TestIndexUsageCopiesBloatsTwoStatementShape(t *testing.T) {
-	assert.NotContains(t, indexUsageStatsSQL, "pg_relation_size",
-		"the size function never shares a statement with the counters: a large schema's "+
-			"file stats could time the statement out and take the scan counts with them")
-	assert.Contains(t, indexUsageStatsSQL, "ORDER BY indexrelid",
-		"determinism, never a statistic, so two samples cap on the same index set")
-
-	assert.Contains(t, indexUsageSizesSQL, "unnest($1::oid[])",
-		"S2 sizes exactly the OIDs S1 returned, not a second view scan")
-	assert.Contains(t, indexUsageSizesSQL, "LEFT JOIN pg_catalog.pg_class",
-		"an index dropped between the two statements yields a NULL size rather than a "+
-			"vanished OID reaching pg_relation_size")
+func TestIndexUsageRanksTwoListsInOneStatement(t *testing.T) {
+	assert.Contains(t, indexUsageStatsSQL, "WITH indexes AS MATERIALIZED (",
+		"both lists rank the same read, so an index in both is one identical row")
+	assert.Contains(t, indexUsageStatsSQL, "pg_relation_size(indexrelid) AS index_size_bytes",
+		"the least-used list ranks on size, so the size is read in the ranking statement")
+	assert.Contains(t, indexUsageStatsSQL,
+		"(SELECT * FROM indexes ORDER BY idx_scan, index_size_bytes DESC NULLS LAST, indexrelid LIMIT $1)\nUNION\n",
+		"the least-used indexes, largest first among ties")
+	assert.Contains(t, indexUsageStatsSQL, "(SELECT * FROM indexes ORDER BY idx_scan DESC, indexrelid LIMIT $1)",
+		"the most-used indexes")
+	assert.NotContains(t, indexUsageStatsSQL, "UNION ALL", "an index in both lists is written once")
+	assert.True(t, strings.HasSuffix(indexUsageStatsSQL, "\nORDER BY indexrelid"),
+		"rows are written in indexrelid order")
 }
 
 func TestIndexUsageGoldenFull(t *testing.T) {
@@ -251,12 +231,8 @@ func TestIndexUsageGoldenEmptyDatabase(t *testing.T) {
 func TestIndexUsageNeverScannedIsZeroNotEmpty(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), 2),
-		indexRow(16398, 16390, "no_statistics_row", nil, nil, nil, 2),
-	}))
-	conn.sizes = repeat(rowsResult([][]any{
-		indexSizeRow(16397, counted(8192)),
-		indexSizeRow(16398, counted(0)),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(8192), 2),
+		indexRow(16398, 16390, "no_statistics_row", nil, nil, nil, counted(0), 2),
 	}))
 
 	rows := indexUsageRows(t, takeIndexSample(t, conn, IndexUsage{}))
@@ -277,15 +253,11 @@ func TestIndexUsageNeverScannedIsZeroNotEmpty(t *testing.T) {
 		"no storage is 0; empty stays reserved for an index that vanished")
 }
 
-func TestIndexUsageIndexMissingFromTheSizeJoinHasAnEmptySize(t *testing.T) {
+func TestIndexUsageDroppedIndexHasAnEmptySize(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), 2),
-		indexRow(16397, 16390, "dropped_mid_sample", counted(1), counted(1), counted(1), 2),
-	}))
-	conn.sizes = repeat(rowsResult([][]any{
-		indexSizeRow(16396, counted(8192)),
-		indexSizeRow(16397, nil),
+		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), 2),
+		indexRow(16397, 16390, "dropped_mid_sample", counted(1), counted(1), counted(1), nil, 2),
 	}))
 
 	rows := indexUsageRows(t, takeIndexSample(t, conn, IndexUsage{}))
@@ -296,48 +268,9 @@ func TestIndexUsageIndexMissingFromTheSizeJoinHasAnEmptySize(t *testing.T) {
 		"a vanished index has no size, which is not the same as zero")
 }
 
-func TestIndexUsageSizesUnavailableCostsOneColumnNotTheSample(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		err    error
-		status string
-	}{
-		{"statement timeout", statementTimedOut(), statusTimeout},
-		{"module deadline mid-S2", context.DeadlineExceeded, statusTimeout},
-		{"cancellation mid-S2", context.Canceled, statusError},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			conn := newFakeIndexUsageConn()
-			conn.sizes = repeat(errResult(tt.err))
-
-			block := takeIndexSample(t, conn, IndexUsage{})
-
-			assert.Contains(t, block, "sizes=unavailable")
-			assert.Contains(t, block, " status="+tt.status+" ",
-				"a failed statement is the block's status, whatever of it was still written")
-			assert.Contains(t, block, "rows=4 truncated=false scope=database indexes_written=4 indexes_total=4",
-				"the sample is still written and still counted")
-
-			for _, row := range indexUsageRows(t, block) {
-				assert.Equal(t, "", row[colIndexSizeBytes], "the size column is empty on every row")
-				assert.NotEmpty(t, row[colIndexScan], "the scan counts survive")
-			}
-		})
-	}
-}
-
-func TestIndexUsageSizesUnavailableReasonIsQuotedInTheHeader(t *testing.T) {
+func TestIndexUsageFailedStatementReasonIsRedacted(t *testing.T) {
 	conn := newFakeIndexUsageConn()
-	conn.sizes = repeat(errResult(
-		errors.New("ERROR: canceling statement due to statement timeout")))
-
-	assert.Contains(t, takeIndexSample(t, conn, IndexUsage{}),
-		`sizes=unavailable reason="ERROR: canceling statement due to statement timeout"`)
-}
-
-func TestIndexUsageSizesUnavailableReasonIsRedacted(t *testing.T) {
-	conn := newFakeIndexUsageConn()
-	conn.sizes = repeat(errResult(fmt.Errorf("dial failed for %s", testPassword)))
+	conn.stats = repeat(errResult(fmt.Errorf("dial failed for %s", testPassword)))
 
 	results := runIndexUsageWindow(t, goldenClock(t), testTarget(), connectTo(conn))
 
@@ -358,7 +291,6 @@ func TestIndexUsageFailingStatsWritesNothing(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Empty(t, buf.String(), "a failed sample leaves the artifact untouched")
-	assert.Empty(t, conn.sizesArgs, "and does not go on to run the expensive half")
 }
 
 func TestIndexUsageWritesTheBlockInOneWrite(t *testing.T) {
@@ -374,59 +306,44 @@ func TestIndexUsageWritesTheBlockInOneWrite(t *testing.T) {
 	assert.NotEmpty(t, writer.buf.String())
 }
 
-func TestIndexUsageCapFiresVisibly(t *testing.T) {
+func TestIndexUsageSelectionIsNeverTruncated(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), 41220),
+		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), 41220),
 	}))
-	conn.sizes = repeat(rowsResult([][]any{indexSizeRow(16396, counted(8192))}))
 
-	assert.Contains(t, takeIndexSample(t, conn, IndexUsage{MaxIndexes: 1}),
-		"rows=1 truncated=true scope=database indexes_written=1 indexes_total=41220",
-		"a capped file must not read as a complete one")
+	assert.Contains(t, takeIndexSample(t, conn, IndexUsage{Top: 1}),
+		"rows=1 truncated=false scope=database indexes_written=1 indexes_total=41220",
+		"the lists are the selection; indexes_total says what they were chosen from")
 
 	require.Len(t, conn.statsArgs, 1)
-	assert.Equal(t, []any{1}, conn.statsArgs[0], "the cap is the LIMIT the server is sent")
+	assert.Equal(t, []any{1}, conn.statsArgs[0], "Top is each list's LIMIT")
 }
 
-func TestIndexUsageDefaultCapIsSentWhenUnset(t *testing.T) {
+func TestIndexUsageDefaultTopIsSentWhenUnset(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 
 	takeIndexSample(t, conn, IndexUsage{})
 
 	require.Len(t, conn.statsArgs, 1)
-	assert.Equal(t, []any{DefaultMaxIndexes}, conn.statsArgs[0])
-	assert.Equal(t, 2*DefaultMaxTables, DefaultMaxIndexes,
-		"indexes outnumber tables: a schema at bloat's cap with two indexes per table still fits")
+	assert.Equal(t, []any{50}, conn.statsArgs[0], "50 indexes in each list")
 }
 
-func TestIndexUsageSizesQueryTakesExactlyTheStatsIndexrelids(t *testing.T) {
-	conn := newFakeIndexUsageConn()
-
-	takeIndexSample(t, conn, IndexUsage{})
-
-	require.Len(t, conn.sizesArgs, 1)
-	assert.Equal(t, []any{[]uint32{16396, 16397, 16487, 16488}}, conn.sizesArgs[0],
-		"pgx encodes []uint32 as oid[], which bloat's live check confirmed")
-}
-
-func TestIndexUsageEmptyDatabaseSkipsTheSizeQuery(t *testing.T) {
+func TestIndexUsageEmptyDatabaseWritesTheColumnHeaderAlone(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult(nil))
 
 	block := takeIndexSample(t, conn, IndexUsage{})
 
 	assert.Contains(t, block, "rows=0 truncated=false scope=database indexes_written=0 indexes_total=0")
-	assert.Empty(t, conn.sizesArgs, "there is nothing to size")
 	assert.Empty(t, indexUsageRows(t, block), "the column header is written with no rows under it")
 }
 
 func TestIndexUsageIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "line\nbreak,\"quoted\"", counted(1), counted(2), counted(3), 1),
+		indexRow(16396, 16390, "line\nbreak,\"quoted\"", counted(1), counted(2), counted(3), counted(4), 1),
 	}))
-	conn.sizes = repeat(rowsResult([][]any{indexSizeRow(16396, counted(4))}))
 
 	block := takeIndexSample(t, conn, IndexUsage{})
 

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// DefaultMaxTables bounds one sample against a pathological schema.
-const DefaultMaxTables = 10000
+// DefaultTopTables is how many tables each of a sample's two ranked lists holds.
+const DefaultTopTables = 50
 
 // relid leads: it's the join key, relname alone isn't unique across schemas.
 var bloatColumns = []string{
@@ -21,6 +21,7 @@ var bloatColumns = []string{
 	"n_tup_upd",
 	"n_tup_hot_upd",
 	"seq_scan",
+	"seq_tup_read",
 	"idx_scan",
 	"last_autovacuum",
 	"last_vacuum",
@@ -35,26 +36,32 @@ var bloatColumns = []string{
 // a filesystem that may itself be sick, and as one statement a large schema
 // could exceed statement_timeout and lose the dead-tuple counts with it.
 
-// ORDER BY relid for determinism only: ordering on a statistic would change
-// between samples and cap on two different table sets.
-const bloatStatsSQL = `SELECT relid,
-       schemaname::text,
-       relname::text,
-       n_live_tup,
-       n_dead_tup,
-       n_tup_upd,
-       n_tup_hot_upd,
-       seq_scan,
-       idx_scan,
-       last_autovacuum,
-       last_vacuum,
-       last_analyze,
-       last_autoanalyze,
-       n_mod_since_analyze,
-       count(*) OVER () AS tables_total
-FROM pg_catalog.pg_stat_user_tables
-ORDER BY relid
-LIMIT $1`
+// The $1 tables with the most dead tuples and the $1 whose sequential scans read
+// the most rows, ranked from one read so a table in both is one row. relid
+// settles ties alike every sample.
+const bloatStatsSQL = `WITH tables AS MATERIALIZED (
+    SELECT relid,
+           schemaname::text AS schemaname,
+           relname::text AS relname,
+           n_live_tup,
+           n_dead_tup,
+           n_tup_upd,
+           n_tup_hot_upd,
+           seq_scan,
+           seq_tup_read,
+           idx_scan,
+           last_autovacuum,
+           last_vacuum,
+           last_analyze,
+           last_autoanalyze,
+           n_mod_since_analyze,
+           count(*) OVER () AS tables_total
+    FROM pg_catalog.pg_stat_user_tables
+)
+(SELECT * FROM tables ORDER BY n_dead_tup DESC, relid LIMIT $1)
+UNION
+(SELECT * FROM tables ORDER BY seq_tup_read DESC, relid LIMIT $1)
+ORDER BY relid`
 
 // Queries S1's relids directly, not a second view scan that could return a
 // different row set. LEFT JOIN: a relation dropped between statements yields
@@ -65,14 +72,14 @@ const bloatSizesSQL = `SELECT o AS relid,
 FROM unnest($1::oid[]) AS o
 LEFT JOIN pg_catalog.pg_class c ON c.oid = o`
 
-// Bloat captures pg_stat_user_tables every sample; deltas are computed
-// downstream by joining consecutive blocks on relid.
+// Bloat captures the pg_stat_user_tables rows the two ranked lists choose, every
+// sample. Each sample ranks afresh, so two samples can hold different tables.
 type Bloat struct {
 	// Interval is the cadence, the run's expensive speed. Zero is the bookend alone.
 	Interval time.Duration
 
-	// MaxTables bounds one sample. Zero takes DefaultMaxTables.
-	MaxTables int
+	// Top is how many tables each ranked list holds. Zero takes DefaultTopTables.
+	Top int
 }
 
 func (b Bloat) Artifact() Artifact {
@@ -121,13 +128,14 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 
 	// Named for the view read; the window's own blocks name the artifact.
 	// A failed size read is the block's status; its rows are still written.
+	// Never truncated: the lists are the selection, and tables_total= is what
+	// they were chosen from.
 	if err := writeSampleHeader(&block, b.Artifact(), s, sampleHeader{
-		source:    "pg_stat_user_tables",
-		reads:     reads,
-		status:    readStatus(sizesErr),
-		rows:      len(rows),
-		truncated: int64(len(rows)) < total,
-		fields:    fields,
+		source: "pg_stat_user_tables",
+		reads:  reads,
+		status: readStatus(sizesErr),
+		rows:   len(rows),
+		fields: fields,
 	}); err != nil {
 		return err
 	}
@@ -153,6 +161,7 @@ type bloatRow struct {
 	nTupUpd        *int64
 	nTupHotUpd     *int64
 	seqScan        *int64
+	seqTupRead     *int64
 	idxScan        *int64
 	lastAutovacuum *time.Time
 	lastVacuum     *time.Time
@@ -166,17 +175,17 @@ type bloatRow struct {
 	indexSize *int64
 }
 
-// readStats returns the capped rows and the uncapped total.
+// readStats returns the ranked lists' rows and how many tables they were chosen from.
 func (b Bloat) readStats(ctx context.Context, q RowQuerier) ([]bloatRow, int64, error) {
-	limit := b.MaxTables
-	if limit <= 0 {
-		limit = DefaultMaxTables
+	top := b.Top
+	if top <= 0 {
+		top = DefaultTopTables
 	}
 
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
-	rows, err := q.Query(stmtCtx, bloatStatsSQL, limit)
+	rows, err := q.Query(stmtCtx, bloatStatsSQL, top)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -199,6 +208,7 @@ func (b Bloat) readStats(ctx context.Context, q RowQuerier) ([]bloatRow, int64, 
 			&row.nTupUpd,
 			&row.nTupHotUpd,
 			&row.seqScan,
+			&row.seqTupRead,
 			&row.idxScan,
 			&row.lastAutovacuum,
 			&row.lastVacuum,
@@ -288,6 +298,7 @@ func bloatCells(rows []bloatRow) [][]string {
 			int64Text(row.nTupUpd),
 			int64Text(row.nTupHotUpd),
 			int64Text(row.seqScan),
+			int64Text(row.seqTupRead),
 			int64Text(row.idxScan),
 			timeText(row.lastAutovacuum),
 			timeText(row.lastVacuum),

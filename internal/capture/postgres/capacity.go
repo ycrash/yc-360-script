@@ -105,7 +105,7 @@ WHERE datname = current_database()`
 // connectionsSQL groups rather than filters by backend_type: parallel/autovacuum workers show as
 // their own rows. ORDER BY identity, never count(*): the block is sampled repeatedly under a cap,
 // and a statistic ordering would let two samples keep two different group sets - the same rule
-// bloatStatsSQL and pg_slow_queries.txt follow.
+// pg_slow_queries.txt follows.
 const connectionsSQL = `SELECT application_name::text,
        backend_type::text,
        count(*) AS active_connections,

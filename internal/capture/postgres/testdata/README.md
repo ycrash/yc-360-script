@@ -60,7 +60,13 @@ The goldens:
 - `pg_bloat_full.txt` — a complete sampled capture: the preamble, two sample
   blocks, and the closing block that says both were written. Each sample block
   opens with two header lines, the capture line and the sample line (see *Reader
-  requirements*); the preamble and the closing block keep one.
+  requirements*); the preamble and the closing block keep one. A sample is the
+  union of two ranked lists, the 50 tables with the most dead tuples and the 50
+  whose sequential scans read the most rows; the fixture's two tables are in
+  both, so each sample writes both once. `tables_total=` is how many tables the
+  lists were chosen from, and `truncated=` stays `false`: the lists are the
+  selection, not a cap. `seq_tup_read` sits beside `seq_scan`, a column added
+  without a `v` bump (see *Versioning*).
 - `pg_bloat_connect_failure.txt` — the sampled equivalent of the above. Two
   lines, and the file exists at all because the preamble is written and synced
   before the connection is attempted.
@@ -88,7 +94,11 @@ The goldens:
   the finding the artifact exists for — `idx_scan` stays `0` across the window,
   and `0` is a reading where an empty cell would mean not read. The spec's seven
   columns exactly and no schema or table name: `relid` is the join key into
-  `pg_bloat.txt`, where those live.
+  `pg_bloat.txt`, where those live. A sample is the union of the 50 least-used
+  indexes, largest first among ties, and the 50 most-used, so all four are
+  written. The least-used list ranks on size, so the size is read in the same
+  statement as the scan counts and this file has no `sizes=` key: a failed size
+  read fails the sample.
 - `pg_index_usage_connect_failure.txt`, `pg_index_usage_sample_error.txt` and
   `pg_index_usage_empty_db.txt` — the three regimes above, on the same clock as
   their `pg_bloat_*` counterparts.

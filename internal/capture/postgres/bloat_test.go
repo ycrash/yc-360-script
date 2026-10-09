@@ -27,6 +27,7 @@ const (
 	colTupUpd
 	colTupHotUpd
 	colSeqScan
+	colSeqTupRead
 	colIdxScan
 	colLastAutovacuum
 	colLastVacuum
@@ -95,12 +96,12 @@ func (r *fakeRows) Values() ([]any, error)                       { return nil, n
 func (r *fakeRows) RawValues() [][]byte                          { return nil }
 func (r *fakeRows) Conn() *pgx.Conn                              { return nil }
 
-func statsRow(relid uint32, schema, name string, live, dead, upd, hot, seq int64, idx *int64,
+func statsRow(relid uint32, schema, name string, live, dead, upd, hot, seq, seqRead int64, idx *int64,
 	autovacuum, vacuum, analyze, autoanalyze *time.Time, modSinceAnalyze, total int64,
 ) []any {
 	return []any{
 		relid, schema, name,
-		ptr(live), ptr(dead), ptr(upd), ptr(hot), ptr(seq), idx,
+		ptr(live), ptr(dead), ptr(upd), ptr(hot), ptr(seq), ptr(seqRead), idx,
 		autovacuum, vacuum, analyze, autoanalyze, ptr(modSinceAnalyze), total,
 	}
 }
@@ -111,10 +112,10 @@ func sizeRow(relid uint32, table, index *int64) []any {
 
 func ordersSampleStart() [][]any {
 	return [][]any{
-		statsRow(16390, "public", "orders", 4210044, 412988, 884213, 689882, 88104,
+		statsRow(16390, "public", "orders", 4210044, 412988, 884213, 689882, 88104, 370914515612,
 			ptr(int64(4021884)), &testOrdersVacuum, &testOrdersVacuum,
 			&testOrdersAnalyze, &testOrdersAutoanalyze, 51820, 2),
-		statsRow(16482, "public", "orders_line_items", 912004, 458210, 221904, 90981, 340120,
+		statsRow(16482, "public", "orders_line_items", 912004, 458210, 221904, 90981, 340120, 310190771248,
 			ptr(int64(1200440)), &testItemsVacuum, &testItemsVacuum,
 			nil, &testItemsAutoanalyze, 402113, 2),
 	}
@@ -122,10 +123,10 @@ func ordersSampleStart() [][]any {
 
 func ordersSampleEnd() [][]any {
 	return [][]any{
-		statsRow(16390, "public", "orders", 4211200, 413410, 884340, 689951, 88220,
+		statsRow(16390, "public", "orders", 4211200, 413410, 884340, 689951, 88220, 371402880716,
 			ptr(int64(4025901)), &testOrdersVacuum, &testOrdersVacuum,
 			&testOrdersAnalyze, &testOrdersAutoanalyze, 53525, 2),
-		statsRow(16482, "public", "orders_line_items", 912340, 466100, 221990, 91040, 340460,
+		statsRow(16482, "public", "orders_line_items", 912340, 466100, 221990, 91040, 340460, 310500909048,
 			ptr(int64(1201980)), &testItemsVacuum, &testItemsVacuum,
 			nil, &testItemsAutoanalyze, 410425, 2),
 	}
@@ -328,6 +329,7 @@ func TestBloatColumnOrder(t *testing.T) {
 		"n_tup_upd",
 		"n_tup_hot_upd",
 		"seq_scan",
+		"seq_tup_read",
 		"idx_scan",
 		"last_autovacuum",
 		"last_vacuum",
@@ -422,8 +424,8 @@ func TestBloatGoldenEmptyDatabase(t *testing.T) {
 func TestBloatWritesNullsEmptyNeverZero(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
-		statsRow(16390, "public", "no_indexes", 100, 0, 0, 0, 4, nil, nil, nil, nil, nil, 0, 2),
-		statsRow(16482, "public", "never_scanned", 100, 0, 0, 0, 4, ptr(int64(0)),
+		statsRow(16390, "public", "no_indexes", 100, 0, 0, 0, 4, 400, nil, nil, nil, nil, nil, 0, 2),
+		statsRow(16482, "public", "never_scanned", 100, 0, 0, 0, 0, 0, ptr(int64(0)),
 			&testOrdersVacuum, nil, nil, &testOrdersAutoanalyze, 12, 2),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(8192)), ptr(int64(0)))}))
@@ -433,6 +435,9 @@ func TestBloatWritesNullsEmptyNeverZero(t *testing.T) {
 
 	assert.Equal(t, "", rows[0][colIdxScan], "a table with no indexes reports NULL, not 0")
 	assert.Equal(t, "0", rows[1][colIdxScan], "an unused index is a finding and must survive as 0")
+
+	assert.Equal(t, "400", rows[0][colSeqTupRead], "rows read by sequential scans sit beside their count")
+	assert.Equal(t, "0", rows[1][colSeqTupRead], "a table never sequentially scanned read 0 rows that way")
 
 	assert.Equal(t, "", rows[0][colLastAutovacuum], "never autovacuumed is empty, not an epoch")
 	assert.Equal(t, "", rows[0][colLastVacuum])
@@ -454,9 +459,9 @@ func TestBloatWritesNullsEmptyNeverZero(t *testing.T) {
 func TestBloatRelationMissingFromTheSizeJoinHasEmptySizes(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
-		statsRow(16390, "public", "orders", 100, 0, 0, 0, 4, ptr(int64(1)),
+		statsRow(16390, "public", "orders", 100, 0, 0, 0, 4, 400, ptr(int64(1)),
 			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 2),
-		statsRow(16482, "public", "dropped_mid_sample", 100, 0, 0, 0, 4, ptr(int64(1)),
+		statsRow(16482, "public", "dropped_mid_sample", 100, 0, 0, 0, 4, 400, ptr(int64(1)),
 			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 2),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{
@@ -562,29 +567,43 @@ func TestBloatWritesTheBlockInOneWrite(t *testing.T) {
 	assert.NotEmpty(t, writer.buf.String())
 }
 
-func TestBloatCapFiresVisibly(t *testing.T) {
+func TestBloatRanksTwoListsOverOneRead(t *testing.T) {
+	assert.Contains(t, bloatStatsSQL, "WITH tables AS MATERIALIZED (",
+		"both lists rank the same read, so a table in both is one identical row")
+	assert.Contains(t, bloatStatsSQL, "(SELECT * FROM tables ORDER BY n_dead_tup DESC, relid LIMIT $1)\nUNION\n",
+		"the tables with the most dead tuples, tied tables chosen the same way every sample")
+	assert.Contains(t, bloatStatsSQL, "(SELECT * FROM tables ORDER BY seq_tup_read DESC, relid LIMIT $1)",
+		"the tables whose sequential scans read the most rows")
+	assert.NotContains(t, bloatStatsSQL, "UNION ALL", "a table in both lists is written once")
+	assert.True(t, strings.HasSuffix(bloatStatsSQL, "\nORDER BY relid"), "rows are written in relid order")
+
+	assert.NotContains(t, bloatStatsSQL, "_size(",
+		"the size functions never share a statement with the counters")
+}
+
+func TestBloatSelectionIsNeverTruncated(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
-		statsRow(16390, "public", "orders", 100, 1, 1, 1, 1, ptr(int64(1)),
+		statsRow(16390, "public", "orders", 100, 1, 1, 1, 1, 100, ptr(int64(1)),
 			&testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 41220),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(8192)), ptr(int64(4096)))}))
 
-	assert.Contains(t, takeSample(t, conn, Bloat{MaxTables: 1}),
-		"rows=1 truncated=true scope=database tables_written=1 tables_total=41220",
-		"a capped file must not read as a complete one")
+	assert.Contains(t, takeSample(t, conn, Bloat{Top: 1}),
+		"rows=1 truncated=false scope=database tables_written=1 tables_total=41220",
+		"the lists are the selection; tables_total says what they were chosen from")
 
 	require.Len(t, conn.statsArgs, 1)
-	assert.Equal(t, []any{1}, conn.statsArgs[0], "the cap is the LIMIT the server is sent")
+	assert.Equal(t, []any{1}, conn.statsArgs[0], "Top is each list's LIMIT")
 }
 
-func TestBloatDefaultCapIsSentWhenUnset(t *testing.T) {
+func TestBloatDefaultTopIsSentWhenUnset(t *testing.T) {
 	conn := newFakeBloatConn()
 
 	takeSample(t, conn, Bloat{})
 
 	require.Len(t, conn.statsArgs, 1)
-	assert.Equal(t, []any{DefaultMaxTables}, conn.statsArgs[0])
+	assert.Equal(t, []any{50}, conn.statsArgs[0], "50 tables in each list")
 }
 
 func TestBloatSizesQueryTakesExactlyTheStatsRelids(t *testing.T) {
@@ -611,8 +630,8 @@ func TestBloatEmptyDatabaseSkipsTheSizeQuery(t *testing.T) {
 func TestBloatIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	conn := newFakeBloatConn()
 	conn.stats = repeat(rowsResult([][]any{
-		statsRow(16390, "we,ird\"schema", "line\nbreak,\"quoted\"", 1, 2, 3, 4, 5,
-			ptr(int64(6)), &testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 1),
+		statsRow(16390, "we,ird\"schema", "line\nbreak,\"quoted\"", 1, 2, 3, 4, 5, 6,
+			ptr(int64(7)), &testOrdersVacuum, &testOrdersVacuum, nil, nil, 0, 1),
 	}))
 	conn.sizes = repeat(rowsResult([][]any{sizeRow(16390, ptr(int64(1)), ptr(int64(2)))}))
 

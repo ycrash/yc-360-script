@@ -915,22 +915,27 @@ func TestMatrixBloat(t *testing.T) {
 				assert.Equal(t, blocks[0].columns, blocks[1].columns,
 					"both samples carry identical column sets")
 
-				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[1]),
-					"relid is stable across the two samples")
-
 				for i, block := range blocks {
 					assert.Equal(t, strconv.Itoa(matrixUserTables), block.header["tables_total"],
-						"block %d: tables_total must match the fixture", i)
-					assert.Equal(t, strconv.Itoa(matrixUserTables), block.header["tables_written"],
-						"block %d: nothing is dropped below the cap", i)
+						"block %d: tables_total is every table the lists were chosen from", i)
+					assert.Equal(t, strconv.Itoa(len(block.rows)), block.header["tables_written"],
+						"block %d: tables_written counts the rows written", i)
+					assert.GreaterOrEqual(t, len(block.rows), DefaultTopTables,
+						"block %d: the fixture has more tables than one list holds", i)
+					assert.LessOrEqual(t, len(block.rows), 2*DefaultTopTables,
+						"block %d: two lists at most", i)
 					assert.Equal(t, "false", block.header["truncated"])
 
 					assert.NotContains(t, block.rawHead, "sizes=unavailable",
 						"block %d: pg_table_size/pg_indexes_size must need no grant", i)
 				}
 
+				// Each sample ranks afresh, so the two need not hold the same tables.
+				assert.Equal(t, matrixRankedKeys(t, target, DefaultTopTables, matrixBloatRankings...),
+					rowKeys(blocks[1]), "the end sample is the union of the two ranked lists")
+
 				assertMatrixKnownTables(t, blocks[1])
-				assertMatrixCapFires(t, target)
+				assertMatrixTopBoundsTheLists(t, target)
 			})
 		}
 	}
@@ -969,11 +974,18 @@ func assertMatrixModsSinceAnalyze(t *testing.T, block sampleBlock, relid string,
 	assert.Equal(t, fixtureDML+updated, mods)
 }
 
+// The fixture's tables hold the lowest relids, so the relid tie-break puts every
+// one of them in the dead-tuple list.
 func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	t.Helper()
 
 	orders := block.relidOf(t, "public", "yc_bloat_orders")
 	noIndexes := block.relidOf(t, "public", "yc_bloat_no_indexes")
+
+	for _, relid := range []string{orders, noIndexes} {
+		_, err := strconv.ParseInt(block.cell(t, relid, "seq_tup_read"), 10, 64)
+		assert.NoError(t, err, "seq_tup_read is a number on every table, 0 included")
+	}
 
 	assert.Equal(t, strconv.Itoa(matrixOrdersLive), block.cell(t, orders, "n_live_tup"))
 	assertMatrixDeadTuples(t, block, orders)
@@ -1010,7 +1022,24 @@ func assertMatrixKnownTables(t *testing.T, block sampleBlock) {
 	assert.Equal(t, "0", block.cell(t, parent, "index_size_bytes"))
 }
 
-func assertMatrixCapFires(t *testing.T, target Target) {
+// matrixBloatRankings and matrixIndexRankings are the two collectors' ranked
+// lists as separate queries, the selection asked another way.
+var (
+	matrixBloatRankings = []string{
+		`SELECT relid FROM pg_catalog.pg_stat_user_tables ORDER BY n_dead_tup DESC, relid LIMIT $1`,
+		`SELECT relid FROM pg_catalog.pg_stat_user_tables ORDER BY seq_tup_read DESC, relid LIMIT $1`,
+	}
+
+	matrixIndexRankings = []string{
+		`SELECT indexrelid FROM pg_catalog.pg_stat_user_indexes
+		 ORDER BY idx_scan, pg_relation_size(indexrelid) DESC NULLS LAST, indexrelid LIMIT $1`,
+		`SELECT indexrelid FROM pg_catalog.pg_stat_user_indexes ORDER BY idx_scan DESC, indexrelid LIMIT $1`,
+	}
+)
+
+// matrixRankedKeys runs each ranked query with LIMIT top and returns the keys
+// they found between them, sorted as rowKeys sorts a block's.
+func matrixRankedKeys(t *testing.T, target Target, top int, queries ...string) []string {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
@@ -1026,27 +1055,80 @@ func assertMatrixCapFires(t *testing.T, target Target) {
 		assert.NoError(t, conn.Close(closeCtx))
 	}()
 
-	const capped = 10
+	found := map[string]bool{}
+
+	for _, query := range queries {
+		rows, err := conn.Query(ctx, query, top)
+		require.NoError(t, err)
+
+		for rows.Next() {
+			var key uint32
+			require.NoError(t, rows.Scan(&key))
+
+			found[strconv.FormatUint(uint64(key), 10)] = true
+		}
+
+		require.NoError(t, rows.Err())
+		rows.Close()
+	}
+
+	keys := make([]string, 0, len(found))
+	for key := range found {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
+// matrixSampleTop takes one sample from collector on a connection of its own.
+func matrixSampleTop(t *testing.T, target Target, collector Collector) string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
+	defer cancel()
+
+	conn, err := Connect(ctx, target)
+	require.NoError(t, err)
+
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer closeCancel()
+
+		assert.NoError(t, conn.Close(closeCtx))
+	}()
 
 	var buf strings.Builder
-	require.NoError(t, Bloat{MaxTables: capped}.Sample(ctx, conn, &buf, SampleContext{
+	require.NoError(t, collector.Sample(ctx, conn, &buf, SampleContext{
 		At: time.Now(), Index: 1, Database: "postgres", DBID: "0",
 	}))
 
-	blocks := parseBloatBlocks(t, buf.String())
+	return buf.String()
+}
+
+func assertMatrixTopBoundsTheLists(t *testing.T, target Target) {
+	t.Helper()
+
+	blocks := parseBloatBlocks(t, matrixSampleTop(t, target, Bloat{Top: 1}))
 	require.Len(t, blocks, 1)
 
-	assert.Equal(t, strconv.Itoa(capped), blocks[0].header["tables_written"])
-	assert.Equal(t, strconv.Itoa(matrixUserTables), blocks[0].header["tables_total"],
-		"the real total survives the cap, so a capped file cannot read as complete")
-	assert.Equal(t, "true", blocks[0].header["truncated"])
-	assert.Len(t, blocks[0].rows, capped)
+	block := blocks[0]
+
+	assert.Equal(t, matrixRankedKeys(t, target, 1, matrixBloatRankings...), rowKeys(block),
+		"each list holds Top tables")
+	block.relidOf(t, "public", "yc_bloat_orders")
+
+	assert.Equal(t, strconv.Itoa(len(block.rows)), block.header["tables_written"])
+	assert.Equal(t, strconv.Itoa(matrixUserTables), block.header["tables_total"],
+		"the total is what the lists were chosen from, however short they are")
+	assert.Equal(t, "false", block.header["truncated"])
 }
 
 // matrixUnusedIndex is created by TestMatrixIndexUsage and dropped after it: an
 // index nothing scans, which is the finding pg_index_usage.txt exists for, and a
-// second index beside the fixture's yc_bloat_orders_pkey so the cap has
-// something to truncate. Test-time rather than in pg_matrix_init.sql, which only
+// second index beside the fixture's yc_bloat_orders_pkey so the ranked lists
+// have two indexes to order. Test-time rather than in pg_matrix_init.sql, which only
 // runs when a container is first created.
 const matrixUnusedIndex = "yc_bloat_orders_status_idx"
 
@@ -1121,15 +1203,12 @@ func TestMatrixIndexUsage(t *testing.T) {
 					"both samples carry identical column sets")
 
 				assert.Equal(t, rowKeys(blocks[0]), rowKeys(blocks[1]),
-					"indexrelid is stable across the two samples")
+					"every fixture index fits in the lists, so both samples hold them all")
 
 				for i, block := range blocks {
 					assert.Equal(t, block.header["indexes_total"], block.header["indexes_written"],
-						"block %d: nothing is dropped below the cap", i)
+						"block %d: the fixture's indexes all fit in the lists", i)
 					assert.Equal(t, "false", block.header["truncated"])
-
-					assert.NotContains(t, block.rawHead, "sizes=unavailable",
-						"block %d: pg_relation_size must need no grant", i)
 				}
 
 				require.NoError(t, tables.IOErr)
@@ -1137,7 +1216,7 @@ func TestMatrixIndexUsage(t *testing.T) {
 				require.Len(t, tableBlocks, 2)
 
 				assertMatrixKnownIndexes(t, blocks[1], tableBlocks[1])
-				assertMatrixIndexCapFires(t, target)
+				assertMatrixIndexTopRanks(t, target)
 			})
 		}
 	}
@@ -1170,41 +1249,26 @@ func assertMatrixKnownIndexes(t *testing.T, block, tables sampleBlock) {
 	}
 }
 
-func assertMatrixIndexCapFires(t *testing.T, target Target) {
+// With one index per list, the least-used list's pick turns on the size
+// tie-break whenever the primary key is unscanned too.
+func assertMatrixIndexTopRanks(t *testing.T, target Target) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
-	defer cancel()
-
-	conn, err := Connect(ctx, target)
-	require.NoError(t, err)
-
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
-		defer closeCancel()
-
-		assert.NoError(t, conn.Close(closeCtx))
-	}()
-
-	const capped = 1
-
-	var buf strings.Builder
-	require.NoError(t, IndexUsage{MaxIndexes: capped}.Sample(ctx, conn, &buf, SampleContext{
-		At: time.Now(), Index: 1, Database: "postgres", DBID: "0",
-	}))
-
-	blocks := parseIndexUsageBlocks(t, buf.String())
+	blocks := parseIndexUsageBlocks(t, matrixSampleTop(t, target, IndexUsage{Top: 1}))
 	require.Len(t, blocks, 1)
 
-	assert.Equal(t, strconv.Itoa(capped), blocks[0].header["indexes_written"])
+	block := blocks[0]
 
-	total, err := strconv.Atoi(blocks[0].header["indexes_total"])
+	assert.Equal(t, matrixRankedKeys(t, target, 1, matrixIndexRankings...), rowKeys(block),
+		"each list holds Top indexes")
+
+	assert.Equal(t, strconv.Itoa(len(block.rows)), block.header["indexes_written"])
+
+	total, err := strconv.Atoi(block.header["indexes_total"])
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, total, 2,
-		"the fixture's primary key and the test's own index: the real total survives the "+
-			"cap, so a capped file cannot read as complete")
-	assert.Equal(t, "true", blocks[0].header["truncated"])
-	assert.Len(t, blocks[0].rows, capped)
+		"the fixture's primary key and the test's own index, however short the lists are")
+	assert.Equal(t, "false", block.header["truncated"])
 }
 
 // A tablespace with storage of its own, for pg_tablespaces.txt and the location
