@@ -2008,8 +2008,6 @@ const (
 	matrixCapacitySamples  = 3
 )
 
-const matrixHeldSessions = 3
-
 type capacityMatrixBlock struct {
 	header  map[string]string
 	rawHead string
@@ -2146,15 +2144,12 @@ func TestMatrixCapacity(t *testing.T) {
 			t.Run(fmt.Sprintf("pg%d/%s", server.major, role.user), func(t *testing.T) {
 				target := matrixTarget(server, role)
 
-				release := matrixHoldSessions(t, target, matrixHeldSessions)
-
 				var between func()
 				if role.superuser {
 					between = func() { matrixExec(t, target, "CHECKPOINT") }
 				}
 
 				results := runMatrixCapacityWindow(t, target, between)
-				release()
 
 				require.Len(t, results, 1)
 				require.NoError(t, results[0].IOErr)
@@ -2175,13 +2170,8 @@ func TestMatrixCapacity(t *testing.T) {
 
 				assertMatrixDatabaseBlocks(t, target, databases)
 
-				connections := parseCapacityBlocks(t, artifact, "pg_stat_activity_by_app")
-				require.Len(t, connections, matrixCapacitySamples,
-					"a gauge, once a single closing reading, is now one reading per sample")
-
-				for _, block := range connections {
-					assertMatrixConnectionVisibility(t, role, block)
-				}
+				assert.NotContains(t, artifact, "pg_stat_activity",
+					"connections are counted by the server from pg_sessions.txt")
 
 				wal := parseCapacityBlocks(t, artifact, "pg_ls_waldir")
 				require.Len(t, wal, matrixCapacitySamples)
@@ -2211,7 +2201,7 @@ func assertMatrixCheckpointShape(t *testing.T, server matrixServer, artifact str
 		for i, block := range blocks[want.source] {
 			assert.NotContains(t, block.rawHead, "error=",
 				"%s block %d: reading the checkpoint counters needs no grant", want.source, i)
-			assert.Equal(t, "3", block.header["v"], "%s block %d", want.source, i)
+			assert.Equal(t, "4", block.header["v"], "%s block %d", want.source, i)
 			assert.Equal(t, want.columns, block.columns,
 				"%s block %d: the view's own column names, on the server that has the view", want.source, i)
 
@@ -2288,60 +2278,6 @@ func matrixCheckpointCounter(t *testing.T, block capacityMatrixBlock, column str
 	require.NoError(t, err, "%s must be a number", column)
 
 	return value
-}
-
-func assertMatrixConnectionVisibility(t *testing.T, role matrixRole, block capacityMatrixBlock) {
-	t.Helper()
-
-	assert.NotContains(t, block.rawHead, "error=", "counting pg_stat_activity needs no grant")
-	assert.Equal(t, connectionColumns, block.columns)
-	assert.Equal(t, "false", block.header["truncated"])
-
-	assert.GreaterOrEqual(t, matrixConnectionCount(t, block, ApplicationName, "client backend"),
-		int64(matrixHeldSessions+1),
-		"every role sees its own backends in full: the window's connection and the %d held "+
-			"open beside it, under the agent's own application_name",
-		matrixHeldSessions)
-
-	checkpointer := matrixConnectionCount(t, block, "", "checkpointer")
-	masked := matrixConnectionCount(t, block, "", "")
-
-	if role.privileged() {
-		assert.Positive(t, checkpointer,
-			"a privileged role sees the server's own processes as their own backend_type - which "+
-				"is what keeps them out of a client-connection count read against max_connections")
-		assert.Positive(t, matrixConnectionCount(t, block, "", "walwriter"))
-		assert.Zero(t, masked, "and nothing is masked into an unnamed, untyped row")
-
-		return
-	}
-
-	assert.Zero(t, checkpointer, "an unprivileged role cannot see another backend's type")
-	assert.GreaterOrEqual(t, masked, int64(2),
-		"and the backends it cannot see collapse into one row with both dimensions empty")
-}
-
-func matrixConnectionCount(t *testing.T, block capacityMatrixBlock, application, backendType string) int64 {
-	t.Helper()
-
-	var (
-		name  = block.index(t, "application_name")
-		kind  = block.index(t, "backend_type")
-		count = block.index(t, "active_connections")
-	)
-
-	for _, row := range block.rows {
-		if row[name] != application || row[kind] != backendType {
-			continue
-		}
-
-		value, err := strconv.ParseInt(row[count], 10, 64)
-		require.NoError(t, err, "active_connections must be a number")
-
-		return value
-	}
-
-	return 0
 }
 
 func assertMatrixWAL(t *testing.T, role matrixRole, block capacityMatrixBlock) {
@@ -2507,31 +2443,6 @@ func assertMatrixEachViewKeepsItsResetClock(t *testing.T, server matrixServer, t
 		assert.Equal(t, first, last,
 			"%s: and leave the other views' clocks where they were - three views, three clocks, "+
 				"which is why one column would leave the others' counters with an undetectable reset", source)
-	}
-}
-
-func matrixHoldSessions(t *testing.T, target Target, n int) (release func()) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), ModuleDeadline)
-	defer cancel()
-
-	held := make([]*Conn, 0, n)
-
-	for range n {
-		conn, err := Connect(ctx, target)
-		require.NoError(t, err)
-
-		held = append(held, conn)
-	}
-
-	return func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), ConnectTimeout)
-		defer closeCancel()
-
-		for _, conn := range held {
-			_ = conn.Close(closeCtx)
-		}
 	}
 }
 
@@ -3049,7 +2960,7 @@ func TestMatrixSessions(t *testing.T) {
 					assert.Equal(t, sessionColumns, activityBlocks[0].columns)
 					assert.Equal(t, lockColumns, lockBlocks[0].columns)
 
-					assertMatrixSessionsCapturesItsOwnBackend(t, activityBlocks[0])
+					assertMatrixSessionsCapturesItsOwnBackend(t, role, activityBlocks[0])
 
 					sessions[role.user] = activityBlocks[0]
 					locks[role.user] = lockBlocks[0]
@@ -3212,7 +3123,7 @@ func matrixUngrantedLocks(t *testing.T, target Target, pid string) int {
 	return count
 }
 
-func assertMatrixSessionsCapturesItsOwnBackend(t *testing.T, block capacityMatrixBlock) {
+func assertMatrixSessionsCapturesItsOwnBackend(t *testing.T, role matrixRole, block capacityMatrixBlock) {
 	t.Helper()
 
 	row := block.rowWhere(t, "application_name", ApplicationName)
@@ -3221,6 +3132,22 @@ func assertMatrixSessionsCapturesItsOwnBackend(t *testing.T, block capacityMatri
 		"the statement has no WHERE clause, so the capture's own backend is in the block like "+
 			"any other - and application_name survives masking, which is what makes this "+
 			"comparison work at every privilege level")
+	assert.Equal(t, "client backend", block.cell(t, row, "backend_type"),
+		"every role sees its own backend's type")
+
+	if !role.privileged() {
+		return
+	}
+
+	types := map[string]bool{}
+	for _, other := range block.rows {
+		types[block.cell(t, other, "backend_type")] = true
+	}
+
+	assert.True(t, types["checkpointer"],
+		"a privileged role sees the server's own processes typed, which is what lets the "+
+			"server count only client backends as connections")
+	assert.False(t, types[""], "and no backend's type is masked")
 }
 
 func assertMatrixChainRoundTrips(t *testing.T, sessions, locks map[string]capacityMatrixBlock,

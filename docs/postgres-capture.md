@@ -301,7 +301,11 @@ Read at the file's speed (see *`frequency`*), from the opening sample to the
 closing one:
 
 - `pg_sessions.txt` — `pg_stat_activity` and `pg_locks`, with passwords in the
-  statement text replaced (see *What leaves the database*).
+  statement text replaced (see *What leaves the database*). It is also where
+  the server counts connections, by application and role, keeping only rows
+  whose `backend_type` is `client backend`. A sample holds at most 1000
+  sessions; `sessions_total` is how many there were, so above 1000 the counts
+  by application and role cover only the sessions written.
 - `pg_health.txt` — `pg_stat_database`, every database in the cluster.
 - `pg_xid_age.txt` — each database's transaction-ID age, `age(datfrozenxid)`,
   oldest first and `template0` included: how far each is from wraparound.
@@ -319,10 +323,10 @@ closing one:
   view's own column names (`pg_stat_bgwriter` before PostgreSQL 17;
   `pg_stat_checkpointer`, `pg_stat_bgwriter` and `pg_stat_io` from 17); the
   connected database's commits, rollbacks, cache hits, reads and temporary
-  bytes; connections by application; and WAL volume. From 17, `buffers_backend`
-  is summed from `pg_stat_io` and counts what it counted before 17, apart from
-  the few sync requests a `CREATE TABLE` or `DROP TABLE` makes without writing
-  a buffer.
+  bytes; and WAL volume. It does not count connections; `pg_sessions.txt` does.
+  From 17, `buffers_backend` is summed from `pg_stat_io` and counts what it
+  counted before 17, apart from the few sync requests a `CREATE TABLE` or
+  `DROP TABLE` makes without writing a buffer.
 - `pg_bloat.txt` — `pg_stat_user_tables` with table and index sizes, including
   `seq_tup_read`, the rows sequential scans have read, and `last_analyze`,
   `last_autoanalyze` and `n_mod_since_analyze`: when the planner's statistics
@@ -510,7 +514,9 @@ pid,datid,datname,...,state,...,backend_xid,backend_xmin,...,query
 
 So a hundred sessions can appear to be running a statement by that name, every
 `state` can read empty without a single session being idle, and nothing in the
-file says why. What survives is the identity — which database, which role, which
+file says why. `backend_type` is one of the twelve, so nothing in a
+least-privilege capture tells a client connection from a background process.
+What survives is the identity — which database, which role, which
 application, and through `backend_xid` which session holds the transaction the
 others are queued behind. `pg_locks` needs no grant at all, so the *shape* of a
 blocking chain is still recoverable: who holds what, and who is queued behind

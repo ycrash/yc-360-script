@@ -187,7 +187,7 @@ The goldens:
   block of a shape is present in every block of that shape. `status=complete`:
   ten of eleven columns is a captured sample, not a failed one.
 - `pg_capacity_pg17.txt` — a complete capture against PostgreSQL 17 or 18:
-  **six blocks on every sample**. The checkpoint counters are three of them, one
+  **five blocks on every sample**. The checkpoint counters are three of them, one
   per view 17 split them across, each under the view's own name and column
   names: `pg_stat_checkpointer` (`num_timed`, `num_requested`,
   `buffers_written`), `pg_stat_bgwriter` (`buffers_clean`) and `pg_stat_io`
@@ -196,8 +196,8 @@ The goldens:
   matched the old column apart from the sync requests DDL makes without writing
   a buffer). Each carries its own view's `stats_reset`, and the three differ:
   the views reset independently from 17 on. Then the connected database's
-  `pg_stat_database` row, `scope=database` in a cluster file, the connection
-  groups and the WAL size. Every block is `v=3`, the file's own version, on the
+  `pg_stat_database` row, `scope=database` in a cluster file, and the WAL size.
+  Every block is `v=4`, the file's own version, on the
   capture line of a sample block and on the preamble and the closing block.
 - `pg_capacity_pre17.txt` — the same capture against 14–16. One checkpoint
   block, `source=pg_stat_bgwriter`, the view that held all five counters then,
@@ -650,25 +650,22 @@ pin the rule below against the driver text that motivates it.
   `pg_metadata` for the preamble and the closing block, `pg_metadata_target`
   for what was configured, `pg_metadata_server` for what the server said, and
   `pg_metadata_tablespaces` for where its tablespaces live —
-  `pg_capacity.txt` carries seven from 17 on: `pg_capacity`,
-  `pg_stat_checkpointer`, `pg_stat_bgwriter`, `pg_stat_io`, `pg_stat_database`,
-  `pg_stat_activity_by_app` and `pg_ls_waldir`, and five before 17, where
+  `pg_capacity.txt` carries six from 17 on: `pg_capacity`,
+  `pg_stat_checkpointer`, `pg_stat_bgwriter`, `pg_stat_io`, `pg_stat_database`
+  and `pg_ls_waldir`, and four before 17, where
   `pg_stat_bgwriter` holds every checkpoint counter — `pg_replication.txt`
   carries three: `pg_replication`, `pg_stat_replication` and
   `pg_replication_slots` — and `pg_sessions.txt` three: `pg_sessions`,
-  `pg_stat_activity` and `pg_locks`. **One `source=` is one shape**, which is why
-  `pg_capacity.txt` reads the same view under `pg_stat_activity_by_app`: it
-  carries counts per `(application_name, backend_type)` group where
-  `pg_sessions.txt` carries a row per backend, and two shapes under one dispatch
-  key would make the column header load-bearing for dispatch.
+  `pg_stat_activity` and `pg_locks`. **One `source=` is one shape**: two shapes
+  under one dispatch key would make the column header load-bearing for dispatch.
   `pg_capacity.txt`'s own reads are the exception: each block names the view it
   read. So its `pg_stat_bgwriter` is five counters before 17 and one from 17,
   and its `pg_stat_database` is one database's five counters where
   `pg_health.txt`'s is every database's eleven columns; the column header says
   which.
 - **One sample may be more than one block, and `samples_expected` counts
-  samples.** `pg_capacity.txt` writes six blocks on every sample from 17 and
-  four before, `pg_replication.txt` and `pg_sessions.txt` two, so their block
+  samples.** `pg_capacity.txt` writes five blocks on every sample from 17 and
+  three before, `pg_replication.txt` and `pg_sessions.txt` two, so their block
   count is never their sample count — on the default window `pg_sessions.txt`
   writes 120 sample blocks for 60 samples. Group a
   collector's
@@ -736,12 +733,6 @@ sample line's nine lead and `ts` closes it.
   with a trailing `...`. The server's own truncation, at
   `track_activity_query_size`, ends a statement mid-token with no marker at all —
   `pg_metadata.txt` records that limit so the two stay tellable apart.
-  `pg_capacity.txt`'s
-  connection block goes further and drops its two count keys when the read
-  failed: `groups_total=0` would assert that the server has no connections,
-  where the truth is that nobody could count them. Its sample line still says
-  `rows=0 truncated=false`, which count what the block holds, beside
-  `status=ERROR` or `TIMEOUT`.
 - `redacted=` counts the values a block's text had replaced with `<redacted>`,
   `0` included, on every block that carries captured text: each
   `pg_nondefault_settings.txt` sample, each `pg_sessions.txt` `pg_stat_activity`
@@ -772,7 +763,7 @@ sample line's nine lead and `ts` closes it.
 - **`ts=` is the sample's clock read, not the block's.** Every block of one
   `sample_id=` carries the same value, taken before the sample's first statement
   ran — so in `pg_capacity.txt` the WAL block's `ts=` can precede its own read
-  by as much as six statement timeouts, which its `start_ts=` shows. Equal `ts=`
+  by as much as five statement timeouts, which its `start_ts=` shows. Equal `ts=`
   within one `sample_id=` is by construction and says nothing about the sampler
   running late; the rule above applies across samples.
 
@@ -807,6 +798,11 @@ among the collector's keys to the sample line's fixed ones, where it is now on
 every sample block. A reader of the earlier version reads the capture line as a
 block of its own and finds no `sample=`. `pg_metadata.txt`, `pg_catalog_map.txt`,
 the four log tails and `pg_m3.txt` did not change and are `v=1`.
+
+`pg_capacity.txt` went to `v=4` when its connection block,
+`source=pg_stat_activity_by_app`, left the file: the server counts connections
+from `pg_sessions.txt`, which carries `backend_type` on every row. A reader of
+`v=3` that expects the block finds none.
 
 The tablespace block added to `pg_metadata.txt` on 2026-09-02 is not that case,
 and the distinction is worth stating once: it is a **fifth block under a new

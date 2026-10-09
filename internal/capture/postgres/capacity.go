@@ -4,23 +4,13 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"strconv"
 	"time"
 )
 
-// DefaultMaxConnectionGroups bounds the connection block, whose rows are
-// (application_name, backend_type) pairs rather than applications.
-const DefaultMaxConnectionGroups = 1000
-
 // capacityVersion is pg_capacity.txt's v=: 2 when each view's checkpoint counters became a block
-// under the view's own name and column names, 3 with the two-line sample header.
-const capacityVersion = 3
-
-var connectionColumns = []string{
-	"application_name",
-	"backend_type",
-	"active_connections",
-}
+// under the view's own name and column names, 3 with the two-line sample header, 4 when the
+// connection block left the file (the server counts connections from pg_sessions.txt).
+const capacityVersion = 4
 
 var walColumns = []string{"wal_bytes"}
 
@@ -102,35 +92,18 @@ const databaseSQL = `SELECT xact_commit,
 FROM pg_catalog.pg_stat_database
 WHERE datname = current_database()`
 
-// connectionsSQL groups rather than filters by backend_type: parallel/autovacuum workers show as
-// their own rows. ORDER BY identity, never count(*): the block is sampled repeatedly under a cap,
-// and a statistic ordering would let two samples keep two different group sets - the same rule
-// pg_slow_queries.txt follows.
-const connectionsSQL = `SELECT application_name::text,
-       backend_type::text,
-       count(*) AS active_connections,
-       count(*) OVER () AS groups_total
-FROM pg_catalog.pg_stat_activity
-GROUP BY application_name, backend_type
-ORDER BY application_name, backend_type
-LIMIT $1`
-
 // walSQL needs pg_monitor or superuser. walPrivilegeSQL is asked first, so a LOGIN-only role
 // skips it and the block says reason=permission_denied.
 const walSQL = `SELECT sum(size)::bigint AS wal_bytes FROM pg_ls_waldir()`
 
 const walPrivilegeSQL = `SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')`
 
-// Capacity captures checkpoint pressure, the connected database's throughput, connection
-// distribution and WAL volume every sample. The checkpoint and database columns are cumulative
-// counters and deltas are the server's; the other two are gauges, so their series is the reading
-// rather than a difference between samples.
+// Capacity captures checkpoint pressure, the connected database's throughput and WAL volume
+// every sample. The checkpoint and database columns are cumulative counters and deltas are the
+// server's; wal_bytes is a gauge, so its series is the reading rather than a difference.
 type Capacity struct {
 	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
-
-	// MaxConnectionGroups bounds the connection block; zero takes DefaultMaxConnectionGroups.
-	MaxConnectionGroups int
 }
 
 func (c Capacity) Artifact() Artifact {
@@ -142,16 +115,15 @@ func (c Capacity) Artifact() Artifact {
 		Connection: ConnectionNormal,
 		Version:    capacityVersion,
 
-		// Seven statements on every sample from 17, five before, the WAL read's privilege
+		// Six statements on every sample from 17, four before, the WAL read's privilege
 		// check among them. Periodic's last sample is the close, so moduleDeadline sums
 		// this against every other closing-tick collector on the same connection.
-		SampleBudget: 7 * StatementTimeout,
+		SampleBudget: 6 * StatementTimeout,
 	}
 }
 
-// Sample writes every block every time. The gauges (active_connections, wal_bytes) used to
-// land on the closing sample alone; as a series they show connections climbing and WAL growing
-// through the window, which one closing reading cannot.
+// Sample writes every block every time. wal_bytes used to land on the closing sample alone; as
+// a series it shows WAL growing through the window, which one closing reading cannot.
 func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
 	// One buffer, one Write: avoids leaving a half-written sample if a write fails mid-block.
 	var sample bytes.Buffer
@@ -161,10 +133,6 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 	}
 
 	if err := c.writeDatabaseBlock(ctx, q, &sample, s); err != nil {
-		return err
-	}
-
-	if err := c.writeConnectionsBlock(ctx, q, &sample, s); err != nil {
 		return err
 	}
 
@@ -183,7 +151,7 @@ func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.
 		cells, err := readCounterBlock(ctx, q, block)
 		reads := span{start, s.now()}
 
-		if err := c.writeHeader(w, s, block.source, "", reads, err, len(cells), false, nil); err != nil {
+		if err := c.writeHeader(w, s, block.source, "", reads, err, len(cells), nil); err != nil {
 			return err
 		}
 
@@ -203,35 +171,11 @@ func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Wri
 
 	cells := databaseCells(row)
 
-	if err := c.writeHeader(w, s, "pg_stat_database", "database", reads, err, len(cells), false, nil); err != nil {
+	if err := c.writeHeader(w, s, "pg_stat_database", "database", reads, err, len(cells), nil); err != nil {
 		return err
 	}
 
 	return writeRows(w, databaseColumns, cells)
-}
-
-// writeConnectionsBlock drops the count keys on a failed read rather than writing zeroes:
-// groups_total=0 would falsely assert zero connections.
-func (c Capacity) writeConnectionsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
-	rows, total, err := c.readConnections(ctx, q)
-	reads := span{start, s.now()}
-
-	var fields []headerField
-
-	if err == nil {
-		fields = []headerField{
-			{"groups_written", strconv.Itoa(len(rows))},
-			{"groups_total", strconv.FormatInt(total, 10)},
-		}
-	}
-
-	if err := c.writeHeader(w, s, "pg_stat_activity_by_app", "", reads, err, len(rows),
-		int64(len(rows)) < total, fields); err != nil {
-		return err
-	}
-
-	return writeRows(w, connectionColumns, connectionCells(rows))
 }
 
 func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
@@ -252,7 +196,7 @@ func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, 
 		cells = [][]string{{int64Text(bytesWritten)}}
 	}
 
-	if err := c.writeHeader(w, s, "pg_ls_waldir", "", reads, err, len(cells), false, fields); err != nil {
+	if err := c.writeHeader(w, s, "pg_ls_waldir", "", reads, err, len(cells), fields); err != nil {
 		return err
 	}
 
@@ -330,60 +274,6 @@ func databaseCells(row *databaseRow) [][]string {
 	}}
 }
 
-// connectionRow is one (application_name, backend_type) group. backend_type is NULL when the role
-// lacks pg_read_all_stats (row still counts); masking leaves application_name empty, not NULL, on 14-18.
-type connectionRow struct {
-	applicationName *string
-	backendType     *string
-	connections     int64
-}
-
-func (c Capacity) readConnections(ctx context.Context, q RowQuerier) ([]connectionRow, int64, error) {
-	stmtCtx, cancel := statementContext(ctx)
-	defer cancel()
-
-	rows, err := q.Query(stmtCtx, connectionsSQL, c.maxConnectionGroups())
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var (
-		collected []connectionRow
-		total     int64
-	)
-
-	for rows.Next() {
-		var row connectionRow
-
-		if err := rows.Scan(&row.applicationName, &row.backendType, &row.connections, &total); err != nil {
-			return nil, 0, err
-		}
-
-		collected = append(collected, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-
-	return collected, total, nil
-}
-
-func connectionCells(rows []connectionRow) [][]string {
-	cells := make([][]string, len(rows))
-
-	for i, row := range rows {
-		cells[i] = []string{
-			text(row.applicationName),
-			text(row.backendType),
-			strconv.FormatInt(row.connections, 10),
-		}
-	}
-
-	return cells
-}
-
 // readWAL's sum is NULL on a directory with no files - see writeWALBlock. denied is the
 // privilege check's answer; a refusal after it passed is an ordinary error.
 func readWAL(ctx context.Context, q RowQuerier) (walBytes *int64, denied bool, err error) {
@@ -409,27 +299,18 @@ func readWAL(ctx context.Context, q RowQuerier) (walBytes *int64, denied bool, e
 // writeHeader writes one block's envelope; a failed read is its status and its error=,
 // after the block's own keys.
 func (c Capacity) writeHeader(w io.Writer, s SampleContext, source, scope string, reads span, err error,
-	rows int, truncated bool, fields []headerField,
+	rows int, fields []headerField,
 ) error {
 	if err != nil {
 		fields = append(fields, headerField{"error", s.errorText(err)})
 	}
 
 	return writeSampleHeader(w, c.Artifact(), s, sampleHeader{
-		source:    source,
-		scope:     scope,
-		reads:     reads,
-		status:    readStatus(err),
-		rows:      rows,
-		truncated: truncated,
-		fields:    fields,
+		source: source,
+		scope:  scope,
+		reads:  reads,
+		status: readStatus(err),
+		rows:   rows,
+		fields: fields,
 	})
-}
-
-func (c Capacity) maxConnectionGroups() int {
-	if c.MaxConnectionGroups <= 0 {
-		return DefaultMaxConnectionGroups
-	}
-
-	return c.MaxConnectionGroups
 }

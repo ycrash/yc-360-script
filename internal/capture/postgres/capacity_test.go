@@ -16,12 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	colApplicationName = iota
-	colBackendType
-	colActiveConnections
-)
-
 var (
 	testBgwriterReset = time.Date(2026, 8, 1, 9, 15, 0, 0, time.UTC)
 	testIOReset       = time.Date(2026, 8, 3, 11, 40, 0, 0, time.UTC)
@@ -101,29 +95,6 @@ func ordersDatabase() []fakeRow {
 	)
 }
 
-func connectionGroup(application, backendType string, connections, total int64) []any {
-	return []any{ptr(application), ptr(backendType), connections, total}
-}
-
-// ordersConnections is in the statement's own order - application_name, then
-// backend_type - so the goldens show what a server returns: the unnamed groups first.
-func ordersConnections() [][]any {
-	const total = 10
-
-	return [][]any{
-		connectionGroup("", "autovacuum launcher", 1, total),
-		connectionGroup("", "background writer", 1, total),
-		connectionGroup("", "checkpointer", 1, total),
-		connectionGroup("", "client backend", 11, total),
-		connectionGroup("", "logical replication launcher", 1, total),
-		connectionGroup("", "walwriter", 1, total),
-		connectionGroup("inventory-service", "client backend", 31, total),
-		connectionGroup("orders-service", "client backend", 86, total),
-		connectionGroup("reporting-worker", "client backend", 14, total),
-		connectionGroup(ApplicationName, "client backend", 1, total),
-	}
-}
-
 type fakeCapacityConn struct {
 	*fakeWindowConn
 
@@ -132,12 +103,10 @@ type fakeCapacityConn struct {
 	bgwriter       []fakeRow
 	backendBuffers []fakeRow
 	database       []fakeRow
-	connections    []fakeResult
 	walAllowed     []fakeRow
 	wal            []fakeRow
 
-	sql             []string
-	connectionsArgs [][]any
+	sql []string
 }
 
 func newFakeCapacityConn() *fakeCapacityConn {
@@ -148,7 +117,6 @@ func newFakeCapacityConn() *fakeCapacityConn {
 		bgwriter:       ordersBgwriter(),
 		backendBuffers: ordersBackendBuffers(),
 		database:       ordersDatabase(),
-		connections:    repeat(rowsResult(ordersConnections())),
 		walAllowed:     repeatRow(rowResult(ptr(true))),
 		wal:            repeatRow(rowResult(ptr(int64(2254857830)))),
 	}
@@ -183,14 +151,8 @@ func (c *fakeCapacityConn) QueryRow(ctx context.Context, sql string, args ...any
 	return c.fakeWindowConn.QueryRow(ctx, sql, args...)
 }
 
-func (c *fakeCapacityConn) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+func (c *fakeCapacityConn) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
 	c.sql = append(c.sql, sql)
-
-	if sql == connectionsSQL {
-		c.connectionsArgs = append(c.connectionsArgs, args)
-
-		return answer(&c.connections)
-	}
 
 	return nil, fmt.Errorf("unexpected query: %s", sql)
 }
@@ -317,19 +279,20 @@ func TestCapacityArtifact(t *testing.T) {
 	assert.Equal(t, "pg_capacity", artifact.Name)
 	assert.Equal(t, "pg_capacity.txt", artifact.FileName)
 	assert.Equal(t, "cluster", artifact.Scope,
-		"checkpoints, connections and WAL are the server's, not the connected database's")
+		"checkpoints and WAL are the server's, not the connected database's")
 	assert.Equal(t, Periodic(0), artifact.Schedule,
 		"no cadence given is the bookend alone, never a single sample")
 	assert.Equal(t, Periodic(15*time.Second), Capacity{Interval: 15 * time.Second}.Artifact().Schedule,
 		"the run's cadence, with the close as the last sample")
 
-	assert.Equal(t, 7*StatementTimeout, artifact.SampleBudget,
-		"seven statements on every sample from 17, and Periodic's last sample is the close, "+
+	assert.Equal(t, 6*StatementTimeout, artifact.SampleBudget,
+		"six statements on every sample from 17, and Periodic's last sample is the close, "+
 			"which moduleDeadline sums - leaving it zero would size the shared tick for two")
 
-	assert.Equal(t, 3, artifact.Version,
-		"the checkpoint counters' blocks and columns were renamed at 2, and a sample block's "+
-			"header became two lines at 3; a reader of either earlier version gets this one wrong")
+	assert.Equal(t, 4, artifact.Version,
+		"the checkpoint counters' blocks and columns were renamed at 2, a sample block's header "+
+			"became two lines at 3, and the connection block left at 4; a reader of any earlier "+
+			"version gets this one wrong")
 }
 
 func TestCapacityColumnOrder(t *testing.T) {
@@ -351,9 +314,6 @@ func TestCapacityColumnOrder(t *testing.T) {
 		checkpointBlocks17[0].columns, "each view's own column names")
 	assert.Equal(t, []string{"buffers_clean", "stats_reset"}, checkpointBlocks17[1].columns)
 	assert.Equal(t, []string{"buffers_backend", "stats_reset"}, checkpointBlocks17[2].columns)
-
-	assert.Equal(t, []string{"application_name", "backend_type", "active_connections"},
-		connectionColumns, "backend_type is a grouping dimension, so it is in the contract")
 
 	assert.Equal(t, []string{"wal_bytes"}, walColumns)
 
@@ -404,7 +364,7 @@ func TestCapacitySelectsTheStatementsOnTheCapability(t *testing.T) {
 				assert.Contains(t, blocks, source, "source= names the view the block read")
 			}
 
-			assert.Len(t, blocks, len(tc.sources)+3, "beside the database, connection and WAL blocks")
+			assert.Len(t, blocks, len(tc.sources)+2, "beside the database and WAL blocks")
 			assert.NotContains(t, buf.String(), "views=", "source= says which view, so views= went")
 		})
 	}
@@ -520,10 +480,10 @@ func TestCapacityWritesEveryBlockOnEverySample(t *testing.T) {
 			assert.ElementsMatch(t,
 				[]string{
 					"pg_stat_checkpointer", "pg_stat_bgwriter", "pg_stat_io",
-					"pg_stat_database", "pg_stat_activity_by_app", "pg_ls_waldir",
+					"pg_stat_database", "pg_ls_waldir",
 				}, sources,
-				"the gauges once landed on the closing sample alone; as a series they show "+
-					"connections climbing and WAL growing through the window")
+				"wal_bytes once landed on the closing sample alone; as a series it shows WAL "+
+					"growing through the window")
 		})
 	}
 }
@@ -546,7 +506,7 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 
 		assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
 			"the counters read successfully beside it are unaffected")
-		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
+		assert.Len(t, blocks["pg_stat_database"].rows(t, databaseColumns), 1)
 	})
 
 	t.Run("one checkpoint view alone", func(t *testing.T) {
@@ -561,7 +521,6 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 		assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
 			"each view is its own read, so the other two still land")
 		assert.Len(t, blocks["pg_stat_bgwriter"].rows(t, checkpointBlocks17[1].columns), 1)
-		assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
 		assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
 	})
 
@@ -571,33 +530,27 @@ func TestCapacityBlocksFailIndependently(t *testing.T) {
 		conn.bgwriter = repeatRow(errRow(timedOut))
 		conn.backendBuffers = repeatRow(errRow(timedOut))
 		conn.database = repeatRow(errRow(timedOut))
-		conn.connections = repeat(errResult(timedOut))
 		conn.wal = repeatRow(errRow(denied))
 
 		var buf bytes.Buffer
 		require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, capacitySampleContext(2, 2)),
-			"six refused reads are not an error: Sample fails only when it cannot write")
+			"five refused reads are not an error: Sample fails only when it cannot write")
 
 		blocks := capacityBlocks(t, buf.String())
-		require.Len(t, blocks, 6,
-			"six header-only blocks carrying six reasons, rather than one stub saying "+
+		require.Len(t, blocks, 5,
+			"five header-only blocks carrying five reasons, rather than one stub saying "+
 				"the sample could not be taken")
 
 		for source, columns := range map[string][]string{
-			"pg_stat_checkpointer":    checkpointBlocks17[0].columns,
-			"pg_stat_bgwriter":        checkpointBlocks17[1].columns,
-			"pg_stat_io":              checkpointBlocks17[2].columns,
-			"pg_stat_database":        databaseColumns,
-			"pg_stat_activity_by_app": connectionColumns,
-			"pg_ls_waldir":            walColumns,
+			"pg_stat_checkpointer": checkpointBlocks17[0].columns,
+			"pg_stat_bgwriter":     checkpointBlocks17[1].columns,
+			"pg_stat_io":           checkpointBlocks17[2].columns,
+			"pg_stat_database":     databaseColumns,
+			"pg_ls_waldir":         walColumns,
 		} {
 			assert.Contains(t, blocks[source].header, "error=", source)
 			assert.Empty(t, blocks[source].rows(t, columns), source)
 		}
-
-		assert.NotContains(t, blocks["pg_stat_activity_by_app"].header, "groups_total",
-			"groups_total=0 would assert the server has no connections, where the truth is "+
-				"that nobody could count them")
 	})
 }
 
@@ -607,7 +560,6 @@ func TestCapacityFailedSampleIsStillACompleteSample(t *testing.T) {
 	conn.bgwriter = repeatRow(errRow(errors.New("ERROR: permission denied")))
 	conn.backendBuffers = repeatRow(errRow(errors.New("ERROR: permission denied")))
 	conn.database = repeatRow(errRow(errors.New("ERROR: permission denied")))
-	conn.connections = repeat(errResult(errors.New("ERROR: permission denied")))
 	conn.wal = repeatRow(errRow(errors.New("ERROR: permission denied")))
 
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
@@ -635,9 +587,9 @@ func TestCapacityWritesTheWholeSampleInOneWrite(t *testing.T) {
 		capacitySampleContext(2, 2)))
 
 	assert.Equal(t, 1, writer.writes,
-		"six blocks, one buffer, one Write: a write failing between two of them would leave "+
+		"five blocks, one buffer, one Write: a write failing between two of them would leave "+
 			"the window's stub behind a half-written sample")
-	assert.Equal(t, 6, strings.Count(writer.buf.String(), "# capture_id="))
+	assert.Equal(t, 5, strings.Count(writer.buf.String(), "# capture_id="))
 }
 
 func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
@@ -647,10 +599,15 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 
 		assert.Equal(t, []string{
 			checkpointerSQL, bgwriterSQL, backendBuffersSQL,
-			databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL,
+			databaseSQL, walPrivilegeSQL, walSQL,
 		}, conn.sql,
-			"sample %d: seven statements, which is what Artifact().SampleBudget declares and "+
+			"sample %d: six statements, which is what Artifact().SampleBudget declares and "+
 				"what Window.moduleDeadline sizes the shared closing tick from", s.Index)
+
+		for _, sql := range conn.sql {
+			assert.NotContains(t, sql, "pg_stat_activity",
+				"the server counts connections from pg_sessions.txt, which reads every session")
+		}
 	}
 
 	conn := newFakeCapacityConn()
@@ -658,8 +615,8 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 	sampleCtx.HasPgStatCheckpointer = false
 
 	require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, sampleCtx))
-	assert.Equal(t, []string{bgwriterSQLPre17, databaseSQL, connectionsSQL, walPrivilegeSQL, walSQL}, conn.sql,
-		"five below 17, inside the budget")
+	assert.Equal(t, []string{bgwriterSQLPre17, databaseSQL, walPrivilegeSQL, walSQL}, conn.sql,
+		"four below 17, inside the budget")
 }
 
 func TestCapacityStampsItsOwnVersionOnEveryBlock(t *testing.T) {
@@ -674,11 +631,11 @@ func TestCapacityStampsItsOwnVersionOnEveryBlock(t *testing.T) {
 		if strings.HasPrefix(line, "# engine=") || strings.HasPrefix(line, "# capture_id=") {
 			blocks++
 
-			assert.Contains(t, line, " v=3 ", "the window's blocks and the collector's alike")
+			assert.Contains(t, line, " v=4 ", "the window's blocks and the collector's alike")
 		}
 	}
 
-	assert.Equal(t, 14, blocks, "the preamble, six blocks in each of two samples, and the close")
+	assert.Equal(t, 12, blocks, "the preamble, five blocks in each of two samples, and the close")
 }
 
 func TestCapacityDatabaseBlockIsTheConnectedDatabasesRow(t *testing.T) {
@@ -707,103 +664,7 @@ func TestCapacityDatabaseBlockFailsAlone(t *testing.T) {
 
 	assert.Len(t, blocks["pg_stat_checkpointer"].rows(t, checkpointBlocks17[0].columns), 1,
 		"the blocks beside it still land")
-	assert.Len(t, blocks["pg_stat_activity_by_app"].rows(t, connectionColumns), 10)
 	assert.Len(t, blocks["pg_ls_waldir"].rows(t, walColumns), 1)
-}
-
-func TestCapacityConnectionBlockGroupsRatherThanFilters(t *testing.T) {
-	assert.NotContains(t, connectionsSQL, "WHERE",
-		"pg_stat_activity is read unfiltered: a WHERE backend_type = 'client backend' would give "+
-			"the report its headline number and destroy the evidence underneath it")
-
-	block := capacityBlocks(t, takeCapacitySample(t, newFakeCapacityConn(), Capacity{}))["pg_stat_activity_by_app"]
-
-	assert.Contains(t, block.header, "rows=10 truncated=false scope=cluster groups_written=10 groups_total=10")
-
-	rows := block.rows(t, connectionColumns)
-	require.Len(t, rows, 10)
-
-	assert.Equal(t, []string{"", "autovacuum launcher", "1"}, rows[0],
-		"identity order: the unnamed groups sort before any application")
-	assert.Equal(t, []string{"", "client backend", "11"}, rows[3],
-		"a connection that never set an application_name is an empty string, not a NULL")
-	assert.Equal(t, []string{"", "checkpointer", "1"}, rows[2],
-		"a background process is its own row: under an unfiltered GROUP BY application_name it "+
-			"was an unnamed client connection, in a number read against max_connections")
-	assert.Equal(t, []string{"orders-service", "client backend", "86"}, rows[7],
-		"the group holding the most connections is wherever its name sorts")
-	assert.Equal(t, []string{ApplicationName, "client backend", "1"}, rows[9],
-		"the agent's own connection stays, so the block agrees with a hand-run count(*)")
-}
-
-func TestCapacityMaskedBackendTypeRendersEmpty(t *testing.T) {
-	conn := newFakeCapacityConn()
-	conn.connections = repeat(rowsResult([][]any{
-		{ptr(""), nil, int64(5), int64(2)},
-		connectionGroup(ApplicationName, "client backend", 1, 2),
-	}))
-
-	rows := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))["pg_stat_activity_by_app"].
-		rows(t, connectionColumns)
-	require.Len(t, rows, 2)
-
-	assert.Equal(t, []string{"", "", "5"}, rows[0],
-		"a role without pg_read_all_stats sees every row but has backend_type masked to NULL and "+
-			"application_name left empty - the count is still right and the grain collapsed")
-	assert.Equal(t, []string{ApplicationName, "client backend", "1"}, rows[1],
-		"and it sees its own backend in full")
-}
-
-func TestCapacityCapCutsOnIdentitySoSamplesAgree(t *testing.T) {
-	conn := newFakeCapacityConn()
-	conn.connections = repeat(rowsResult([][]any{
-		connectionGroup("", "checkpointer", 1, 4120),
-		connectionGroup("inventory-service", "client backend", 31, 4120),
-		connectionGroup("orders-service", "client backend", 86, 4120),
-	}))
-
-	block := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{MaxConnectionGroups: 3}))["pg_stat_activity_by_app"]
-
-	assert.Contains(t, block.header, "rows=3 truncated=true scope=cluster groups_written=3 groups_total=4120",
-		"a capped block must not read as a complete one")
-
-	require.Len(t, block.rows(t, connectionColumns), 3)
-
-	require.Len(t, conn.connectionsArgs, 1)
-	assert.Equal(t, []any{3}, conn.connectionsArgs[0], "the cap is the LIMIT the server is sent")
-
-	assert.Contains(t, connectionsSQL, "ORDER BY application_name, backend_type",
-		"asserted on the statement, because the fake cannot sort for the server: the cap cuts "+
-			"on identity, so every sample keeps the same groups and the server can read one "+
-			"sample against the next")
-	assert.NotContains(t, connectionsSQL, "count(*) DESC",
-		"a cap ordered by count(*) was safe while the block was written once; sampled "+
-			"repeatedly it would let two samples keep two different sets with nothing in "+
-			"common to delta. What identity order costs: the groups holding the most "+
-			"connections can fall past the cap, which groups_total= and truncated= report")
-}
-
-func TestCapacityDefaultCapIsSentWhenUnset(t *testing.T) {
-	conn := newFakeCapacityConn()
-
-	takeCapacitySample(t, conn, Capacity{})
-
-	require.Len(t, conn.connectionsArgs, 1)
-	assert.Equal(t, DefaultMaxConnectionGroups, conn.connectionsArgs[0][0])
-}
-
-func TestCapacityApplicationNamesWithSeparatorsRoundTrip(t *testing.T) {
-	conn := newFakeCapacityConn()
-	conn.connections = repeat(rowsResult([][]any{
-		connectionGroup("we,ird\"app\nname", "client backend", 3, 1),
-	}))
-
-	rows := capacityBlocks(t, takeCapacitySample(t, conn, Capacity{}))["pg_stat_activity_by_app"].
-		rows(t, connectionColumns)
-	require.Len(t, rows, 1)
-
-	assert.Equal(t, "we,ird\"app name", rows[0][colApplicationName],
-		"application_name is client-chosen and arrives arbitrary")
 }
 
 func TestCapacityWALSumOfNothingWritesNoRowRatherThanZero(t *testing.T) {
@@ -865,7 +726,7 @@ func TestCapacityGoldenPG17(t *testing.T) {
 	results := runCapacityWindow(t, capacityGoldenClock(t), connectTo(conn))
 
 	require.Equal(t, StatusComplete, results[0].Status)
-	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, twelve sample blocks")
+	assert.Equal(t, 2, results[0].SamplesWritten, "two samples, ten sample blocks")
 	assert.Equal(t, bloatGolden(t, "pg_capacity_pg17.txt"), artifactText(t, results[0]))
 }
 

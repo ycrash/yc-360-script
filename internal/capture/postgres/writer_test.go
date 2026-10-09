@@ -797,7 +797,7 @@ func TestSampleHeaderScopeIsTheArtifactsUnlessTheBlockSaysOtherwise(t *testing.T
 
 	assert.Contains(t, buf.String(), " scope=database ")
 	assert.Contains(t, buf.String(), " scope=cluster ")
-	assert.Equal(t, 2, strings.Count(buf.String(), " v=3 "), "and the file's version on each capture line")
+	assert.Equal(t, 2, strings.Count(buf.String(), " v=4 "), "and the file's version on each capture line")
 }
 
 func TestReadStatus(t *testing.T) {

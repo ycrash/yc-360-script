@@ -631,9 +631,9 @@ func TestWindowModuleDeadlineWithTheRealCollectorSet(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, 190*time.Second, window.moduleDeadline(),
+	assert.Equal(t, 185*time.Second, window.moduleDeadline(),
 		"120s window, plus the normal connection's closing tick - Health's 5s, Replication's "+
-			"10s, Capacity's 35s and SlowQueries' 15s, one after another - plus the 5s close "+
+			"10s, Capacity's 30s and SlowQueries' 15s, one after another - plus the 5s close "+
 			"margin. Sessions' 3s on the fast connection and Bloat's 10s on the expensive one "+
 			"run beside it, so they add nothing")
 }
@@ -674,9 +674,9 @@ func TestWindowModuleDeadlineWithAClosingPlanCollector(t *testing.T) {
 		mode string
 		want time.Duration
 	}{
-		{name: "enabled", mode: ExplainModeAll, want: 217 * time.Second},
-		{name: "logged", mode: ExplainModeLogged, want: 217 * time.Second},
-		{name: "disabled", mode: "", want: 195 * time.Second},
+		{name: "enabled", mode: ExplainModeAll, want: 212 * time.Second},
+		{name: "logged", mode: ExplainModeLogged, want: 212 * time.Second},
+		{name: "disabled", mode: "", want: 190 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tenth := NewExplain(tc.mode, NewSlowQueries())
