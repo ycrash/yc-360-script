@@ -31,16 +31,16 @@ const measuredDeadlock = "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock d
 	"2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation \"yc_dl\"\n" +
 	"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  BEGIN; UPDATE yc_dl SET v=2 WHERE id=2; SELECT pg_sleep(2); UPDATE yc_dl SET v=2 WHERE id=1; COMMIT;\n"
 
-// writtenDeadlock is measuredDeadlock as pg_deadlocks.txt writes it: each process's
-// statement and the STATEMENT line replaced, the lock waits kept.
+// writtenDeadlock is measuredDeadlock as pg_deadlocks.txt writes it: the values in
+// each process's statement and in the STATEMENT line replaced, the rest kept.
 const writtenDeadlock = "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n" +
 	"2026-08-15 10:00:34.543 UTC [25666] DETAIL:  Process 25666 waits for ShareLock on transaction 948; blocked by process 25651.\n" +
 	"\tProcess 25651 waits for ShareLock on transaction 949; blocked by process 25666.\n" +
-	"\tProcess 25666: <redacted>\n" +
-	"\tProcess 25651: <redacted>\n" +
+	"\tProcess 25666: BEGIN; UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; SELECT pg_sleep(<redacted>); UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; COMMIT;\n" +
+	"\tProcess 25651: BEGIN; UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; SELECT pg_sleep(<redacted>); UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; COMMIT;\n" +
 	"2026-08-15 10:00:34.543 UTC [25666] HINT:  See server log for query details.\n" +
 	"2026-08-15 10:00:34.543 UTC [25666] CONTEXT:  while updating tuple (0,1) in relation \"yc_dl\"\n" +
-	"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>\n"
+	"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  BEGIN; UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; SELECT pg_sleep(<redacted>); UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>; COMMIT;\n"
 
 const unrelatedTraffic = "2026-08-15 10:00:24.101 UTC [25640] LOG:  checkpoint starting: time\n" +
 	"2026-08-15 10:00:24.980 UTC [25640] LOG:  checkpoint complete: wrote 12 buffers (0.1%)\n"

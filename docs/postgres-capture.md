@@ -371,7 +371,7 @@ Copied from the server's log every 10 seconds, where the log is readable (see
 `PANIC` during the window, except the deadlocks and timeouts the two files before
 it copy, so no entry is in two files. Each comes with the lines that belong to it
 — `DETAIL`, `HINT`, `QUERY`, `CONTEXT`, `STATEMENT` — as the server wrote them,
-statements and quoted values replaced (see *What leaves the database*), in
+the values in statements and quoted values replaced (see *What leaves the database*), in
 whichever log format the capture reads (jsonlog, then csvlog, then stderr), and
 its blocks say `matched_by=severity`: the entry's level decides.
 Like the other log tails it records where the log could not be read with a
@@ -587,7 +587,8 @@ may be short.
 Read this before the first capture goes anywhere outside your perimeter.
 
 `pg_slow_queries.txt` and `pg_sessions.txt` carry **SQL statement text**, and
-`pg_explain.txt` carries it with its values replaced. In `pg_slow_queries.txt`
+`pg_explain.txt`, `pg_deadlocks.txt` and `pg_errors.txt` carry it with its values
+replaced. In `pg_slow_queries.txt`
 that text is normalised for ordinary queries — constants are replaced with `$1`,
 `$2` and so on, so values from your data do not travel with it.
 
@@ -647,13 +648,23 @@ searched whole, never dropped.
 replaced** with `<redacted>`, and each block that carries captured text counts the
 replacements as `redacted=`, `0` included. What goes and what stays:
 
-- **Statements go.** Every `STATEMENT:` and `QUERY:` line is replaced whole, and so
-  is the text after each `Process <n>: ` in a deadlock's `DETAIL`. The processes,
-  the locks and transactions they wait on, the relation and the tuple stay: they
-  are the finding.
-- **`CONTEXT` keeps its frames and loses what they quote**: the SQL a function ran
-  (`SQL statement "<redacted>"`), a `COPY` value or input line, the input a JSON
-  error stopped at, and a portal's bind values (`$1 = '<redacted>'`).
+- **Statements keep their shape and lose their values.** Every `STATEMENT:` and
+  `QUERY:` line, and the text after each `Process <n>: ` in a deadlock's `DETAIL`,
+  is written with each quoted string, dollar-quoted string and number replaced:
+  `UPDATE accounts SET balance = balance + <redacted> WHERE id = <redacted>`.
+  Names, keywords, casts, comments and `$1` parameters stay, so a statement sent
+  with bind parameters comes through as it was logged; a `DO` block's body is one
+  dollar-quoted string and goes whole. The processes, the locks and transactions
+  they wait on, the relation and the tuple stay: they are the finding. A deadlock
+  report not in the order the server writes one — its statements not following
+  its lock waits, or written in another language — keeps only its lock waits, and
+  its statements go whole.
+- **`CONTEXT` keeps its frames.** The SQL a function ran, an expression or an
+  assignment keeps its shape the same way: `SQL statement "INSERT INTO p VALUES
+  (<redacted>)"`, and, in a deadlock inside a function, `SQL statement "UPDATE
+  accounts SET balance = balance + amt WHERE id = dst"`, whose names are all
+  variables. A `COPY` value or input line, the input a JSON error stopped at, and
+  a portal's bind values (`$1 = '<redacted>'`) go whole.
 - **An error's values go, its names stay.** `Key (id)=(<redacted>) already
   exists`, `Failing row contains (<redacted>)`, `invalid input syntax for type
   integer: "<redacted>"`. PostgreSQL quotes names and values alike, so values in a
@@ -672,7 +683,9 @@ replacements as `redacted=`, `0` included. What goes and what stays:
 
 **What this does not catch:** text an application writes itself — a `RAISE
 EXCEPTION` message, `DETAIL` or `HINT`, such as `customer 12345 over limit` — is in
-no shape the agent knows, and stays; so do comments in a plan's `Query Text`. The
+no shape the agent knows, and stays; so do comments in the SQL the agent keeps
+(a statement's, a `CONTEXT` frame's, a plan's `Query Text`), and a value an
+application writes into dynamic SQL without quoting it, which reads as a name. The
 message shapes are English, as the tails' matching is: a server whose `lc_messages`
 translates them writes values the shapes do not find. In csvlog and jsonlog a
 deadlock's `DETAIL` in another language is replaced whole, and so is a translated

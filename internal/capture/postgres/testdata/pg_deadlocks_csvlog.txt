@@ -1,11 +1,11 @@
 # engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid= status=started window=20s schedule=every interval=10s samples_expected=2 ts=2026-08-07T14:32:04.980Z
 # engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=1 log_format=csvlog log_formats=csvlog log_path=log/postgresql-2026-08-15_100224.csv log_resolved_by=current_logfiles log_access=direct matched_by=sqlstate from_offset=0 to_offset=0 matched=0 redacted=0 bytes=0 ts=2026-08-07T14:32:05.020Z
-# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=csvlog log_resolved_by=current_logfiles matched_by=sqlstate from_offset=0 to_offset=866 matched=1 redacted=4 bytes=624 ts=2026-08-07T14:32:15.020Z
+# engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 sample=2 log_format=csvlog log_resolved_by=current_logfiles matched_by=sqlstate from_offset=0 to_offset=866 matched=1 redacted=7 bytes=734 ts=2026-08-07T14:32:15.020Z
 2026-09-27 04:35:11.001 UTC,"postgres","yc_redact_measure",52499,"[local]",6ab89cfc.cd13,1,"SELECT",2026-09-27 04:35:08 UTC,21/719,2523,ERROR,40P01,"deadlock detected","Process 52499 waits for ShareLock on transaction 2524; blocked by process 52498.
 Process 52498 waits for ShareLock on transaction 2523; blocked by process 52499.
-Process 52499: <redacted>
-Process 52498: <redacted>","See server log for query details.",,,"while updating tuple (0,3) in relation ""dl""
-SQL statement ""<redacted>""
-PL/pgSQL function bump(integer,integer) line 5 at SQL statement","<redacted>",,,"psql","client backend",,-5101566428157288899
+Process 52499: SELECT bump(<redacted>, <redacted>)
+Process 52498: SELECT bump(<redacted>, <redacted>)","See server log for query details.",,,"while updating tuple (0,3) in relation ""dl""
+SQL statement ""UPDATE dl SET v = v + <redacted> WHERE id = b""
+PL/pgSQL function bump(integer,integer) line 5 at SQL statement","SELECT bump(<redacted>, <redacted>)",,,"psql","client backend",,-5101566428157288899
 # engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 drain=true log_format=csvlog log_resolved_by=current_logfiles from_offset=866 to_offset=866 matched=0 redacted=0 bytes=0 ts=2026-08-07T14:32:25.040Z
 # engine=postgres source=pg_deadlocks v=1 format=text scope=cluster db=orders_db dbid=16401 status=complete samples_expected=2 samples_written=2 samples_skipped=0 ts=2026-08-07T14:32:25.052Z

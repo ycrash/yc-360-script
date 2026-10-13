@@ -4347,10 +4347,10 @@ func TestMatrixLogTailDeadlock(t *testing.T) {
 					"are TAB continuations a line-oriented reader would mis-attribute")
 			assert.Contains(t, block.body, "CONTEXT:",
 				"and the line a DETAIL-only rule stops before, which names the relation and the tuple")
-			assert.Contains(t, block.body, "STATEMENT:  <redacted>")
+			assert.Contains(t, block.body, "STATEMENT:  UPDATE yc_dl SET v = v + <redacted> WHERE id = <redacted>")
 
-			assert.NotContains(t, block.body, "SET v = v + 1", "neither process's statement is written")
-			assert.Equal(t, "3", block.fields["redacted"], "the two processes' statements and the victim's")
+			assert.NotContains(t, block.body, "SET v = v + 1", "no statement's values are written")
+			assert.Equal(t, "6", block.fields["redacted"], "two values in each process's statement and in the victim's")
 
 			size, err := strconv.Atoi(block.fields["bytes"])
 			require.NoError(t, err)
@@ -4661,9 +4661,10 @@ func TestMatrixLogTailStructuredFormats(t *testing.T) {
 				assert.Contains(t, matched.body, "deadlock detected")
 				assert.Contains(t, matched.body, "40P01")
 
-				assert.NotContains(t, matched.body, "SET v = v + 1",
-					"the statements are replaced inside the record's own fields")
-				assert.Equal(t, "3", matched.fields["redacted"],
+				assert.Contains(t, matched.body, "SET v = v + <redacted> WHERE id = <redacted>",
+					"the statements' values are replaced inside the record's own fields")
+				assert.NotContains(t, matched.body, "SET v = v + 1")
+				assert.Equal(t, "6", matched.fields["redacted"],
 					"the DETAIL names both processes' statements in this format too")
 
 				size, err := strconv.Atoi(matched.fields["bytes"])
@@ -4753,9 +4754,9 @@ func TestMatrixLogTailErrors(t *testing.T) {
 
 				assert.Equal(t, 1, strings.Count(read, "division by zero"))
 				assert.Equal(t, 2, strings.Count(read, "does not exist"), "the FATAL is taken, and the sentinel")
-				assert.Contains(t, read, "<redacted>",
-					"the statement comes with its error, replaced: a STATEMENT line, or the record's own field")
-				assert.NotContains(t, read, "SELECT 1", "no statement's text is written")
+				assert.Contains(t, read, "SELECT <redacted>/<redacted>",
+					"the statement comes with its error, less its values: a STATEMENT line, or the record's own field")
+				assert.NotContains(t, read, "SELECT 1", "no statement's values are written")
 
 				assert.NotContains(t, read, "deadlock detected", "pg_deadlocks.txt's")
 				assert.NotContains(t, read, "statement timeout", "pg_timeouts.txt's")

@@ -5,8 +5,8 @@ import (
 	"io"
 )
 
-// Deadlocks copies every deadlock report the server logged during the window, with its
-// statements' text replaced: the processes, locks and transactions are kept.
+// Deadlocks copies every deadlock report the server logged during the window, with the
+// values in its statements replaced: the processes, locks, transactions and SQL are kept.
 type Deadlocks struct {
 	tail logTail
 }

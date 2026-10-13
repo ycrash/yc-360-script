@@ -431,36 +431,34 @@ func TestErrorsGoldenUnreadable(t *testing.T) {
 func TestErrorsRedactionReplacesEveryValueTheMeasuredErrorsQuote(t *testing.T) {
 	written := strings.NewReplacer(
 		"Key (id)=(1) already exists.", "Key (id)=(<redacted>) already exists.",
-		"STATEMENT:  INSERT INTO p VALUES (1);", "STATEMENT:  <redacted>",
+		"INSERT INTO p VALUES (1);", "INSERT INTO p VALUES (<redacted>);",
 		"Key (pid)=(99) is not present", "Key (pid)=(<redacted>) is not present",
-		"STATEMENT:  INSERT INTO c VALUES (1, 99, 'fk secret', 5);", "STATEMENT:  <redacted>",
+		"VALUES (1, 99, 'fk secret', 5);", "VALUES (<redacted>, <redacted>, '<redacted>', <redacted>);",
 		"Failing row contains (2, 1, check secret, -5).", "Failing row contains (<redacted>).",
-		"STATEMENT:  INSERT INTO c VALUES (2, 1, 'check secret', -5);", "STATEMENT:  <redacted>",
+		"VALUES (2, 1, 'check secret', -5);", "VALUES (<redacted>, <redacted>, '<redacted>', -<redacted>);",
 		"Failing row contains (3, 1, null, 5).", "Failing row contains (<redacted>).",
-		"STATEMENT:  INSERT INTO c VALUES (3, 1, NULL, 5);", "STATEMENT:  <redacted>",
+		"VALUES (3, 1, NULL, 5);", "VALUES (<redacted>, <redacted>, NULL, <redacted>);",
 		`integer: "abc secret" at character 8`, `integer: "<redacted>" at character 8`,
-		"STATEMENT:  SELECT 'abc secret'::int;", "STATEMENT:  <redacted>",
+		"SELECT 'abc secret'::int;", "SELECT '<redacted>'::int;",
 		`Token "secret" is invalid.`, `Token "<redacted>" is invalid.`,
 		`JSON data, line 1: {"card": 4111 secret...`, `JSON data, line 1: <redacted>`,
-		`STATEMENT:  SELECT '{"card": 4111 secret}'::json;`, "STATEMENT:  <redacted>",
+		`SELECT '{"card": 4111 secret}'::json;`, "SELECT '<redacted>'::json;",
 		`integer: "multi line secret" at character 13`, `integer: "<redacted>" at character 13`,
-		"STATEMENT:  SELECT 1,\n\t  'multi line secret'::int;", "STATEMENT:  <redacted>",
-		"STATEMENT:  DO $$ BEGIN RAISE EXCEPTION 'customer % over limit', 12345 USING DETAIL = 'balance 99.50', HINT = 'call 555-0100'; END $$;",
-		"STATEMENT:  <redacted>",
-		"QUERY:  SELEC 'exec secret'", "QUERY:  <redacted>",
-		"STATEMENT:  DO $$ BEGIN EXECUTE 'SELEC ''exec secret'''; END $$;", "STATEMENT:  <redacted>",
-		`SQL statement "INSERT INTO p VALUES (1)"`, `SQL statement "<redacted>"`,
-		"STATEMENT:  DO $$ BEGIN INSERT INTO p VALUES (1); END $$;", "STATEMENT:  <redacted>",
+		"SELECT 1,\n\t  'multi line secret'::int;", "SELECT <redacted>,\n\t  '<redacted>'::int;",
+		"DO $$ BEGIN RAISE EXCEPTION 'customer % over limit', 12345 USING DETAIL = 'balance 99.50', HINT = 'call 555-0100'; END $$;",
+		"DO $$<redacted>$$;",
+		"QUERY:  SELEC 'exec secret'", "QUERY:  SELEC '<redacted>'",
+		"DO $$ BEGIN EXECUTE 'SELEC ''exec secret'''; END $$;", "DO $$<redacted>$$;",
+		`SQL statement "INSERT INTO p VALUES (1)"`, `SQL statement "INSERT INTO p VALUES (<redacted>)"`,
+		"DO $$ BEGIN INSERT INTO p VALUES (1); END $$;", "DO $$<redacted>$$;",
 		`integer: "x secret"`, `integer: "<redacted>"`,
 		`column id: "x secret"`, `column id: "<redacted>"`,
-		"STATEMENT:  COPY c FROM stdin", "STATEMENT:  <redacted>",
 		"Failing row contains (11, 1, bad, -7).", "Failing row contains (<redacted>).",
 		"COPY c, line 2: \"11\t1\tbad\t-7\"", `COPY c, line 2: "<redacted>"`,
 		`integer: "bind secret"`, `integer: "<redacted>"`,
 		"$1 = 'bind secret'", "$1 = '<redacted>'",
-		"STATEMENT:  SELECT $1::int \n", "STATEMENT:  <redacted>\n",
 		"$1 = '5', $2 = 'param secret'", "$1 = '<redacted>', $2 = '<redacted>'",
-		"STATEMENT:  SELECT 1 / ($1::int - 5), $2::text \n", "STATEMENT:  <redacted>\n",
+		"SELECT 1 / ($1::int - 5), $2::text", "SELECT <redacted> / ($1::int - <redacted>), $2::text",
 	)
 
 	for _, stream := range []struct {
@@ -482,12 +480,13 @@ func TestErrorsRedactionReplacesEveryValueTheMeasuredErrorsQuote(t *testing.T) {
 					"the messages, codes, names, positions and frames stay; the values go")
 			}
 
-			assert.NotContains(t, body, "secret", "no value, statement, internal query or bound parameter survives")
-			assert.Equal(t, 35, redacted, "one for each replacement, the same in every format")
+			assert.NotContains(t, body, "secret", "no value in a message, statement, internal query or bound parameter survives")
+			assert.Equal(t, 42, redacted, "one for each replacement, the same in every format")
 
 			for _, kept := range []string{
 				"duplicate key value violates unique constraint", "p_pkey", "c_pid_fkey", "c_amount_check",
-				"null value in column", "syntax error at or near", "SELEC",
+				"null value in column", "syntax error at or near", "SELEC", "INSERT INTO c VALUES (",
+				"COPY c FROM stdin", "SELECT $1::int",
 				"PL/pgSQL function inline_code_block line 1 at SQL statement",
 				"Key (id)=(<redacted>) already exists.", "Key (pid)=(<redacted>) is not present in table",
 				"Failing row contains (<redacted>).", "unnamed portal with parameters: $1 = '<redacted>', $2 = '<redacted>'",
@@ -508,7 +507,7 @@ func TestErrorsRedactionOfTheStreamsTheGoldenReads(t *testing.T) {
 				ended(stream.format, stream.log))
 
 			require.Equal(t, 4, matched)
-			assert.Equal(t, 4, redacted, "the key's value and three statements: the FATAL at connection has none")
+			assert.Equal(t, 5, redacted, "the key's value and the four values in three statements: the FATAL at connection has none")
 			assert.NotContains(t, body, "4021")
 			assert.NotContains(t, body, "pending")
 			assert.Contains(t, body, "yc_no_such_database", "a database's name is a name")

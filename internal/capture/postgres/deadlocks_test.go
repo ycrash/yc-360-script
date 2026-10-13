@@ -413,7 +413,7 @@ func formatExtension(format logFormat) string {
 	return ".log"
 }
 
-func TestDeadlocksRedactionKeepsTheLockWaitsAndReplacesTheStatements(t *testing.T) {
+func TestDeadlocksRedactionKeepsTheLockWaitsAndTheStatementsLessTheirValues(t *testing.T) {
 	redaction := NewDeadlocks().tail.redaction
 
 	for _, tt := range []struct {
@@ -428,63 +428,57 @@ func TestDeadlocksRedactionKeepsTheLockWaitsAndReplacesTheStatements(t *testing.
 			format: logFormatStderr,
 			event:  measuredDeadlockMultiline,
 			replaced: strings.NewReplacer(
-				"Process 52469: UPDATE dl\n\t   SET v = 12\n\t WHERE id = 2;\n", "Process 52469: <redacted>\n",
-				"Process 52468: UPDATE dl SET v = 22 WHERE id = 1;", "Process 52468: <redacted>",
-				"STATEMENT:  UPDATE dl\n\t   SET v = 12\n\t WHERE id = 2;\n", "STATEMENT:  <redacted>\n"),
-			redacted: 3,
+				"SET v = 12\n\t WHERE id = 2;", "SET v = <redacted>\n\t WHERE id = <redacted>;",
+				"SET v = 22 WHERE id = 1;", "SET v = <redacted> WHERE id = <redacted>;"),
+			redacted: 6,
 		},
 		{
 			name:   "stderr, inside a function",
 			format: logFormatStderr,
 			event:  measuredDeadlockInFunction,
 			replaced: strings.NewReplacer(
-				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
-				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
-				`SQL statement "UPDATE dl SET v = v + 100 WHERE id = b"`, `SQL statement "<redacted>"`,
-				"STATEMENT:  SELECT bump(4, 3)", "STATEMENT:  <redacted>"),
-			redacted: 4,
+				"bump(4, 3)", "bump(<redacted>, <redacted>)",
+				"bump(3, 4)", "bump(<redacted>, <redacted>)",
+				"v + 100", "v + <redacted>"),
+			redacted: 7,
 		},
 		{
 			name:   "csvlog, a statement over three lines",
 			format: logFormatCSV,
 			event:  measuredDeadlockMultilineCSV,
 			replaced: strings.NewReplacer(
-				"Process 52469: UPDATE dl\n   SET v = 12\n WHERE id = 2;\nProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;\"",
-				"Process 52469: <redacted>\nProcess 52468: <redacted>\"",
-				"\"UPDATE dl\n   SET v = 12\n WHERE id = 2;\",,,", `"<redacted>",,,`),
-			redacted: 3,
+				"SET v = 12\n WHERE id = 2;", "SET v = <redacted>\n WHERE id = <redacted>;",
+				"SET v = 22 WHERE id = 1;", "SET v = <redacted> WHERE id = <redacted>;"),
+			redacted: 6,
 		},
 		{
 			name:   "csvlog, inside a function",
 			format: logFormatCSV,
 			event:  measuredDeadlockInFunctionCSV,
 			replaced: strings.NewReplacer(
-				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
-				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
-				`SQL statement ""UPDATE dl SET v = v + 100 WHERE id = b""`, `SQL statement ""<redacted>""`,
-				`"SELECT bump(4, 3)",,,`, `"<redacted>",,,`),
-			redacted: 4,
+				"bump(4, 3)", "bump(<redacted>, <redacted>)",
+				"bump(3, 4)", "bump(<redacted>, <redacted>)",
+				"v + 100", "v + <redacted>"),
+			redacted: 7,
 		},
 		{
 			name:   "jsonlog, a statement over three lines",
 			format: logFormatJSON,
 			event:  measuredDeadlockMultilineJSON,
 			replaced: strings.NewReplacer(
-				`Process 52469: UPDATE dl\n   SET v = 12\n WHERE id = 2;\nProcess 52468: UPDATE dl SET v = 22 WHERE id = 1;"`,
-				`Process 52469: <redacted>\nProcess 52468: <redacted>"`,
-				`"statement":"UPDATE dl\n   SET v = 12\n WHERE id = 2;"`, `"statement":"<redacted>"`),
-			redacted: 3,
+				`SET v = 12\n WHERE id = 2;`, `SET v = <redacted>\n WHERE id = <redacted>;`,
+				`SET v = 22 WHERE id = 1;`, `SET v = <redacted> WHERE id = <redacted>;`),
+			redacted: 6,
 		},
 		{
 			name:   "jsonlog, inside a function",
 			format: logFormatJSON,
 			event:  measuredDeadlockInFunctionJSON,
 			replaced: strings.NewReplacer(
-				"Process 52499: SELECT bump(4, 3)", "Process 52499: <redacted>",
-				"Process 52498: SELECT bump(3, 4)", "Process 52498: <redacted>",
-				`SQL statement \"UPDATE dl SET v = v + 100 WHERE id = b\"`, `SQL statement \"<redacted>\"`,
-				`"statement":"SELECT bump(4, 3)"`, `"statement":"<redacted>"`),
-			redacted: 4,
+				"bump(4, 3)", "bump(<redacted>, <redacted>)",
+				"bump(3, 4)", "bump(<redacted>, <redacted>)",
+				"v + 100", "v + <redacted>"),
+			redacted: 7,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -494,9 +488,9 @@ func TestDeadlocksRedactionKeepsTheLockWaitsAndReplacesTheStatements(t *testing.
 			got, redacted := redaction.event([]byte(tt.event), tt.format)
 
 			assert.Equal(t, want, string(got),
-				"the processes, locks, transactions, relation and tuple stay; the SQL goes")
+				"the processes, locks, transactions, relation, tuple and SQL stay; the values go")
 			assert.Equal(t, tt.redacted, redacted, "one for each replacement")
-			assert.NotContains(t, string(got), "SET v", "no statement text survives")
+			assert.Contains(t, string(got), "SET v = ", "each statement keeps its shape")
 		})
 	}
 }
@@ -519,10 +513,11 @@ func TestDeadlocksRedactionHidesATranslatedReport(t *testing.T) {
 
 	got, redacted := NewDeadlocks().tail.redaction.event([]byte(translated), logFormatCSV)
 
-	assert.Equal(t, strings.NewReplacer(german, "<redacted>", `"UPDATE yc_dl SET v=2 WHERE id=2;",,,`, `"<redacted>",,,`).
+	assert.Equal(t, strings.NewReplacer(german, "<redacted>",
+		`"UPDATE yc_dl SET v=2 WHERE id=2;",,,`, `"UPDATE yc_dl SET v=<redacted> WHERE id=<redacted>;",,,`).
 		Replace(translated), string(got),
 		"a DETAIL in no shape the agent reads is replaced whole, where an English rule would miss the SQL in it")
-	assert.Equal(t, 2, redacted)
+	assert.Equal(t, 3, redacted)
 }
 
 func TestDeadlocksRedactionRunsBeforeTheEventCap(t *testing.T) {
@@ -536,8 +531,8 @@ func TestDeadlocksRedactionRunsBeforeTheEventCap(t *testing.T) {
 	require.Equal(t, 1, matched)
 	require.Len(t, events, 1)
 	assert.Equal(t, "2026-08-15 10:00:34.543 UTC [25666] ERROR:  deadlock detected\n"+
-		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>\n", string(events[0]),
-		"the statement is replaced whole, so there is nothing left to cut")
+		"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  INSERT INTO t VALUES ('<redacted>');\n", string(events[0]),
+		"the statement's value is replaced, so there is nothing left to cut")
 	assert.Zero(t, read.eventsTruncated)
 	assert.Equal(t, 1, read.redacted)
 }

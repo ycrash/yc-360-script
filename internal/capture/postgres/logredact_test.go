@@ -30,28 +30,39 @@ func TestRedactContextReplacesSQLAndDataAndKeepsNames(t *testing.T) {
 		},
 		{
 			// measured on postgres:18, 2026-09-27
-			name:     "the SQL a function ran",
+			name:     "the SQL a function ran keeps its shape",
 			context:  "SQL statement \"INSERT INTO p VALUES (1)\"\nPL/pgSQL function inline_code_block line 1 at SQL statement",
-			want:     "SQL statement \"<redacted>\"\nPL/pgSQL function inline_code_block line 1 at SQL statement",
+			want:     "SQL statement \"INSERT INTO p VALUES (<redacted>)\"\nPL/pgSQL function inline_code_block line 1 at SQL statement",
 			redacted: 1,
+		},
+		{
+			// measured on postgres:18.6, 2026-10-13: a deadlock inside a function
+			name: "SQL holding only names and variables stays",
+			context: "while updating tuple (0,5) in relation \"accounts\"\n" +
+				"SQL statement \"UPDATE accounts SET balance = balance + amt WHERE id = dst\"\n" +
+				"PL/pgSQL function transfer(integer,integer,numeric) line 5 at SQL statement",
+			want: "while updating tuple (0,5) in relation \"accounts\"\n" +
+				"SQL statement \"UPDATE accounts SET balance = balance + amt WHERE id = dst\"\n" +
+				"PL/pgSQL function transfer(integer,integer,numeric) line 5 at SQL statement",
 		},
 		{
 			name: "SQL over several lines, up to the next frame",
 			context: "SQL statement \"UPDATE t\n   SET note = 'a \"quoted\" word'\n WHERE id = 1\"\n" +
 				"PL/pgSQL function f() line 3 at SQL statement",
-			want:     "SQL statement \"<redacted>\"\nPL/pgSQL function f() line 3 at SQL statement",
-			redacted: 1,
+			want: "SQL statement \"UPDATE t\n   SET note = '<redacted>'\n WHERE id = <redacted>\"\n" +
+				"PL/pgSQL function f() line 3 at SQL statement",
+			redacted: 2,
 		},
 		{
 			name:     "an expression PL/pgSQL evaluated",
 			context:  "SQL expression \"x > 'secret'\"\nPL/pgSQL function f() line 4 at IF",
-			want:     "SQL expression \"<redacted>\"\nPL/pgSQL function f() line 4 at IF",
+			want:     "SQL expression \"x > '<redacted>'\"\nPL/pgSQL function f() line 4 at IF",
 			redacted: 1,
 		},
 		{
 			name:     "an assignment PL/pgSQL made",
 			context:  "PL/pgSQL assignment \"total := 99.50\"\nPL/pgSQL function f() line 5 at assignment",
-			want:     "PL/pgSQL assignment \"<redacted>\"\nPL/pgSQL function f() line 5 at assignment",
+			want:     "PL/pgSQL assignment \"total := <redacted>\"\nPL/pgSQL function f() line 5 at assignment",
 			redacted: 1,
 		},
 		{
@@ -101,7 +112,7 @@ func TestRedactContextReplacesSQLAndDataAndKeepsNames(t *testing.T) {
 			redacted: 1,
 		},
 		{
-			name:     "a frame of no known shape after a replaced one is taken as its text",
+			name:     "SQL not closed where its frame ends is replaced whole",
 			context:  "SQL statement \"SELECT 1\"\nsomething no frame opens with",
 			want:     "SQL statement \"<redacted>\"",
 			redacted: 1,
@@ -125,8 +136,28 @@ func TestRedactDeadlockReport(t *testing.T) {
 	assert.Zero(t, redacted)
 
 	got, redacted = redactDeadlockReport(waits + "\nProcess 112: UPDATE t\n   SET v = 'a'\n WHERE id = 2;\nProcess 105: SELECT 1")
-	assert.Equal(t, waits+"\nProcess 112: <redacted>\nProcess 105: <redacted>", got,
-		"a statement's lines go with it, up to the next process")
+	assert.Equal(t, waits+"\nProcess 112: UPDATE t\n   SET v = '<redacted>'\n WHERE id = <redacted>;\nProcess 105: SELECT <redacted>", got,
+		"a statement keeps its lines up to the next process, less its values")
+	assert.Equal(t, 3, redacted)
+
+	parameters := waits + "\nProcess 112: UPDATE t SET v = v + $1 WHERE id = $2\nProcess 105: COMMIT"
+	got, redacted = redactDeadlockReport(parameters)
+	assert.Equal(t, parameters, got, "statements with no values come back as they were")
+	assert.Zero(t, redacted)
+
+	got, redacted = redactDeadlockReport(waits + "\nProcess 112: SELECT 'a\nProcess 7: b'\nProcess 105: SELECT 1")
+	assert.Equal(t, waits+"\nProcess 112: SELECT '<redacted>'\nProcess 105: SELECT <redacted>", got,
+		"only the next process's own opening ends a statement, so a value's line that looks like one stays inside it")
+	assert.Equal(t, 2, redacted)
+
+	got, redacted = redactDeadlockReport(waits + "\nProcess 112: UPDATE t SET note = 'cut off by track_activity_query_size\nProcess 105: SELECT 1")
+	assert.Equal(t, waits+"\nProcess 112: UPDATE t SET note = '<redacted>'\nProcess 105: SELECT <redacted>", got,
+		"a statement cut inside a value loses the rest of it and not the next process")
+	assert.Equal(t, 2, redacted)
+
+	got, redacted = redactDeadlockReport(waits + "\nProcess 105: SELECT 1\nProcess 112: SELECT 2")
+	assert.Equal(t, waits+"\nProcess 105: <redacted>\nProcess 112: <redacted>", got,
+		"statements not in the waits' order are replaced whole")
 	assert.Equal(t, 2, redacted)
 
 	translated := "Prozess 112 wartet auf ShareLock auf Transaktion 754; blockiert von Prozess 105.\n" +
@@ -166,23 +197,24 @@ func TestLogRedactionStderrFields(t *testing.T) {
 				"2026-09-27 04:37:42.252 UTC [53174] 2 DETAIL:  probe detail\n" +
 				"2026-09-27 04:37:42.252 UTC [53174] 3 HINT:  probe hint\n" +
 				"2026-09-27 04:37:42.252 UTC [53174] 4 CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE\n" +
-				"2026-09-27 04:37:42.252 UTC [53174] 5 STATEMENT:  <redacted>\n",
+				"2026-09-27 04:37:42.252 UTC [53174] 5 STATEMENT:  DO $$<redacted>$$\n",
 			redacted: 1,
 		},
 		{
 			name:     "a Windows line ending is kept",
 			event:    "ERROR:  boom\r\nSTATEMENT:  SELECT 'a'\r\n\tFROM t\r\n",
-			want:     "ERROR:  boom\r\nSTATEMENT:  <redacted>\r\n",
+			want:     "ERROR:  boom\r\nSTATEMENT:  SELECT '<redacted>'\r\n\tFROM t\r\n",
 			redacted: 1,
 		},
 		{
 			name: "a stray line goes with the field before it",
 			event: "2026-08-15 10:00:34.543 UTC [25666] ERROR:  boom\n" +
 				"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  SELECT 'a'\n" +
-				"a line from nowhere that names no keyword\n",
+				"a line from nowhere that names 42\n",
 			want: "2026-08-15 10:00:34.543 UTC [25666] ERROR:  boom\n" +
-				"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  <redacted>\n",
-			redacted: 1,
+				"2026-08-15 10:00:34.543 UTC [25666] STATEMENT:  SELECT '<redacted>'\n" +
+				"\ta line from nowhere that names <redacted>\n",
+			redacted: 2,
 		},
 		{
 			name: "a replaced field that ran over lines is written on their lines, TAB first",
@@ -190,20 +222,25 @@ func TestLogRedactionStderrFields(t *testing.T) {
 				"CONTEXT:  SQL statement \"SELECT 'a'\n\tFROM t\"\n" +
 				"\tPL/pgSQL function f() line 3 at SQL statement\n",
 			want: "ERROR:  boom\n" +
-				"CONTEXT:  SQL statement \"<redacted>\"\n" +
+				"CONTEXT:  SQL statement \"SELECT '<redacted>'\n\tFROM t\"\n" +
 				"\tPL/pgSQL function f() line 3 at SQL statement\n",
 			redacted: 1,
 		},
 		{
-			name:     "an internal query is replaced whole",
+			name:     "an internal query keeps its shape and loses its values",
 			event:    "ERROR:  syntax error at or near \"SELEC\" at character 1\nQUERY:  SELEC 'exec secret'\n",
-			want:     "ERROR:  syntax error at or near \"SELEC\" at character 1\nQUERY:  <redacted>\n",
+			want:     "ERROR:  syntax error at or near \"SELEC\" at character 1\nQUERY:  SELEC '<redacted>'\n",
 			redacted: 1,
+		},
+		{
+			name:  "a statement with no values comes back as it was",
+			event: "ERROR:  boom\nSTATEMENT:  SELECT $1::int\n",
+			want:  "ERROR:  boom\nSTATEMENT:  SELECT $1::int\n",
 		},
 		{
 			name:     "an event held back before its end was proven has no last newline",
 			event:    "ERROR:  boom\nSTATEMENT:  SELECT 'a'",
-			want:     "ERROR:  boom\nSTATEMENT:  <redacted>",
+			want:     "ERROR:  boom\nSTATEMENT:  SELECT '<redacted>'",
 			redacted: 1,
 		},
 	} {
@@ -226,7 +263,7 @@ func TestLogRedactionCSVRecord(t *testing.T) {
 	appended := strings.TrimSuffix(measuredTimeoutBesideCSV, "\n") + `,"a column a later version appended"` + "\n"
 
 	got, redacted = r.event([]byte(appended), logFormatCSV)
-	assert.Equal(t, strings.Replace(appended, `"SELECT pg_sleep(2);"`, `"<redacted>"`, 1), string(got))
+	assert.Equal(t, strings.Replace(appended, `"SELECT pg_sleep(2);"`, `"SELECT pg_sleep(<redacted>);"`, 1), string(got))
 	assert.Equal(t, 1, redacted)
 
 	got, redacted = r.event([]byte(`2026-09-27 01:49:46.564 UTC,"postgres","an open quote`+"\n"), logFormatCSV)
@@ -243,10 +280,11 @@ func TestLogRedactionJSONRecord(t *testing.T) {
 
 	got, redacted := r.event([]byte(escaped), logFormatJSON)
 	assert.Equal(t,
-		strings.Replace(escaped, `"statement":"SELECT '\\', E'\t', '\u0001'"`, `"statement":"<redacted>"`, 1),
+		strings.Replace(escaped, `"statement":"SELECT '\\', E'\t', '\u0001'"`,
+			`"statement":"SELECT '<redacted>', E'<redacted>', '<redacted>'"`, 1),
 		string(got),
 		"only the top-level statement is re-encoded; the relation's name keeps its bytes")
-	assert.Equal(t, 1, redacted)
+	assert.Equal(t, 3, redacted)
 
 	got, redacted = r.event([]byte(`{"message":"cut short`+"\n"), logFormatJSON)
 	assert.Equal(t, "<redacted>\n", string(got), "a line the agent cannot split is written as nothing")

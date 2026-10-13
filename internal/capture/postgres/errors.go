@@ -6,8 +6,8 @@ import (
 )
 
 // Errors copies every entry the server logged at ERROR, FATAL or PANIC during the
-// window, less what pg_deadlocks.txt and pg_timeouts.txt copy, with the statements and
-// the values an entry quotes replaced.
+// window, less what pg_deadlocks.txt and pg_timeouts.txt copy, with the values in its
+// statements and the values an entry quotes replaced.
 type Errors struct {
 	tail logTail
 }

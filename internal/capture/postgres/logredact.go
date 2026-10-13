@@ -8,16 +8,16 @@ import (
 	"unicode/utf8"
 )
 
-// logRedaction is what a log tail replaces in each event before writing it: the SQL
-// text and the values the event carries, never its names, codes or numbers. Each
-// replacement is one redactedValue, and the block's redacted= counts them. An event is
-// otherwise written as read: in csvlog and jsonlog only the fields that changed are
-// re-encoded, the way the server encodes them.
+// logRedaction is what a log tail replaces in each event before writing it: the values
+// in the SQL the event quotes and the values the event carries, never its names, codes
+// or numbers. Each replacement is one redactedValue, and the block's redacted= counts
+// them. An event is otherwise written as read: in csvlog and jsonlog only the fields
+// that changed are re-encoded, the way the server encodes them.
 type logRedaction struct {
-	// deadlockReport reads DETAIL as a deadlock report: its lock lines are kept, the
-	// text after each "Process <n>: " is replaced, and so is any line of another shape.
-	// csvlog and jsonlog take a translated report by its code, where no English shape
-	// would find the SQL in it.
+	// deadlockReport reads DETAIL as a deadlock report: its lock lines are kept, and so
+	// is each process's statement, less its values. A report in another shape keeps
+	// only the lock lines it has: csvlog and jsonlog take a translated report by its
+	// code, where no English shape would find the SQL in it.
 	deadlockReport bool
 
 	// plans reads the message as an auto_explain entry: its first line, then a plan,
@@ -56,7 +56,7 @@ func (r *logRedaction) field(sqlstate string, kind logField, text string) (strin
 
 	switch kind {
 	case fieldStatement, fieldInternalQuery:
-		return redactedValue, 1
+		return redactLiterals(text)
 
 	case fieldMessage:
 		if r.plans {
@@ -247,14 +247,71 @@ func redactDetail(sqlstate, text string) (string, int) {
 	return text, 0
 }
 
-// A deadlock report's DETAIL names each process's lock wait, then each process's
-// statement, which may run over several lines.
+// A deadlock report's DETAIL names each process's lock wait, then, in the same order,
+// each process's statement, which may run over several lines.
 var (
-	deadlockWait  = regexp.MustCompile(`^Process \d+ waits for .+; blocked by process \d+\.$`)
+	deadlockWait  = regexp.MustCompile(`^Process (\d+) waits for .+; blocked by process \d+\.$`)
 	deadlockQuery = regexp.MustCompile(`^Process \d+: `)
 )
 
+// redactDeadlockReport keeps the lock waits and each statement with its values
+// replaced. A statement runs on until the next process's opens, so a line inside it
+// that looks like any other is still its text.
 func redactDeadlockReport(text string) (string, int) {
+	lines := strings.Split(text, "\n")
+
+	var pids []string
+
+	for _, line := range lines {
+		match := deadlockWait.FindStringSubmatch(line)
+		if match == nil {
+			break
+		}
+
+		pids = append(pids, match[1])
+	}
+
+	if len(pids) == 0 {
+		return redactUnreadDeadlockReport(text)
+	}
+
+	out := append([]string(nil), lines[:len(pids)]...)
+	rest := lines[len(pids):]
+	redacted := 0
+
+	for k := 0; k < len(pids) && len(rest) > 0; k++ {
+		opening := "Process " + pids[k] + ": "
+		if !strings.HasPrefix(rest[0], opening) {
+			return redactUnreadDeadlockReport(text)
+		}
+
+		end := len(rest)
+
+		if k+1 < len(pids) {
+			next := "Process " + pids[k+1] + ": "
+
+			end = 1
+			for end < len(rest) && !strings.HasPrefix(rest[end], next) {
+				end++
+			}
+		}
+
+		statement, n := redactLiterals(strings.TrimPrefix(strings.Join(rest[:end], "\n"), opening))
+		out = append(out, opening+statement)
+		redacted += n
+		rest = rest[end:]
+	}
+
+	if redacted == 0 {
+		return text, 0
+	}
+
+	return strings.Join(out, "\n"), redacted
+}
+
+// redactUnreadDeadlockReport is a report not in the order the server writes one: its
+// lock waits are kept, each statement is replaced whole, and so is any other line.
+func redactUnreadDeadlockReport(text string) (string, int) {
 	var (
 		out       []string
 		redacted  int
@@ -294,19 +351,17 @@ func redactDeadlockReport(text string) (string, int) {
 	return strings.Join(out, "\n"), redacted
 }
 
-// CONTEXT holds one frame per line, innermost first. Frames that quote SQL text or
-// carry row data or parameter values have that part replaced; the rest name
-// functions, relations and positions and are kept.
+// CONTEXT holds one frame per line, innermost first. Frames that quote SQL text keep
+// it less its values; frames that carry row data or parameter values have that part
+// replaced; the rest name functions, relations and positions and are kept.
 var (
 	// contextValues are the frames whose text after the match is replaced, and what
-	// closes that text: SPI's for the SQL a function ran or an expression PL/pgSQL
-	// evaluated, COPY's for a column's value or a whole line of input, and the json
-	// parser's for the input around the error.
+	// closes that text: COPY's for a column's value or a whole line of input, and the
+	// json parser's for the input around the error.
 	contextValues = []struct {
 		open  *regexp.Regexp
 		close string
 	}{
-		{contextSQL, `"`},
 		{regexp.MustCompile(`^COPY .*?, line \d+(?:, column .*?)?: "`), `"`},
 		{regexp.MustCompile(`^JSON data, line \d+: `), ""},
 	}
@@ -324,19 +379,41 @@ var (
 )
 
 func redactContext(text string) (string, int) {
+	lines := strings.Split(text, "\n")
+
 	var (
 		out       []string
 		redacted  int
 		runningOn bool
 	)
 
-	for line := range strings.SplitSeq(text, "\n") {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
 		// A replaced frame's text can hold newlines; it runs until a line opens a frame.
 		if runningOn && !contextFrame.MatchString(line) {
 			continue
 		}
 
 		runningOn = false
+
+		if frame, open, end := sqlFrame(lines, i); open > 0 {
+			// SQL not closed where its frame ends can't be told from what follows it.
+			sql, closed := strings.CutSuffix(frame[open:], `"`)
+
+			n := 1
+			if closed {
+				sql, n = redactLiterals(sql)
+			} else {
+				sql = redactedValue
+			}
+
+			out = append(out, frame[:open]+sql+`"`)
+			redacted += n
+			i = end - 1
+
+			continue
+		}
 
 		for _, frame := range contextValues {
 			if at := frame.open.FindStringIndex(line); at != nil {
@@ -365,8 +442,25 @@ func redactContext(text string) (string, int) {
 	return strings.Join(out, "\n"), redacted
 }
 
-// redactContextCredentials searches each frame's quoted SQL, which runs on until a line
-// opens the next frame, and keeps every frame's other text.
+// sqlFrame is the frame lines[i] opens when it quotes SQL: its text, where the SQL in
+// it starts, and the line after it. The SQL can hold newlines, so it runs on until a
+// line opens the next frame. open is 0 for any other frame.
+func sqlFrame(lines []string, i int) (frame string, open, end int) {
+	at := contextSQL.FindStringIndex(lines[i])
+	if at == nil {
+		return lines[i], 0, i + 1
+	}
+
+	end = i + 1
+	for end < len(lines) && !contextFrame.MatchString(lines[end]) {
+		end++
+	}
+
+	return strings.Join(lines[i:end], "\n"), at[1], end
+}
+
+// redactContextCredentials searches each frame's quoted SQL and keeps every frame's
+// other text.
 func redactContextCredentials(text string) (string, int) {
 	lines := strings.Split(text, "\n")
 
@@ -376,25 +470,16 @@ func redactContextCredentials(text string) (string, int) {
 	)
 
 	for i := 0; i < len(lines); {
-		end := i + 1
-		at := contextSQL.FindStringIndex(lines[i])
+		frame, open, end := sqlFrame(lines, i)
 
-		if at != nil {
-			for end < len(lines) && !contextFrame.MatchString(lines[end]) {
-				end++
-			}
-		}
-
-		frame := strings.Join(lines[i:end], "\n")
-
-		if at != nil {
-			sql, closing := frame[at[1]:], ""
+		if open > 0 {
+			sql, closing := frame[open:], ""
 			if trimmed, found := strings.CutSuffix(sql, `"`); found {
 				sql, closing = trimmed, `"`
 			}
 
 			sql, n := redactCredentials(sql)
-			frame = frame[:at[1]] + sql + closing
+			frame = frame[:open] + sql + closing
 			redacted += n
 		}
 
