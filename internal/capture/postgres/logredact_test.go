@@ -112,6 +112,33 @@ func TestRedactContextReplacesSQLAndDataAndKeepsNames(t *testing.T) {
 			redacted: 1,
 		},
 		{
+			// measured on postgres:18.6, 2026-10-13: a foreign table's pushed-down WHERE
+			name: "the SQL postgres_fdw sent the remote server keeps its shape",
+			context: "remote SQL command: SELECT id, email FROM public.yc_fdw_src " +
+				"WHERE ((email = 'alice@example.com')) AND (((id / 0) = 1))",
+			want: "remote SQL command: SELECT id, email FROM public.yc_fdw_src " +
+				"WHERE ((email = '<redacted>')) AND (((id / <redacted>) = <redacted>))",
+			redacted: 3,
+		},
+		{
+			name: "remote SQL runs to the next frame, a value's newline included",
+			context: "remote SQL command: SELECT id FROM public.t WHERE ((note = 'a\nb'))\n" +
+				"SQL statement \"SELECT count(*) FROM t WHERE note = 'x'\"\n" +
+				"PL/pgSQL function f() line 3 at SQL statement",
+			want: "remote SQL command: SELECT id FROM public.t WHERE ((note = '<redacted>'))\n" +
+				"SQL statement \"SELECT count(*) FROM t WHERE note = '<redacted>'\"\n" +
+				"PL/pgSQL function f() line 3 at SQL statement",
+			redacted: 2,
+		},
+		{
+			name: "remote SQL closes the SQL frame before it, which keeps its shape",
+			context: "SQL statement \"SELECT f('x')\"\n" +
+				"remote SQL command: SELECT 1 FROM public.t WHERE ((id = 2))",
+			want: "SQL statement \"SELECT f('<redacted>')\"\n" +
+				"remote SQL command: SELECT <redacted> FROM public.t WHERE ((id = <redacted>))",
+			redacted: 3,
+		},
+		{
 			name:     "SQL not closed where its frame ends is replaced whole",
 			context:  "SQL statement \"SELECT 1\"\nsomething no frame opens with",
 			want:     "SQL statement \"<redacted>\"",

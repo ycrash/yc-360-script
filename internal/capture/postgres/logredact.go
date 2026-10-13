@@ -366,16 +366,24 @@ var (
 		{regexp.MustCompile(`^JSON data, line \d+: `), ""},
 	}
 
-	// contextSQL opens a frame quoting the SQL a function ran or an expression it evaluated.
-	contextSQL = regexp.MustCompile(`^(?:SQL statement|SQL expression|PL/pgSQL assignment) "`)
+	// contextSQL are the frames that carry SQL, and what closes it: SPI's quote the SQL a
+	// function ran or an expression it evaluated, and postgres_fdw's runs unquoted to the
+	// frame's end with the SQL it sent the remote server.
+	contextSQL = []struct {
+		open  *regexp.Regexp
+		close string
+	}{
+		{regexp.MustCompile(`^(?:SQL statement|SQL expression|PL/pgSQL assignment) "`), `"`},
+		{regexp.MustCompile(`^remote SQL command: `), ""},
+	}
 
 	// contextParameters is the extended protocol's frame for a portal's bind values.
 	contextParameters = regexp.MustCompile(`^(?:unnamed portal|portal ".*?") (?:with parameters: |parameter )`)
 
 	// contextFrame opens a frame, which ends a replaced one's text running on.
 	contextFrame = regexp.MustCompile(`^(?:PL/pgSQL function |SQL function "|SQL statement "|SQL expression "|` +
-		`PL/pgSQL assignment "|COPY |JSON data, line |unnamed portal |portal "|while |automatic (?:vacuum|analyze) |` +
-		`parallel worker|writing block |processing remote data )`)
+		`PL/pgSQL assignment "|remote SQL command: |COPY |JSON data, line |unnamed portal |portal "|while |` +
+		`automatic (?:vacuum|analyze) |parallel worker|writing block |processing remote data )`)
 )
 
 func redactContext(text string) (string, int) {
@@ -397,9 +405,9 @@ func redactContext(text string) (string, int) {
 
 		runningOn = false
 
-		if frame, open, end := sqlFrame(lines, i); open > 0 {
+		if frame, open, end, closing := sqlFrame(lines, i); open > 0 {
 			// SQL not closed where its frame ends can't be told from what follows it.
-			sql, closed := strings.CutSuffix(frame[open:], `"`)
+			sql, closed := strings.CutSuffix(frame[open:], closing)
 
 			n := 1
 			if closed {
@@ -408,7 +416,7 @@ func redactContext(text string) (string, int) {
 				sql = redactedValue
 			}
 
-			out = append(out, frame[:open]+sql+`"`)
+			out = append(out, frame[:open]+sql+closing)
 			redacted += n
 			i = end - 1
 
@@ -442,24 +450,28 @@ func redactContext(text string) (string, int) {
 	return strings.Join(out, "\n"), redacted
 }
 
-// sqlFrame is the frame lines[i] opens when it quotes SQL: its text, where the SQL in
-// it starts, and the line after it. The SQL can hold newlines, so it runs on until a
-// line opens the next frame. open is 0 for any other frame.
-func sqlFrame(lines []string, i int) (frame string, open, end int) {
-	at := contextSQL.FindStringIndex(lines[i])
-	if at == nil {
-		return lines[i], 0, i + 1
+// sqlFrame is the frame lines[i] opens when it carries SQL: its text, where the SQL in
+// it starts, the line after it, and what closes the SQL. The SQL can hold newlines, so
+// it runs on until a line opens the next frame. open is 0 for any other frame.
+func sqlFrame(lines []string, i int) (frame string, open, end int, closing string) {
+	for _, sql := range contextSQL {
+		at := sql.open.FindStringIndex(lines[i])
+		if at == nil {
+			continue
+		}
+
+		end = i + 1
+		for end < len(lines) && !contextFrame.MatchString(lines[end]) {
+			end++
+		}
+
+		return strings.Join(lines[i:end], "\n"), at[1], end, sql.close
 	}
 
-	end = i + 1
-	for end < len(lines) && !contextFrame.MatchString(lines[end]) {
-		end++
-	}
-
-	return strings.Join(lines[i:end], "\n"), at[1], end
+	return lines[i], 0, i + 1, ""
 }
 
-// redactContextCredentials searches each frame's quoted SQL and keeps every frame's
+// redactContextCredentials searches the SQL each frame carries and keeps every frame's
 // other text.
 func redactContextCredentials(text string) (string, int) {
 	lines := strings.Split(text, "\n")
@@ -470,12 +482,12 @@ func redactContextCredentials(text string) (string, int) {
 	)
 
 	for i := 0; i < len(lines); {
-		frame, open, end := sqlFrame(lines, i)
+		frame, open, end, closing := sqlFrame(lines, i)
 
 		if open > 0 {
-			sql, closing := frame[open:], ""
-			if trimmed, found := strings.CutSuffix(sql, `"`); found {
-				sql, closing = trimmed, `"`
+			sql, closed := strings.CutSuffix(frame[open:], closing)
+			if !closed {
+				closing = ""
 			}
 
 			sql, n := redactCredentials(sql)

@@ -175,6 +175,18 @@ func TestTimeoutsReplaceOnlyThePasswordsTheirStatementsQuote(t *testing.T) {
 		assert.Equal(t, 1, redacted)
 	})
 
+	t.Run("the SQL postgres_fdw sent the remote server", func(t *testing.T) {
+		in := "2026-08-15 10:01:41.910 UTC [26011] ERROR:  canceling statement due to statement timeout\n" +
+			"2026-08-15 10:01:41.910 UTC [26011] CONTEXT:  remote SQL command: UPDATE public.app_users " +
+			"SET password = 'not-a-real-secret' WHERE ((id = 7))\n" +
+			"2026-08-15 10:01:41.910 UTC [26011] STATEMENT:  UPDATE app_users_remote SET password = $1 WHERE id = 7;\n"
+
+		event, redacted := redaction.event([]byte(in), logFormatStderr)
+
+		assert.Equal(t, hidden(in), string(event), "its other values stay, as the statement's do")
+		assert.Equal(t, 1, redacted)
+	})
+
 	t.Run("csvlog", func(t *testing.T) {
 		in := `2026-08-15 10:01:41.910 UTC,"postgres","postgres",26011,"[local]",6a803945.70,1,"ALTER ROLE",` +
 			`2026-08-15 10:01:30.000 UTC,3/12,0,ERROR,55P03,"canceling statement due to lock timeout",,,,,,` +

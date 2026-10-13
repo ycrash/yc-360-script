@@ -639,7 +639,8 @@ this, though it looks as though it should: that setting bounds bind parameters
 logged with a statement, and the text here is the statement. `MaxEventBytes`
 bounds the volume, not the sensitivity. The passwords are the exception: the rule
 above applies to the `STATEMENT:` and `QUERY:` lines and to the SQL a `CONTEXT`
-frame quotes (`SQL statement "ALTER ROLE app_user PASSWORD '<redacted>'"`), in
+frame carries (`SQL statement "ALTER ROLE app_user PASSWORD '<redacted>'"`, and
+the `remote SQL command:` a `postgres_fdw` foreign table sent its server), in
 stderr, csvlog and jsonlog alike, and each block that read the log counts the
 replacements as `redacted=`. An entry the agent cannot split into its fields is
 searched whole, never dropped.
@@ -663,8 +664,11 @@ replacements as `redacted=`, `0` included. What goes and what stays:
   assignment keeps its shape the same way: `SQL statement "INSERT INTO p VALUES
   (<redacted>)"`, and, in a deadlock inside a function, `SQL statement "UPDATE
   accounts SET balance = balance + amt WHERE id = dst"`, whose names are all
-  variables. A `COPY` value or input line, the input a JSON error stopped at, and
-  a portal's bind values (`$1 = '<redacted>'`) go whole.
+  variables. So does the query a `postgres_fdw` foreign table sent its server when
+  that server's error comes back: `remote SQL command: SELECT id, email FROM
+  public.users WHERE ((email = '<redacted>'))`. A `COPY` value or input line, the
+  input a JSON error stopped at, and a portal's bind values (`$1 = '<redacted>'`)
+  go whole.
 - **An error's values go, its names stay.** `Key (id)=(<redacted>) already
   exists`, `Failing row contains (<redacted>)`, `invalid input syntax for type
   integer: "<redacted>"`. PostgreSQL quotes names and values alike, so values in a
