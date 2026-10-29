@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,10 @@ var jfrFailurePhrases = []string{
 	"is already",      // e.g. "Recording with name 'X' is already running/being used"
 	"no such process", // target pid vanished between IsProcessExists and jcmd
 }
+
+// jfrStartedReply confirms JFR.start worked. A failure replies with only the
+// exception message (e.g. "Java heap space") and jcmd still exits 0.
+const jfrStartedReply = "Started recording"
 
 // JFR captures a JVM Flight Recorder recording for a running Java process.
 // The recording is started with duration=, so the JVM stops it and writes it
@@ -213,11 +218,76 @@ func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error
 	// behavior without profile's higher-frequency sampling.
 	cmd := fmt.Sprintf("JFR.start %s %s duration=%s",
 		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
-	if _, err := t.runJcmd(cmd); err != nil {
+	out, err := t.runJcmd(cmd)
+	if err != nil {
 		return fmt.Errorf("failed to start JFR recording: %w", err)
 	}
+	if strings.Contains(out, jfrStartedReply) {
+		return nil
+	}
 
-	return nil
+	// Not in runJcmd: its jattach fallbacks would resend JFR.start.
+	return settleUnconfirmedStart(t.Pid, name, jvmPath, jcmdReply(t.Pid, out), t.checkRecordings)
+}
+
+// jcmdReply strips jcmd's "<pid>:" header from out.
+func jcmdReply(pid int, out string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), strconv.Itoa(pid)+":"))
+}
+
+// settleUnconfirmedStart resolves an unconfirmed JFR.start with one JFR.check,
+// since the JVM can throw after starting the recording. Running returns nil;
+// anything else an error quoting reply. The empty file is removed only when
+// nothing can write to it: deleting it under a running recording destroys it.
+func settleUnconfirmedStart(pid int, name, jvmPath, reply string, check func() (string, error)) error {
+	fail := func(why string) error {
+		return fmt.Errorf("failed to start JFR recording: the JVM answered JFR.start with %q; %s", reply, why)
+	}
+
+	out, err := check()
+	if errors.Is(err, errJVMGone) {
+		removeUnstartedRecording(pid, jvmPath)
+		return fail("the target JVM has since exited")
+	}
+	if err != nil {
+		return fail(fmt.Sprintf("could not check whether recording %s started: %v", name, err))
+	}
+
+	state, err := jfrRecordingState(out, name)
+	switch {
+	case err != nil:
+		return fail(fmt.Sprintf("could not check whether recording %s started: JFR.check answered %q", name, jcmdReply(pid, out)))
+	case state == "running":
+		logger.Log("WARNING: JFR.start returned %q, but JFR.check confirmed recording %s is running; continuing capture", reply, name)
+		return nil
+	case state == "":
+		removeUnstartedRecording(pid, jvmPath)
+		return fail(fmt.Sprintf("JFR.check does not list recording %s", name))
+	case state == "new":
+		removeUnstartedRecording(pid, jvmPath)
+		return fail(fmt.Sprintf("JFR.check lists recording %s as new, never started", name))
+	default:
+		return fail(fmt.Sprintf("JFR.check lists recording %s as %s", name, state))
+	}
+}
+
+// removeUnstartedRecording deletes jvmPath, here or in the target's mount
+// namespace, if it is empty. Call it only once no recording can write there.
+func removeUnstartedRecording(pid int, jvmPath string) {
+	paths := []string{jvmPath}
+	if runtime.GOOS == "linux" {
+		paths = append(paths, filepath.Join("/proc", strconv.Itoa(pid), "root", jvmPath))
+	}
+
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			logger.Log("WARNING: could not remove the empty JFR recording file %s: %v", p, err)
+		}
+	}
 }
 
 // errJVMGone reports that the target process no longer exists, so no JFR.check
@@ -231,13 +301,16 @@ var errJVMGone = errors.New("the target JVM is gone")
 // the deadline the caller leaves the file to the JVM. A check that fails
 // because the JVM is gone ends the wait at once with errJVMGone.
 func (t *JFR) waitForRecording(name string) error {
-	return waitForRecording(name, jfrCheckTimeout, jfrCheckInterval, func() (string, error) {
-		out, err := t.runJcmd("JFR.check")
-		if err != nil && !IsProcessExists(t.Pid) {
-			return "", errJVMGone
-		}
-		return out, err
-	})
+	return waitForRecording(name, jfrCheckTimeout, jfrCheckInterval, t.checkRecordings)
+}
+
+// checkRecordings runs JFR.check, returning errJVMGone if the target is gone.
+func (t *JFR) checkRecordings() (string, error) {
+	out, err := t.runJcmd("JFR.check")
+	if err != nil && !IsProcessExists(t.Pid) {
+		return "", errJVMGone
+	}
+	return out, err
 }
 
 // waitForRecording is the loop behind JFR.waitForRecording, with the check
@@ -274,19 +347,34 @@ func waitForRecording(name string, timeout, interval time.Duration, check func()
 }
 
 // jfrRecordingFinished reports whether JFR.check's listing shows the JVM done
-// with the named recording, or an error if checkOutput is not a listing at all
-// (a killed jcmd leaves only its "<pid>:" header; a JVM without JFR answers
-// with an error message). A listing has one line per recording,
+// with the named recording, or an error if checkOutput is not a listing at
+// all. The JVM closes a written recording and drops it from the listing, so
+// only "(closed)" or absence means finished. "(stopped)" does not: the JVM
+// stops the recording before it writes the file.
+func jfrRecordingFinished(checkOutput, name string) (bool, error) {
+	state, err := jfrRecordingState(checkOutput, name)
+	if err != nil {
+		return false, err
+	}
+	return state == "" || state == "closed", nil
+}
+
+// jfrStates are the states JFR.check prints, e.g. "(running)".
+var jfrStates = []string{"new", "delayed", "running", "stopped", "closed"}
+
+// jfrRecordingState returns the named recording's state: one of jfrStates,
+// "unknown", or "" if not listed. It errors on output that isn't a listing
+// (a lone "<pid>:" header, a JVM error) or has a malformed row, which could
+// hide the recording. A listing has one row per recording,
 //
 //	Recording 2: name=ycJFR-4321-1788156788942701200 duration=60s (running)
 //
 // with the name quoted on older Oracle JDKs, or a "No available recordings."
-// line. The JVM closes a written recording and drops it from the listing, so
-// only "(closed)" or absence means finished. "(stopped)" does not: the JVM
-// stops the recording before it writes the file.
-func jfrRecordingFinished(checkOutput, name string) (bool, error) {
+// line.
+func jfrRecordingState(checkOutput, name string) (string, error) {
 	bare, quoted := "name="+name, "name=\""+name+"\""
 	isListing := false
+	malformed := ""
 
 	for _, line := range strings.Split(checkOutput, "\n") {
 		line = strings.TrimSpace(line)
@@ -297,22 +385,50 @@ func jfrRecordingFinished(checkOutput, name string) (bool, error) {
 		if !strings.HasPrefix(line, "Recording") {
 			continue
 		}
+		fields, state, ok := jfrRecordingRow(line)
+		if !ok {
+			malformed = line
+			continue
+		}
 		isListing = true
 
 		// Field-by-field so that a recording whose name merely starts with
 		// name - jfrRecordingPath's timestamps are not fixed width - can't be
 		// mistaken for this one.
-		for _, f := range strings.Fields(line) {
-			if f == bare || f == quoted {
-				return strings.Contains(line, "(closed)"), nil
+		if slices.Contains(fields, bare) || slices.Contains(fields, quoted) {
+			if slices.Contains(jfrStates, state) {
+				return state, nil
 			}
+			return "unknown", nil
 		}
 	}
 
-	if !isListing {
-		return false, errors.New("no recording listing in the response")
+	switch {
+	case malformed != "":
+		return "", fmt.Errorf("unrecognised recording row in the response: %q", malformed)
+	case !isListing:
+		return "", errors.New("no recording listing in the response")
+	default:
+		return "", nil
 	}
-	return true, nil
+}
+
+// jfrRecordingRow returns a row's fields and lower-cased state, taken from the
+// last field only (filename= may contain "(new)"). ok is false unless the row
+// has a name= field and ends in a state.
+func jfrRecordingRow(line string) (fields []string, state string, ok bool) {
+	fields = strings.Fields(line)
+	last := fields[len(fields)-1]
+	if len(last) < 3 || !strings.HasPrefix(last, "(") || !strings.HasSuffix(last, ")") {
+		return nil, "", false
+	}
+	hasName := slices.ContainsFunc(fields[:len(fields)-1], func(f string) bool {
+		return strings.HasPrefix(f, "name=")
+	})
+	if !hasName {
+		return nil, "", false
+	}
+	return fields, strings.ToLower(last[1 : len(last)-1]), true
 }
 
 func resolveRecordingPath(pid int, jvmPath string) (string, error) {
