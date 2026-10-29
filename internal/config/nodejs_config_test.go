@@ -29,6 +29,12 @@ func TestNodejsDefaults(t *testing.T) {
 	if c.NodejsCPUProfileDuration.Duration().Seconds() != 30 {
 		t.Errorf("default NodejsCPUProfileDuration = %v, want 30s", c.NodejsCPUProfileDuration)
 	}
+	if c.NodejsWorkerCPUProfile {
+		t.Errorf("default NodejsWorkerCPUProfile = true, want false")
+	}
+	if c.NodejsWorkerProfileCount != 10 {
+		t.Errorf("default NodejsWorkerProfileCount = %d, want 10", c.NodejsWorkerProfileCount)
+	}
 	if c.NodejsDiagnosticWindow.Duration().Seconds() != 30 {
 		t.Errorf("default NodejsDiagnosticWindow = %v, want 30s", c.NodejsDiagnosticWindow)
 	}
@@ -39,7 +45,7 @@ func TestNodejsFlagParsing(t *testing.T) {
 	t.Cleanup(func() { GlobalConfig = saved })
 	GlobalConfig = defaultConfig()
 
-	if err := ParseFlags([]string{"yc", "-nodejsCaptureMode=signal", "-nodejsCPUProfileDuration=45s", "-nodejsReportSignal=SIGQUIT"}); err != nil {
+	if err := ParseFlags([]string{"yc", "-nodejsCaptureMode=signal", "-nodejsCPUProfileDuration=45s", "-nodejsWorkerCPUProfile", "-nodejsWorkerProfileCount=25", "-nodejsReportSignal=SIGQUIT"}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 	if GlobalConfig.NodejsCaptureMode != "signal" {
@@ -47,6 +53,12 @@ func TestNodejsFlagParsing(t *testing.T) {
 	}
 	if GlobalConfig.NodejsCPUProfileDuration.Duration().Seconds() != 45 {
 		t.Errorf("NodejsCPUProfileDuration = %v, want 45s", GlobalConfig.NodejsCPUProfileDuration)
+	}
+	if !GlobalConfig.NodejsWorkerCPUProfile {
+		t.Errorf("NodejsWorkerCPUProfile = false, want true")
+	}
+	if GlobalConfig.NodejsWorkerProfileCount != 25 {
+		t.Errorf("NodejsWorkerProfileCount = %d, want 25", GlobalConfig.NodejsWorkerProfileCount)
 	}
 	if GlobalConfig.NodejsReportSignal != "SIGQUIT" {
 		t.Errorf("NodejsReportSignal = %q, want SIGQUIT", GlobalConfig.NodejsReportSignal)

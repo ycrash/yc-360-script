@@ -366,12 +366,26 @@ Ignored errors: %v
 			Ctx: nodeCtx,
 		}))
 
+		// Per-worker CPU profiles: opt-in only (-nodejsWorkerCPUProfile). Off by
+		// default in all modes (on-demand, onlyCapture, and M3 incident FullCapture)
+		// because concurrent V8 sampling across many worker isolates is a major
+		// CPU-spike source. When enabled, caps via -nodejsWorkerProfileCount.
+		if config.GlobalConfig.NodejsWorkerCPUProfile {
+			nodeExtraCaptures = append(nodeExtraCaptures, nodeNamedCapture{"WORKER CPU PROFILES", goCapture(endpoint, capture.WrapRun(&capture.NodeWorkerCPUProfiles{
+				Pid: pid,
+				Ctx: nodeCtx,
+			}))})
+		} else {
+			logger.Log("Worker CPU Profiles skipped for PID %d: -nodejsWorkerCPUProfile argument is not passed to the command", pid)
+		}
+
 		// Diagnostic Report page artifacts (hook-only).
 		nodeExtraCaptures = append(nodeExtraCaptures,
 			nodeNamedCapture{"EVENT LOOP LAG", goCapture(endpoint, capture.WrapRun(&capture.NodeEventLoopLag{Pid: pid, Ctx: nodeCtx}))},
 			nodeNamedCapture{"UNHANDLED REJECTIONS", goCapture(endpoint, capture.WrapRun(&capture.NodeUnhandledRejections{Pid: pid, Ctx: nodeCtx}))},
 			nodeNamedCapture{"MODULE INVENTORY", goCapture(endpoint, capture.WrapRun(&capture.NodeModuleInventory{Pid: pid, Ctx: nodeCtx}))},
 			nodeNamedCapture{"HANDLE GROWTH", goCapture(endpoint, capture.WrapRun(&capture.NodeHandleGrowth{Pid: pid, Ctx: nodeCtx}))},
+			nodeNamedCapture{"PENDING PROMISES", goCapture(endpoint, capture.WrapRun(&capture.NodePendingPromises{Pid: pid, Ctx: nodeCtx}))},
 		)
 	default:
 		// ------------------------------------------------------------------------------

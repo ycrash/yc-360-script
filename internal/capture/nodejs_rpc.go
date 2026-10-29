@@ -38,6 +38,11 @@ const (
 	nodeMinWindowSeconds = 1
 	nodeMaxWindowSeconds = 300
 
+	// Worker CPU-profile cap bounds (must match the hook's validateMaxWorkers).
+	nodeMinWorkerProfileCount     = 1
+	nodeMaxWorkerProfileCount     = 100
+	nodeDefaultWorkerProfileCount = 10
+
 	nodeMinCPUProfileSeconds = nodeMinWindowSeconds
 	nodeMaxCPUProfileSeconds = nodeMaxWindowSeconds
 )
@@ -155,6 +160,53 @@ func (c *NodeHookClient) DumpCPUProfile(outPath string, windowSeconds int) (*Nod
 	var r NodeCPUProfileResult
 	if err := json.Unmarshal(resp.Result, &r); err != nil {
 		return nil, fmt.Errorf("node dumpCPUProfile result decode failed pid=%d: %w", c.PID, err)
+	}
+	return &r, nil
+}
+
+// NodeWorkerCPUProfilesResult is the (post-window) response of dumpWorkerCPUProfiles.
+type NodeWorkerCPUProfilesResult struct {
+	Path              string  `json:"path"`
+	WorkerCount       int     `json:"workerCount"`
+	TotalWorkerCount  int     `json:"totalWorkerCount"`
+	UnresponsiveCount int     `json:"unresponsiveCount"`
+	WindowSeconds     float64 `json:"windowSeconds"`
+}
+
+// DumpWorkerCPUProfiles profiles the hottest live worker_threads isolates for
+// windowSeconds and writes {totalWorkerCount, skippedCount, unresponsiveCount,
+// profiled:[{threadId, profile}]} to outPath. Async. The hook's hard timeout is
+// windowSeconds+15s for non-yielding workers, so the client read deadline must
+// include that margin.
+//
+// Overhead note: this is a bounded, opt-in diagnostic (-nodejsWorkerCPUProfile;
+// default off in all modes including M3 incident FullCapture). Each targeted
+// worker runs V8's sampling CPU profiler for windowSeconds (same mechanism as
+// DumpCPUProfile). maxWorkers caps how many isolates are profiled (hottest
+// first); the hook also enforces [1, 100].
+func (c *NodeHookClient) DumpWorkerCPUProfiles(outPath string, windowSeconds, maxWorkers int) (*NodeWorkerCPUProfilesResult, error) {
+	if windowSeconds < nodeMinCPUProfileSeconds || windowSeconds > nodeMaxCPUProfileSeconds {
+		return nil, fmt.Errorf("dumpWorkerCPUProfiles windowSeconds must be between %d and %d, got %d", nodeMinCPUProfileSeconds, nodeMaxCPUProfileSeconds, windowSeconds)
+	}
+	if maxWorkers < nodeMinWorkerProfileCount || maxWorkers > nodeMaxWorkerProfileCount {
+		return nil, fmt.Errorf("dumpWorkerCPUProfiles maxWorkers must be between %d and %d, got %d", nodeMinWorkerProfileCount, nodeMaxWorkerProfileCount, maxWorkers)
+	}
+	// Hook finish() hardTimeout is (windowSeconds + 15)s; keep agent deadline above that.
+	timeout := time.Duration(windowSeconds+15)*time.Second + nodeAsyncMargin
+	resp, err := c.call("dumpWorkerCPUProfiles", map[string]any{
+		"outPath":       outPath,
+		"windowSeconds": windowSeconds,
+		"maxWorkers":    maxWorkers,
+	}, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("node dumpWorkerCPUProfiles failed pid=%d: %s", c.PID, resp.Error)
+	}
+	var r NodeWorkerCPUProfilesResult
+	if err := json.Unmarshal(resp.Result, &r); err != nil {
+		return nil, fmt.Errorf("node dumpWorkerCPUProfiles result decode failed pid=%d: %w", c.PID, err)
 	}
 	return &r, nil
 }
@@ -299,6 +351,45 @@ func (c *NodeHookClient) DumpHandleGrowth(outPath string, windowSeconds, interva
 	var r NodeHandleGrowthResult
 	if err := json.Unmarshal(resp.Result, &r); err != nil {
 		return nil, fmt.Errorf("node dumpHandleGrowth result decode failed pid=%d: %w", c.PID, err)
+	}
+	return &r, nil
+}
+
+// NodePendingPromisesResult is the (post-window) response of dumpPendingPromises.
+type NodePendingPromisesResult struct {
+	Path            string  `json:"path"`
+	SampleCount     int     `json:"sampleCount"`
+	WindowSeconds   float64 `json:"windowSeconds"`
+	IntervalSeconds float64 `json:"intervalSeconds"`
+	TrackingCapped  bool    `json:"trackingCapped"`
+	FirstPending    int     `json:"firstPending"`
+	LastPending     int     `json:"lastPending"`
+}
+
+// DumpPendingPromises samples net pending Promise count every intervalSeconds
+// for windowSeconds via window-only async_hooks PROMISE tracking. Async.
+// intervalSeconds MUST be >= 1 and strictly less than windowSeconds.
+func (c *NodeHookClient) DumpPendingPromises(outPath string, windowSeconds, intervalSeconds int) (*NodePendingPromisesResult, error) {
+	if err := validateNodeWindow("dumpPendingPromises", windowSeconds); err != nil {
+		return nil, err
+	}
+	if intervalSeconds < 1 {
+		return nil, fmt.Errorf("dumpPendingPromises intervalSeconds must be >= 1, got %d", intervalSeconds)
+	}
+	if intervalSeconds >= windowSeconds {
+		return nil, fmt.Errorf("dumpPendingPromises intervalSeconds (%d) must be smaller than windowSeconds (%d)", intervalSeconds, windowSeconds)
+	}
+	timeout := time.Duration(windowSeconds)*time.Second + nodeAsyncMargin
+	resp, err := c.call("dumpPendingPromises", map[string]any{"outPath": outPath, "windowSeconds": windowSeconds, "intervalSeconds": intervalSeconds}, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("node dumpPendingPromises failed pid=%d: %s", c.PID, resp.Error)
+	}
+	var r NodePendingPromisesResult
+	if err := json.Unmarshal(resp.Result, &r); err != nil {
+		return nil, fmt.Errorf("node dumpPendingPromises result decode failed pid=%d: %w", c.PID, err)
 	}
 	return &r, nil
 }
