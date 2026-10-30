@@ -308,11 +308,11 @@ func NewExplain(mode string, sq *SlowQueries) *Explain {
 	}
 
 	return &Explain{
-		mode:  mode,
-		sq:    sq,
-		tail:  newLogTail("pg_explain", explainMatch),
-		store: newPlanStore(nil),
-		binds: newBindStore(),
+		mode:   mode,
+		sq:     sq,
+		tail:   newLogTail("pg_explain", explainMatch),
+		store:  newPlanStore(nil),
+		binds:  newBindStore(),
 		seen:   map[statementKey]int{},
 		shapes: map[explainShape]bool{},
 		own:    map[int64]bool{},
