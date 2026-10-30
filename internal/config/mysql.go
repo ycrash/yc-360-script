@@ -33,9 +33,7 @@ var mysqlExplainModes = []string{ExplainAll}
 func (m *MySQL) UnmarshalYAML(value *yaml.Node) error {
 	type target MySQL // no methods, so decoding an entry does not come back here
 
-	return m.decodeTargetList(mysqlKey, value, func(entry *yaml.Node) error {
-		return entry.Decode((*target)(m))
-	})
+	return m.decodeTargetList(mysqlKey, value, (*target)(m))
 }
 
 func (m *MySQL) IsConfigured() bool { return m != nil }
@@ -71,8 +69,8 @@ func (m *MySQL) Validate() (warnings []string, err error) {
 		return nil, nil
 	}
 
-	if m.shapeErr != "" {
-		return nil, errors.New(m.shapeErr)
+	if err := m.decodeErr(); err != nil {
+		return nil, err
 	}
 
 	m.trim()

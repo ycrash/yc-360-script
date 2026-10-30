@@ -29,9 +29,7 @@ const postgresKey = "postgres"
 func (p *Postgres) UnmarshalYAML(value *yaml.Node) error {
 	type target Postgres // no methods, so decoding an entry does not come back here
 
-	return p.decodeTargetList(postgresKey, value, func(entry *yaml.Node) error {
-		return entry.Decode((*target)(p))
-	})
+	return p.decodeTargetList(postgresKey, value, (*target)(p))
 }
 
 // PostgresTLS is the tls: block, the same for every engine.
@@ -94,8 +92,8 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		return nil, nil
 	}
 
-	if p.shapeErr != "" {
-		return nil, errors.New(p.shapeErr)
+	if err := p.decodeErr(); err != nil {
+		return nil, err
 	}
 
 	p.trim()

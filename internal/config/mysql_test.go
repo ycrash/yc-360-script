@@ -97,6 +97,67 @@ func TestMySQLIsAListOfOneTarget(t *testing.T) {
 	assert.ErrorContains(t, err, "mysql: is a list of targets")
 }
 
+func TestMySQLRefusesAKeyItDoesNotTake(t *testing.T) {
+	var options Options
+
+	require.NoError(t, yaml.Unmarshal([]byte(`mysql:
+  - id: a
+    host: db
+    username: u
+    captureDuraton: 2m
+    tls:
+      verifyServerCertifcate: true
+`), &options))
+
+	_, err := options.MySQL.Validate()
+	require.Error(t, err, "a dropped verifyServerCertificate: true would run unverified, without a word")
+	assert.ErrorContains(t, err, "mysql.captureDuraton (line 5) is not a key mysql: takes - its keys are "+
+		"id, host, port, database, username, password, tls, captureDuration, frequency, explain, agentOnDbHost")
+	assert.ErrorContains(t, err, "mysql.tls.verifyServerCertifcate (line 7) is not a key tls: takes - its keys are "+
+		"enabled, verifyServerCertificate, caFile, serverName")
+}
+
+func TestMySQLKeysMergedFromAnAnchorAreCheckedToo(t *testing.T) {
+	var doc struct {
+		Defaults map[string]any `yaml:"defaults"`
+		Options  Options        `yaml:"options"`
+	}
+
+	require.NoError(t, yaml.Unmarshal([]byte(`defaults:
+  tls: &tls
+    verifyServerCertificate: true
+  target: &target
+    username: u
+    captureDuration: 2m
+options:
+  mysql:
+    - <<: *target
+      id: a
+      host: db
+      tls: *tls
+`), &doc))
+
+	_, err := doc.Options.MySQL.Validate()
+	require.NoError(t, err, "a merge key and an alias are YAML, not keys of the block")
+	assert.True(t, doc.Options.MySQL.TLSVerified())
+
+	doc.Options = Options{}
+	require.NoError(t, yaml.Unmarshal([]byte(`defaults:
+  target: &target
+    username: u
+    captureDuration: 2m
+    tls: {verifyServerCertifcate: true}
+options:
+  mysql:
+    - <<: *target
+      id: a
+      host: db
+`), &doc))
+
+	_, err = doc.Options.MySQL.Validate()
+	assert.ErrorContains(t, err, "mysql.tls.verifyServerCertifcate (line 5) is not a key tls: takes")
+}
+
 func TestOneDatabaseTargetPerRun(t *testing.T) {
 	options := Options{Postgres: &Postgres{}, MySQL: &MySQL{}}
 

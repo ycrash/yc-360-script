@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +54,10 @@ type DBTarget struct {
 	// shapeErr is why the block was not a list of one target, set when it is
 	// decoded; Validate refuses it.
 	shapeErr string
+
+	// keyErrs are the entry's keys the block does not take, set when it is decoded;
+	// Validate refuses them.
+	keyErrs []error
 }
 
 // TargetTLS is the tls: block.
@@ -145,10 +151,11 @@ func (t *DBTarget) ExplainMode() string {
 	return t.Explain
 }
 
-// decodeTargetList reads key: as a list of targets, decoding a list of one with
-// decode. Any other shape still decodes, with the reason in shapeErr, so that
-// Validate can say what to write instead.
-func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, decode func(*yaml.Node) error) error {
+// decodeTargetList reads key: as a list of targets, decoding a list of one into
+// entry, the engine's block as a type without UnmarshalYAML. Any other shape still
+// decodes, with the reason in shapeErr, so that Validate can say what to write
+// instead; so does an entry with keys the block does not take, in keyErrs.
+func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, entry any) error {
 	switch value.Kind {
 	case yaml.MappingNode:
 		t.shapeErr = key + ": is a list of targets - write this block as its one entry, " +
@@ -164,7 +171,9 @@ func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, decode func(*y
 			return nil
 
 		case 1:
-			return decode(value.Content[0])
+			t.keyErrs = unknownKeys(key, value.Content[0], reflect.TypeOf(entry).Elem())
+
+			return value.Content[0].Decode(entry)
 		}
 
 		t.shapeErr = fmt.Sprintf("%s: lists %d targets - a run captures one; run the agent once for each",
@@ -174,6 +183,120 @@ func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, decode func(*y
 	}
 
 	return fmt.Errorf("line %d: %s: is a list of targets, not a %s", value.Line, key, value.Tag)
+}
+
+// decodeErr is why the block was not read as written: its shape, or keys it does
+// not take.
+func (t *DBTarget) decodeErr() error {
+	if t.shapeErr != "" {
+		return errors.New(t.shapeErr)
+	}
+
+	return errors.Join(t.keyErrs...)
+}
+
+// unknownKeys refuses each key of the mapping node that no field of typ takes,
+// naming it under path with its line, and looks inside a key whose field is a
+// struct, as tls: is. Decoding drops such a key without a word, so a misspelled
+// verifyServerCertificate: true would run unverified. A << merge brings its
+// mapping's keys in, and they are checked the same way.
+func unknownKeys(path string, node *yaml.Node, typ reflect.Type) []error {
+	node = unaliased(node)
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	names, fields := yamlFields(typ)
+	block := path[strings.LastIndex(path, ".")+1:]
+
+	var errs []error
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i], node.Content[i+1]
+
+		if key.Value == "<<" && key.ShortTag() == "!!merge" {
+			merged := []*yaml.Node{value}
+			if list := unaliased(value); list.Kind == yaml.SequenceNode {
+				merged = list.Content
+			}
+
+			for _, m := range merged {
+				errs = append(errs, unknownKeys(path, m, typ)...)
+			}
+
+			continue
+		}
+
+		field, ok := fields[key.Value]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s.%s (line %d) is not a key %s: takes - its keys are %s",
+				path, key.Value, key.Line, block, strings.Join(names, ", ")))
+
+			continue
+		}
+
+		if field.Kind() == reflect.Struct {
+			errs = append(errs, unknownKeys(path+"."+key.Value, value, field)...)
+		}
+	}
+
+	return errs
+}
+
+// yamlFields are the keys a struct takes, in its order, and each one's type with
+// any pointer taken off: the yaml tag's name, or as yaml.v3 does without one, the
+// lowercased field name. An inline field's keys sit beside its own.
+func yamlFields(typ reflect.Type) ([]string, map[string]reflect.Type) {
+	var names []string
+
+	fields := map[string]reflect.Type{}
+
+	var walk func(reflect.Type)
+
+	walk = func(typ reflect.Type) {
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+
+			name, flags, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+			if name == "-" {
+				continue
+			}
+
+			fieldType := f.Type
+			if fieldType.Kind() == reflect.Pointer {
+				fieldType = fieldType.Elem()
+			}
+
+			if slices.Contains(strings.Split(flags, ","), "inline") {
+				walk(fieldType)
+
+				continue
+			}
+
+			if name == "" {
+				name = strings.ToLower(f.Name)
+			}
+
+			names = append(names, name)
+			fields[name] = fieldType
+		}
+	}
+
+	walk(typ)
+
+	return names, fields
+}
+
+// unaliased is the node an alias stands for, or node itself.
+func unaliased(node *yaml.Node) *yaml.Node {
+	for node.Kind == yaml.AliasNode && node.Alias != nil {
+		node = node.Alias
+	}
+
+	return node
 }
 
 // targetString is the block's fields for String, password redacted.
