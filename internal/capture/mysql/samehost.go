@@ -1,7 +1,9 @@
 package mysql
 
 import (
+	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +23,14 @@ import (
 // Which test produced a yes.
 const (
 	hostConfirmedByStartTime = "process_start_time"
+
+	// hostConfirmedByThreadStart: the process is older than the server, and its
+	// threads are not. The official Docker image's entrypoint is a shell that
+	// initialises the data directory and then execs mysqld, which keeps the shell's
+	// pid and start: a first boot's init (6.6s on the matrix) is the process's age
+	// at the server's start for the container's whole life. mysqld's own threads
+	// begin with it (its first, InnoDB's, 0.4s after the server's start).
+	hostConfirmedByThreadStart = "thread_start_time"
 
 	// hostConfirmedByConfigured is a claim, not a reading.
 	hostConfirmedByConfigured = "configured"
@@ -56,6 +66,9 @@ var serverProcessNames = []string{"mysqld", "mariadbd"}
 type serverProcess struct {
 	pid     int32
 	started time.Time
+
+	// threadsStarted is when its threads but the first began; zero where unknown.
+	threadsStarted time.Time
 }
 
 // processLister reads the local process table: the server processes it can see,
@@ -96,7 +109,13 @@ func (localProcesses) serverProcesses() ([]serverProcess, bool, bool) {
 			continue
 		}
 
-		found = append(found, serverProcess{pid: p.Pid, started: time.UnixMilli(created)})
+		started := time.UnixMilli(created)
+
+		found = append(found, serverProcess{
+			pid:            p.Pid,
+			started:        started,
+			threadsStarted: firstThreadStart("/proc", p.Pid, started),
+		})
 	}
 
 	return found, foreignVisible, true
@@ -170,24 +189,99 @@ func collectSameHost(m *Metadata, inspect processLister, now time.Time) {
 	}
 
 	for _, p := range processes {
-		gap := p.started.Sub(started)
-		if gap < 0 {
-			gap = -gap
+		var by string
+
+		switch {
+		case startsTogether(p.started, started):
+			by = hostConfirmedByStartTime
+
+		case p.started.Before(started) && !p.threadsStarted.IsZero() && startsTogether(p.threadsStarted, started):
+			by = hostConfirmedByThreadStart
+
+		default:
+			continue
 		}
 
-		if gap <= startTolerance {
-			m.AgentOnDBHost = dbcore.OnDBHostYes
-			m.AgentOnDBHostBy = hostConfirmedByStartTime
-			m.AgentOnDBHostReason = ""
-			m.AgentOnDBHostEvidence = strings.Join(sameHostEvidence(m, p.pid), ",")
+		m.AgentOnDBHost = dbcore.OnDBHostYes
+		m.AgentOnDBHostBy = by
+		m.AgentOnDBHostReason = ""
+		m.AgentOnDBHostEvidence = strings.Join(sameHostEvidence(m, p.pid), ",")
 
-			return
-		}
+		return
 	}
 
 	// A server runs here, but not the one connected to: its start disagrees.
 	m.AgentOnDBHost = dbcore.OnDBHostNo
 	m.AgentOnDBHostReason = hostReasonStartMismatch
+}
+
+func startsTogether(a, b time.Time) bool {
+	gap := a.Sub(b)
+
+	return gap >= -startTolerance && gap <= startTolerance
+}
+
+// userHZ is the unit of a start time in /proc/<pid>/stat: USER_HZ, fixed at 100 for
+// user space on every architecture Linux runs the agent on.
+const userHZ = 100
+
+// firstThreadStart is when the earliest of pid's threads but its first began, read
+// under proc and placed against started, the process's own start. Zero without
+// /proc, or with no thread but the first.
+func firstThreadStart(proc string, pid int32, started time.Time) time.Time {
+	id := strconv.Itoa(int(pid))
+
+	own, ok := startTicks(filepath.Join(proc, id, "stat"))
+	if !ok {
+		return time.Time{}
+	}
+
+	tasks, err := os.ReadDir(filepath.Join(proc, id, "task"))
+	if err != nil {
+		return time.Time{}
+	}
+
+	first := uint64(math.MaxUint64)
+
+	for _, task := range tasks {
+		if task.Name() == id {
+			continue
+		}
+
+		if ticks, ok := startTicks(filepath.Join(proc, id, "task", task.Name(), "stat")); ok {
+			first = min(first, ticks)
+		}
+	}
+
+	if first == math.MaxUint64 || first < own {
+		return time.Time{}
+	}
+
+	return started.Add(time.Duration(first-own) * time.Second / userHZ)
+}
+
+// startTicks is field 22 of a stat file, starttime, read past the command's closing
+// parenthesis: the command itself may hold spaces and parentheses.
+func startTicks(statFile string) (uint64, bool) {
+	content, err := os.ReadFile(statFile)
+	if err != nil {
+		return 0, false
+	}
+
+	end := strings.LastIndexByte(string(content), ')')
+	if end < 0 {
+		return 0, false
+	}
+
+	// Fields from the third, state, on.
+	fields := strings.Fields(string(content[end+1:]))
+	if len(fields) < 20 {
+		return 0, false
+	}
+
+	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+
+	return ticks, err == nil
 }
 
 // sameHostEvidence lists the supporting signals: the pid file names the process, the

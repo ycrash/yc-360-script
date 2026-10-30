@@ -3,8 +3,10 @@ package mysql
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +81,28 @@ func TestMetadataRecordsEveryFlagTheSpecAsksFor(t *testing.T) {
 	assert.Contains(t, m.SettingsUnavailable, "hostname", "a variable not returned is named, never guessed")
 }
 
+func TestMetadataSaysWhyTheLogDidNotOpen(t *testing.T) {
+	dir := t.TempDir()
+
+	denied := filepath.Join(dir, "error.log")
+	require.NoError(t, os.WriteFile(denied, nil, 0o000))
+
+	if os.Geteuid() == 0 {
+		t.Skip("root opens a 0000 file")
+	}
+
+	for log, want := range map[string]string{
+		filepath.Join(dir, "missing.log"): logOpenNotFound,
+		denied:                            logOpenPermissionDenied,
+	} {
+		m := Collect(context.Background(), metadataServer("8.4.3", log), Target{}, testAt, fakeProcesses{})
+
+		assert.Equal(t, LogAccessNone, m.LogAccess, log)
+		assert.Equal(t, logReasonUnreadable, m.LogAccessReason, log)
+		assert.Equal(t, want, m.LogOpenError, log)
+	}
+}
+
 func TestMetadataGatesTheStatementColumnsOnVersion(t *testing.T) {
 	m := Collect(context.Background(), metadataServer("8.0.27", "stderr"), Target{}, testAt, fakeProcesses{})
 
@@ -147,6 +171,19 @@ func TestSameHostIsTheServersOwnStart(t *testing.T) {
 		{"another server on this machine", fakeProcesses{
 			processes: []serverProcess{{pid: 7, started: started.Add(-time.Hour)}}, foreignVisible: true,
 		}, "no", hostReasonStartMismatch},
+		{"a mysqld an entrypoint exec'd: older than the server, its threads are not", fakeProcesses{
+			processes: []serverProcess{{
+				pid: 1, started: started.Add(-6600 * time.Millisecond), threadsStarted: started.Add(380 * time.Millisecond),
+			}}, foreignVisible: true,
+		}, "yes", ""},
+		{"another server's threads are as old as it is", fakeProcesses{
+			processes: []serverProcess{{pid: 7, started: started.Add(-time.Hour), threadsStarted: started.Add(-time.Hour)}},
+			foreignVisible: true,
+		}, "no", hostReasonStartMismatch},
+		{"a process younger than the server is not it, whatever its threads", fakeProcesses{
+			processes: []serverProcess{{pid: 7, started: started.Add(time.Hour), threadsStarted: started}},
+			foreignVisible: true,
+		}, "no", hostReasonStartMismatch},
 		{"no server here at all", fakeProcesses{foreignVisible: true}, "no", hostReasonNoServerProcess},
 		{"hidden processes prove nothing", fakeProcesses{}, "unknown", hostReasonForeignProcesses},
 		{"a container cannot see the host", fakeProcesses{container: true, foreignVisible: true}, "unknown", hostReasonContainer},
@@ -162,6 +199,47 @@ func TestSameHostIsTheServersOwnStart(t *testing.T) {
 			assert.Equal(t, tt.reason, m.AgentOnDBHostReason)
 		})
 	}
+}
+
+// statLine is a /proc stat line with starttime, field 22, at ticks.
+func statLine(pid int, comm string, ticks int) string {
+	// Fields 3 to 21, then starttime and two more.
+	return fmt.Sprintf("%d (%s) S %s %d 0 0\n", pid, comm, strings.TrimSpace(strings.Repeat("0 ", 18)), ticks)
+}
+
+func TestTheFirstThreadsStartIsReadFromProc(t *testing.T) {
+	proc := t.TempDir()
+
+	write := func(path, content string) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	}
+
+	// As the matrix's my84-perms showed them: pid 1 an exec'd entrypoint, its
+	// first thread 6.62s younger.
+	write(filepath.Join(proc, "1", "stat"), statLine(1, "mysqld", 1000))
+	write(filepath.Join(proc, "1", "task", "1", "stat"), statLine(1, "mysqld", 1000))
+	write(filepath.Join(proc, "1", "task", "214", "stat"), statLine(214, "ib_io_rd-1", 1663))
+	write(filepath.Join(proc, "1", "task", "213", "stat"), statLine(213, "ib (io) ibuf", 1662))
+	write(filepath.Join(proc, "1", "task", "250", "stat"), statLine(250, "connection", 9000))
+
+	started := testAt.Add(-time.Hour)
+
+	assert.Equal(t, started.Add(6620*time.Millisecond), firstThreadStart(proc, 1, started))
+	assert.True(t, firstThreadStart(proc, 2, started).IsZero(), "no such process")
+
+	write(filepath.Join(proc, "3", "stat"), statLine(3, "mysqld", 50))
+	write(filepath.Join(proc, "3", "task", "3", "stat"), statLine(3, "mysqld", 50))
+	assert.True(t, firstThreadStart(proc, 3, started).IsZero(), "no thread but the first")
+
+	m := Metadata{UptimeSeconds: "3600"}
+	collectSameHost(&m, fakeProcesses{
+		processes:      []serverProcess{{pid: 1, started: testAt.Add(-3607 * time.Second), threadsStarted: testAt.Add(-3600 * time.Second)}},
+		foreignVisible: true,
+	}, testAt)
+
+	assert.Equal(t, "yes", m.AgentOnDBHost)
+	assert.Equal(t, hostConfirmedByThreadStart, m.AgentOnDBHostBy)
 }
 
 func TestADeclarationRaisesOnlyAnUnknown(t *testing.T) {

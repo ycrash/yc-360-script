@@ -3,8 +3,10 @@ package mysql
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,6 +33,15 @@ const (
 	logReasonStderr         = "stderr"
 	logReasonNoDatadir      = "relative_path_no_datadir"
 	logReasonUnreadable     = "unreadable"
+)
+
+// Why the open failed, where it did: log_open_error. The two causes an operator
+// fixes differently - a path the agent cannot see, a file it may not read - and
+// other for the rest.
+const (
+	logOpenNotFound         = "not_found"
+	logOpenPermissionDenied = "permission_denied"
+	logOpenOther            = "other"
 )
 
 // metadataScope is "cluster": db= means connected through, not about.
@@ -114,6 +125,7 @@ type Metadata struct {
 	LogErrorResolved string
 	LogAccess        string
 	LogAccessReason  string
+	LogOpenError     string
 
 	// Capabilities from performance_schema's setup tables.
 	HasCPUTimeInstrumentEnabled string
@@ -225,6 +237,7 @@ func serverFields(m Metadata) []dbcore.Field {
 		{Key: "log_error_resolved", Value: m.LogErrorResolved},
 		{Key: "log_access", Value: m.LogAccess},
 		{Key: "log_access_reason", Value: m.LogAccessReason},
+		{Key: "log_open_error", Value: m.LogOpenError},
 
 		// The spec's flag, said again as true|false; log_access is its reading.
 		{Key: "has_mysql_error_log_access", Value: strconv.FormatBool(m.LogAccess == LogAccessDirect)},
@@ -761,9 +774,10 @@ func collectLogAccess(m *Metadata) {
 		return
 	}
 
-	if !isReadable(resolved) {
+	if err := openable(resolved); err != nil {
 		m.LogAccess = LogAccessNone
 		m.LogAccessReason = logReasonUnreadable
+		m.LogOpenError = openErrorClass(err)
 
 		return
 	}
@@ -800,14 +814,24 @@ func isAbsolutePath(p string) bool {
 	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
-// isReadable opens rather than stats: permission, not existence, is the question.
-func isReadable(p string) bool {
+// openable opens rather than stats: permission, not existence, is the question.
+func openable(p string) error {
 	f, err := os.Open(p)
 	if err != nil {
-		return false
+		return err
 	}
 
-	f.Close()
+	return f.Close()
+}
 
-	return true
+func openErrorClass(err error) string {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return logOpenNotFound
+
+	case errors.Is(err, fs.ErrPermission):
+		return logOpenPermissionDenied
+	}
+
+	return logOpenOther
 }

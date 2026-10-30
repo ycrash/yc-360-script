@@ -96,7 +96,14 @@ reads.
 
 As for `postgres:`. The measurement it stands in for: a `mysqld` or `mariadbd`
 process on this machine that started when the connected server says it did
-(`now - Uptime`, within 2s).
+(`now - Uptime`, within 2s; `agent_on_db_host_by=process_start_time`). Or one
+that is older than the server while its threads are not
+(`thread_start_time`): the official Docker image's entrypoint initialises the
+data directory and then execs `mysqld`, which keeps the entrypoint's start, so
+after a first boot the process is older than the server by the init's length
+for the container's whole life. An agent in a container of its own sees no
+process beside it and says `unknown`, `reason=container`; one that shares the
+server container's process table (`--pid=container:<name>`) can say yes.
 
 ## A database capture is its own run
 
@@ -211,7 +218,12 @@ there to be any:
 - `innodb_print_all_deadlocks=ON`, which makes InnoDB write every deadlock to
   the error log; and
 - `log_access=direct`: the agent can open the file `@@log_error` names. The
-  official Docker image logs to `stderr`, which is no file at all.
+  official Docker image logs to `stderr`, which is no file at all. Where the
+  open fails, `my_metadata.txt`'s `log_open_error` says how: `not_found`, a
+  path the agent cannot see (the server's, in another container or machine),
+  or `permission_denied`, a file it may not read. MySQL creates its log 0640,
+  owned by its own account, so an agent on the database host is refused it
+  unless it runs in the server's group.
 
 Without them the only deadlock the server shows is its most recent, in `SHOW
 ENGINE INNODB STATUS`'s LATEST DETECTED DEADLOCK, which `my_buffer_pool.txt`

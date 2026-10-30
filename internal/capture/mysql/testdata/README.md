@@ -27,8 +27,8 @@ staged cases below), `TestMatrixPlaintextLoginNeverRequestsTheServersKey`, and
 hand on the two 8.0 servers; the matrix asserts the parts of it that the
 recommended roles depend on everywhere.
 
-Not run: the `perms` profile. The `replica` and `mariadb` profiles ran on
-2026-10-30; see their sections below.
+The `replica`, `perms` and `mariadb` profiles ran on 2026-10-30; see their
+sections below.
 
 ## The plan's *(verify)* statements
 
@@ -224,6 +224,36 @@ and caught up.
   whole. A statement-based failure's `Query: '...'` is read as SQL, which there
   is properly escaped, and keeps its statement.
   `TestReplicaErrorsKeepTheirDiagnosticsAndLoseTheirValues` stages all three.
+
+## Log permissions and the same-host yes (`perms` profile, 8.4.13)
+
+`my84-perms` writes `/var/lib/mysql/error.log` where a real installation does,
+`-rw-r----- mysql:mysql`, with no bind mount.
+
+- **From the host the file is not there**, which is not the question the
+  profile asks: `log_access=none`, `reason=unreadable` either way. Added:
+  `my_metadata.txt`'s `log_open_error` says `not_found` or `permission_denied`.
+  `TestPermsFromTheHostTheLogIsNotThere` asserts `not_found`.
+- **Beside the server it is refused.** `scripts/mysql-perms-check.sh` builds this
+  package's tests for Linux and runs `TestPermsBesideTheServer` in a container
+  on `my84-perms`'s network with its data directory mounted read-only, as uid
+  1000: `log_open_error,permission_denied`. `my_deadlocks.txt` says
+  `reason=log_unreadable` and names its fallback, with no `matched=`; a deadlock
+  forced during the window is in `my_buffer_pool.txt`'s LATEST DETECTED
+  DEADLOCK with its row values replaced.
+- **The same-host yes failed, with a no.** Sharing the server's process table
+  (`--pid=container:`), the agent saw `mysqld` and said
+  `agent_on_db_host=no reason=start_time_mismatch`, which would also overrule a
+  declared `agentOnDbHost: true`. The image's entrypoint is a shell, pid 1,
+  that initialises the data directory and then execs `mysqld`; exec keeps the
+  pid and the start. Measured after the first boot: pid 1 started 6.6s before
+  the server's `now - Uptime`, and `mysqld`'s first threads (InnoDB's I/O
+  threads) 0.4s after it. A container initialised once and never restarted
+  keeps that gap for life. Fixed: a process older than the server whose
+  earliest thread but the first started within 2s of it is the server
+  (`agent_on_db_host_by=thread_start_time`), read from `/proc/<pid>/task`.
+  After a restart the entrypoint is quick (0.5s), and the process start alone
+  answers. Without the shared process table: `unknown`, `reason=container`.
 
 ## MariaDB (`mariadb` profile, 10.11.6)
 
