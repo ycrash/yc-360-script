@@ -1,0 +1,168 @@
+# MySQL 8.0, 8.4 and 9.x, and Percona Server, for the capture matrix.
+#
+#   scripts/mysql-matrix-setup.sh
+#   docker compose -f compose.mysql.yaml up -d --wait
+#   go test -tags mysqlintegration ./internal/capture/mysql/...
+#   docker compose -f compose.mysql.yaml down -v
+#
+# Opt-in rather than part of `go test ./...`, as compose.pg.yaml is: it needs
+# Docker and five servers. A separate file from compose.pg.yaml, so starting one
+# engine's matrix does not start the other's.
+#
+# The setup script is a prerequisite, not a convenience. @@log_error is a path
+# in the SERVER's namespace and the agent has to open that same string in its
+# own, so each service bind-mounts a host directory at the identical absolute
+# path and points --log-error at it. The official image logs to stderr by
+# default, which leaves no file to tail. The script also generates the test CA
+# and server certificate my84 verifies against, rather than a private key being
+# committed.
+#
+# UMASK=0644 is what makes the error log readable from the host: mysqld creates
+# files 0640 by default, owned by a uid the host user is not. As with the PG
+# matrix's log_file_mode, that is a real installation's permission model turned
+# into a fixture line, and the perms profile below exists for the question this
+# one cannot ask.
+#
+# What differs between servers, so each capability flag is seen both ways:
+#
+#   my80       8.0 above both version gates; CPU consumer off (the default);
+#              memory instruments off; innodb_print_all_deadlocks on.
+#   my80old    8.0.27: no sum_cpu_time (8.0.28) and no max_total_memory
+#              (8.0.31); innodb_print_all_deadlocks off.
+#   my84       8.4: SHOW BINARY LOG STATUS only, mysql_native_password off;
+#              CPU consumer on; a certificate for 127.0.0.1 and localhost
+#              signed by the test CA; GTID on, as the replica profile's source.
+#   my9        the newest 9.x; CPU consumer on; log_error_verbosity=3, which
+#              writes "Aborted connection" notes.
+#   percona84  Percona Server 8.4: variant detection from version_comment.
+#
+# Every server gets the same init script. Because YAML merge keys REPLACE a
+# sequence rather than extend it, a service declaring its own command: or
+# volumes: loses the anchor's whole list, so both are spelled out per service.
+
+x-my-common: &my-common
+  environment:
+    # Test fixture only: throwaway containers on a developer's machine, on
+    # loopback. Nothing here is a credential.
+    MYSQL_ROOT_PASSWORD: yc-root-pw
+    UMASK: "0644"
+  healthcheck:
+    # TCP, not the socket: the entrypoint's init-time server runs with
+    # networking off, so a socket ping reports healthy before the init SQL has
+    # finished.
+    test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+    interval: 2s
+    timeout: 3s
+    retries: 90
+
+# The published port encodes the version, so a failing subtest names the
+# container without a lookup.
+services:
+  my80:
+    <<: *my-common
+    image: mysql:8.0
+    ports: ["13380:3306"]
+    command:
+      - --innodb-print-all-deadlocks=ON
+      - --performance-schema-instrument=memory/%=OFF
+      - --log-error=/tmp/yc-mylogs/my80/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-mylogs/my80:/tmp/yc-mylogs/my80
+
+  my80old:
+    <<: *my-common
+    image: mysql:8.0.27
+    # 8.0 images this old were published for amd64 only.
+    platform: linux/amd64
+    ports: ["13370:3306"]
+    command:
+      - --log-error=/tmp/yc-mylogs/my80old/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-mylogs/my80old:/tmp/yc-mylogs/my80old
+
+  my84:
+    <<: *my-common
+    image: mysql:8.4
+    ports: ["13384:3306"]
+    command:
+      - --innodb-print-all-deadlocks=ON
+      - --performance-schema-consumer-events-statements-cpu=ON
+      - --log-error=/tmp/yc-mylogs/my84/error.log
+      - --ssl-ca=/tmp/yc-mytls/ca.pem
+      - --ssl-cert=/tmp/yc-mytls/server-cert.pem
+      - --ssl-key=/tmp/yc-mytls/server-key.pem
+      - --server-id=84
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-mylogs/my84:/tmp/yc-mylogs/my84
+      - /tmp/yc-mytls:/tmp/yc-mytls:ro
+
+  my9:
+    <<: *my-common
+    image: mysql:9
+    ports: ["13390:3306"]
+    command:
+      - --innodb-print-all-deadlocks=ON
+      - --performance-schema-consumer-events-statements-cpu=ON
+      - --log-error-verbosity=3
+      - --log-error=/tmp/yc-mylogs/my9/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-mylogs/my9:/tmp/yc-mylogs/my9
+
+  percona84:
+    <<: *my-common
+    image: percona/percona-server:8.4
+    ports: ["13394:3306"]
+    command:
+      - --innodb-print-all-deadlocks=ON
+      - --log-error=/tmp/yc-mylogs/percona84/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+      - /tmp/yc-mylogs/percona84:/tmp/yc-mylogs/percona84
+
+  # Opt-in services, started with --profile replica / --profile perms. Not part
+  # of the Go matrix.
+
+  # A GTID asynchronous replica of my84. It runs no matrix init of its own: the
+  # source's binary log carries it.
+  my84-replica:
+    <<: *my-common
+    image: mysql:8.4
+    profiles: ["replica"]
+    ports: ["13385:3306"]
+    depends_on:
+      my84:
+        condition: service_healthy
+    command:
+      - --server-id=85
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --read-only=ON
+      - --log-error=/tmp/yc-mylogs/my84-replica/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_replica_init.sql:/docker-entrypoint-initdb.d/10-yc-replica.sql:ro
+      - /tmp/yc-mylogs/my84-replica:/tmp/yc-mylogs/my84-replica
+
+  # my84 with a real installation's log permissions: the error log in the data
+  # directory, 0640, owned by the server's uid, and no bind mount.
+  my84-perms:
+    image: mysql:8.4
+    profiles: ["perms"]
+    ports: ["13386:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: yc-root-pw
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+    command:
+      - --innodb-print-all-deadlocks=ON
+      - --log-error=/var/lib/mysql/error.log
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro

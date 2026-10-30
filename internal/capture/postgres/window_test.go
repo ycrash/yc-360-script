@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"yc-agent/internal/capture/dbcore"
 )
 
 var testWindowStart = time.Date(2026, 8, 7, 14, 32, 4, 980_000_000, time.UTC)
@@ -107,7 +109,7 @@ func (f *fakeCollector) Sample(ctx context.Context, q RowQuerier, w io.Writer, s
 
 	if err := writeBlockHeader(w, "fake_view", f.artifact.Scope, []headerField{
 		{"db", s.Database},
-		{"dbid", s.DBID},
+		{"dbid", s.Engine.DBID},
 		{"sample", strconv.Itoa(s.Index)},
 	}, s.At); err != nil {
 		return err
@@ -137,7 +139,7 @@ func (f *fakeOpeningCollector) WriteOpening(w io.Writer, s SampleContext) error 
 
 	return writeBlockHeader(w, f.artifact.Name+"_target", f.artifact.Scope, []headerField{
 		{"db", s.Database},
-		{"dbid", s.DBID},
+		{"dbid", s.Engine.DBID},
 	}, s.At)
 }
 
@@ -927,7 +929,7 @@ func threeBlockSample(w io.Writer, s SampleContext) error {
 	for _, source := range []string{"first_view", "second_view", "third_view"} {
 		err := writeBlockHeader(&sample, source, "cluster", []headerField{
 			{"db", s.Database},
-			{"dbid", s.DBID},
+			{"dbid", s.Engine.DBID},
 			{"sample", strconv.Itoa(s.Index)},
 		}, s.At)
 		if err != nil {
@@ -979,7 +981,7 @@ func TestWindowMultiBlockSampleIsStillOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, threeBlockSample(writer, SampleContext{
-		At: testWindowStart, Index: 1, Total: 2, Database: "orders_db", DBID: "16401",
+		At: testWindowStart, Index: 1, Total: 2, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,
@@ -1082,8 +1084,8 @@ func TestWindowFallsBackToTheConfiguredDatabaseWhenIdentifyFails(t *testing.T) {
 	assert.Equal(t, StatusComplete, results[0].Status,
 		"an unidentified database is still a captured one")
 	assert.Equal(t, "orders_configured", collector.seen[0].Database)
-	assert.Empty(t, collector.seen[0].DBID)
-	assert.False(t, collector.seen[0].HasPgStatCheckpointer,
+	assert.Empty(t, collector.seen[0].Engine.DBID)
+	assert.False(t, collector.seen[0].Engine.HasPgStatCheckpointer,
 		"and the capability is false, which on a PostgreSQL 17 server is the pre-17 statement "+
 			"and an error the collector records rather than a silent wrong answer")
 }
@@ -1110,7 +1112,7 @@ func TestWindowIdentifyCarriesTheCheckpointerCapability(t *testing.T) {
 				require.Len(t, collector.seen, 2)
 
 				for _, s := range collector.seen {
-					assert.Equal(t, present, s.HasPgStatCheckpointer,
+					assert.Equal(t, present, s.Engine.HasPgStatCheckpointer,
 						"one read as the window opens, the same answer for every collector "+
 							"and every sample - two collectors cannot disagree about the server")
 				}
@@ -1296,32 +1298,32 @@ func TestScheduleOffsets(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.schedule.offsets(tc.window))
+			assert.Equal(t, tc.want, tc.schedule.Offsets(tc.window))
 		})
 	}
 }
 
 func TestScheduleRendersItselfForThePreamble(t *testing.T) {
-	assert.Equal(t, "start_end", StartEnd().name())
-	assert.Empty(t, StartEnd().intervalText(), "a start-and-end schedule has no cadence to state")
+	assert.Equal(t, "start_end", StartEnd().Name())
+	assert.Empty(t, StartEnd().IntervalText(), "a start-and-end schedule has no cadence to state")
 
-	assert.Equal(t, "every", Every(10*time.Second).name())
-	assert.Equal(t, "10s", Every(10*time.Second).intervalText())
-	assert.Equal(t, "2s", Every(2*time.Second).intervalText())
-	assert.Equal(t, "0.5s", Every(500*time.Millisecond).intervalText())
+	assert.Equal(t, "every", Every(10*time.Second).Name())
+	assert.Equal(t, "10s", Every(10*time.Second).IntervalText())
+	assert.Equal(t, "2s", Every(2*time.Second).IntervalText())
+	assert.Equal(t, "0.5s", Every(500*time.Millisecond).IntervalText())
 
-	assert.Empty(t, Every(0).intervalText(), "a degenerate interval states no cadence either")
+	assert.Empty(t, Every(0).IntervalText(), "a degenerate interval states no cadence either")
 
-	assert.Equal(t, "once", Once().name())
-	assert.Empty(t, Once().intervalText(), "one reading has no cadence to state")
+	assert.Equal(t, "once", Once().Name())
+	assert.Empty(t, Once().IntervalText(), "one reading has no cadence to state")
 
-	assert.Equal(t, "periodic", Periodic(30*time.Second).name())
-	assert.Equal(t, "30s", Periodic(30*time.Second).intervalText())
-	assert.Equal(t, "300s", Periodic(5*time.Minute).intervalText())
+	assert.Equal(t, "periodic", Periodic(30*time.Second).Name())
+	assert.Equal(t, "30s", Periodic(30*time.Second).IntervalText())
+	assert.Equal(t, "300s", Periodic(5*time.Minute).IntervalText())
 
-	assert.Equal(t, "periodic", Periodic(0).name(),
+	assert.Equal(t, "periodic", Periodic(0).Name(),
 		"an unset frequency still samples on the periodic rule, and the preamble says so")
-	assert.Empty(t, Periodic(0).intervalText(), "there is no cadence to state, only the bookend")
+	assert.Empty(t, Periodic(0).IntervalText(), "there is no cadence to state, only the bookend")
 }
 
 func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
@@ -1332,12 +1334,12 @@ func TestTimelineMergesTwoCadencesInOffsetOrder(t *testing.T) {
 
 	events := timeline([]Collector{interval, edges}, 30*time.Second)
 
-	assert.Equal(t, []sampleEvent{
-		{at: 0, collector: 0, index: 1},
-		{at: 0, collector: 1, index: 1},
-		{at: 10 * time.Second, collector: 0, index: 2},
-		{at: 20 * time.Second, collector: 0, index: 3},
-		{at: 30 * time.Second, collector: 1, index: 2},
+	assert.Equal(t, []dbcore.SampleEvent{
+		{At: 0, Collector: 0, Index: 1},
+		{At: 0, Collector: 1, Index: 1},
+		{At: 10 * time.Second, Collector: 0, Index: 2},
+		{At: 20 * time.Second, Collector: 0, Index: 3},
+		{At: 30 * time.Second, Collector: 1, Index: 2},
 	}, events)
 }
 
@@ -1397,9 +1399,9 @@ func TestTimelineBreaksTiesOnRegistrationOrder(t *testing.T) {
 	events := timeline([]Collector{edges, interval}, 30*time.Second)
 
 	require.Len(t, events, 5)
-	assert.Equal(t, sampleEvent{at: 0, collector: 0, index: 1}, events[0],
+	assert.Equal(t, dbcore.SampleEvent{At: 0, Collector: 0, Index: 1}, events[0],
 		"the shared tick runs the collectors in the order they were registered")
-	assert.Equal(t, sampleEvent{at: 0, collector: 1, index: 1}, events[1])
+	assert.Equal(t, dbcore.SampleEvent{At: 0, Collector: 1, Index: 1}, events[1])
 }
 
 func TestWindowRunsTwoCadencesOnOneConnection(t *testing.T) {
@@ -1466,7 +1468,7 @@ func TestWindowOnceSamplesAtTheStartAndNotAtTheClosingTick(t *testing.T) {
 
 	events := timeline([]Collector{capability, edges}, 120*time.Second)
 	require.NotEmpty(t, events)
-	assert.Equal(t, sampleEvent{at: 120 * time.Second, collector: 1, index: 2}, events[len(events)-1],
+	assert.Equal(t, dbcore.SampleEvent{At: 120 * time.Second, Collector: 1, Index: 2}, events[len(events)-1],
 		"the closing tick is still the start-and-end collector's alone")
 
 	headers := headersOf(t, results[0])
@@ -1488,10 +1490,10 @@ func TestWindowRunsASharedTickInRegistrationOrder(t *testing.T) {
 	events := timeline([]Collector{interval, capability, edges}, 30*time.Second)
 
 	require.GreaterOrEqual(t, len(events), 3)
-	assert.Equal(t, []sampleEvent{
-		{at: 0, collector: 0, index: 1},
-		{at: 0, collector: 1, index: 1},
-		{at: 0, collector: 2, index: 1},
+	assert.Equal(t, []dbcore.SampleEvent{
+		{At: 0, Collector: 0, Index: 1},
+		{At: 0, Collector: 1, Index: 1},
+		{At: 0, Collector: 2, Index: 1},
 	}, events[:3], "three collectors share t0 and run in the order they were registered")
 }
 
@@ -1535,7 +1537,7 @@ func TestWindowOpeningCarriesTheWindowsClockNotTheZeroTime(t *testing.T) {
 	assert.Zero(t, collector.seenOpening[0].Total, "and so no total either")
 	assert.Equal(t, "orders_configured", collector.seenOpening[0].Database,
 		"and no connection, so the database is the configured name and there is no OID")
-	assert.Empty(t, collector.seenOpening[0].DBID)
+	assert.Empty(t, collector.seenOpening[0].Engine.DBID)
 
 	assert.Contains(t, headersOf(t, results[0])[1], "ts="+timestamp(testWindowStart))
 }
@@ -2220,7 +2222,7 @@ func TestWindowStubInAPeriodicFileIsASampleBlock(t *testing.T) {
 	collector.artifact.Schedule = Periodic(0)
 	collector.artifact.Version = 2
 	collector.sample = func(ctx context.Context, s SampleContext, w io.Writer) error {
-		s.now()
+		s.Now()
 
 		return statementTimedOut()
 	}

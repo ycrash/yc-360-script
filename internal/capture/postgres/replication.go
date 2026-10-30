@@ -213,14 +213,14 @@ func (r Replication) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sa
 }
 
 func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 	rows, err := readSenders(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	var fields []headerField
 
 	if err != nil {
-		fields = append(fields, headerField{"error", s.errorText(err)})
+		fields = append(fields, headerField{"error", s.ErrorText(err)})
 	}
 
 	if err := writeSampleHeader(w, r.Artifact(), s, sampleHeader{
@@ -239,15 +239,15 @@ func (r Replication) writeSendersBlock(ctx context.Context, q RowQuerier, w io.W
 // optional_columns= appears only when the probe returned a value (NULL on PG
 // 14/15, absent when the slots view has no rows).
 func (r Replication) writeSlotsBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 	rows, optionalColumns, err := readSlots(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	var fields []headerField
 
 	switch {
 	case err != nil:
-		fields = append(fields, headerField{"error", s.errorText(err)})
+		fields = append(fields, headerField{"error", s.ErrorText(err)})
 
 	case optionalColumns != nil:
 		fields = append(fields, headerField{"optional_columns", *optionalColumns})

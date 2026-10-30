@@ -134,8 +134,8 @@ func (h *tailHarness) sampleContext() SampleContext {
 		Index:    h.index,
 		Total:    12,
 		Database: "orders_db",
-		DBID:     "16401",
-		redact:   func(err error) string { return errorText(err, "") },
+		Engine:   Facts{DBID: "16401"},
+		Redact:   func(err error) string { return errorText(err, "") },
 	}
 }
 
@@ -1457,8 +1457,8 @@ func planSampleContext() SampleContext {
 		Index:    1,
 		Total:    2,
 		Database: "orders_db",
-		DBID:     "16401",
-		redact:   func(err error) string { return errorText(err, "") },
+		Engine:   Facts{DBID: "16401"},
+		Redact:   func(err error) string { return errorText(err, "") },
 	}
 }
 

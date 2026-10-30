@@ -146,7 +146,7 @@ func takeNonDefaultSettingsSample(t *testing.T, conn *fakeNonDefaultSettingsConn
 
 	var buf bytes.Buffer
 	require.NoError(t, NonDefaultSettings{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -324,7 +324,7 @@ func TestNonDefaultSettingsFailingStatementWritesNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := NonDefaultSettings{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -335,7 +335,7 @@ func TestNonDefaultSettingsWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, NonDefaultSettings{}.Sample(context.Background(), newFakeNonDefaultSettingsConn(), writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

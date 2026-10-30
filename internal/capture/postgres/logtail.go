@@ -843,7 +843,7 @@ func (t *logTail) resolveOnce(ctx context.Context, q Querier, sc SampleContext) 
 		return false
 	}
 
-	source := resolveLogSource(ctx, q, t.settings, sc.errorText)
+	source := resolveLogSource(ctx, q, t.settings, sc.ErrorText)
 
 	// Settings-read failure wins over a route's error: it's the root cause, and
 	// reporting a route's denial would misdirect the operator toward a grant issue.
@@ -963,7 +963,7 @@ func (t *logTail) writeReasonBlock(w io.Writer, sc SampleContext) error {
 
 	fields := []headerField{
 		{"db", sc.Database},
-		{"dbid", sc.DBID},
+		{"dbid", sc.Engine.DBID},
 		{"sample", strconv.Itoa(sc.Index)},
 		{"reason", source.reason},
 		{"log_access", source.logAccess()},
@@ -997,7 +997,7 @@ func (t *logTail) writeReasonBlock(w io.Writer, sc SampleContext) error {
 func (t *logTail) writeReadBlock(w io.Writer, sc SampleContext, read *tailRead, drain bool) error {
 	fields := []headerField{
 		{"db", sc.Database},
-		{"dbid", sc.DBID},
+		{"dbid", sc.Engine.DBID},
 	}
 
 	// drain=true rather than a sample number: keeps samples_written honest against
@@ -1118,7 +1118,7 @@ func (t *logTail) readSettings(ctx context.Context, q Querier, sc SampleContext)
 
 	settings, err := readLogSettings(ctx, q)
 	if err != nil {
-		return sc.errorText(err)
+		return sc.ErrorText(err)
 	}
 
 	t.settings = settings

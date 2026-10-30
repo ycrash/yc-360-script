@@ -122,7 +122,7 @@ func takeIndexSample(t *testing.T, conn *fakeIndexUsageConn, collector IndexUsag
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -286,7 +286,7 @@ func TestIndexUsageFailingStatsWritesNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := IndexUsage{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -298,7 +298,7 @@ func TestIndexUsageWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, IndexUsage{}.Sample(context.Background(), conn, writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

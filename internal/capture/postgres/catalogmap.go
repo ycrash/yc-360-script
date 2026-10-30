@@ -91,12 +91,12 @@ func (CatalogMap) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 
 		fields := []headerField{
 			{"db", s.Database},
-			{"dbid", s.DBID},
+			{"dbid", s.Engine.DBID},
 			{"sample", strconv.Itoa(s.Index)},
 		}
 
 		if err != nil {
-			fields = append(fields, headerField{"error", s.errorText(err)})
+			fields = append(fields, headerField{"error", s.ErrorText(err)})
 		}
 
 		if err := writeBlockHeader(&sample, block.source, block.scope, fields, s.At); err != nil {

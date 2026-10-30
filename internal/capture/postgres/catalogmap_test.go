@@ -188,7 +188,7 @@ func takeCatalogMapSample(t *testing.T, conn RowQuerier) string {
 
 	var buf bytes.Buffer
 	require.NoError(t, CatalogMap{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -202,7 +202,7 @@ func TestCatalogMapArtifact(t *testing.T) {
 	assert.Equal(t, "database", artifact.Scope, "most of what it names is the connected database's")
 	assert.Equal(t, Once(), artifact.Schedule, "read at the start and not resampled")
 	assert.Equal(t, 3*StatementTimeout, artifact.SampleBudget, "three statements, declared")
-	assert.Equal(t, []time.Duration{0}, artifact.Schedule.offsets(120*time.Second),
+	assert.Equal(t, []time.Duration{0}, artifact.Schedule.Offsets(120*time.Second),
 		"one sample, at the start")
 }
 
@@ -340,7 +340,7 @@ func TestCatalogMapWritesTheSampleInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, CatalogMap{}.Sample(context.Background(), newFakeCatalogMapConn(), writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes, "a write failing between blocks would leave a partial map behind")

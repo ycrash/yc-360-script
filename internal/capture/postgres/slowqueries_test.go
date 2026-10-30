@@ -306,7 +306,7 @@ func (c *fakeSlowQueriesConn) record(ctx context.Context, sql string) {
 func slowQueriesSampleContext() SampleContext {
 	return SampleContext{
 		At: at(32, 5, 61), Index: 1, Total: 2,
-		Database: "orders_db", DBID: "16401",
+		Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}
 }
 

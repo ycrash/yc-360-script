@@ -204,7 +204,7 @@ func takeHealthSample(t *testing.T, conn *fakeHealthConn, collector Health) stri
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 61), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 61), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -241,7 +241,7 @@ func TestHealthArtifact(t *testing.T) {
 		"one statement, where DefaultSampleBudget would have charged the closing tick for two")
 
 	assert.Len(t,
-		Health{Interval: 30 * time.Second}.Artifact().Schedule.offsets(120*time.Second), 5,
+		Health{Interval: 30 * time.Second}.Artifact().Schedule.Offsets(120*time.Second), 5,
 		"2m at 30s: four steps and the close")
 
 	assert.Equal(t, Periodic(time.Second), Health{Interval: time.Second}.Artifact().Schedule,
@@ -392,7 +392,7 @@ func TestHealthRetriesWithoutSessionsFatalOnlyOn42703(t *testing.T) {
 
 		var buf bytes.Buffer
 		err := Health{}.Sample(context.Background(), conn, &buf, SampleContext{
-			At: at(32, 5, 61), Index: 1, Database: "orders_db", DBID: "16401",
+			At: at(32, 5, 61), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 		})
 
 		require.Error(t, err)
@@ -407,7 +407,7 @@ func TestHealthRetriesWithoutSessionsFatalOnlyOn42703(t *testing.T) {
 
 		var buf bytes.Buffer
 		err := Health{}.Sample(context.Background(), conn, &buf, SampleContext{
-			At: at(32, 5, 61), Index: 1, Database: "orders_db", DBID: "16401",
+			At: at(32, 5, 61), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 		})
 
 		require.Error(t, err)
@@ -487,7 +487,7 @@ func TestHealthWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, Health{}.Sample(context.Background(), newFakeHealthConn(), writer,
-		SampleContext{At: at(32, 5, 61), Index: 1, Database: "orders_db", DBID: "16401"}))
+		SampleContext{At: at(32, 5, 61), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"}}))
 
 	assert.Equal(t, 1, writer.writes,
 		"a write failing between header and body would leave the window's stub behind a half-written block")

@@ -82,14 +82,21 @@ func validate() error {
 		}
 	}
 
-	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
-		// Only with a postgres block: a config file for an application capture holds
+	if config.GlobalConfig.Postgres.IsConfigured() && config.GlobalConfig.MySQL.IsConfigured() {
+		logger.Error().Msgf("%v", config.ErrBothDatabaseTargets)
+		return ErrInvalidArgumentCantContinue
+	}
+
+	if config.GlobalConfig.DBTargetConfigured() {
+		// Only with a database block: a config file for an application capture holds
 		// no database settings, and keeps whatever mode it has.
 		if err := config.CheckConfigFilePermissions(config.GlobalConfig.ConfigPath); err != nil {
 			logger.Error().Msgf("%v", err)
 			return ErrInvalidArgumentCantContinue
 		}
+	}
 
+	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
 		warnings, err := pg.Validate()
 
 		for _, w := range warnings {
@@ -98,6 +105,19 @@ func validate() error {
 
 		if err != nil {
 			logger.Error().Msgf("invalid postgres configuration: %v", err)
+			return ErrInvalidArgumentCantContinue
+		}
+	}
+
+	if my := config.GlobalConfig.MySQL; my.IsConfigured() {
+		warnings, err := my.Validate()
+
+		for _, w := range warnings {
+			logger.Warn().Msg(w)
+		}
+
+		if err != nil {
+			logger.Error().Msgf("invalid mysql configuration: %v", err)
 			return ErrInvalidArgumentCantContinue
 		}
 	}

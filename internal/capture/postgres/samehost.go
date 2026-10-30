@@ -7,14 +7,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yc-agent/internal/capture/dbcore"
 )
 
 // Is the agent on the machine running the database? Never a false yes: that would
 // label another machine's CPU, memory and kernel readings as the database host's.
 const (
-	OnDBHostYes     = "yes"
-	OnDBHostNo      = "no"
-	OnDBHostUnknown = "unknown"
+	OnDBHostYes     = dbcore.OnDBHostYes
+	OnDBHostNo      = dbcore.OnDBHostNo
+	OnDBHostUnknown = dbcore.OnDBHostUnknown
 )
 
 // Which test produced a yes, kept separate so a new test needs no new row.
@@ -29,8 +31,8 @@ const (
 
 // What the gate did, so a bundle with no host files explains itself.
 const (
-	HostArtifactsCaptured = "captured"
-	HostArtifactsSkipped  = "skipped"
+	HostArtifactsCaptured = dbcore.HostArtifactsCaptured
+	HostArtifactsSkipped  = dbcore.HostArtifactsSkipped
 )
 
 // Why the verdict is not yes. Mandatory whenever it is not.

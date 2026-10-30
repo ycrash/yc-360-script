@@ -49,9 +49,14 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 	logger.Log("Confirmed this machine runs the database (%s); capturing host data over the %s window.",
 		m.AgentOnDBHostBy, window)
 
+	return runHostCollectors(ctx, p.Endpoint(), window)
+}
+
+// runHostCollectors starts the host collectors over the window, for a run that has
+// established this machine is the database's. The caller must drain what it returns.
+func runHostCollectors(ctx context.Context, endpoint string, window time.Duration) []hostCollector {
 	span := hostSpan(window)
 	stop := ctx.Done()
-	endpoint := p.Endpoint()
 
 	// Only netstat and ps stretch to the window: both already take several labelled
 	// readings, so widening the gap changes timing and nothing else. ps spreads its

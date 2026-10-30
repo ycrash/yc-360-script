@@ -28,11 +28,15 @@ func Run() error {
 	m3Mode := config.GlobalConfig.M3
 	apiMode := config.GlobalConfig.Port > 0
 
-	// A configured postgres: block is itself the target switch.
-	dbTargetMode := config.GlobalConfig.Postgres.IsConfigured()
+	// A configured postgres: or mysql: block is itself the target switch.
+	dbTargetMode := config.GlobalConfig.DBTargetConfigured()
 	appTokensMode := len(config.GlobalConfig.ProcessTokens) > 0
 
 	if err := checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode); err != nil {
+		return err
+	}
+
+	if err := checkM3DatabaseTarget(m3Mode, config.GlobalConfig.MySQL.IsConfigured()); err != nil {
 		return err
 	}
 
@@ -45,7 +49,7 @@ func Run() error {
 		go runAPIMode()
 	}
 
-	// A postgres: block with -m3 is database monitoring, which the M3 loop drives.
+	// A database block with -m3 is database monitoring, which the M3 loop drives.
 	// Without -m3 it is the one-shot deep dive, which shares the on-demand path.
 	// checkRunTargets already excludes an app target from either.
 	if (onDemandMode || dbTargetMode) && !m3Mode {
@@ -125,12 +129,29 @@ func runM3Mode() {
 	m3App.RunLoop()
 }
 
+// ErrMySQLM3 refuses a mysql: block under -m3: M3 polls PostgreSQL only, and a
+// database monitoring run that captured nothing of the database would look like
+// one that found it healthy.
+var ErrMySQLM3 = errors.New("mysql: block with -m3")
+
+// checkM3DatabaseTarget refuses a mysql: block under -m3, saying what runs instead.
+func checkM3DatabaseTarget(m3Mode, mysqlConfigured bool) error {
+	if !m3Mode || !mysqlConfigured {
+		return nil
+	}
+
+	logger.Error().Msg("A mysql: block can not run with -m3 - M3 database monitoring covers " +
+		"PostgreSQL only. Run without -m3 for a one-shot MySQL capture over captureDuration.")
+
+	return ErrMySQLM3
+}
+
 // checkRunTargets validates which capture targets a run may combine.
 func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode bool) error {
 	// Validation: abort if no mode is specified (M3, OnDemand, API, or a database target).
 	if !onDemandMode && !apiMode && !m3Mode && !dbTargetMode {
-		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. No postgres: block is " +
-			"configured. The yc-360 script is about to run OnDemand mode but no PID is specified.")
+		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. No postgres: or mysql: block " +
+			"is configured. The yc-360 script is about to run OnDemand mode but no PID is specified.")
 
 		return ErrNothingCanBeDone
 	}
@@ -143,7 +164,7 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode 
 		return ErrConflictingMode
 	}
 
-	// Validation: -m3 with a postgres: block and no application target is database
+	// Validation: -m3 with a database block and no application target is database
 	// monitoring. The refusal below is about composing two targets; this run has one,
 	// and it reuses the M3 loop rather than growing a second one.
 	if dbTargetMode && m3Mode && !onDemandMode && !apiMode && !appTokensMode {
@@ -153,8 +174,8 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode 
 	// Validation: database and app targets are separate runs, refused rather than
 	// picking a winner, which would silently produce an incomplete bundle.
 	if dbTargetMode && (onDemandMode || m3Mode || apiMode) {
-		logger.Error().Msg("A postgres: block and an application target can not run together - " +
-			"the database capture is a separate run. Use a configuration file with no postgres: " +
+		logger.Error().Msg("A postgres: or mysql: block and an application target can not run together - " +
+			"the database capture is a separate run. Use a configuration file with no database " +
 			"block for the application capture, or drop -p/-port and processTokens for the " +
 			"database capture.")
 
@@ -169,8 +190,9 @@ func runOnDemandMode() {
 
 	switch {
 	case pidStr == "":
-		// Only reachable for a configured postgres: block.
-		logger.Log("Running database-only capture (no PID; postgres: block configured)")
+		// Only reachable for a configured database block.
+		logger.Log("Running database-only capture (no PID; %s: block configured)",
+			config.GlobalConfig.DBTargetKey())
 	case config.GlobalConfig.OnlyCapture:
 		// OnlyCapture mode is technically the same code path as on demand,
 		// but the artifacts aren't uploaded.
@@ -181,10 +203,10 @@ func runOnDemandMode() {
 	}
 
 	for i, pid := range resolveCapturePids(pidStr) {
-		// SkipPostgres for i>0: one database capture per run, not per pid.
+		// SkipPostgres and SkipMySQL for i>0: one database capture per run, not per pid.
 		var opts []ondemand.CaptureOptions
 		if i > 0 {
-			opts = append(opts, ondemand.CaptureOptions{SkipPostgres: true})
+			opts = append(opts, ondemand.CaptureOptions{SkipPostgres: true, SkipMySQL: true})
 		}
 
 		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "", opts...)

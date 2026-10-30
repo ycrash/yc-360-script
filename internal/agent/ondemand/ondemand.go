@@ -41,18 +41,20 @@ var Wg sync.WaitGroup
 type CaptureOptions struct {
 	DotnetAsyncGCPaths map[int]string // pid → absolute path to accumulated async GC log
 
-	// SkipPostgres suppresses the database capture for this call.
+	// SkipPostgres and SkipMySQL suppress the database capture for this call.
 	SkipPostgres bool
+	SkipMySQL    bool
 }
 
-// withSkipPostgres merges the flag into opts rather than replacing it, so M3's
+// withSkipDatabase merges both flags into opts rather than replacing it, so M3's
 // DotnetAsyncGCPaths survives.
-func withSkipPostgres(opts []CaptureOptions) []CaptureOptions {
+func withSkipDatabase(opts []CaptureOptions) []CaptureOptions {
 	merged := CaptureOptions{}
 	if len(opts) > 0 {
 		merged = opts[0]
 	}
 	merged.SkipPostgres = true
+	merged.SkipMySQL = true
 
 	return []CaptureOptions{merged}
 }
@@ -93,7 +95,7 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 			// One database capture per run, on the first pid only.
 			captureOpts := opts
 			if i > 0 {
-				captureOpts = withSkipPostgres(opts)
+				captureOpts = withSkipDatabase(opts)
 			}
 
 			url := FullCapture(pid, name, hd, tags, timestamp, captureOpts...)
@@ -110,8 +112,8 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 // pid to pass: one run monitors one database, so the target is the configuration
 // itself, and PID 0 is the same no-process capture a one-shot database run takes.
 func ProcessDatabase(hd bool, tags string) (rUrl string) {
-	if !config.GlobalConfig.Postgres.IsConfigured() {
-		logger.Log("No postgres: block is configured, no action needed.")
+	if !config.GlobalConfig.DBTargetConfigured() {
+		logger.Log("No postgres: or mysql: block is configured, no action needed.")
 
 		return
 	}
@@ -538,6 +540,16 @@ Ignored errors: %v
 		pgCapture = goCapture(endpoint, capture.WrapRun(&capture.PostgresCapture{Target: pg}))
 	}
 
+	// ------------------------------------------------------------------------------
+	//   				Capture MySQL
+	// ------------------------------------------------------------------------------
+	// The same switch for a mysql: block; validation refuses a file with both.
+	var myCapture chan capture.Result
+	skipMySQL := len(opts) > 0 && opts[0].SkipMySQL
+	if my := config.GlobalConfig.MySQL; my.IsConfigured() && !skipMySQL {
+		myCapture = goCapture(endpoint, capture.WrapRun(&capture.MySQLCapture{Target: my}))
+	}
+
 	useGlobalConfigAppLogs := false
 	// ------------------------------------------------------------------------------
 	//   				Capture legacy app log
@@ -870,6 +882,21 @@ Resp: %s
 	}
 
 	// -------------------------------
+	//     Transmit MySQL artifacts
+	// -------------------------------
+	if myCapture != nil {
+		logger.Log("Reading result from mysql capture channel")
+		result := <-myCapture
+		logger.Log(
+			`MYSQL CAPTURE
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, result.Ok, result.Msg)
+	}
+
+	// -------------------------------
 	//     Transmit Thread dump
 	// -------------------------------
 	absTDPath, err := filepath.Abs(tdPath)
@@ -1178,17 +1205,15 @@ const (
 	tagNodeJS     = "nodejs"
 	tagHookMode   = "hook-mode"
 	tagSignalMode = "signal-mode"
-
-	// tagPostgres marks configuration intent, not a detected runtime.
-	tagPostgres = "postgres"
 )
 
 // computeSystemTags derives the system-detected runtime/capture-mode tags
 // for meta-info.txt from already-known values. It takes nodejsCaptureMode
-// and postgresConfigured as plain arguments (rather than reading
+// and the database block's key as plain arguments (rather than reading
 // config.GlobalConfig directly) so it stays a pure function that's trivial to
-// unit test.
-func computeSystemTags(appRuntime, nodejsCaptureMode string, postgresConfigured bool) string {
+// unit test. databaseTag is "postgres", "mysql" or empty: configuration intent,
+// not a detected runtime.
+func computeSystemTags(appRuntime, nodejsCaptureMode, databaseTag string) string {
 	var tags string
 
 	switch appRuntime {
@@ -1203,9 +1228,9 @@ func computeSystemTags(appRuntime, nodejsCaptureMode string, postgresConfigured 
 	}
 
 	// Intent only, not the mode: meta-info.txt is written before capture runs;
-	// pg_metadata.txt carries the mode.
-	if postgresConfigured {
-		tags = mergeTags(tags, tagPostgres)
+	// pg_metadata.txt and my_metadata.txt carry the mode.
+	if databaseTag != "" {
+		tags = mergeTags(tags, databaseTag)
 	}
 
 	return tags
@@ -1312,7 +1337,7 @@ func writeMetaInfo(processId int, appName, endpoint, tags string) (msg string, o
 	timezone, _ := now.Zone()
 	cpuCount := runtime.NumCPU()
 	allTags := mergeTags(tags, computeSystemTags(appRuntime, config.GlobalConfig.NodejsCaptureMode,
-		config.GlobalConfig.Postgres.IsConfigured()))
+		config.GlobalConfig.DBTargetKey()))
 	_, e = fmt.Fprintf(file, metaInfoTemplate, hostname, processId, appName, un, timestamp, timezone, timezoneIANA, cpuCount, jv, ov, allTags)
 	if e != nil {
 		err = fmt.Errorf("write result err: %v, previous err: %v", e, err)

@@ -201,8 +201,7 @@ func takeCapacitySample(t *testing.T, conn *fakeCapacityConn, collector Capacity
 func capacitySampleContext(index, total int) SampleContext {
 	return SampleContext{
 		At: at(34, 5, 55), Index: index, Total: total,
-		Database: "orders_db", DBID: "16401",
-		HasPgStatCheckpointer: true,
+		Database: "orders_db", Engine: Facts{DBID: "16401", HasPgStatCheckpointer: true},
 	}
 }
 
@@ -346,7 +345,7 @@ func TestCapacitySelectsTheStatementsOnTheCapability(t *testing.T) {
 			conn := newFakeCapacityConn()
 
 			sampleCtx := capacitySampleContext(1, 2)
-			sampleCtx.HasPgStatCheckpointer = tc.hasView
+			sampleCtx.Engine.HasPgStatCheckpointer = tc.hasView
 
 			var buf bytes.Buffer
 			require.NoError(t, Capacity{}.Sample(context.Background(), conn, &buf, sampleCtx))
@@ -375,7 +374,7 @@ func TestCapacityCheckpointBlocksKeepEachViewsNames(t *testing.T) {
 		t.Helper()
 
 		sampleCtx := capacitySampleContext(1, 2)
-		sampleCtx.HasPgStatCheckpointer = hasView
+		sampleCtx.Engine.HasPgStatCheckpointer = hasView
 
 		var buf bytes.Buffer
 		require.NoError(t, Capacity{}.Sample(context.Background(), newFakeCapacityConn(), &buf, sampleCtx))
@@ -612,7 +611,7 @@ func TestCapacityIssuesTheStatementsItsBudgetIsDeclaredFor(t *testing.T) {
 
 	conn := newFakeCapacityConn()
 	sampleCtx := capacitySampleContext(1, 2)
-	sampleCtx.HasPgStatCheckpointer = false
+	sampleCtx.Engine.HasPgStatCheckpointer = false
 
 	require.NoError(t, Capacity{}.Sample(context.Background(), conn, io.Discard, sampleCtx))
 	assert.Equal(t, []string{bgwriterSQLPre17, databaseSQL, walPrivilegeSQL, walSQL}, conn.sql,

@@ -146,10 +146,10 @@ func (c Capacity) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 }
 
 func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	for _, block := range checkpointBlocks(s.HasPgStatCheckpointer) {
-		start := s.now()
+	for _, block := range checkpointBlocks(s.Engine.HasPgStatCheckpointer) {
+		start := s.Now()
 		cells, err := readCounterBlock(ctx, q, block)
-		reads := span{start, s.now()}
+		reads := span{start, s.Now()}
 
 		if err := c.writeHeader(w, s, block.source, "", reads, err, len(cells), nil); err != nil {
 			return err
@@ -165,9 +165,9 @@ func (c Capacity) writeCheckpointBlocks(ctx context.Context, q RowQuerier, w io.
 
 // writeDatabaseBlock is scope=database in a cluster file: its row is the connected database's.
 func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 	row, err := readDatabase(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	cells := databaseCells(row)
 
@@ -179,9 +179,9 @@ func (c Capacity) writeDatabaseBlock(ctx context.Context, q RowQuerier, w io.Wri
 }
 
 func (c Capacity) writeWALBlock(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 	bytesWritten, denied, err := readWAL(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	var fields []headerField
 	if denied {
@@ -302,7 +302,7 @@ func (c Capacity) writeHeader(w io.Writer, s SampleContext, source, scope string
 	rows int, fields []headerField,
 ) error {
 	if err != nil {
-		fields = append(fields, headerField{"error", s.errorText(err)})
+		fields = append(fields, headerField{"error", s.ErrorText(err)})
 	}
 
 	return writeSampleHeader(w, c.Artifact(), s, sampleHeader{

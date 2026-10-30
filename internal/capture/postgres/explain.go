@@ -454,7 +454,7 @@ func (e *Explain) report(ctx context.Context, q RowQuerier, w io.Writer, s Sampl
 		e.store.written++
 	}
 
-	return e.writeSummary(w, s, selection, facts, gate, read, s.errorText(factsErr))
+	return e.writeSummary(w, s, selection, facts, gate, read, s.ErrorText(factsErr))
 }
 
 // ingest sorts the tail's events into the two stores: a log_min_duration_statement
@@ -1047,7 +1047,7 @@ func (e *Explain) selectCandidates(
 func eligible(
 	row statementRow, s SampleContext, facts explainFacts, own map[int64]bool, counters *explainCounters,
 ) bool {
-	if s.DBID != "" && text(row.dbid) != s.DBID {
+	if s.Engine.DBID != "" && text(row.dbid) != s.Engine.DBID {
 		counters.excludedOtherDatabase++
 
 		return false
@@ -1304,7 +1304,7 @@ func (e *Explain) submitOne(
 		err       error
 	)
 
-	start := s.now()
+	start := s.Now()
 
 	if mode == planModeEstimatedLiteral {
 		arguments := make([]string, len(c.literal.values))
@@ -1323,10 +1323,10 @@ func (e *Explain) submitOne(
 			forceGenericPlanSQL, nullArguments(c.parameters))
 	}
 
-	c.reads = span{start, s.now()}
+	c.reads = span{start, s.Now()}
 
 	if err != nil {
-		c.err = s.errorText(err)
+		c.err = s.ErrorText(err)
 		c.errStatus = readStatus(err)
 
 		return
@@ -1800,7 +1800,7 @@ func (e *Explain) writeBlock(w io.Writer, s SampleContext, fields []headerField,
 	header := make([]headerField, 0, len(fields)+3)
 	header = append(header,
 		headerField{"db", s.Database},
-		headerField{"dbid", s.DBID},
+		headerField{"dbid", s.Engine.DBID},
 	)
 	header = append(header, fields...)
 	header = append(header, headerField{"bytes", strconv.Itoa(len(body))})

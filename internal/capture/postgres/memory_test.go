@@ -142,7 +142,7 @@ func takeMemorySample(t *testing.T, conn *fakeMemoryConn) string {
 
 	var buf bytes.Buffer
 	require.NoError(t, Memory{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -277,7 +277,7 @@ func TestMemoryFailedPrivilegeCheckIsAFailedSample(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := Memory{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -309,7 +309,7 @@ func TestMemoryOtherFailuresWriteNothing(t *testing.T) {
 
 			var buf bytes.Buffer
 			sampleErr := Memory{}.Sample(context.Background(), conn, &buf, SampleContext{
-				At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+				At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 			})
 
 			require.Error(t, sampleErr)
@@ -334,7 +334,7 @@ func TestMemoryWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, Memory{}.Sample(context.Background(), newFakeMemoryConn(), writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

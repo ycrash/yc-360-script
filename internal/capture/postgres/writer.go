@@ -3,29 +3,28 @@ package postgres
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
 	"errors"
 	"io"
 	"strconv"
-	"strings"
 	"time"
-	"unicode"
+
+	"yc-agent/internal/capture/dbcore"
 )
 
 // defaultArtifactVersion is v= for an artifact that sets no Version. An artifact's version changes
 // when its key set or value forms change in a way an existing reader would get wrong.
-const defaultArtifactVersion = 1
+const defaultArtifactVersion = dbcore.DefaultArtifactVersion
 
 // sampleHeaderVersion is v= for a periodic file whose one break is the two-line sample
 // header.
-const sampleHeaderVersion = 2
+const sampleHeaderVersion = dbcore.SampleHeaderVersion
 
 // The two body formats; a receiver dispatches on format=, not
 // filename. formatText's end is given by the block header's bytes= key, never
 // by scanning for the next '#' — see logtail.go.
 const (
-	formatCSV  = "csv"
-	formatText = "text"
+	formatCSV  = dbcore.FormatCSV
+	formatText = dbcore.FormatText
 )
 
 type field struct {
@@ -33,10 +32,20 @@ type field struct {
 	value string
 }
 
+// coreFields is fields as dbcore writes them.
+func coreFields(fields []field) []dbcore.Field {
+	converted := make([]dbcore.Field, len(fields))
+	for i, f := range fields {
+		converted[i] = dbcore.Field{Key: f.key, Value: f.value}
+	}
+
+	return converted
+}
+
 // writeKeyValueBody prepends the column header every block carries, so a block
 // is readable without the one before it.
 func writeKeyValueBody(w io.Writer, fields []field) error {
-	return writeFields(w, append([]field{{key: "key", value: "value"}}, fields...))
+	return dbcore.WriteKeyValueBody(w, coreFields(fields))
 }
 
 // targetFields is what was configured; deliberately no password row.
@@ -196,6 +205,16 @@ type headerField struct {
 	value string
 }
 
+// coreHeader is fields as dbcore writes them.
+func coreHeader(fields []headerField) []dbcore.HeaderField {
+	converted := make([]dbcore.HeaderField, len(fields))
+	for i, f := range fields {
+		converted[i] = dbcore.HeaderField{Key: f.key, Value: f.value}
+	}
+
+	return converted
+}
+
 // writeBlockHeader renders one block header line:
 //
 //	# engine=postgres source=<source> v=<n> format=csv scope=<scope> [k=v ...] ts=<ts>
@@ -215,39 +234,15 @@ func writeBlockHeaderFormat(w io.Writer, source, scope, format string, fields []
 func writeVersionedBlockHeader(w io.Writer, source string, version int, scope, format string,
 	fields []headerField, ts time.Time,
 ) error {
-	line := make([]headerField, 0, len(fields)+6)
-	line = append(line,
-		headerField{"engine", "postgres"},
-		headerField{"source", source},
-		headerField{"v", strconv.Itoa(version)},
-		headerField{"format", format},
-		headerField{"scope", scope},
-	)
-	line = append(line, fields...)
-	line = append(line, headerField{"ts", timestamp(ts)})
-
-	return writeHeaderLine(w, line)
+	return dbcore.WriteBlockHeader(w, engineName, source, version, scope, format, coreHeader(fields), ts)
 }
 
-func writeHeaderLine(w io.Writer, fields []headerField) error {
-	tokens := make([]string, len(fields))
-	for i, f := range fields {
-		tokens[i] = f.key + "=" + headerValue(f.value)
-	}
-
-	_, err := io.WriteString(w, "# "+strings.Join(tokens, " ")+"\n")
-
-	return err
-}
-
-// A sample block's status=: its reads succeeded, or found by design that there was
-// nothing to read (reason=); a read failed; a read ran out of time; a plan was cut at
-// its size cap.
+// A sample block's status=: see dbcore.
 const (
-	statusOK        = "OK"
-	statusError     = "ERROR"
-	statusTimeout   = "TIMEOUT"
-	statusTruncated = "TRUNCATED"
+	statusOK        = dbcore.StatusOK
+	statusError     = dbcore.StatusError
+	statusTimeout   = dbcore.StatusTimeout
+	statusTruncated = dbcore.StatusTruncated
 )
 
 // queryCanceled is the server's statement timeout, and a cancelled statement.
@@ -301,165 +296,44 @@ type sampleHeader struct {
 // block's own; on each, the envelope's keys come first. The times are empty on a block
 // no statement was run for.
 func writeSampleHeader(w io.Writer, artifact Artifact, s SampleContext, h sampleHeader) error {
-	if err := writeHeaderLine(w, []headerField{
-		{"capture_id", s.CaptureID},
-		{"target_id", s.TargetID},
-		{"engine", "postgres"},
-		{"engine_version", s.EngineVersion},
-		{"v", strconv.Itoa(artifactVersion(artifact))},
-		{"format", artifactFormat(artifact)},
-		{"db", s.Database},
-		{"dbid", s.DBID},
-	}); err != nil {
-		return err
-	}
-
-	scope := h.scope
-	if scope == "" {
-		scope = artifact.Scope
-	}
-
-	fields := make([]headerField, 0, len(h.fields)+10)
-	fields = append(fields,
-		headerField{"sample_id", strconv.Itoa(s.Index)},
-		headerField{"source", h.source},
-		headerField{"start_ts", clockRead(h.reads.start)},
-		headerField{"end_ts", clockRead(h.reads.end)},
-		headerField{"duration_ms", durationMillis(h.reads)},
-		headerField{"status", h.status},
-		headerField{"rows", strconv.Itoa(h.rows)},
-		headerField{"truncated", strconv.FormatBool(h.truncated)},
-		headerField{"scope", scope},
-	)
-	fields = append(fields, h.fields...)
-	fields = append(fields, headerField{"ts", timestamp(s.At)})
-
-	return writeHeaderLine(w, fields)
-}
-
-// durationMillis is a span's length in whole milliseconds, empty where nothing ran.
-func durationMillis(reads span) string {
-	if reads.start.IsZero() {
-		return ""
-	}
-
-	return strconv.FormatInt(reads.end.Sub(reads.start).Milliseconds(), 10)
+	return dbcore.WriteSampleHeader(w, engineName, location(s), artifact, s, dbcore.SampleHeader{
+		Source:    h.source,
+		Scope:     h.scope,
+		Reads:     dbcore.Span{Start: h.reads.start, End: h.reads.end},
+		Status:    h.status,
+		Rows:      h.rows,
+		Truncated: h.truncated,
+		Fields:    coreHeader(h.fields),
+	})
 }
 
 // maxHeaderValue bounds a header value in runes: a PostgreSQL error carries
 // DETAIL and HINT, and a kilobyte has nowhere to wrap in header space.
-const maxHeaderValue = 200
+const maxHeaderValue = dbcore.MaxHeaderValue
 
 // headerValue quotes anything that would break space-delimited k=v tokenisation.
-// QuoteToGraphic, not Quote: Quote escapes non-ASCII to \uXXXX, and identifiers
-// may legally be non-ASCII. Parser rule: split on unquoted whitespace; a value
-// starting with " runs to the next unescaped ", per strconv.Unquote's escapes.
-func headerValue(s string) string {
-	s = truncateRunes(singleLine(s), maxHeaderValue)
-
-	if needsHeaderQuoting(s) {
-		return strconv.QuoteToGraphic(s)
-	}
-
-	return s
-}
-
-// needsHeaderQuoting also quotes non-graphic runes, which makes them visible as
-// escapes rather than unreadable off a terminal.
-func needsHeaderQuoting(s string) bool {
-	for _, r := range s {
-		if unicode.IsSpace(r) || r == '"' || !unicode.IsGraphic(r) {
-			return true
-		}
-	}
-
-	return false
-}
+func headerValue(s string) string { return dbcore.HeaderValue(s) }
 
 // truncateRunes marks the cut, and counts runes so a multi-byte character is
 // never split in half.
-func truncateRunes(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-
-	return string(runes[:n]) + "..."
-}
+func truncateRunes(s string, n int) string { return dbcore.TruncateRunes(s, n) }
 
 // writeRows writes the column header even with no rows, the shape that
 // distinguishes "captured and found nothing" from "could not be captured".
 func writeRows(w io.Writer, columns []string, rows [][]string) error {
-	cw := csv.NewWriter(w)
-
-	if err := cw.Write(singleLineAll(columns)); err != nil {
-		return err
-	}
-
-	for _, row := range rows {
-		if err := cw.Write(singleLineAll(row)); err != nil {
-			return err
-		}
-	}
-
-	cw.Flush()
-
-	return cw.Error()
+	return dbcore.WriteRows(w, columns, rows)
 }
 
-func singleLineAll(cells []string) []string {
-	flattened := make([]string, len(cells))
-	for i, cell := range cells {
-		flattened[i] = singleLine(cell)
-	}
-
-	return flattened
-}
-
-func writeFields(w io.Writer, fields []field) error {
-	cw := csv.NewWriter(w)
-
-	for _, f := range fields {
-		if err := cw.Write([]string{f.key, singleLine(f.value)}); err != nil {
-			return err
-		}
-	}
-
-	cw.Flush()
-
-	return cw.Error()
-}
-
-var lineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
-
-// singleLine collapses line breaks so one row is one line - not for the CSV
-// encoding (which would quote a newline fine) but for the artifact's claim that
-// it needs no record-aware parsing. The one place the agent mutates a captured value.
-func singleLine(s string) string {
-	return lineBreaks.Replace(s)
-}
+// singleLine collapses line breaks so one row is one line.
+func singleLine(s string) string { return dbcore.SingleLine(s) }
 
 // timestamp renders an agent-side clock read in the artifact's timestamp form.
-func timestamp(t time.Time) string {
-	return t.UTC().Format(timestampLayout)
-}
+func timestamp(t time.Time) string { return dbcore.Timestamp(t) }
 
 // clockRead renders a reading that may not have happened: zero is empty, not year
 // one, which would read as two thousand years of clock skew.
-func clockRead(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-
-	return timestamp(t)
-}
+func clockRead(t time.Time) string { return dbcore.ClockRead(t) }
 
 // millisText renders milliseconds - finer than the networks measured, coarse
 // enough to stay stable. An unmeasured duration is empty, like every unread value.
-func millisText(d time.Duration) string {
-	if d <= 0 {
-		return ""
-	}
-
-	return strconv.FormatFloat(d.Seconds()*1000, 'f', 1, 64)
-}
+func millisText(d time.Duration) string { return dbcore.MillisText(d) }

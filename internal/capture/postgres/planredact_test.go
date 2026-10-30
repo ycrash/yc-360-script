@@ -903,7 +903,7 @@ func TestExplainBlocksCountWhatTheyReplaced(t *testing.T) {
 		err: `ERROR: invalid input syntax for type integer: "abc" (SQLSTATE 22P02)`,
 	}
 
-	s := SampleContext{Index: 1, Total: 2, Database: "orders_db", DBID: "16401", At: time.Now()}
+	s := SampleContext{Index: 1, Total: 2, Database: "orders_db", Engine: Facts{DBID: "16401"}, At: time.Now()}
 
 	require.NoError(t, e.writeCandidate(&out, s, literal, explainFacts{}))
 	require.NoError(t, e.writeCandidate(&out, s, refused, explainFacts{}))

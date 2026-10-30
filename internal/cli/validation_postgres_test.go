@@ -41,13 +41,15 @@ func TestValidatePostgres(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "sup3r-s3cr3t")
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "  db-prod-01.internal  ",
-			Database: "orders_db",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "  db-prod-01.internal  ",
+				Database: "orders_db",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
-			Password:        "${PG_YCRASH_PASSWORD}",
+				CaptureDuration: twoMinutes(),
+				Password:        "${PG_YCRASH_PASSWORD}",
+			},
 		})
 
 		require.NoError(t, validate())
@@ -65,12 +67,14 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("warnings do not stop the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
-			TLS:             &config.PostgresTLS{Enabled: new(bool)},
+				CaptureDuration: twoMinutes(),
+				TLS:             &config.PostgresTLS{Enabled: new(bool)},
+			},
 		})
 
 		require.NoError(t, validate(), "a plaintext connection is warned about, not refused")
@@ -79,9 +83,11 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("missing host stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
+				CaptureDuration: twoMinutes(),
+			},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
@@ -89,9 +95,11 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("a block without captureDuration stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
+			},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(), "there is no default window")
@@ -107,12 +115,14 @@ func TestValidatePostgres(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "")
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
-			Password:        "${PG_YCRASH_PASSWORD}",
+				CaptureDuration: twoMinutes(),
+				Password:        "${PG_YCRASH_PASSWORD}",
+			},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
@@ -124,11 +134,13 @@ func TestValidatePostgres(t *testing.T) {
 		}
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
+				CaptureDuration: twoMinutes(),
+			},
 		})
 		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o644)
 
@@ -138,11 +150,13 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("an owner-only config file passes", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
+				CaptureDuration: twoMinutes(),
+			},
 		})
 		config.GlobalConfig.ConfigPath = configFileWithMode(t, 0o600)
 
@@ -158,12 +172,14 @@ func TestValidatePostgres(t *testing.T) {
 
 	t.Run("sslmode stops the run", func(t *testing.T) {
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
-			SSLMode:         "verify-full",
+				CaptureDuration: twoMinutes(),
+			},
+			SSLMode: "verify-full",
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate(),
@@ -174,12 +190,14 @@ func TestValidatePostgres(t *testing.T) {
 		verify := true
 
 		config.GlobalConfig = postgresValidateFixture(&config.Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Username: "ycrash_monitor",
+			DBTarget: config.DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Username: "ycrash_monitor",
 
-			CaptureDuration: twoMinutes(),
-			TLS:             &config.PostgresTLS{Enabled: new(bool), VerifyServerCertificate: &verify},
+				CaptureDuration: twoMinutes(),
+				TLS:             &config.PostgresTLS{Enabled: new(bool), VerifyServerCertificate: &verify},
+			},
 		})
 
 		assert.Equal(t, ErrInvalidArgumentCantContinue, validate())
@@ -200,4 +218,43 @@ func configFileWithMode(t *testing.T, mode os.FileMode) string {
 	require.NoError(t, os.Chmod(path, mode), "explicitly, since WriteFile's mode is masked by the umask")
 
 	return path
+}
+
+func TestValidateRefusesTwoDatabaseTargets(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	logger.Init("", 0, 0, "info")
+
+	cfg := postgresValidateFixture(&config.Postgres{DBTarget: config.DBTarget{
+		ID: "a", Host: "db", Username: "u", CaptureDuration: twoMinutes(),
+	}})
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{ID: "b", Host: "db", Username: "u", CaptureDuration: twoMinutes()}}
+	config.GlobalConfig = cfg
+
+	assert.ErrorIs(t, validate(), ErrInvalidArgumentCantContinue)
+}
+
+func TestValidateMySQL(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	logger.Init("", 0, 0, "info")
+
+	cfg := postgresValidateFixture(nil)
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{
+		ID: "orders-primary", Host: " db ", Username: "u", CaptureDuration: twoMinutes(),
+	}}
+	config.GlobalConfig = cfg
+
+	require.NoError(t, validate())
+	assert.Equal(t, "db", config.GlobalConfig.MySQL.Host)
+	assert.Equal(t, config.DefaultMySQLPort, config.GlobalConfig.MySQL.Port)
+
+	cfg = postgresValidateFixture(nil)
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{ID: "x", Host: "db", Username: "u",
+		CaptureDuration: twoMinutes(), Explain: "logged"}}
+	config.GlobalConfig = cfg
+
+	assert.ErrorIs(t, validate(), ErrInvalidArgumentCantContinue)
 }

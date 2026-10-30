@@ -46,14 +46,14 @@ func (x XIDAge) Artifact() Artifact {
 // Sample runs the one statement and writes one block. A statement that fails
 // errors and writes nothing, and the window writes the stub.
 func (x XIDAge) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 
 	rows, err := readXIDAges(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	// Buffered so a write failure never leaves a half-written body.
 	var block bytes.Buffer
