@@ -177,11 +177,11 @@ func TestSameHostIsTheServersOwnStart(t *testing.T) {
 			}}, foreignVisible: true,
 		}, "yes", ""},
 		{"another server's threads are as old as it is", fakeProcesses{
-			processes: []serverProcess{{pid: 7, started: started.Add(-time.Hour), threadsStarted: started.Add(-time.Hour)}},
+			processes:      []serverProcess{{pid: 7, started: started.Add(-time.Hour), threadsStarted: started.Add(-time.Hour)}},
 			foreignVisible: true,
 		}, "no", hostReasonStartMismatch},
 		{"a process younger than the server is not it, whatever its threads", fakeProcesses{
-			processes: []serverProcess{{pid: 7, started: started.Add(time.Hour), threadsStarted: started}},
+			processes:      []serverProcess{{pid: 7, started: started.Add(time.Hour), threadsStarted: started}},
 			foreignVisible: true,
 		}, "no", hostReasonStartMismatch},
 		{"no server here at all", fakeProcesses{foreignVisible: true}, "no", hostReasonNoServerProcess},
