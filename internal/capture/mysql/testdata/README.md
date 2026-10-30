@@ -41,6 +41,16 @@ sections below.
   it, so a context deadline mid-statement ends that connection's timeline - the
   same behaviour pgx has, and the reason `StatementDeadline` sits above
   `max_execution_time`.
+- **A statement whose client gave up keeps running on the server.** Measured on
+  all five, on the agent's own connection with a 1s client deadline:
+  `SELECT SLEEP(4)` ran its 4s, and a `BENCHMARK` its whole uncancelled time
+  (2s; 5s on the emulated 8.0.27). The server notices the closed socket only
+  when the statement ends and it reads the next command. Each such loss adds 1
+  to `Aborted_clients`, which `my_timeouts.txt` reports, and at
+  `log_error_verbosity=3` (`my9`) writes an "Aborted connection ... Got an
+  error reading communication packets" note; at 2, none. So a SELECT is bounded
+  by `max_execution_time` alone, and a SHOW or EXPLAIN that outlives
+  `StatementDeadline` runs on unbounded after the agent has given up on it.
 - **Public key retrieval.** The plan assumed an `allowPublicKeyRetrieval`
   switch to leave off. go-sql-driver has none: over plaintext it always asks the
   server for its RSA key when `caching_sha2_password` or `sha256_password` wants
