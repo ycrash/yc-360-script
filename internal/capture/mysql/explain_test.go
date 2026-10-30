@@ -160,3 +160,59 @@ func TestExplainOffSendsNothing(t *testing.T) {
 	assert.Empty(t, q.sent)
 	assert.Contains(t, out.String(), "reason=explain_off")
 }
+
+// planV2 is 9.x's default JSON plan format, as my9 returned it: the rewritten query
+// and each operation carry the statement's values.
+const planV2 = `{
+  "query": "/* select#1 */ select ` + "`yc_app`.`orders`.`id` AS `id`" + ` from ` + "`yc_app`.`orders`" + ` where ((` + "`yc_app`.`orders`.`customer_id`" + ` = 7) and (` + "`yc_app`.`orders`.`status`" + ` = 'pending'))",
+  "query_plan": {
+    "inputs": [
+      {
+        "operation": "Index lookup on orders using orders_customer_idx (customer_id = 7)",
+        "index_name": "orders_customer_idx",
+        "table_name": "orders",
+        "access_type": "index",
+        "key_columns": [
+          "customer_id"
+        ],
+        "estimated_rows": 10.0,
+        "lookup_condition": "customer_id = 7",
+        "lookup_references": [
+          "const"
+        ]
+      }
+    ],
+    "condition": "(orders.` + "`status`" + ` = 'pending')",
+    "operation": "Filter: (orders.` + "`status`" + ` = 'pending')",
+    "access_type": "filter"
+  },
+  "query_type": "select",
+  "json_schema_version": "2.0"
+}`
+
+func TestRedactPlanReplacesValuesWhereverTheFormatPutsThem(t *testing.T) {
+	got, n := redactPlan(planV2)
+
+	assert.NotContains(t, got, "'pending'")
+	assert.NotContains(t, got, "= 7")
+	assert.Contains(t, got, `"operation": "Index lookup on orders using orders_customer_idx (customer_id = <redacted>)"`)
+	assert.Contains(t, got, `"lookup_condition": "customer_id = <redacted>"`)
+	assert.Contains(t, got, `"operation": "Filter: (orders.`+"`status`"+` = '<redacted>')"`)
+	assert.Contains(t, got, "= '<redacted>'))\",\n  \"query_plan\"", "the rewritten query keeps its shape")
+	assert.Contains(t, got, `"index_name": "orders_customer_idx",`)
+	assert.Contains(t, got, "\"key_columns\": [\n          \"customer_id\"\n        ],", "names, and the layout, are kept")
+	assert.Contains(t, got, `"json_schema_version": "2.0"`)
+	assert.Contains(t, got, `"estimated_rows": 10.0,`)
+	assert.Equal(t, 6, n)
+
+	unchanged := `{"query_block": {"select_id": 1, "message": "No tables used"}}`
+	got, n = redactPlan(unchanged)
+	assert.Equal(t, unchanged, got)
+	assert.Zero(t, n)
+}
+
+func TestExplainSkipsAPreparedStatementsSample(t *testing.T) {
+	assert.True(t, hasPlaceholder("SELECT id FROM t WHERE status = 'x' AND customer_id = ?"))
+	assert.False(t, hasPlaceholder("SELECT 'what?', `odd?name` FROM t /* why? */ WHERE a = 1 # really?"))
+	assert.False(t, hasPlaceholder("SELECT _utf8mb4'?' FROM t"))
+}

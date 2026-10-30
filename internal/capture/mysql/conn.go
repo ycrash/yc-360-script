@@ -78,11 +78,17 @@ const (
 // returns it, so no statement ever runs without them. time_zone makes TIMESTAMP
 // columns read in UTC, as every agent timestamp is.
 var sessionVariables = map[string]string{
-	"max_execution_time":    strconv.FormatInt(StatementTimeout.Milliseconds(), 10),
-	"lock_wait_timeout":     strconv.Itoa(LockWaitTimeout),
-	"transaction_read_only": "1",
-	"wait_timeout":          strconv.Itoa(idleTimeout),
-	"time_zone":             "'+00:00'",
+	"max_execution_time": strconv.FormatInt(StatementTimeout.Milliseconds(), 10),
+	"lock_wait_timeout":  strconv.Itoa(LockWaitTimeout),
+
+	// No agent statement is known to wait on a row lock: consistent reads do not,
+	// and EXPLAIN of a FOR UPDATE on a locked row returned at once on the matrix.
+	// This bounds the unknown at the metadata-lock bound, against the server's
+	// 50s default.
+	"innodb_lock_wait_timeout": strconv.Itoa(LockWaitTimeout),
+	"transaction_read_only":    "1",
+	"wait_timeout":             strconv.Itoa(idleTimeout),
+	"time_zone":                "'+00:00'",
 }
 
 // MySQL error numbers the capture tells apart.

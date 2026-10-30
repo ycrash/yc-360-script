@@ -84,7 +84,9 @@ no plans in its log to copy.
 
 The session is read-only, and MySQL refuses `EXPLAIN` of an `UPDATE`, `DELETE`,
 `INSERT` or `REPLACE` there, so write statements get no plan
-(`reason=read_only_session`). EXPLAIN needs `SELECT` on the tables the statement
+(`reason=read_only_session`). A prepared statement's sample keeps its `?`
+markers, which no server can plan, so it gets none either
+(`reason=placeholder`). EXPLAIN needs `SELECT` on the tables the statement
 reads.
 
 ### `agentOnDbHost`
@@ -223,16 +225,19 @@ STATUS`. A string becomes `'<redacted>'` inside its own quotes and prefix, a
 number `<redacted>`. A statement that sets a credential - `CREATE USER`,
 `ALTER USER`, `SET PASSWORD`, `CHANGE REPLICATION SOURCE` and the like - is
 replaced past its first two words. InnoDB's dumps print each locked row's bytes
-as hex and text; both are replaced. Plans keep their tables, indexes, access
-types, costs and row estimates, and lose the values in their conditions. Each
-block counts its replacements as `redacted=`.
+as hex and text; both are replaced. A plan keeps its table, index and column
+names, its access types, and its costs and row estimates; every other string in
+it has its values replaced - the conditions, each step's operation, and the
+rewritten statement MySQL 9's plan format carries whole. A key a later version
+adds is replaced until it is known to hold only names. Each block counts its
+replacements as `redacted=`.
 
 ## What each connection is allowed to do
 
 Each of the three connections opens with, in one statement before any
 collector runs: `max_execution_time` of 5s (SELECT only), `lock_wait_timeout`
-of 2s, `transaction_read_only`, a `wait_timeout` longer than the longest
-window, and `time_zone='+00:00'`. Statements carry no arguments, so none is
+and `innodb_lock_wait_timeout` of 2s, `transaction_read_only`, a `wait_timeout`
+longer than the longest window, and `time_zone='+00:00'`. Statements carry no arguments, so none is
 prepared server-side and the agent never appears in its own
 `my_prepared_statements.txt`. Every statement starts with
 `/* yCrash-DB-Agent */`.

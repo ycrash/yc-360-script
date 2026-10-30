@@ -140,3 +140,11 @@ func TestVersionsAndVariants(t *testing.T) {
 	assert.Equal(t, VariantPercona, variantOf("8.4.3-3", "Percona Server (GPL), Release 3, Revision 1a2b3c"))
 	assert.Equal(t, VariantMySQL, variantOf("8.4.3", "MySQL Community Server - GPL"))
 }
+
+func TestTheSessionNeverWaitsLongOnARowLock(t *testing.T) {
+	cfg, err := buildConfig(Target{Host: "db"}, &keyRequestGuard{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "2", cfg.Params["innodb_lock_wait_timeout"],
+		"a row lock is waited on no longer than a metadata lock")
+}

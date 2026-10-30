@@ -415,3 +415,40 @@ func statementEnds(line string) bool {
 
 	return false
 }
+
+// hasPlaceholder reports a ? marker outside literals, quoted names and comments: a
+// prepared statement's text, which no server can run as written.
+func hasPlaceholder(s string) bool {
+	for i := 0; i < len(s); {
+		afterName := i > 0 && isNameByte(s[i-1])
+
+		switch c := s[i]; {
+		case strings.HasPrefix(s[i:], "/*!"):
+			i += 3
+
+		case strings.HasPrefix(s[i:], "/*"):
+			i += blockCommentLength(s[i:])
+
+		case c == '#' || lineComment(s[i:]):
+			i += lineLength(s[i:])
+
+		case c == '`':
+			i += quotedLength(s[i:], '`', false)
+
+		case c == '\'' || c == '"':
+			i += quotedLength(s[i:], c, true)
+
+		case !afterName && literalPrefix(s[i:]) > 0:
+			prefix := literalPrefix(s[i:])
+			i += prefix + quotedLength(s[i+prefix:], s[i+prefix], true)
+
+		case c == '?':
+			return true
+
+		default:
+			i++
+		}
+	}
+
+	return false
+}

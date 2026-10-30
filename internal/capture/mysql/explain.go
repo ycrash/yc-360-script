@@ -49,6 +49,10 @@ const (
 	explainReasonNotExplain   = "not_explainable"
 	explainReasonCut          = "sample_text_cut"
 	explainReasonReadOnly     = "read_only_session"
+
+	// explainReasonPlaceholder: a prepared statement's sample keeps its ? markers,
+	// which EXPLAIN cannot parse (error 1064, measured on the matrix).
+	explainReasonPlaceholder = "placeholder"
 )
 
 // Explain is my_explain.txt: one estimated plan per digest, the first time the digest
@@ -216,6 +220,9 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 
 	case writeStatement.MatchString(c.text):
 		return explainReasonReadOnly
+
+	case hasPlaceholder(c.text):
+		return explainReasonPlaceholder
 	}
 
 	// A sample cut at performance_schema_max_sql_text_length is not the statement:
@@ -267,37 +274,147 @@ func readAll(ctx context.Context, q Querier, query string) error {
 	return rows.Err()
 }
 
-// planConditions are the plan's keys whose values are expressions over the
-// statement's values.
-var planConditions = regexp.MustCompile(
-	`"(attached_condition|index_condition|having_condition|pushed_condition|condition|filter|message|original_condition|resulting_condition)": ("(?:[^"\\]|\\.)*")`)
+// planNameKeys hold names, structure or the optimizer's own numbers, never a value
+// from the statement: their strings are kept. Every other string in a plan - a
+// condition, an operation ("Filter: (orders.status = 'pending')"), the rewritten
+// query 9.x's second JSON format carries whole - has its values replaced, so a key
+// a later version adds is replaced until it is listed here.
+var planNameKeys = map[string]bool{
+	// Tables, indexes and columns.
+	"table_name": true, "schema_name": true, "index_name": true, "key": true, "possible_keys": true,
+	"used_key_parts": true, "used_columns": true, "key_columns": true, "filter_columns": true,
+	"partitions": true, "ref": true, "lookup_references": true,
 
-// redactPlan replaces the values in a JSON plan's conditions; every other key -
-// tables, indexes, access types, costs and row estimates - is kept as written.
+	// Shape.
+	"access_type": true, "index_access_type": true, "join_algorithm": true, "select_type": true,
+	"query_type": true, "json_schema_version": true, "key_length": true,
+
+	// Costs and estimates the first JSON format writes as strings.
+	"query_cost": true, "read_cost": true, "eval_cost": true, "prefix_cost": true, "sort_cost": true,
+	"data_read_per_join": true, "filtered": true,
+}
+
+// redactPlan replaces the values in a JSON plan's strings, keeping the strings of
+// planNameKeys and the plan's layout byte for byte. JSON numbers - row estimates and
+// costs - are the optimizer's, and are kept.
 func redactPlan(plan string) (string, int) {
+	var out strings.Builder
+
+	out.Grow(len(plan))
+
+	// Each open object or array, with the key its strings fall under: an object's
+	// latest key, or for an array the key it is the value of.
+	type frame struct {
+		object bool
+		key    string
+	}
+
+	var stack []frame
+
 	redacted := 0
 
-	out := planConditions.ReplaceAllStringFunc(plan, func(match string) string {
-		m := planConditions.FindStringSubmatch(match)
+	for i := 0; i < len(plan); {
+		switch c := plan[i]; c {
+		case '{', '[':
+			key := ""
+			if len(stack) > 0 {
+				key = stack[len(stack)-1].key
+			}
 
-		var text string
-		if err := json.Unmarshal([]byte(m[2]), &text); err != nil {
-			redacted++
+			stack = append(stack, frame{object: c == '{', key: key})
+			out.WriteByte(c)
+			i++
 
-			return `"` + m[1] + `": "` + redactedValue + `"`
+		case '}', ']':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+
+			out.WriteByte(c)
+			i++
+
+		case '"':
+			end := jsonStringEnd(plan, i)
+			token := plan[i:end]
+			i = end
+
+			top := len(stack) - 1
+			if top >= 0 && stack[top].object && followedByColon(plan, i) {
+				var key string
+				_ = json.Unmarshal([]byte(token), &key)
+				stack[top].key = key
+
+				out.WriteString(token)
+
+				continue
+			}
+
+			if top >= 0 && planNameKeys[stack[top].key] {
+				out.WriteString(token)
+
+				continue
+			}
+
+			var text string
+			if err := json.Unmarshal([]byte(token), &text); err != nil {
+				out.WriteString(`"` + redactedValue + `"`)
+				redacted++
+
+				continue
+			}
+
+			replaced, n := redactStatement(text)
+			redacted += n
+
+			if n == 0 {
+				out.WriteString(token)
+
+				continue
+			}
+
+			var quoted bytes.Buffer
+
+			encoder := json.NewEncoder(&quoted)
+			encoder.SetEscapeHTML(false)
+			_ = encoder.Encode(replaced)
+
+			out.WriteString(strings.TrimSuffix(quoted.String(), "\n"))
+
+		default:
+			out.WriteByte(c)
+			i++
+		}
+	}
+
+	return out.String(), redacted
+}
+
+// jsonStringEnd is the index just past the JSON string opening at i, or the end.
+func jsonStringEnd(s string, i int) int {
+	for j := i + 1; j < len(s); j++ {
+		switch s[j] {
+		case '\\':
+			j++
+		case '"':
+			return j + 1
+		}
+	}
+
+	return len(s)
+}
+
+// followedByColon reports a string that is an object's key.
+func followedByColon(s string, i int) bool {
+	for ; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		case ':':
+			return true
 		}
 
-		text, n := redactStatement(text)
-		redacted += n
+		return false
+	}
 
-		var quoted bytes.Buffer
-
-		encoder := json.NewEncoder(&quoted)
-		encoder.SetEscapeHTML(false)
-		_ = encoder.Encode(text)
-
-		return `"` + m[1] + `": ` + strings.TrimSuffix(quoted.String(), "\n")
-	})
-
-	return out, redacted
+	return false
 }
