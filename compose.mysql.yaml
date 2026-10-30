@@ -40,6 +40,11 @@
 # sequence rather than extend it, a service declaring its own command: or
 # volumes: loses the anchor's whole list, so both are spelled out per service.
 
+# A project name of its own: by default compose names the project after the
+# directory, the same name compose.pg.yaml's servers run under, and each file's
+# up or down would then treat the other's containers as its own orphans.
+name: yc-mysql-matrix
+
 x-my-common: &my-common
   environment:
     # Test fixture only: throwaway containers on a developer's machine, on
