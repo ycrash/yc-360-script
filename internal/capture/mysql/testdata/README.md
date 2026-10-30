@@ -7,23 +7,27 @@ because they are test input the package owns.
 
 This file is step 1 of `mysql-capture-plan.md`'s order of work: what the spec's
 queries do on real servers, recorded so the code that depends on them does not
-rest on belief. Measured 2026-10-27.
+rest on belief. Measured 2026-10-27 on the two 8.0 servers, and 2026-10-30 on
+all five.
 
 ## What was run
 
-| Server | Image | Measured |
+| Server | Image | Version |
 |---|---|---|
-| `my80` | `mysql:8.0` → 8.0.46 | yes, all three roles |
-| `my80old` | `mysql:8.0.27` (amd64, emulated on Apple Silicon) | yes, all three roles |
-| `my84` | `mysql:8.4` → 8.4.13 | **no**: the Docker VM's disk filled before it could initialise |
-| `my9` | `mysql:9` | **no**: image not pulled, same cause |
-| `percona84` | `percona/percona-server:8.4` | **no**: image not pulled, same cause |
+| `my80` | `mysql:8.0` | 8.0.46 |
+| `my80old` | `mysql:8.0.27` (amd64, emulated on Apple Silicon) | 8.0.27 |
+| `my84` | `mysql:8.4` | 8.4.13 |
+| `my9` | `mysql:9` | 9.7.4 |
+| `percona84` | `percona/percona-server:8.4` | 8.4.11-11 |
 
-Everything below marked *8.0 only* has been seen on 8.0.46 and 8.0.27 and
-nowhere else. `go test -tags mysqlintegration` with
-`YC_MY_MATRIX_SERVERS=my80,my80old` passes; the other three servers' rows of
-`TestMatrixWindow`, and `TestMatrixVerifiedTLS` (my84's certificate), have not
-yet run.
+`go test -tags mysqlintegration` passes on all five, every role:
+`TestMatrixWindow` (every file, all three roles), `TestMatrixScenarios` (the
+staged cases below), `TestMatrixPlaintextLoginNeverRequestsTheServersKey`, and
+`TestMatrixVerifiedTLS` on `my84`. A finding marked *8.0 only* was probed by
+hand on the two 8.0 servers; the matrix asserts the parts of it that the
+recommended roles depend on everywhere.
+
+Not run: the `replica` and `perms` profiles, and a MariaDB server.
 
 ## The plan's *(verify)* statements
 
@@ -47,6 +51,14 @@ yet run.
   intermittent failure the plan predicted. A wrong password over plaintext also
   ends in the key request, since the server asks for full authentication
   whenever its quick check fails, and the advice says so.
+- **The auto-generated certificate has no subject alternative name.**
+  Confirmed on `percona84`: "No extensions in certificate", subject
+  `CN=MySQL_Server_8.4.11-11_Auto_Generated_Server_Certificate`. Go's verifier
+  cannot accept it, so verified TLS needs a real certificate; `my84` serves
+  the setup script's, which names `127.0.0.1` and `localhost`, and verifies.
+  A `serverName` the certificate does not carry is refused.
+- **The public key guard on every version.** After `FLUSH PRIVILEGES`, a
+  plaintext login is refused before the key request on all five servers.
 - **MariaDB lacks the tables the spec relies on.** Not measured; the variant is
   detected from `VERSION()` and recorded.
 
@@ -80,13 +92,16 @@ yet run.
   `CURRENT_USER()`. A privilege held through a role is not listed;
   `enabled_roles` says when that may be the case.
 
-## Capability flags (8.0 only)
+## Capability flags
 
-| Flag | `my80` (8.0.46) | `my80old` (8.0.27) |
-|---|---|---|
-| `has_cpu_time_instrument_enabled` | false, `consumers_off` | false, `version_before_8.0.28` |
-| `has_statement_memory_tracking` | true | false |
-| `has_memory_instruments_enabled` | false (`memory/%=OFF`) | true |
+Asserted by `TestMatrixWindow` for the two roles that may read
+`performance_schema`.
+
+| Flag | `my80` | `my80old` | `my84` | `my9` | `percona84` |
+|---|---|---|---|---|---|
+| `has_cpu_time_instrument_enabled` | false, `consumers_off` | false, `version_before_8.0.28` | true | true | false, `consumers_off` |
+| `has_statement_memory_tracking` | true | false | true | true | true |
+| `has_memory_instruments_enabled` | false (`memory/%=OFF`) | true | true | true | true |
 
 - `--performance-schema-instrument=memory/%=OFF` leaves the 76
   `memory/performance_schema/%` instruments on: they cannot be switched off.
@@ -96,7 +111,8 @@ yet run.
   `sum_cpu_time`, `max_total_memory` and `max_controlled_memory` are not
   columns: `my_slow_queries.txt` selects `NULL` in their place and names them
   as `unavailable=`.
-- The CPU-on path (my84, my9) is untested.
+- With the consumer on (`my84`, `my9`), `sum_cpu_time` is read and nothing is
+  named `unavailable=`.
 
 ## The spec questions (plan §6)
 
@@ -130,8 +146,9 @@ yet run.
    every table. `my_metadata.txt` records the value.
 5. **Replication statements by version.** `SHOW REPLICA STATUS` from 8.0.22,
    `SHOW SLAVE STATUS` before; `SHOW BINARY LOG STATUS` from 8.2, `SHOW MASTER
-   STATUS` before. On 8.0.46 `SHOW MASTER STATUS` still works. 8.4's removal of
-   it is not measured here.
+   STATUS` before. On 8.0.46 `SHOW MASTER STATUS` still works; on 8.4.13, 9.7.4
+   and Percona 8.4.11 it is a syntax error (1064), and `SHOW BINARY LOG STATUS`
+   answers.
 6. **`my_nondefault_settings.txt`.** The joined query is written:
    `variables_info` LEFT JOIN `global_variables`, so a session-only variable
    keeps an empty value.
@@ -142,12 +159,48 @@ yet run.
    verdict is `no reason=no_server_process`, which is right. The yes path is
    unit-tested only.
 
+## Staged cases (`TestMatrixScenarios`, all five)
+
+Before the window, the scenario truncates the digest and index-usage summaries
+(test setup only: the agent never writes to the server) and runs a slow
+application `SELECT` and twenty scans of the table with no index. During it, a
+transaction holds a row with `FOR UPDATE`; a second session waits for that row;
+an `ALTER TABLE` queues for the metadata lock behind the transaction; a session
+holds a server-side prepared statement with a literal in it; and a statement
+runs past `max_execution_time`. Every file is `status=complete`, and:
+
+- `my_lock_waits.txt`: a fast sample has `data_lock_waits` rows and a pending
+  `metadata_locks` row naming `yc_app.orders`.
+- `my_prepared_statements.txt`: the held statement, `status = '<redacted>'`,
+  its `?` kept, and none of the agent's own.
+- `my_timeouts.txt`: 1205 rises by at least two between the opening and closing
+  samples (the row lock and the metadata lock both end in it) and 3024 by at
+  least one.
+- `my_explain.txt`: the application `SELECT` is planned under
+  `schema_name=yc_app`, with no value of it left in the plan.
+- `my_table_stats.txt`: the scanned table's row has an empty `INDEX_NAME`.
+
 ## Other findings
 
 - **`EXPLAIN` of an `UPDATE` or `DELETE` fails in a read-only session**: error
   1792, "Cannot execute statement in a READ ONLY transaction". The session
   keeps `transaction_read_only=1`, and `my_explain.txt` skips write statements
   with `reason=read_only_session`.
+- **9.x writes a second JSON plan format, and it carries the values
+  elsewhere.** 9.7.4's `EXPLAIN FORMAT=JSON` is `json_schema_version` 2.0: the
+  whole rewritten statement in `query`, and each step's expression in
+  `operation` ("Filter: (orders.`status` = 'pending')") and `lookup_condition`
+  ("customer_id = 7"). The first version of the plan redaction replaced values
+  only under a list of condition keys and left these in place; the matrix
+  caught it. Plan redaction is now deny-by-default: every string has its
+  values replaced unless its key holds only names, structure or costs.
+- **A prepared statement's sample keeps its `?` markers**, and EXPLAIN of it
+  fails with 1064, which spent a plan on nothing. Such a sample is skipped as
+  `reason=placeholder`.
+- **EXPLAIN of a `FOR UPDATE` does not wait on a locked row**: it returned at
+  once with the row held. The session's `innodb_lock_wait_timeout` is still set
+  to 2s, against the server's 50s default, as a bound on what is not known.
+- **9.7.4 reports `gtid_mode=ON`** with no option setting it.
 - **A statement that failed has no sample.** `query_sample_text` is empty and
   `query_sample_seen` is `0000-00-00 00:00:00.000000` for a digest whose every
   run failed (the 3024 test's `SELECT SLEEP`).
@@ -156,6 +209,6 @@ yet run.
 - 8.0.46 logs a `[Warning] [MY-013360]` about `sha256_password`'s deprecation
   on every login by the image's own `mysql` client. Whether the agent's logins
   add the same line was not separated out.
-- The Docker VM used for this spike was at 100% of its 59 GB disk, filled by
-  other projects' images, volumes and build cache, which is what stopped
-  `my84`, `my9` and `percona84`.
+- The two compose files shared one project name, the directory's, so each
+  file's `up` and `down` saw the other's containers as orphans.
+  `compose.mysql.yaml` now names its project `yc-mysql-matrix`.
