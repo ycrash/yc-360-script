@@ -171,3 +171,22 @@ services:
       - --log-error=/var/lib/mysql/error.log
     volumes:
       - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+
+  # MariaDB 10.11 LTS. Out of scope, so a run has to say what the server is
+  # rather than fail obscurely. performance_schema is off by default on MariaDB
+  # and turned on here, so the run shows what is missing beyond that switch.
+  mariadb1011:
+    image: mariadb:10.11.6
+    profiles: ["mariadb"]
+    ports: ["13311:3306"]
+    environment:
+      MARIADB_ROOT_PASSWORD: yc-root-pw
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+    command:
+      - --performance-schema=ON
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro

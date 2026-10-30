@@ -27,7 +27,8 @@ staged cases below), `TestMatrixPlaintextLoginNeverRequestsTheServersKey`, and
 hand on the two 8.0 servers; the matrix asserts the parts of it that the
 recommended roles depend on everywhere.
 
-Not run: the `replica` and `perms` profiles, and a MariaDB server.
+Not run: the `replica` and `perms` profiles. The `mariadb` profile (MariaDB
+10.11.6, out of scope) ran on 2026-10-30; see its section below.
 
 ## The plan's *(verify)* statements
 
@@ -59,8 +60,11 @@ Not run: the `replica` and `perms` profiles, and a MariaDB server.
   A `serverName` the certificate does not carry is refused.
 - **The public key guard on every version.** After `FLUSH PRIVILEGES`, a
   plaintext login is refused before the key request on all five servers.
-- **MariaDB lacks the tables the spec relies on.** Not measured; the variant is
-  detected from `VERSION()` and recorded.
+- **MariaDB lacks the tables the spec relies on.** Confirmed on 10.11.6, with
+  `performance_schema` on: `data_lock_waits`, `variables_info` and
+  `events_errors_summary_global_by_error` do not exist (1146), and
+  `events_statements_summary_by_digest` has no `query_sample_text` (1054). But
+  the run never got that far at first; see the MariaDB section.
 
 ## Privileges, per role (8.0 only)
 
@@ -179,6 +183,48 @@ runs past `max_execution_time`. Every file is `status=complete`, and:
 - `my_explain.txt`: the application `SELECT` is planned under
   `schema_name=yc_app`, with no value of it left in the plan.
 - `my_table_stats.txt`: the scanned table's row has an empty `INDEX_NAME`.
+
+## MariaDB (`mariadb` profile, 10.11.6)
+
+Out of scope (plan §1), so the question was only whether a run says what it
+reached. `TestMariaDBIsNamedAndItsGapsRecorded` and
+`TestMariaDBSessionIsBoundedUnderItsOwnNames` skip when the profile is not up.
+
+- **Every file failed to connect.** The session's opening SET names
+  `max_execution_time`, which MariaDB has never had (its bound is
+  `max_statement_time`, in seconds), and `transaction_read_only`, which 10.11
+  calls `tx_read_only`. Error 1193 failed the login, so `identify` never ran and
+  every file read `connect_error="Error 1193 ... 'max_execution_time'"`:
+  nothing said MariaDB. Fixed: the server's greeting, its first packet, carries
+  its version (`5.5.5-10.11.6-MariaDB-1:10.11.6+maria~ubu2204`) in the clear
+  before TLS and the login, and the agent now records it on every dial. When
+  the SET fails with 1193 and the greeting names MariaDB, the login is made once
+  more with MariaDB's names for the same bounds; `my_metadata.txt` then reports
+  `mysql_variant=mariadb`. A refused login is not retried.
+- **The image starts with TLS off**, so an omitted `tls:` fails every file with
+  "TLS requested but server does not support TLS": right (the agent never falls
+  back to plaintext), and true of any server without TLS. The tests connect in
+  plaintext.
+- **`performance_schema` is off by default on MariaDB**; the profile turns it
+  on.
+- **A standalone MariaDB reads as Galera.** It always reports the base
+  `wsrep_*` status variables (`wsrep_cluster_size=0`,
+  `wsrep_cluster_status=Disconnected`, `wsrep_connected=OFF`, `wsrep_ready=OFF`)
+  with no provider loaded, so the spec's rule that any row confirms Galera
+  makes `my_replication.txt` say `mechanism=galera`. Only those four came back;
+  `wsrep_local_state_comment`, `wsrep_flow_control_paused` and
+  `wsrep_local_recv_queue_avg` need a provider. Not fixed.
+- **Version gates read MariaDB's numbers as MySQL's.** 10.11 compares above
+  8.2, so `my_replication.txt` sends `SHOW BINARY LOG STATUS` (1064 on MariaDB)
+  and `my_metadata.txt` says `has_statement_memory_tracking,true` with no such
+  column. Not fixed.
+- `information_schema.enabled_roles` has no `ROLE_HOST`, so the privilege read
+  fails (`privileges_error`) and the `has_*` privilege rows are empty.
+- MariaDB checks the privilege before the table: a role without the grant gets
+  1142 for a table that does not exist, so `yc_restricted`'s files say
+  `reason=permission_denied` where root's say 1146. `SHOW REPLICA STATUS` needs
+  `SLAVE MONITOR` (or `SUPER`), which `yc_monitor`'s `REPLICATION CLIENT` does
+  not give on MariaDB.
 
 ## Other findings
 

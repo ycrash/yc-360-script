@@ -3,7 +3,10 @@ package mysql
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,7 +14,7 @@ import (
 )
 
 func TestTheSessionIsBoundedBeforeAnyCollectorSeesIt(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db", Port: 3306, Username: "yc", Password: "p"}, &keyRequestGuard{})
+	cfg, err := buildConfig(Target{Host: "db", Port: 3306, Username: "yc", Password: "p"}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "5000", cfg.Params["max_execution_time"])
@@ -23,26 +26,159 @@ func TestTheSessionIsBoundedBeforeAnyCollectorSeesIt(t *testing.T) {
 	assert.False(t, cfg.AllowCleartextPasswords)
 	assert.False(t, cfg.AllowFallbackToPlaintext, "tls=preferred falls back to plaintext")
 	assert.True(t, cfg.TLS.InsecureSkipVerify, "omitted tls: is encrypted and unverified")
-	assert.Nil(t, cfg.DialFunc, "the key guard watches plaintext logins only")
+}
+
+func TestMariaDBIsBoundedTheSameUnderItsOwnNames(t *testing.T) {
+	cfg, err := buildConfig(Target{Host: "db"}, mariadbSessionVariables, &keyRequestGuard{}, &serverGreeting{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "5", cfg.Params["max_statement_time"], "in seconds, not milliseconds")
+	assert.Equal(t, "1", cfg.Params["tx_read_only"])
+	assert.NotContains(t, cfg.Params, "max_execution_time")
+	assert.NotContains(t, cfg.Params, "transaction_read_only")
+	assert.Len(t, cfg.Params, len(sessionVariables), "every bound has its MariaDB name")
+	assert.Equal(t, "2", cfg.Params["lock_wait_timeout"])
+	assert.Equal(t, "5000", sessionVariables["max_execution_time"], "MySQL's own set is untouched")
 }
 
 func TestVerifiedTLSNamesTheServer(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "10.0.0.5", TLS: TLS{Verify: true, ServerName: "db.internal"}}, &keyRequestGuard{})
+	cfg, err := buildConfig(Target{Host: "10.0.0.5", TLS: TLS{Verify: true, ServerName: "db.internal"}}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
 	require.NoError(t, err)
 
 	assert.False(t, cfg.TLS.InsecureSkipVerify)
 	assert.Equal(t, "db.internal", cfg.TLS.ServerName)
 
-	_, err = buildConfig(Target{Host: "db", TLS: TLS{Verify: true, CAFile: "/nonexistent/ca.pem"}}, &keyRequestGuard{})
+	_, err = buildConfig(Target{Host: "db", TLS: TLS{Verify: true, CAFile: "/nonexistent/ca.pem"}}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
 	assert.ErrorContains(t, err, "tls.caFile")
 }
 
-func TestAPlaintextLoginIsGuarded(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db", TLS: TLS{Disabled: true}}, &keyRequestGuard{})
+func TestOnlyAPlaintextLoginIsGuarded(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
 
-	assert.Nil(t, cfg.TLS)
-	assert.NotNil(t, cfg.DialFunc)
+	for _, tc := range []struct {
+		tls     TLS
+		guarded bool
+	}{
+		{tls: TLS{Disabled: true}, guarded: true},
+		{tls: TLS{}, guarded: false},
+	} {
+		cfg, err := buildConfig(Target{Host: "db", TLS: tc.tls}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
+		require.NoError(t, err)
+
+		conn, err := cfg.DialFunc(t.Context(), "tcp", listener.Addr().String())
+		require.NoError(t, err)
+		conn.Close()
+
+		_, guarded := conn.(*guardedConn)
+		assert.Equal(t, tc.guarded, guarded, "under TLS the guard would see ciphertext")
+		assert.Equal(t, tc.tls.Disabled, cfg.TLS == nil)
+	}
+}
+
+// greetingPacket is the start of a server's first packet: the header, the protocol,
+// the version and its terminator, and the first bytes of what follows.
+func greetingPacket(version string) []byte {
+	payload := append([]byte{greetingProtocol}, version...)
+	payload = append(payload, 0, 0x2a, 0, 0, 0)
+
+	return append([]byte{byte(len(payload)), 0, 0, 0}, payload...)
+}
+
+// chunkedConn returns no more than one chunk per read, the rest of a chunk on the
+// next.
+type chunkedConn struct {
+	net.Conn
+
+	chunks [][]byte
+}
+
+func (c *chunkedConn) Read(p []byte) (int, error) {
+	if len(c.chunks) == 0 {
+		return 0, io.EOF
+	}
+
+	n := copy(p, c.chunks[0])
+
+	c.chunks[0] = c.chunks[0][n:]
+	if len(c.chunks[0]) == 0 {
+		c.chunks = c.chunks[1:]
+	}
+
+	return n, nil
+}
+
+func readSocket(t *testing.T, conn net.Conn) []byte {
+	t.Helper()
+
+	var got []byte
+
+	buf := make([]byte, 7)
+
+	for {
+		n, err := conn.Read(buf)
+		got = append(got, buf[:n]...)
+
+		if errors.Is(err, io.EOF) {
+			return got
+		}
+
+		require.NoError(t, err)
+	}
+}
+
+func TestTheGreetingNamesTheServer(t *testing.T) {
+	// As mariadb:10.11.6 and mysql:8.4 sent them on the matrix.
+	const mariadb = "5.5.5-10.11.6-MariaDB-1:10.11.6+maria~ubu2204"
+
+	packet := greetingPacket(mariadb)
+
+	var bytewise [][]byte
+	for _, b := range packet {
+		bytewise = append(bytewise, []byte{b})
+	}
+
+	for name, chunks := range map[string][][]byte{
+		"one read":         {packet},
+		"a byte at a time": bytewise,
+		"then more":        {packet, greetingPacket("8.4.13")},
+	} {
+		sent := slices.Concat(chunks...)
+
+		greeting := &serverGreeting{}
+		got := readSocket(t, watch(&chunkedConn{chunks: chunks}, greeting, nil))
+
+		assert.Equal(t, mariadb, greeting.serverVersion(), name)
+		assert.Equal(t, sent, got, "%s: every byte reaches the driver", name)
+	}
+
+	assert.Equal(t, VariantMariaDB, variantOf(mariadb, ""))
+
+	greeting := &serverGreeting{}
+	readSocket(t, watch(&chunkedConn{chunks: [][]byte{greetingPacket("8.4.13")}}, greeting, nil))
+	assert.Equal(t, "8.4.13", greeting.serverVersion())
+	assert.Equal(t, VariantMySQL, variantOf(greeting.serverVersion(), ""))
+}
+
+func TestAnErrorInPlaceOfTheGreetingNamesNothing(t *testing.T) {
+	refusal := append([]byte{0x17, 0, 0, 0, 0xff, 0x10, 0x04}, "Too many connections"...)
+
+	greeting := &serverGreeting{}
+	readSocket(t, watch(&chunkedConn{chunks: [][]byte{refusal, greetingPacket("8.4.13")}}, greeting, nil))
+
+	assert.Empty(t, greeting.serverVersion(), "and nothing after it is mistaken for one")
+}
+
+func TestAnUnterminatedGreetingIsGivenUpOn(t *testing.T) {
+	long := append([]byte{0xff, 0, 0, 0, greetingProtocol}, strings.Repeat("x", 4*maxGreeting)...)
+
+	greeting := &serverGreeting{}
+	got := readSocket(t, watch(&chunkedConn{chunks: [][]byte{long}}, greeting, nil))
+
+	assert.Empty(t, greeting.serverVersion())
+	assert.Len(t, got, len(long))
+	assert.Len(t, greeting.read, maxGreeting, "what is kept is capped")
 }
 
 type recordingConn struct {
@@ -142,7 +278,7 @@ func TestVersionsAndVariants(t *testing.T) {
 }
 
 func TestTheSessionNeverWaitsLongOnARowLock(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db"}, &keyRequestGuard{})
+	cfg, err := buildConfig(Target{Host: "db"}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "2", cfg.Params["innodb_lock_wait_timeout"],

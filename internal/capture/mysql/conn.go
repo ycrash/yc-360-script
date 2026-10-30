@@ -5,6 +5,7 @@
 package mysql
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -12,6 +13,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"strconv"
@@ -91,6 +93,22 @@ var sessionVariables = map[string]string{
 	"time_zone":                "'+00:00'",
 }
 
+// mariadbSessionVariables are sessionVariables under MariaDB's names, for the second
+// login Connect makes when the first one's SET fails on a MariaDB, which has no
+// max_execution_time (and 10.11 no transaction_read_only). max_statement_time is
+// in seconds and bounds every statement, SHOW and EXPLAIN as well as SELECT.
+var mariadbSessionVariables = func() map[string]string {
+	variables := maps.Clone(sessionVariables)
+
+	delete(variables, "max_execution_time")
+	delete(variables, "transaction_read_only")
+
+	variables["max_statement_time"] = strconv.FormatFloat(StatementTimeout.Seconds(), 'f', -1, 64)
+	variables["tx_read_only"] = "1"
+
+	return variables
+}()
+
 // MySQL error numbers the capture tells apart.
 const (
 	errConCount         = 1040 // max_connections
@@ -101,7 +119,9 @@ const (
 	errColumnAccess     = 1143
 	errSpecificAccess   = 1227 // PROCESS, REPLICATION CLIENT and the like
 	errQueryInterrupted = 1317
+	errUnknownVariable  = 1193
 	errQueryTimeout     = 3024 // max_execution_time
+	errStatementTimeout = 1969 // MariaDB's max_statement_time
 )
 
 // ErrTooManyConnections distinguishes a refusal for want of a connection slot from
@@ -304,17 +324,36 @@ func (c *Conn) ConnectDuration() time.Duration { return c.connectDuration }
 // ErrTooManyConnections; a plaintext login the agent would not complete is
 // ErrPublicKeyRetrieval. No returned error exposes the password: it never enters a
 // DSN.
+//
+// MariaDB is out of scope, but a run against one must say what it reached rather
+// than fail on a session variable it lacks: the SET that opens the session fails,
+// the greeting has already named the server, and the login is made once more with
+// MariaDB's names for the same bounds. identify then reads the variant, and
+// my_metadata.txt reports it. A refused login is never retried.
 func Connect(ctx context.Context, t Target) (*Conn, error) {
-	guard := &keyRequestGuard{}
+	conn, greeting, err := login(ctx, t, sessionVariables)
 
-	cfg, err := buildConfig(t, guard)
+	if hasErrorNumber(err, errUnknownVariable) && variantOf(greeting, "") == VariantMariaDB {
+		conn, _, err = login(ctx, t, mariadbSessionVariables)
+	}
+
+	return conn, err
+}
+
+// login is one connection attempt, opened with variables. It returns the server
+// version the greeting named, read whether or not the login then completed.
+func login(ctx context.Context, t Target, variables map[string]string) (*Conn, string, error) {
+	guard := &keyRequestGuard{}
+	greeting := &serverGreeting{}
+
+	cfg, err := buildConfig(t, variables, guard, greeting)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	connector, err := gomysql.NewConnector(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	db := sql.OpenDB(connector)
@@ -330,13 +369,13 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 	if err != nil {
 		db.Close()
 
-		return nil, classifyConnectError(err, guard)
+		return nil, greeting.serverVersion(), classifyConnectError(err, guard)
 	}
 
 	c := &Conn{db: db, conn: conn, connectDuration: time.Since(dialedAt)}
 	c.loss.closed = c.Lost
 
-	return c, nil
+	return c, greeting.serverVersion(), nil
 }
 
 // Query sends query with the agent's marker. Its deadline is the caller's: a
@@ -395,7 +434,7 @@ type silentLogger struct{}
 
 func (silentLogger) Print(...any) {}
 
-func buildConfig(t Target, guard *keyRequestGuard) (*gomysql.Config, error) {
+func buildConfig(t Target, variables map[string]string, guard *keyRequestGuard, greeting *serverGreeting) (*gomysql.Config, error) {
 	cfg := gomysql.NewConfig()
 
 	cfg.User = t.Username
@@ -420,10 +459,7 @@ func buildConfig(t Target, guard *keyRequestGuard) (*gomysql.Config, error) {
 	cfg.AllowOldPasswords = false
 	cfg.AllowFallbackToPlaintext = false
 
-	cfg.Params = map[string]string{}
-	for name, value := range sessionVariables {
-		cfg.Params[name] = value
-	}
+	cfg.Params = maps.Clone(variables)
 
 	tlsConfig, err := clientTLS(t)
 	if err != nil {
@@ -432,12 +468,110 @@ func buildConfig(t Target, guard *keyRequestGuard) (*gomysql.Config, error) {
 
 	cfg.TLS = tlsConfig
 
+	// The greeting is read in either mode: it precedes the TLS upgrade. The key
+	// guard watches plaintext logins only; under TLS it would see ciphertext.
 	if tlsConfig == nil {
 		cfg.TLSConfig = "false"
-		cfg.DialFunc = guard.dial
+	} else {
+		guard = nil
+	}
+
+	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		var dialer net.Dialer
+
+		conn, err := dialer.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+
+		return watch(conn, greeting, guard), nil
 	}
 
 	return cfg, nil
+}
+
+// watch wraps a freshly dialled socket: the greeting is recorded from its reads and,
+// with a guard, the login's writes are guarded.
+func watch(conn net.Conn, greeting *serverGreeting, guard *keyRequestGuard) net.Conn {
+	conn = &greetingConn{Conn: conn, greeting: greeting}
+
+	if guard != nil {
+		conn = &guardedConn{Conn: conn, guard: guard}
+	}
+
+	return conn
+}
+
+// serverGreeting is the server's version string as its first packet, the
+// handshake greeting, gives it. The greeting comes before TLS and before the login,
+// so it names the server even when the login or the session's SET then fails.
+// MariaDB's begins "5.5.5-" for old clients' sake; variantOf still finds it.
+type serverGreeting struct {
+	mu      sync.Mutex
+	read    []byte
+	done    bool
+	version string
+}
+
+// maxGreeting caps what is kept looking for the version: the packet header, the
+// protocol byte, and a version string far longer than any server sends.
+const maxGreeting = 4 + 1 + 255
+
+// greetingProtocol is the handshake protocol every supported server speaks. An
+// error packet (0xff) in its place - too many connections, a blocked host - has
+// no version.
+const greetingProtocol = 10
+
+func (g *serverGreeting) observe(p []byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.done {
+		return
+	}
+
+	g.read = append(g.read, p[:min(len(p), maxGreeting-len(g.read))]...)
+
+	if len(g.read) < 5 {
+		return
+	}
+
+	if g.read[4] != greetingProtocol {
+		g.done = true
+
+		return
+	}
+
+	if end := bytes.IndexByte(g.read[5:], 0); end >= 0 {
+		g.version = string(g.read[5 : 5+end])
+		g.done = true
+
+		return
+	}
+
+	g.done = len(g.read) == maxGreeting
+}
+
+func (g *serverGreeting) serverVersion() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.version
+}
+
+// greetingConn passes every read through, showing the bytes to the greeting until
+// it has the version.
+type greetingConn struct {
+	net.Conn
+
+	greeting *serverGreeting
+}
+
+func (c *greetingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.greeting.observe(p[:n])
+
+	return n, err
 }
 
 // clientTLS is the tls: block as a tls.Config; nil for plaintext.
@@ -484,17 +618,6 @@ func clientTLS(t Target) (*tls.Config, error) {
 // sha256_password's request.
 type keyRequestGuard struct {
 	refused atomic.Bool
-}
-
-func (g *keyRequestGuard) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	var dialer net.Dialer
-
-	conn, err := dialer.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &guardedConn{Conn: conn, guard: g}, nil
 }
 
 // guardedConn watches the login's writes. authenticated flips on the first read
@@ -613,7 +736,7 @@ func readStatus(err error) string {
 	case err == nil:
 		return dbcore.StatusOK
 
-	case hasErrorNumber(err, errQueryTimeout, errQueryInterrupted), errors.Is(err, context.DeadlineExceeded):
+	case hasErrorNumber(err, errQueryTimeout, errStatementTimeout, errQueryInterrupted), errors.Is(err, context.DeadlineExceeded):
 		return dbcore.StatusTimeout
 	}
 

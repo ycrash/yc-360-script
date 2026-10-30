@@ -22,8 +22,11 @@ options:
 
 Supported: MySQL 8.0, 8.4 LTS and 9.x, and Percona Server. MariaDB is not: its
 `performance_schema` lacks tables the capture reads. A run against one still
-writes `my_metadata.txt`, with `mysql_variant=mariadb`, so the bundle says why
-the other files hold refusals.
+connects, with MariaDB's names for the same session bounds, and writes
+`my_metadata.txt` with `mysql_variant=mariadb`; each other file records what the
+server refused or lacks. Read nothing else in such a bundle as a MySQL
+server's: version checks take MariaDB's numbers for MySQL's, and
+`my_replication.txt` reports any MariaDB as Galera.
 
 `mysql:` is a list of targets and takes exactly one, with a required `id`, as
 `postgres:` does. A file may hold a `postgres:` block or a `mysql:` block, never
