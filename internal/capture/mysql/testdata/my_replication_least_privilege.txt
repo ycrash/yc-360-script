@@ -1,0 +1,50 @@
+# engine=mysql source=my_replication v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=6s samples_expected=3 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=replica_status start_ts=2026-10-30T09:00:00.002Z end_ts=2026-10-30T09:00:00.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster reason=permission_denied error="Error 1227: Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation" ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=replication_group_members start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster reason=permission_denied error="Error 1142: SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'replication_group_members'" ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=wsrep_status start_ts=2026-10-30T09:00:00.006Z end_ts=2026-10-30T09:00:00.007Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+Variable_name,Value
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=binary_log_status start_ts=2026-10-30T09:00:00.008Z end_ts=2026-10-30T09:00:00.009Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster mechanism=unknown reason=permission_denied error="Error 1227: Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation" ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=binary_log_variables start_ts=2026-10-30T09:00:00.010Z end_ts=2026-10-30T09:00:00.011Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+Variable_name,Value
+binlog_expire_logs_seconds,2592000
+gtid_mode,ON
+log_bin,ON
+server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=replica_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:06.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=replication_group_members start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:06.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=wsrep_status start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+Variable_name,Value
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=binary_log_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster mechanism=unknown reason=permission_denied ts=2026-10-30T09:00:06.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=binary_log_variables start_ts=2026-10-30T09:00:06.004Z end_ts=2026-10-30T09:00:06.005Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+Variable_name,Value
+binlog_expire_logs_seconds,2592000
+gtid_mode,ON
+log_bin,ON
+server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=replica_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:12.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=replication_group_members start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:12.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=wsrep_status start_ts=2026-10-30T09:00:12.002Z end_ts=2026-10-30T09:00:12.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+Variable_name,Value
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=binary_log_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster mechanism=unknown reason=permission_denied ts=2026-10-30T09:00:12.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=binary_log_variables start_ts=2026-10-30T09:00:12.004Z end_ts=2026-10-30T09:00:12.005Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+Variable_name,Value
+binlog_expire_logs_seconds,2592000
+gtid_mode,ON
+log_bin,ON
+server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+# engine=mysql source=my_replication v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

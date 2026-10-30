@@ -1,0 +1,83 @@
+# engine=mysql source=my_metadata v=1 format=csv scope=cluster db= status=started window=12s schedule=once interval= samples_expected=1 ts=2026-10-30T09:00:00.000Z
+# engine=mysql source=my_metadata_target v=1 format=csv scope=cluster db= ts=2026-10-30T09:00:00.000Z
+key,value
+agent_ts,2026-10-30T09:00:00.000Z
+yc360_version,golden
+target_id,my84
+target_host,127.0.0.1
+target_port,13384
+target_database,
+target_username,yc_restricted
+target_tls_mode,skip-verify
+target_tls_enabled,true
+target_tls_verify,false
+target_tls_ca_file,
+target_tls_server_name,
+explain_mode,all
+explain_literals,redacted
+# engine=mysql source=my_metadata_server v=1 format=csv scope=cluster db= sample=1 ts=2026-10-30T09:00:00.000Z
+key,value
+version,8.4.13
+version_comment,MySQL Community Server - GPL
+mysql_variant,mysql
+current_user,yc_restricted@%
+connection_id,2877
+database,
+server_utc,2026-10-30T07:35:42.554Z
+uptime_seconds,5608
+hostname,f18093e4d77c
+port,3306
+datadir,/var/lib/mysql/
+socket,/var/run/mysqld/mysqld.sock
+pid_file,/var/run/mysqld/mysqld.pid
+server_id,84
+read_only,OFF
+super_read_only,OFF
+performance_schema,ON
+max_connections,151
+log_error,/yc-recording/logs/my84/error.log
+log_error_services,log_filter_internal; log_sink_internal
+log_error_verbosity,2
+innodb_print_all_deadlocks,ON
+performance_schema_max_sql_text_length,1024
+performance_schema_max_digest_length,1024
+performance_schema_digests_size,10000
+information_schema_stats_expiry,86400
+binlog_expire_logs_seconds,2592000
+time_zone,SYSTEM
+system_time_zone,UTC
+settings_unavailable,
+log_error_resolved,/yc-recording/logs/my84/error.log
+log_access,none
+log_access_reason,unreadable
+log_open_error,not_found
+has_mysql_error_log_access,false
+has_cpu_time_instrument_enabled,
+cpu_time_reason,capabilities_unread
+has_statement_memory_tracking,true
+has_memory_instruments_enabled,
+memory_instruments_enabled,
+memory_instruments_total,
+statements_digest_consumer,
+has_process,false
+has_replication_client,false
+has_performance_schema_select,false
+enabled_roles,
+tables_visible,0
+innodb_tables,0
+innodb_tables_share,
+other_engines,
+agent_on_db_host,no
+agent_on_db_host_by,
+agent_on_db_host_evidence,
+agent_on_db_host_reason,no_server_process
+host_artifacts,skipped
+host_metrics_available,false
+server_facts_error,
+settings_error,
+uptime_error,
+capabilities_error,Error 1142: SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'setup_consumers'
+privileges_error,
+table_engines_error,
+connect_ms,1.5
+# engine=mysql source=my_metadata v=1 format=csv scope=cluster db= status=complete samples_expected=1 samples_written=1 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

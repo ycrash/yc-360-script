@@ -1,0 +1,30 @@
+# engine=mysql source=my_lock_waits v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=4s samples_expected=4 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=data_lock_waits start_ts=2026-10-30T09:00:00.002Z end_ts=2026-10-30T09:00:00.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+ENGINE,REQUESTING_ENGINE_LOCK_ID,REQUESTING_ENGINE_TRANSACTION_ID,REQUESTING_THREAD_ID,BLOCKING_ENGINE_LOCK_ID,BLOCKING_ENGINE_TRANSACTION_ID,BLOCKING_THREAD_ID
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=metadata_locks start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+OBJECT_TYPE,OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_STATUS,OWNER_THREAD_ID
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=data_lock_waits start_ts=2026-10-30T09:00:04.002Z end_ts=2026-10-30T09:00:04.003Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster ts=2026-10-30T09:00:04.000Z
+ENGINE,REQUESTING_ENGINE_LOCK_ID,REQUESTING_ENGINE_TRANSACTION_ID,REQUESTING_THREAD_ID,BLOCKING_ENGINE_LOCK_ID,BLOCKING_ENGINE_TRANSACTION_ID,BLOCKING_THREAD_ID
+INNODB,281472674007416:16:2:6:22:281472560867568,2711,2903,281472674006608:560:2:6:22:281472560861264,2710,2896
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=metadata_locks start_ts=2026-10-30T09:00:04.004Z end_ts=2026-10-30T09:00:04.005Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:04.000Z
+OBJECT_TYPE,OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_STATUS,OWNER_THREAD_ID
+TABLE,yc_app,orders,EXCLUSIVE,PENDING,2906
+TABLE,yc_app,orders,SHARED,PENDING,2904
+TABLE,yc_app,orders,SHARED,PENDING,2908
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=data_lock_waits start_ts=2026-10-30T09:00:08.002Z end_ts=2026-10-30T09:00:08.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:08.000Z
+ENGINE,REQUESTING_ENGINE_LOCK_ID,REQUESTING_ENGINE_TRANSACTION_ID,REQUESTING_THREAD_ID,BLOCKING_ENGINE_LOCK_ID,BLOCKING_ENGINE_TRANSACTION_ID,BLOCKING_THREAD_ID
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=metadata_locks start_ts=2026-10-30T09:00:08.004Z end_ts=2026-10-30T09:00:08.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:08.000Z
+OBJECT_TYPE,OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_STATUS,OWNER_THREAD_ID
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=4 source=data_lock_waits start_ts=2026-10-30T09:00:12.002Z end_ts=2026-10-30T09:00:12.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+ENGINE,REQUESTING_ENGINE_LOCK_ID,REQUESTING_ENGINE_TRANSACTION_ID,REQUESTING_THREAD_ID,BLOCKING_ENGINE_LOCK_ID,BLOCKING_ENGINE_TRANSACTION_ID,BLOCKING_THREAD_ID
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=4 source=metadata_locks start_ts=2026-10-30T09:00:12.004Z end_ts=2026-10-30T09:00:12.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+OBJECT_TYPE,OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_STATUS,OWNER_THREAD_ID
+# engine=mysql source=my_lock_waits v=1 format=csv scope=cluster db= status=complete samples_expected=4 samples_written=4 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

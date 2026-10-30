@@ -1,0 +1,1450 @@
+{
+ "server": "my84",
+ "role": "yc_restricted",
+ "statements": [
+  {
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "columns": [
+    "DATABASE()",
+    "VERSION()",
+    "@@version_comment"
+   ],
+   "rows": [
+    [
+     null,
+     "8.4.13",
+     "MySQL Community Server - GPL"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "columns": [
+    "DATABASE()",
+    "VERSION()",
+    "@@version_comment"
+   ],
+   "rows": [
+    [
+     null,
+     "8.4.13",
+     "MySQL Community Server - GPL"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "columns": [
+    "DATABASE()",
+    "VERSION()",
+    "@@version_comment"
+   ],
+   "rows": [
+    [
+     null,
+     "8.4.13",
+     "MySQL Community Server - GPL"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT VERSION(), @@version_comment, CURRENT_USER(), CONNECTION_ID(), DATABASE(),\n       DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ')",
+   "columns": [
+    "VERSION()",
+    "@@version_comment",
+    "CURRENT_USER()",
+    "CONNECTION_ID()",
+    "DATABASE()",
+    "DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ')"
+   ],
+   "rows": [
+    [
+     "8.4.13",
+     "MySQL Community Server - GPL",
+     "yc_restricted@%",
+     "2877",
+     null,
+     "2026-10-30T07:35:42.554000Z"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT t.THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_USER, t.PROCESSLIST_HOST,\n       t.PROCESSLIST_DB, t.PROCESSLIST_COMMAND, t.PROCESSLIST_TIME, t.PROCESSLIST_STATE,\n       t.PROCESSLIST_INFO, a.ATTR_VALUE AS program_name\nFROM performance_schema.threads t\nLEFT JOIN performance_schema.session_connect_attrs a\n  ON t.PROCESSLIST_ID = a.PROCESSLIST_ID AND a.ATTR_NAME = 'program_name'\nWHERE t.TYPE = 'FOREGROUND'\nORDER BY t.THREAD_ID\nLIMIT 1001",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'threads'"
+   }
+  },
+  {
+   "query": "SELECT trx_id, trx_state, trx_started, trx_mysql_thread_id\nFROM information_schema.innodb_trx\nORDER BY trx_started\nLIMIT 1001",
+   "columns": [
+    "trx_id",
+    "trx_state",
+    "trx_started",
+    "trx_mysql_thread_id"
+   ],
+   "error": {
+    "number": 1227,
+    "message": "Access denied; you need (at least one of) the PROCESS privilege(s) for this operation"
+   }
+  },
+  {
+   "query": "SELECT ENGINE, REQUESTING_ENGINE_LOCK_ID, REQUESTING_ENGINE_TRANSACTION_ID,\n       REQUESTING_THREAD_ID, BLOCKING_ENGINE_LOCK_ID, BLOCKING_ENGINE_TRANSACTION_ID, BLOCKING_THREAD_ID\nFROM performance_schema.data_lock_waits\nLIMIT 5001",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'data_lock_waits'"
+   }
+  },
+  {
+   "query": "SELECT OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME, LOCK_TYPE, LOCK_STATUS, OWNER_THREAD_ID\nFROM performance_schema.metadata_locks\nWHERE LOCK_STATUS = 'PENDING'\nLIMIT 5001",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'metadata_locks'"
+   }
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_error', 'datadir', 'innodb_print_all_deadlocks')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "datadir",
+     "/var/lib/mysql/"
+    ],
+    [
+     "innodb_print_all_deadlocks",
+     "ON"
+    ],
+    [
+     "log_error",
+     "/yc-recording/logs/my84/error.log"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Threads_running', 'Aborted_connects', 'Questions', 'Threads_cached', 'Threads_created', 'Connections')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_connects",
+     "7"
+    ],
+    [
+     "Connections",
+     "2877"
+    ],
+    [
+     "Questions",
+     "4952"
+    ],
+    [
+     "Threads_cached",
+     "5"
+    ],
+    [
+     "Threads_connected",
+     "7"
+    ],
+    [
+     "Threads_created",
+     "15"
+    ],
+    [
+     "Threads_running",
+     "4"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT error_number, error_name, sql_state, sum_error_raised, sum_error_handled,\n       first_seen, last_seen\nFROM performance_schema.events_errors_summary_global_by_error\nWHERE sum_error_raised \u003e 0\nORDER BY error_number",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'events_errors_summary_global_by_error'"
+   }
+  },
+  {
+   "query": "SELECT error_number, error_name, sum_error_raised, first_seen, last_seen\nFROM performance_schema.events_errors_summary_global_by_error\nWHERE error_number IN (1205, 3024, 4031)\nORDER BY error_number",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'events_errors_summary_global_by_error'"
+   }
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_clients')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_clients",
+     "5"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('hostname', 'port', 'datadir', 'socket', 'pid_file', 'server_id', 'read_only', 'super_read_only', 'performance_schema', 'max_connections', 'log_error', 'log_error_services', 'log_error_verbosity', 'innodb_print_all_deadlocks', 'performance_schema_max_sql_text_length', 'performance_schema_max_digest_length', 'performance_schema_digests_size', 'information_schema_stats_expiry', 'binlog_expire_logs_seconds', 'time_zone', 'system_time_zone')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "binlog_expire_logs_seconds",
+     "2592000"
+    ],
+    [
+     "datadir",
+     "/var/lib/mysql/"
+    ],
+    [
+     "hostname",
+     "f18093e4d77c"
+    ],
+    [
+     "information_schema_stats_expiry",
+     "86400"
+    ],
+    [
+     "innodb_print_all_deadlocks",
+     "ON"
+    ],
+    [
+     "log_error",
+     "/yc-recording/logs/my84/error.log"
+    ],
+    [
+     "log_error_services",
+     "log_filter_internal; log_sink_internal"
+    ],
+    [
+     "log_error_verbosity",
+     "2"
+    ],
+    [
+     "max_connections",
+     "151"
+    ],
+    [
+     "performance_schema",
+     "ON"
+    ],
+    [
+     "performance_schema_digests_size",
+     "10000"
+    ],
+    [
+     "performance_schema_max_digest_length",
+     "1024"
+    ],
+    [
+     "performance_schema_max_sql_text_length",
+     "1024"
+    ],
+    [
+     "pid_file",
+     "/var/run/mysqld/mysqld.pid"
+    ],
+    [
+     "port",
+     "3306"
+    ],
+    [
+     "read_only",
+     "OFF"
+    ],
+    [
+     "server_id",
+     "84"
+    ],
+    [
+     "socket",
+     "/var/run/mysqld/mysqld.sock"
+    ],
+    [
+     "super_read_only",
+     "OFF"
+    ],
+    [
+     "system_time_zone",
+     "UTC"
+    ],
+    [
+     "time_zone",
+     "SYSTEM"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('innodb_buffer_pool_size', 'innodb_page_size')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "innodb_buffer_pool_size",
+     "134217728"
+    ],
+    [
+     "innodb_page_size",
+     "16384"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name = 'Uptime'",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Uptime",
+     "5608"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Innodb_buffer_pool_pages_total', 'Innodb_buffer_pool_pages_free', 'Innodb_buffer_pool_bytes_data')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Innodb_buffer_pool_bytes_data",
+     "22003712"
+    ],
+    [
+     "Innodb_buffer_pool_pages_free",
+     "6849"
+    ],
+    [
+     "Innodb_buffer_pool_pages_total",
+     "8192"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'thread_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'statements_digest'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'statement/%' AND ENABLED = 'YES' AND TIMED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\\_schema/%' AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\\_schema/%')",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'setup_consumers'"
+   }
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Created_tmp_disk_tables', 'Sort_merge_passes')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Created_tmp_disk_tables",
+     "0"
+    ],
+    [
+     "Sort_merge_passes",
+     "0"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT t.THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_USER, t.PROCESSLIST_HOST,\n       t.PROCESSLIST_DB, t.PROCESSLIST_COMMAND,\n       SUM(m.CURRENT_NUMBER_OF_BYTES_USED) AS current_bytes\nFROM performance_schema.memory_summary_by_thread_by_event_name m\nJOIN performance_schema.threads t ON m.THREAD_ID = t.THREAD_ID\nWHERE t.PROCESSLIST_ID IS NOT NULL\nGROUP BY t.THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_USER, t.PROCESSLIST_HOST, t.PROCESSLIST_DB,\n         t.PROCESSLIST_COMMAND\nORDER BY current_bytes DESC\nLIMIT 1001",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'memory_summary_by_thread_by_event_name'"
+   }
+  },
+  {
+   "query": "SELECT EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED, HIGH_NUMBER_OF_BYTES_USED\nFROM performance_schema.memory_summary_global_by_event_name\nWHERE EVENT_NAME IN ('memory/sql/Prepared_statement::main_mem_root',\n                     'memory/sql/Prepared_statement::infrastructure')",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'memory_summary_global_by_event_name'"
+   }
+  },
+  {
+   "query": "SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE = CONCAT('''', SUBSTRING_INDEX(CURRENT_USER(), '@', 1), '''@''', SUBSTRING_INDEX(CURRENT_USER(), '@', -1), '''')\nUNION ALL\nSELECT CONCAT('performance_schema:', PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES\n WHERE GRANTEE = CONCAT('''', SUBSTRING_INDEX(CURRENT_USER(), '@', 1), '''@''', SUBSTRING_INDEX(CURRENT_USER(), '@', -1), '''') AND TABLE_SCHEMA = 'performance_schema'\nUNION ALL\nSELECT CONCAT('role:', ROLE_NAME, '@', ROLE_HOST) FROM information_schema.ENABLED_ROLES",
+   "columns": [
+    "PRIVILEGE_TYPE"
+   ],
+   "rows": [
+    [
+     "USAGE"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED\nFROM performance_schema.memory_summary_global_by_event_name\nWHERE EVENT_NAME LIKE 'memory/innodb/%' AND EVENT_NAME != 'memory/innodb/buf_buf_pool'",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'memory_summary_global_by_event_name'"
+   }
+  },
+  {
+   "query": "SELECT SUM(CURRENT_NUMBER_OF_BYTES_USED) AS current_bytes\nFROM performance_schema.memory_summary_global_by_event_name\nWHERE EVENT_NAME LIKE 'memory/performance\\_schema/%'",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'memory_summary_global_by_event_name'"
+   }
+  },
+  {
+   "query": "SHOW ENGINE INNODB STATUS",
+   "error": {
+    "number": 1227,
+    "message": "Access denied; you need (at least one of) the PROCESS privilege(s) for this operation"
+   }
+  },
+  {
+   "query": "SHOW REPLICA STATUS",
+   "error": {
+    "number": 1227,
+    "message": "Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation"
+   }
+  },
+  {
+   "query": "SELECT * FROM performance_schema.replication_group_members",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'replication_group_members'"
+   }
+  },
+  {
+   "query": "SELECT ENGINE, COUNT(*) FROM information_schema.TABLES\nWHERE TABLE_TYPE = 'BASE TABLE'\n  AND TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nGROUP BY ENGINE ORDER BY ENGINE",
+   "columns": [
+    "ENGINE",
+    "COUNT(*)"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ]
+  },
+  {
+   "query": "SHOW BINARY LOG STATUS",
+   "error": {
+    "number": 1227,
+    "message": "Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s) for this operation"
+   }
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_bin', 'binlog_expire_logs_seconds', 'gtid_mode', 'server_uuid')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "binlog_expire_logs_seconds",
+     "2592000"
+    ],
+    [
+     "gtid_mode",
+     "ON"
+    ],
+    [
+     "log_bin",
+     "ON"
+    ],
+    [
+     "server_uuid",
+     "6e9de8eb-d427-11f1-bfba-ea9351c6cd45"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT OWNER_THREAD_ID, STATEMENT_ID, STATEMENT_NAME, SQL_TEXT, COUNT_EXECUTE,\n       SUM_TIMER_EXECUTE\nFROM performance_schema.prepared_statements_instances\nORDER BY OWNER_THREAD_ID, STATEMENT_ID\nLIMIT 5001",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'prepared_statements_instances'"
+   }
+  },
+  {
+   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'setup_consumers'"
+   }
+  },
+  {
+   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       NULL AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'events_statements_summary_by_digest'"
+   }
+  },
+  {
+   "query": "SELECT i.VARIABLE_NAME, i.VARIABLE_SOURCE, i.VARIABLE_PATH, g.VARIABLE_VALUE,\n       i.SET_TIME, i.SET_USER, i.SET_HOST\nFROM performance_schema.variables_info i\nLEFT JOIN performance_schema.global_variables g ON g.VARIABLE_NAME = i.VARIABLE_NAME\nWHERE i.VARIABLE_SOURCE != 'COMPILED'\nORDER BY i.VARIABLE_NAME",
+   "columns": [
+    "VARIABLE_NAME",
+    "VARIABLE_SOURCE",
+    "VARIABLE_PATH",
+    "VARIABLE_VALUE",
+    "SET_TIME",
+    "SET_USER",
+    "SET_HOST"
+   ],
+   "rows": [
+    [
+     "binlog_format",
+     "DYNAMIC",
+     "",
+     "ROW",
+     "2026-10-30 07:25:48.966895",
+     "root",
+     null
+    ],
+    [
+     "datadir",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql/",
+     null,
+     null,
+     null
+    ],
+    [
+     "enforce_gtid_consistency",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "foreign_key_checks",
+     "DYNAMIC",
+     "",
+     "ON",
+     "2026-10-30 06:02:14.701687",
+     null,
+     null
+    ],
+    [
+     "gtid_mode",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "host_cache_size",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "0",
+     null,
+     null,
+     null
+    ],
+    [
+     "innodb_lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "50",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "innodb_print_all_deadlocks",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "31536000",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "log_error",
+     "COMMAND_LINE",
+     "",
+     "/yc-recording/logs/my84/error.log",
+     null,
+     null,
+     null
+    ],
+    [
+     "max_execution_time",
+     "DYNAMIC",
+     "",
+     "0",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "pid_file",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.pid",
+     null,
+     null,
+     null
+    ],
+    [
+     "secure_file_priv",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql-files/",
+     null,
+     null,
+     null
+    ],
+    [
+     "server_id",
+     "COMMAND_LINE",
+     "",
+     "84",
+     null,
+     null,
+     null
+    ],
+    [
+     "skip_name_resolve",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "socket",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.sock",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_ca",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/ca.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_cert",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-cert.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_key",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-key.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "time_zone",
+     "DYNAMIC",
+     "",
+     "SYSTEM",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "transaction_read_only",
+     "DYNAMIC",
+     "",
+     "OFF",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "wait_timeout",
+     "DYNAMIC",
+     "",
+     "28800",
+     "2026-10-30 07:35:42.554080",
+     "yc_restricted",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "SELECT OBJECT_SCHEMA, OBJECT_NAME, INDEX_NAME, COUNT_READ, COUNT_FETCH\nFROM performance_schema.table_io_waits_summary_by_index_usage\nORDER BY COUNT_READ DESC\nLIMIT 100",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'table_io_waits_summary_by_index_usage'"
+   }
+  },
+  {
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "columns": [
+    "TABLE_SCHEMA",
+    "TABLE_NAME",
+    "ENGINE",
+    "DATA_LENGTH",
+    "INDEX_LENGTH",
+    "DATA_FREE"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Threads_running', 'Aborted_connects', 'Questions', 'Threads_cached', 'Threads_created', 'Connections')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_connects",
+     "7"
+    ],
+    [
+     "Connections",
+     "2879"
+    ],
+    [
+     "Questions",
+     "4982"
+    ],
+    [
+     "Threads_cached",
+     "5"
+    ],
+    [
+     "Threads_connected",
+     "7"
+    ],
+    [
+     "Threads_created",
+     "15"
+    ],
+    [
+     "Threads_running",
+     "4"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT i.VARIABLE_NAME, i.VARIABLE_SOURCE, i.VARIABLE_PATH, g.VARIABLE_VALUE,\n       i.SET_TIME, i.SET_USER, i.SET_HOST\nFROM performance_schema.variables_info i\nLEFT JOIN performance_schema.global_variables g ON g.VARIABLE_NAME = i.VARIABLE_NAME\nWHERE i.VARIABLE_SOURCE != 'COMPILED'\nORDER BY i.VARIABLE_NAME",
+   "columns": [
+    "VARIABLE_NAME",
+    "VARIABLE_SOURCE",
+    "VARIABLE_PATH",
+    "VARIABLE_VALUE",
+    "SET_TIME",
+    "SET_USER",
+    "SET_HOST"
+   ],
+   "rows": [
+    [
+     "binlog_format",
+     "DYNAMIC",
+     "",
+     "ROW",
+     "2026-10-30 07:25:48.966895",
+     "root",
+     null
+    ],
+    [
+     "datadir",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql/",
+     null,
+     null,
+     null
+    ],
+    [
+     "enforce_gtid_consistency",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "foreign_key_checks",
+     "DYNAMIC",
+     "",
+     "ON",
+     "2026-10-30 06:02:14.701687",
+     null,
+     null
+    ],
+    [
+     "gtid_mode",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "host_cache_size",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "0",
+     null,
+     null,
+     null
+    ],
+    [
+     "innodb_lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "50",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "innodb_print_all_deadlocks",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "31536000",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "log_error",
+     "COMMAND_LINE",
+     "",
+     "/yc-recording/logs/my84/error.log",
+     null,
+     null,
+     null
+    ],
+    [
+     "max_execution_time",
+     "DYNAMIC",
+     "",
+     "0",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "pid_file",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.pid",
+     null,
+     null,
+     null
+    ],
+    [
+     "secure_file_priv",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql-files/",
+     null,
+     null,
+     null
+    ],
+    [
+     "server_id",
+     "COMMAND_LINE",
+     "",
+     "84",
+     null,
+     null,
+     null
+    ],
+    [
+     "skip_name_resolve",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "socket",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.sock",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_ca",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/ca.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_cert",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-cert.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_key",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-key.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "time_zone",
+     "DYNAMIC",
+     "",
+     "SYSTEM",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "transaction_read_only",
+     "DYNAMIC",
+     "",
+     "OFF",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "wait_timeout",
+     "DYNAMIC",
+     "",
+     "28800",
+     "2026-10-30 07:35:42.554080",
+     "yc_restricted",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_clients')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_clients",
+     "5"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "columns": [
+    "TABLE_SCHEMA",
+    "TABLE_NAME",
+    "ENGINE",
+    "DATA_LENGTH",
+    "INDEX_LENGTH",
+    "DATA_FREE"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('innodb_buffer_pool_size', 'innodb_page_size')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "innodb_buffer_pool_size",
+     "134217728"
+    ],
+    [
+     "innodb_page_size",
+     "16384"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Innodb_buffer_pool_pages_total', 'Innodb_buffer_pool_pages_free', 'Innodb_buffer_pool_bytes_data')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Innodb_buffer_pool_bytes_data",
+     "22003712"
+    ],
+    [
+     "Innodb_buffer_pool_pages_free",
+     "6849"
+    ],
+    [
+     "Innodb_buffer_pool_pages_total",
+     "8192"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Created_tmp_disk_tables', 'Sort_merge_passes')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Created_tmp_disk_tables",
+     "0"
+    ],
+    [
+     "Sort_merge_passes",
+     "0"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_bin', 'binlog_expire_logs_seconds', 'gtid_mode', 'server_uuid')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "binlog_expire_logs_seconds",
+     "2592000"
+    ],
+    [
+     "gtid_mode",
+     "ON"
+    ],
+    [
+     "log_bin",
+     "ON"
+    ],
+    [
+     "server_uuid",
+     "6e9de8eb-d427-11f1-bfba-ea9351c6cd45"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'setup_consumers'"
+   }
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Threads_running', 'Aborted_connects', 'Questions', 'Threads_cached', 'Threads_created', 'Connections')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_connects",
+     "7"
+    ],
+    [
+     "Connections",
+     "2882"
+    ],
+    [
+     "Questions",
+     "4995"
+    ],
+    [
+     "Threads_cached",
+     "5"
+    ],
+    [
+     "Threads_connected",
+     "7"
+    ],
+    [
+     "Threads_created",
+     "15"
+    ],
+    [
+     "Threads_running",
+     "4"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Aborted_clients')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Aborted_clients",
+     "5"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT i.VARIABLE_NAME, i.VARIABLE_SOURCE, i.VARIABLE_PATH, g.VARIABLE_VALUE,\n       i.SET_TIME, i.SET_USER, i.SET_HOST\nFROM performance_schema.variables_info i\nLEFT JOIN performance_schema.global_variables g ON g.VARIABLE_NAME = i.VARIABLE_NAME\nWHERE i.VARIABLE_SOURCE != 'COMPILED'\nORDER BY i.VARIABLE_NAME",
+   "columns": [
+    "VARIABLE_NAME",
+    "VARIABLE_SOURCE",
+    "VARIABLE_PATH",
+    "VARIABLE_VALUE",
+    "SET_TIME",
+    "SET_USER",
+    "SET_HOST"
+   ],
+   "rows": [
+    [
+     "binlog_format",
+     "DYNAMIC",
+     "",
+     "ROW",
+     "2026-10-30 07:25:48.966895",
+     "root",
+     null
+    ],
+    [
+     "datadir",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql/",
+     null,
+     null,
+     null
+    ],
+    [
+     "enforce_gtid_consistency",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "foreign_key_checks",
+     "DYNAMIC",
+     "",
+     "ON",
+     "2026-10-30 06:02:14.701687",
+     null,
+     null
+    ],
+    [
+     "gtid_mode",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "host_cache_size",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "0",
+     null,
+     null,
+     null
+    ],
+    [
+     "innodb_lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "50",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "innodb_print_all_deadlocks",
+     "COMMAND_LINE",
+     "",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "lock_wait_timeout",
+     "DYNAMIC",
+     "",
+     "31536000",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "log_error",
+     "COMMAND_LINE",
+     "",
+     "/yc-recording/logs/my84/error.log",
+     null,
+     null,
+     null
+    ],
+    [
+     "max_execution_time",
+     "DYNAMIC",
+     "",
+     "0",
+     "2026-10-30 07:35:42.554079",
+     "yc_restricted",
+     null
+    ],
+    [
+     "pid_file",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.pid",
+     null,
+     null,
+     null
+    ],
+    [
+     "secure_file_priv",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/lib/mysql-files/",
+     null,
+     null,
+     null
+    ],
+    [
+     "server_id",
+     "COMMAND_LINE",
+     "",
+     "84",
+     null,
+     null,
+     null
+    ],
+    [
+     "skip_name_resolve",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "ON",
+     null,
+     null,
+     null
+    ],
+    [
+     "socket",
+     "GLOBAL",
+     "/etc/my.cnf",
+     "/var/run/mysqld/mysqld.sock",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_ca",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/ca.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_cert",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-cert.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "ssl_key",
+     "COMMAND_LINE",
+     "",
+     "/tmp/yc-mytls/server-key.pem",
+     null,
+     null,
+     null
+    ],
+    [
+     "time_zone",
+     "DYNAMIC",
+     "",
+     "SYSTEM",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "transaction_read_only",
+     "DYNAMIC",
+     "",
+     "OFF",
+     "2026-10-30 07:35:42.554078",
+     "yc_restricted",
+     null
+    ],
+    [
+     "wait_timeout",
+     "DYNAMIC",
+     "",
+     "28800",
+     "2026-10-30 07:35:42.554080",
+     "yc_restricted",
+     null
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('innodb_buffer_pool_size', 'innodb_page_size')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "innodb_buffer_pool_size",
+     "134217728"
+    ],
+    [
+     "innodb_page_size",
+     "16384"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Innodb_buffer_pool_pages_total', 'Innodb_buffer_pool_pages_free', 'Innodb_buffer_pool_bytes_data')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Innodb_buffer_pool_bytes_data",
+     "22003712"
+    ],
+    [
+     "Innodb_buffer_pool_pages_free",
+     "6849"
+    ],
+    [
+     "Innodb_buffer_pool_pages_total",
+     "8192"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "columns": [
+    "TABLE_SCHEMA",
+    "TABLE_NAME",
+    "ENGINE",
+    "DATA_LENGTH",
+    "INDEX_LENGTH",
+    "DATA_FREE"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('Created_tmp_disk_tables', 'Sort_merge_passes')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "Created_tmp_disk_tables",
+     "0"
+    ],
+    [
+     "Sort_merge_passes",
+     "0"
+    ]
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ]
+  },
+  {
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_bin', 'binlog_expire_logs_seconds', 'gtid_mode', 'server_uuid')",
+   "columns": [
+    "Variable_name",
+    "Value"
+   ],
+   "rows": [
+    [
+     "binlog_expire_logs_seconds",
+     "2592000"
+    ],
+    [
+     "gtid_mode",
+     "ON"
+    ],
+    [
+     "log_bin",
+     "ON"
+    ],
+    [
+     "server_uuid",
+     "6e9de8eb-d427-11f1-bfba-ea9351c6cd45"
+    ]
+   ]
+  },
+  {
+   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "error": {
+    "number": 1142,
+    "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'setup_consumers'"
+   }
+  }
+ ]
+}

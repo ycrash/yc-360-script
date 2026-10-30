@@ -1,0 +1,11 @@
+# engine=mysql source=my_slow_queries v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=6s samples_expected=3 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=events_statements_summary_by_digest start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster unavailable=sum_cpu_time reason=permission_denied error="Error 1142: SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'events_statements_summary_by_digest'" ts=2026-10-30T09:00:00.000Z
+schema_name,digest,digest_text,query_sample_text,query_sample_seen,query_sample_timer_wait,count_star,sum_timer_wait,sum_rows_examined,sum_rows_sent,sum_cpu_time,sum_lock_time,max_total_memory,max_controlled_memory,sum_created_tmp_disk_tables
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=events_statements_summary_by_digest start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster unavailable=sum_cpu_time reason=permission_denied ts=2026-10-30T09:00:06.000Z
+schema_name,digest,digest_text,query_sample_text,query_sample_seen,query_sample_timer_wait,count_star,sum_timer_wait,sum_rows_examined,sum_rows_sent,sum_cpu_time,sum_lock_time,max_total_memory,max_controlled_memory,sum_created_tmp_disk_tables
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=events_statements_summary_by_digest start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster unavailable=sum_cpu_time reason=permission_denied ts=2026-10-30T09:00:12.000Z
+schema_name,digest,digest_text,query_sample_text,query_sample_seen,query_sample_timer_wait,count_star,sum_timer_wait,sum_rows_examined,sum_rows_sent,sum_cpu_time,sum_lock_time,max_total_memory,max_controlled_memory,sum_created_tmp_disk_tables
+# engine=mysql source=my_slow_queries v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

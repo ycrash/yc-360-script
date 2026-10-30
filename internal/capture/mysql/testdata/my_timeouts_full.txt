@@ -1,0 +1,32 @@
+# engine=mysql source=my_timeouts v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=6s samples_expected=3 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:00.002Z end_ts=2026-10-30T09:00:00.003Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+error_number,error_name,sum_error_raised,first_seen,last_seen
+1205,ER_LOCK_WAIT_TIMEOUT,6,2026-10-30 06:43:17,2026-10-30 07:24:08
+3024,ER_QUERY_TIMEOUT,3,2026-10-30 06:43:12,2026-10-30 07:24:02
+4031,ER_CLIENT_INTERACTION_TIMEOUT,0,,
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=global_status start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+Variable_name,Value
+Aborted_clients,5
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.003Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+error_number,error_name,sum_error_raised,first_seen,last_seen
+1205,ER_LOCK_WAIT_TIMEOUT,6,2026-10-30 06:43:17,2026-10-30 07:24:08
+3024,ER_QUERY_TIMEOUT,4,2026-10-30 06:43:12,2026-10-30 07:35:32
+4031,ER_CLIENT_INTERACTION_TIMEOUT,0,,
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=global_status start_ts=2026-10-30T09:00:06.004Z end_ts=2026-10-30T09:00:06.005Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+Variable_name,Value
+Aborted_clients,5
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:12.002Z end_ts=2026-10-30T09:00:12.003Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+error_number,error_name,sum_error_raised,first_seen,last_seen
+1205,ER_LOCK_WAIT_TIMEOUT,8,2026-10-30 06:43:17,2026-10-30 07:35:37
+3024,ER_QUERY_TIMEOUT,4,2026-10-30 06:43:12,2026-10-30 07:35:32
+4031,ER_CLIENT_INTERACTION_TIMEOUT,0,,
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=global_status start_ts=2026-10-30T09:00:12.004Z end_ts=2026-10-30T09:00:12.005Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+Variable_name,Value
+Aborted_clients,5
+# engine=mysql source=my_timeouts v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

@@ -1,0 +1,4 @@
+# engine=mysql source=my_deadlocks v=1 format=text scope=cluster db= status=started window=12s schedule=every interval=6s samples_expected=2 ts=2026-10-30T09:00:00.000Z
+# engine=mysql source=my_deadlocks v=1 format=text scope=cluster db= sample=1 innodb_print_all_deadlocks=ON log_path=/yc-recording/logs/my84/error.log log_access=none reason=log_unreadable fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" bytes=0 ts=2026-10-30T09:00:00.000Z
+# engine=mysql source=my_deadlocks v=1 format=text scope=cluster db= sample=2 innodb_print_all_deadlocks=ON log_path=/yc-recording/logs/my84/error.log log_access=none reason=log_unreadable fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" bytes=0 ts=2026-10-30T09:00:06.000Z
+# engine=mysql source=my_deadlocks v=1 format=text scope=cluster db= status=complete samples_expected=2 samples_written=2 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

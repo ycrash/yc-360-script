@@ -3,7 +3,9 @@
 `my_matrix_init.sql` and `my_replica_init.sql` are not fixtures: they are the
 roles, tables and replication setup `compose.mysql.yaml` mounts into each
 container for the opt-in matrix (`-tags mysqlintegration`), and they live here
-because they are test input the package owns.
+because they are test input the package owns. The `my_*.txt` files and the
+`my84_*.json` recordings they are made from are the goldens; see *Goldens*, at
+the end.
 
 This file is step 1 of `mysql-capture-plan.md`'s order of work: what the spec's
 queries do on real servers, recorded so the code that depends on them does not
@@ -339,3 +341,36 @@ reached. `TestMariaDBIsNamedAndItsGapsRecorded` and
 - The two compose files shared one project name, the directory's, so each
   file's `up` and `down` saw the other's containers as orphans.
   `compose.mysql.yaml` now names its project `yc-mysql-matrix`.
+
+## Goldens
+
+The byte-for-byte contract for every file the package writes, as a real server
+answered. `golden_test.go` replays a recording through the collectors with a
+scripted clock - one window per connection, so each file's ticks come in one
+order - and compares each file with its golden. No server is needed.
+
+- `my84_root.json` - every statement of a 12s run against `my84` (8.4.13) as
+  root, its columns and rows as the server returned them, recorded while
+  `TestMatrixScenarios`' cases were staged and a deadlock forced: a row-lock
+  waiter and a queued metadata lock, a held prepared statement with a literal,
+  a statement past `max_execution_time`, a slow application SELECT and its plan,
+  scans with no index.
+- `my84_restricted.json` - the same run as `yc_restricted`, `USAGE` only.
+- `my_<file>_full.txt` (16) and `my_<file>_least_privilege.txt` (16) - the
+  replay of each.
+- `my_metadata_connect_failure.txt`, `my_sessions_connect_failure.txt` - a run
+  refused a connection slot; every other file's failure is the same envelope.
+
+Two values in a recording are replaced as it is written, so a replay reads the
+same on every machine: the client address the server saw (`192.0.2.10`, a
+documentation address) and the matrix's host log directory
+(`/yc-recording/logs/`, which exists nowhere). The error log is therefore not
+found on replay, and `my_deadlocks.txt` shows the fallback form; the log tail's
+own tests cover reading one. The same-host probe sees no server process.
+
+To re-record, with the matrix up:
+
+    YC_MY_RECORD=1 go test -tags mysqlintegration -run TestRecordGoldens ./internal/capture/mysql/
+    YC_UPDATE_GOLDEN=1 go test -run TestGolden ./internal/capture/mysql/
+
+and read the diff: a golden is only as right as what it was checked for.
