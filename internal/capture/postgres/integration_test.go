@@ -3874,7 +3874,11 @@ func assertMatrixCaptureIsInItsOwnArtifact(t *testing.T, block capacityMatrixBlo
 	t.Helper()
 
 	for _, row := range block.rows {
-		if strings.HasPrefix(block.cell(t, row, "query"), "WITH m AS MATERIALIZED") {
+		// PostgreSQL 14-17 keep the statement's leading comment, the agent's marker,
+		// in the stored text; 18 drops it.
+		query := strings.TrimPrefix(block.cell(t, row, "query"), statementMarker)
+
+		if strings.HasPrefix(query, "WITH m AS MATERIALIZED") {
 			assert.NotEmpty(t, block.cell(t, row, "queryid"),
 				"a role always sees the statements it executed itself")
 
