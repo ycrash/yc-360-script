@@ -114,7 +114,7 @@ func TestARowCapIsKnownNotGuessed(t *testing.T) {
 func TestATextValueIsCappedAndAStatementCutMidLiteralIsStillReplaced(t *testing.T) {
 	long := "SELECT '" + strings.Repeat("x", DefaultMaxText) + "'"
 
-	text, cut, redacted := cell(long, true)
+	text, cut, redacted := cell(long, redactStatement)
 
 	assert.True(t, cut)
 	assert.Equal(t, "SELECT '<redacted>...", text)

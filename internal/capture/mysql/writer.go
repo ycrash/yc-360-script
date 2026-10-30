@@ -47,6 +47,10 @@ type block struct {
 	// and counted as redacted=.
 	statementColumns []string
 
+	// messageColumns are the columns holding a server's error message, which may
+	// quote a value or a statement; replaced and counted the same way.
+	messageColumns []string
+
 	// maxRows bounds the rows written; the statement asks for one more, so a cut is
 	// known rather than guessed. Zero writes every row.
 	maxRows int
@@ -102,11 +106,9 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 
 	res.columns = columns
 
-	isStatement := make([]bool, len(columns))
+	redactors := make([]func(string) (string, int), len(columns))
 	for i, column := range columns {
-		isStatement[i] = slices.ContainsFunc(b.statementColumns, func(c string) bool {
-			return strings.EqualFold(c, column)
-		})
+		redactors[i] = b.redactor(column)
 	}
 
 	values := make([]sql.NullString, len(columns))
@@ -138,7 +140,7 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 				continue
 			}
 
-			text, cut, redacted := cell(value.String, isStatement[i])
+			text, cut, redacted := cell(value.String, redactors[i])
 
 			row[i] = text
 			res.redacted += redacted
@@ -162,14 +164,29 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 	return res, nil
 }
 
-// cell caps a value, then, for SQL text, replaces its values, so a literal the cap
-// split is still found; the cap's "..." goes back on after, where no replacement
-// can swallow it.
-func cell(value string, statement bool) (string, bool, int) {
+// redactor is what replaces the values in column, nil for a column that holds none.
+func (b block) redactor(column string) func(string) (string, int) {
+	named := func(c string) bool { return strings.EqualFold(c, column) }
+
+	switch {
+	case slices.ContainsFunc(b.statementColumns, named):
+		return redactStatement
+
+	case slices.ContainsFunc(b.messageColumns, named):
+		return redactServerMessage
+	}
+
+	return nil
+}
+
+// cell caps a value, then, with a redactor, replaces its values, so a literal the
+// cap split is still found; the cap's "..." goes back on after, where no
+// replacement can swallow it.
+func cell(value string, redact func(string) (string, int)) (string, bool, int) {
 	capped := dbcore.TruncateRunes(value, DefaultMaxText)
 	cut := capped != value
 
-	if !statement {
+	if redact == nil {
 		return capped, cut, 0
 	}
 
@@ -177,7 +194,7 @@ func cell(value string, statement bool) (string, bool, int) {
 		capped = strings.TrimSuffix(capped, "...")
 	}
 
-	capped, redacted := redactStatement(capped)
+	capped, redacted := redact(capped)
 
 	if cut {
 		capped += "..."
@@ -242,7 +259,7 @@ func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, 
 
 	fields := slices.Clone(b.fields)
 
-	if len(b.statementColumns) > 0 {
+	if len(b.statementColumns) > 0 || len(b.messageColumns) > 0 {
 		fields = append(fields, kv("redacted", strconv.Itoa(res.redacted)))
 	}
 

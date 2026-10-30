@@ -132,3 +132,65 @@ MySQL thread id 13, OS thread handle 141, query id 46 localhost root
 	assert.Contains(t, got, "---TRANSACTION 421948, not started\nMySQL thread id 13, OS thread handle 141")
 	assert.Equal(t, 1, n)
 }
+
+func TestRedactServerMessageReplacesWhatIsQuotedAndKeepsTheTemplate(t *testing.T) {
+	// The first three as my84-replica (8.4.13) wrote them, with a row inserted on the
+	// replica and then on the source.
+	tests := []struct {
+		name     string
+		in       string
+		want     string
+		redacted int
+	}{
+		{"the parallel applier names the transaction, which is kept",
+			"Coordinator stopped because there were error(s) in the worker(s). The most recent failure being: Worker 1 " +
+				"failed executing transaction '6e9de8eb-d427-11f1-bfba-ea9351c6cd45:147' at source log binlog.000002, " +
+				"end_log_pos 1102. See error log and/or performance_schema.replication_applier_status_by_worker table " +
+				"for more details about this failure or others, if any.",
+			"Coordinator stopped because there were error(s) in the worker(s). The most recent failure being: Worker 1 " +
+				"failed executing transaction '6e9de8eb-d427-11f1-bfba-ea9351c6cd45:147' at source log binlog.000002, " +
+				"end_log_pos 1102. See error log and/or performance_schema.replication_applier_status_by_worker table " +
+				"for more details about this failure or others, if any.", 0},
+		{"a row event's value goes, its table, code and position stay",
+			"Could not execute Write_rows event on table yc_app.orders; Duplicate entry '774411' for key " +
+				"'orders.PRIMARY', Error_code: 1062; handler error HA_ERR_FOUND_DUPP_KEY; the event's source log " +
+				"binlog.000002, end_log_pos 1102",
+			"Could not execute Write_rows event on table yc_app.orders; Duplicate entry '<redacted>', Error_code: 1062; " +
+				"handler error HA_ERR_FOUND_DUPP_KEY; the event's source log binlog.000002, end_log_pos 1102", 1},
+		{"a statement-based failure keeps its statement, values replaced",
+			"Error 'Duplicate entry '774412' for key 'orders.PRIMARY'' on query. Default database: ''. Query: " +
+				"'INSERT INTO yc_app.orders (id, customer_id, status) VALUES (774412, 2, 'yc-src-secret')'",
+			"Error '<redacted>'. Query: 'INSERT INTO yc_app.orders (id, customer_id, status) VALUES " +
+				"(<redacted>, <redacted>, '<redacted>')'", 4},
+		{"an apostrophe inside a word is not a quote",
+			"Could not execute Write_rows event on table app.users; Duplicate entry 'O'Brien' for key 'users.name', " +
+				"Error_code: 1062; the event's source log binlog.000002",
+			"Could not execute Write_rows event on table app.users; Duplicate entry '<redacted>', Error_code: 1062; " +
+				"the event's source log binlog.000002", 1},
+		{"an odd count, a quote the rule cannot place, is replaced to the end",
+			"Could not execute Update_rows event on table app.notes; Incorrect string value: 'it' s' for column 'body'",
+			"Could not execute Update_rows event on table app.notes; Incorrect string value: '<redacted>", 1},
+		{"a statement cut short is replaced to its end",
+			"Error 'Duplicate entry '7' for key 'PRIMARY'' on query. Default database: 'app'. Query: " +
+				"'INSERT INTO t VALUES (7, 'alice@exam",
+			"Error '<redacted>'. Query: 'INSERT INTO t VALUES (<redacted>, '<redacted>", 3},
+		{"an applier without GTIDs, and a tagged GTID",
+			"Worker 2 failed executing transaction 'ANONYMOUS' at source log binlog.000004, end_log_pos 88; " +
+				"then transaction '6e9de8eb-d427-11f1-bfba-ea9351c6cd45:nightly:12'",
+			"Worker 2 failed executing transaction 'ANONYMOUS' at source log binlog.000004, end_log_pos 88; " +
+				"then transaction '6e9de8eb-d427-11f1-bfba-ea9351c6cd45:nightly:12'", 0},
+		{"a GTID beside anything else is not kept",
+			"transaction '6e9de8eb-d427-11f1-bfba-ea9351c6cd45:147' failed on 'alice@example.com'",
+			"transaction '<redacted>'", 1},
+		{"no quotes, nothing to replace",
+			"Replica failed to initialize applier metadata structure from the repository, Error_code: MY-013124",
+			"Replica failed to initialize applier metadata structure from the repository, Error_code: MY-013124", 0},
+		{"empty", "", "", 0},
+	}
+
+	for _, tt := range tests {
+		got, redacted := redactServerMessage(tt.in)
+		assert.Equal(t, tt.want, got, tt.name)
+		assert.Equal(t, tt.redacted, redacted, tt.name)
+	}
+}

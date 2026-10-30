@@ -222,13 +222,21 @@ read.
 ## What leaves the database
 
 Statement text keeps its statement and loses its values, in every file that
-carries it: `PROCESSLIST_INFO`, `query_sample_text`, `SQL_TEXT`, the replica's
-last errors, and the statements in deadlock reports and `SHOW ENGINE INNODB
-STATUS`. A string becomes `'<redacted>'` inside its own quotes and prefix, a
-number `<redacted>`. A statement that sets a credential - `CREATE USER`,
-`ALTER USER`, `SET PASSWORD`, `CHANGE REPLICATION SOURCE` and the like - is
-replaced past its first two words. InnoDB's dumps print each locked row's bytes
-as hex and text; both are replaced. A plan keeps its table, index and column
+carries it: `PROCESSLIST_INFO`, `query_sample_text`, `SQL_TEXT`, and the
+statements in deadlock reports and `SHOW ENGINE INNODB STATUS`. A string becomes
+`'<redacted>'` inside its own quotes and prefix, a number `<redacted>`. A
+statement that sets a credential - `CREATE USER`, `ALTER USER`, `SET PASSWORD`,
+`CHANGE REPLICATION SOURCE` and the like - is replaced past its first two words.
+InnoDB's dumps print each locked row's bytes as hex and text; both are replaced.
+
+A replica's last errors (`Last_Error`, `Last_SQL_Error`, `Last_IO_Error`) are the
+server's messages, not SQL, and the server quotes values into them without
+escaping their quotes. Everything from a message's first quote to its last is
+replaced; the error codes, worker numbers, log files and positions around it
+stay. A message whose only quoted text is a GTID - the parallel applier's
+"Worker 1 failed executing transaction '…'" - is kept whole, since it names the
+transaction to skip or repair. A statement-based failure's `Query: '…'` keeps its
+statement, with the values replaced as above. A plan keeps its table, index and column
 names, its access types, and its costs and row estimates; every other string in
 it has its values replaced - the conditions, each step's operation, and the
 rewritten statement MySQL 9's plan format carries whole. A key a later version

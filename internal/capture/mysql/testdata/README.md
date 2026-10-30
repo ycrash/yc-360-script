@@ -27,8 +27,8 @@ staged cases below), `TestMatrixPlaintextLoginNeverRequestsTheServersKey`, and
 hand on the two 8.0 servers; the matrix asserts the parts of it that the
 recommended roles depend on everywhere.
 
-Not run: the `replica` and `perms` profiles. The `mariadb` profile (MariaDB
-10.11.6, out of scope) ran on 2026-10-30; see its section below.
+Not run: the `perms` profile. The `replica` and `mariadb` profiles ran on
+2026-10-30; see their sections below.
 
 ## The plan's *(verify)* statements
 
@@ -183,6 +183,47 @@ runs past `max_execution_time`. Every file is `status=complete`, and:
 - `my_explain.txt`: the application `SELECT` is planned under
   `schema_name=yc_app`, with no value of it left in the plan.
 - `my_table_stats.txt`: the scanned table's row has an empty `INDEX_NAME`.
+
+## Replication (`replica` profile, 8.4.13)
+
+`my84-replica` replays `my84` from its first GTID and catches up at once.
+`TestReplica*` skip when the profile is not up, and leave the replica running
+and caught up.
+
+- **Running:** `mechanism=async`, both threads `Yes`, `Seconds_Behind_Source`
+  0. The source itself, with a replica attached, reads `mechanism=none` with
+  its binary log status: the spec's test is what a server replicates from.
+- **Applier stopped** (`STOP REPLICA SQL_THREAD`): still `mechanism=async`,
+  `Seconds_Behind_Source` empty (NULL).
+- **A replication error** - a row inserted on the replica, then the same key on
+  the source - is worded three ways, and the agent's redaction was wrong on two:
+  - The default since 8.0.27, a parallel applier with row events: `Last_Error`
+    and `Last_SQL_Error` are the coordinator's summary, "Worker 1 failed
+    executing transaction '<GTID>' at source log binlog.000002, end_log_pos
+    1102". No value is in it; the duplicate key is only in
+    `performance_schema.replication_applier_status_by_worker`, which the spec
+    does not read. The SQL redactor replaced the worker number, the GTID, the
+    log file's number and the position: everything an operator needs to skip or
+    repair the transaction, none of it a value.
+  - A single applier (`replica_parallel_workers=0`) with row events: "Could not
+    execute Write_rows event on table yc_app.orders; Duplicate entry '774411'
+    for key 'orders.PRIMARY', Error_code: 1062; handler error
+    HA_ERR_FOUND_DUPP_KEY; the event's source log ...". The value is the key's,
+    which on a unique email column is an address.
+  - Statement-based events: "Error 'Duplicate entry '774412' for key
+    'orders.PRIMARY'' on query. Default database: ''. Query: 'INSERT INTO
+    yc_app.orders (...) VALUES (774412, 2, 'yc-src-secret')'". The server
+    quotes the message and the statement without escaping their quotes, so the
+    SQL lexer paired them wrongly and **wrote `yc-src-secret` as it was**, in
+    both columns of every sample.
+
+  Fixed: these columns have a redactor of their own (`redactServerMessage`).
+  Everything from a message's first quote to its last is replaced, to its end
+  with an odd count; an apostrophe between two letters ("the event's") is not a
+  quote. A message whose only quoted texts are GTIDs or ANONYMOUS is kept
+  whole. A statement-based failure's `Query: '...'` is read as SQL, which there
+  is properly escaped, and keeps its statement.
+  `TestReplicaErrorsKeepTheirDiagnosticsAndLoseTheirValues` stages all three.
 
 ## MariaDB (`mariadb` profile, 10.11.6)
 

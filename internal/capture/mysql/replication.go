@@ -20,8 +20,9 @@ const (
 	mechanismUnknown = "unknown"
 )
 
-// replicaErrorColumns quote the failing statement and its values - "Duplicate entry
-// '42' for key ... Query: 'INSERT ...'" - and have them replaced.
+// replicaErrorColumns are server messages that can quote a value or the failing
+// statement - "Duplicate entry '42' for key ...", "Query: 'INSERT ...'" - and have
+// them replaced (redactServerMessage).
 var replicaErrorColumns = []string{"Last_Error", "Last_SQL_Error", "Last_IO_Error"}
 
 // wsrepStatus are the Galera variables the spec names; wsrep_flow_control_paused is
@@ -60,9 +61,9 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	unread := false
 
 	found, read, err := r.write(ctx, q, &buf, artifact, s, block{
-		source:           "replica_status",
-		query:            replicaStatus,
-		statementColumns: replicaErrorColumns,
+		source:         "replica_status",
+		query:          replicaStatus,
+		messageColumns: replicaErrorColumns,
 	})
 	if err != nil {
 		return err

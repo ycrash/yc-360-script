@@ -406,6 +406,101 @@ func redactMonitorText(text string) (string, int) {
 	return strings.Join(lines, "\n"), redacted
 }
 
+// redactServerMessage replaces the values in a server's error message: a replica's
+// Last_Error, Last_SQL_Error and Last_IO_Error. It is not SQL, and its quotes do not
+// pair. The server drops a value, a whole message or a whole statement into its
+// template unescaped, as in this statement-based failure:
+//
+//	Error 'Duplicate entry '42' for key 'orders.PRIMARY'' on query. Default database: 'app'. Query: 'INSERT ... VALUES (42, 'x')'
+//
+// so a SQL lexer reading it leaves part of a value outside any string, and keeps
+// it. A value is always inside the quotes, though, so everything from the first
+// quote to the last is replaced; with an odd count, a value holding a quote or a
+// message cut short, to the end. What lies outside - error codes, worker numbers,
+// log files and positions, the table a row event was for - is the template's own
+// and stays.
+//
+// Two shapes keep more. A message whose every quoted text is a GTID or ANONYMOUS,
+// the parallel applier's "Worker 1 failed executing transaction '...'", is kept
+// whole: it names the transaction to skip or repair. A statement-based failure
+// ends in the statement as sent, whose own quotes are escaped, and that is read as
+// SQL, keeping its words with its values replaced.
+func redactServerMessage(s string) (string, int) {
+	i := strings.Index(s, messageQuery)
+	if i < 0 {
+		return redactMessageText(s)
+	}
+
+	head, headRedacted := redactMessageText(s[:i+1])
+
+	statement := s[i+len(messageQuery):]
+	closing := ""
+
+	if strings.HasSuffix(statement, "'") {
+		statement, closing = statement[:len(statement)-1], "'"
+	}
+
+	statement, statementRedacted := redactStatement(statement)
+
+	return head + messageQuery[1:] + statement + closing, headRedacted + statementRedacted
+}
+
+// messageQuery opens the statement in a statement-based failure, after the default
+// database's closing quote: "... Default database: 'app'. Query: '...'".
+const messageQuery = "'. Query: '"
+
+// transactionName is a quoted text a message may keep: one GTID, tagged or not, or
+// ANONYMOUS, a transaction without one.
+var transactionName = regexp.MustCompile(`^(?:ANONYMOUS|[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}(?::[A-Za-z_][A-Za-z0-9_]{0,31})?:[0-9]+)$`)
+
+func redactMessageText(s string) (string, int) {
+	quotes := messageQuotes(s)
+	if len(quotes) == 0 {
+		return s, 0
+	}
+
+	first, last := quotes[0], quotes[len(quotes)-1]
+
+	if len(quotes)%2 == 1 {
+		return s[:first+1] + redactedValue, 1
+	}
+
+	names := true
+
+	for i := 0; i < len(quotes); i += 2 {
+		names = names && transactionName.MatchString(s[quotes[i]+1:quotes[i+1]])
+	}
+
+	if names {
+		return s, 0
+	}
+
+	return s[:first+1] + redactedValue + s[last:], 1
+}
+
+// messageQuotes are the offsets of the quotes in s that open or close a quoted
+// text. An apostrophe between two letters - "the event's source log", "O'Brien" -
+// is a word's, not a quote. One misread the other way only widens what is replaced.
+func messageQuotes(s string) []int {
+	var quotes []int
+
+	for i := range len(s) {
+		if s[i] != '\'' {
+			continue
+		}
+
+		if i > 0 && i+1 < len(s) && isLetter(s[i-1]) && isLetter(s[i+1]) {
+			continue
+		}
+
+		quotes = append(quotes, i)
+	}
+
+	return quotes
+}
+
+func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
 func statementEnds(line string) bool {
 	for _, prefix := range monitorStatementEnd {
 		if strings.HasPrefix(line, prefix) {
