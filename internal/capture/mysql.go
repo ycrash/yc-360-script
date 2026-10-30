@@ -72,6 +72,10 @@ type MySQLCapture struct {
 	Capture
 	Target *config.MySQL
 
+	// RunCtx is the run's: its end stops the window early, as Kill does, and,
+	// unlike Kill, also before Run has begun. nil never ends.
+	RunCtx context.Context
+
 	// mu guards cancel, set by Run and read by Kill from another goroutine.
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -86,7 +90,12 @@ func (c *MySQLCapture) Run() (Result, error) {
 		return Result{Msg: "skipped mysql capture window: no mysql block configured"}, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	run := c.RunCtx
+	if run == nil {
+		run = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(run)
 	defer cancel()
 
 	c.setCancel(cancel)

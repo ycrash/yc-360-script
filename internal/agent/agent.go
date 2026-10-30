@@ -71,7 +71,11 @@ func Run() error {
 	return nil
 }
 
+// Shutdown stops the run and waits for it: a capture in flight ends early and
+// uploads what it has, and none starts after it.
 func Shutdown() {
+	ondemand.Stop()
+
 	m3AppMu.Lock()
 	if runningM3App != nil {
 		runningM3App.Shutdown()

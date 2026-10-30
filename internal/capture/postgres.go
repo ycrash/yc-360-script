@@ -167,6 +167,10 @@ type PostgresCapture struct {
 	Capture
 	Target *config.Postgres
 
+	// RunCtx is the run's: its end stops the window early, as Kill does, and,
+	// unlike Kill, also before Run has begun. nil never ends.
+	RunCtx context.Context
+
 	// mu guards cancel, set by Run and read by Kill from another goroutine.
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -183,7 +187,12 @@ func (p *PostgresCapture) Run() (Result, error) {
 		return Result{Msg: "skipped postgres capture window: no postgres block configured"}, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	run := p.RunCtx
+	if run == nil {
+		run = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(run)
 	defer cancel()
 
 	p.setCancel(cancel)

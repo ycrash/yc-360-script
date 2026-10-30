@@ -37,7 +37,9 @@ certificate is not checked. `captureDuration` is required and capped at `2h`;
 the same way (fast at most 15s, expensive at least 5m).
 
 A key the block does not take is refused at startup with its line, inside `tls:`
-too, as for `postgres:`.
+too, as for `postgres:`. Ctrl-C or `SIGTERM` ends the window early as it does
+there: each file closes with `status=cancelled` and is uploaded, and a second
+signal exits at once.
 
 `database` is optional, and nothing defaults it: every file reads
 `performance_schema` and the server's counters, which cover the whole

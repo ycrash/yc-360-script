@@ -2,6 +2,7 @@ package ondemand
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -34,7 +35,40 @@ import (
 	ps "github.com/shirou/gopsutil/v3/process"
 )
 
+// Wg counts the captures in flight, each for the whole of FullCapture: its upload
+// and the removal of its directory included.
 var Wg sync.WaitGroup
+
+// stopping ends when the run is asked to stop (Stop). A database window in flight
+// then closes early - its files say status=cancelled, and are uploaded as a full
+// window's would be - and no capture starts after it.
+var stopping, stop = context.WithCancel(context.Background())
+
+// startMu orders Stop against a capture's start, so none that Wg has not counted
+// starts once Shutdown is waiting on it.
+var startMu sync.Mutex
+
+// Stop asks the captures in flight to end early, and keeps any more from starting.
+func Stop() {
+	startMu.Lock()
+	defer startMu.Unlock()
+
+	stop()
+}
+
+// start counts a capture in Wg, unless the run is stopping.
+func start() bool {
+	startMu.Lock()
+	defer startMu.Unlock()
+
+	if stopping.Err() != nil {
+		return false
+	}
+
+	Wg.Add(1)
+
+	return true
+}
 
 // CaptureOptions carries optional context from callers (e.g. M3) that have
 // additional information to pass into FullCapture.
@@ -122,6 +156,13 @@ func ProcessDatabase(hd bool, tags string) (rUrl string) {
 }
 
 func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, opts ...CaptureOptions) (rUrl string) {
+	if !start() {
+		logger.Log("Stopping: the capture for pid %d is not started.", pid)
+
+		return
+	}
+	defer Wg.Done()
+
 	var err error
 	defer func() {
 		if err != nil {
@@ -169,9 +210,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 				}
 				// Cleanup capture dir
 				if config.GlobalConfig.DeferDelete {
-					Wg.Add(1)
 					defer func() {
-						defer Wg.Done()
 						err := RemoveDirWithRetry(captureDir)
 						if err != nil {
 							logger.Log("WARNING: Can not remove the current directory: %s", err)
@@ -537,7 +576,7 @@ Ignored errors: %v
 	var pgCapture chan capture.Result
 	skipPostgres := len(opts) > 0 && opts[0].SkipPostgres
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() && !skipPostgres {
-		pgCapture = goCapture(endpoint, capture.WrapRun(&capture.PostgresCapture{Target: pg}))
+		pgCapture = goCapture(endpoint, capture.WrapRun(&capture.PostgresCapture{Target: pg, RunCtx: stopping}))
 	}
 
 	// ------------------------------------------------------------------------------
@@ -547,7 +586,7 @@ Ignored errors: %v
 	var myCapture chan capture.Result
 	skipMySQL := len(opts) > 0 && opts[0].SkipMySQL
 	if my := config.GlobalConfig.MySQL; my.IsConfigured() && !skipMySQL {
-		myCapture = goCapture(endpoint, capture.WrapRun(&capture.MySQLCapture{Target: my}))
+		myCapture = goCapture(endpoint, capture.WrapRun(&capture.MySQLCapture{Target: my, RunCtx: stopping}))
 	}
 
 	useGlobalConfigAppLogs := false
