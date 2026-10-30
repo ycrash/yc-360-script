@@ -25,8 +25,7 @@ Supported: MySQL 8.0, 8.4 LTS and 9.x, and Percona Server. MariaDB is not: its
 connects, with MariaDB's names for the same session bounds, and writes
 `my_metadata.txt` with `mysql_variant=mariadb`; each other file records what the
 server refused or lacks. Read nothing else in such a bundle as a MySQL
-server's: version checks take MariaDB's numbers for MySQL's, and
-`my_replication.txt` reports any MariaDB as Galera.
+server's: version checks take MariaDB's numbers for MySQL's.
 
 `mysql:` is a list of targets and takes exactly one, with a required `id`, as
 `postgres:` does. A file may hold a `postgres:` block or a `mysql:` block, never
@@ -183,7 +182,11 @@ At the normal speed:
 - `my_replication.txt` — the replica's status; failing that, the Group
   Replication members; failing that, Galera's `wsrep_%` status. Then the binary
   log's position and retention. `mechanism=` on the binary log block says which
-  was found, `unknown` where a check was refused.
+  was found, `unknown` where a check was refused or failed. Galera is a node
+  with a provider loaded, which `wsrep_provider_name` names, and not any
+  `wsrep_` row as the spec has it: MariaDB reports the base variables
+  (`wsrep_cluster_size` 0, `Disconnected`) with none loaded, and a node cut off
+  from its cluster reports much the same status, still naming its provider.
 - `my_prepared_statements.txt` — every prepared statement, by owning thread.
 - `my_slow_queries.txt` — the 100 digests with the most time, keyed by
   `(schema_name, digest)`. A column this server cannot fill - `sum_cpu_time`

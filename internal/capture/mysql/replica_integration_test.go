@@ -45,9 +45,14 @@ func requireReplica(t *testing.T) (replica, source *sql.DB) {
 // replicationFile runs my_replication.txt alone over a short window, as yc_monitor.
 func replicationFile(t *testing.T, server matrixServer) string {
 	t.Helper()
+
+	return replicationFileOf(t, matrixTarget(server, matrixRoles[1]))
+}
+
+func replicationFileOf(t *testing.T, target Target) string {
+	t.Helper()
 	t.Chdir(t.TempDir())
 
-	target := matrixTarget(server, matrixRoles[1])
 	window := NewWindow(target, 3*time.Second, []Collector{&Replication{Interval: 2 * time.Second}}, "")
 
 	for _, result := range window.Run(context.Background()) {

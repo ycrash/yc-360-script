@@ -3702,7 +3702,7 @@
    ]
   },
   {
-   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg', 'wsrep_provider_name')",
    "columns": [
     "Variable_name",
     "Value"
@@ -7818,7 +7818,7 @@
    ]
   },
   {
-   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg', 'wsrep_provider_name')",
    "columns": [
     "Variable_name",
     "Value"
@@ -12420,7 +12420,7 @@
    ]
   },
   {
-   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg')",
+   "query": "SHOW GLOBAL STATUS WHERE Variable_name IN ('wsrep_cluster_size', 'wsrep_cluster_status', 'wsrep_connected', 'wsrep_ready', 'wsrep_local_state_comment', 'wsrep_flow_control_paused', 'wsrep_local_recv_queue_avg', 'wsrep_provider_name')",
    "columns": [
     "Variable_name",
     "Value"

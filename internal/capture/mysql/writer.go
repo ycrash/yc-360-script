@@ -224,6 +224,9 @@ type blockOutcome struct {
 	err  error
 	rows int
 
+	// written are the rows as written: values capped and replaced.
+	written [][]string
+
 	// read: the statement ran and returned, refused neither now nor before.
 	read bool
 }
@@ -279,7 +282,7 @@ func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, 
 		return blockOutcome{}, err
 	}
 
-	return blockOutcome{rows: len(res.rows), read: true}, dbcore.WriteRows(w, res.columns, res.rows)
+	return blockOutcome{rows: len(res.rows), written: res.rows, read: true}, dbcore.WriteRows(w, res.columns, res.rows)
 }
 
 // writeReason writes a block that found nothing by design: status=OK, reason=, and

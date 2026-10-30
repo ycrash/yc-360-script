@@ -267,6 +267,34 @@ and caught up.
   After a restart the entrypoint is quick (0.5s), and the process start alone
   answers. Without the shared process table: `unknown`, `reason=container`.
 
+## Galera (`galera` profile, MariaDB 10.11.6)
+
+A two-node cluster, `galera1` bootstrapping and `galera2` joining by
+mariabackup; the image ships `galera-4`. The spec's rule, that any row of its
+`wsrep_` read confirms Galera, was measured beside a standalone MariaDB:
+
+| Server | rows | `wsrep_cluster_status` | `@@wsrep_provider` | `@@wsrep_on` | `wsrep_provider_name` |
+|---|---|---|---|---|---|
+| Galera node | 7 | `Primary` | `libgalera_smm.so` | ON | `Galera` |
+| Galera node, its quorum lost (`gmcast.isolate=1`) | 7 | `non-Primary`, `wsrep_ready=OFF` | `libgalera_smm.so` | ON | `Galera` |
+| Standalone MariaDB | 4 | `Disconnected`, `wsrep_ready=OFF` | `none` | OFF | empty |
+| Percona Server 8.4 | 0 | | | | |
+
+The status values do not tell a node cut off from its cluster from a server
+that never had one; the provider does. `wsrep_provider_name` is now in the same
+`SHOW GLOBAL STATUS` read, and Galera is a node that names one
+(`galeraLoaded`). `TestGaleraNodesReadAsGalera` and
+`TestGaleraNodeWithoutItsQuorumIsStillGalera` run on the profile, the second
+isolating `galera2` and rejoining it; the cluster re-forms its Primary
+component by itself. `TestMariaDBWithoutAProviderIsNotGalera` runs on the
+`mariadb` profile, which now reads `mechanism=unknown`: MariaDB has no
+`replication_group_members`, and a failed check says unknown. Percona XtraDB
+Cluster was not run (no local image); it loads the same library.
+
+The goldens' recordings asked the old statement; my84 answers the new one
+with no rows, as it did the old, so its text was changed in place (three
+statements in each) rather than re-recorded.
+
 ## MariaDB (`mariadb` profile, 10.11.6)
 
 Out of scope (plan §1), so the question was only whether a run says what it
@@ -290,13 +318,11 @@ reached. `TestMariaDBIsNamedAndItsGapsRecorded` and
   plaintext.
 - **`performance_schema` is off by default on MariaDB**; the profile turns it
   on.
-- **A standalone MariaDB reads as Galera.** It always reports the base
+- **A standalone MariaDB read as Galera.** It always reports the base
   `wsrep_*` status variables (`wsrep_cluster_size=0`,
   `wsrep_cluster_status=Disconnected`, `wsrep_connected=OFF`, `wsrep_ready=OFF`)
   with no provider loaded, so the spec's rule that any row confirms Galera
-  makes `my_replication.txt` say `mechanism=galera`. Only those four came back;
-  `wsrep_local_state_comment`, `wsrep_flow_control_paused` and
-  `wsrep_local_recv_queue_avg` need a provider. Not fixed.
+  made `my_replication.txt` say `mechanism=galera`. Fixed; see *Galera*.
 - **Version gates read MariaDB's numbers as MySQL's.** 10.11 compares above
   8.2, so `my_replication.txt` sends `SHOW BINARY LOG STATUS` (1064 on MariaDB)
   and `my_metadata.txt` says `has_statement_memory_tracking,true` with no such

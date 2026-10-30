@@ -190,3 +190,60 @@ services:
       - --performance-schema=ON
     volumes:
       - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+
+  # A two-node MariaDB Galera cluster (the image ships galera-4), where
+  # mechanism=galera is measured: a node with its quorum, and one without
+  # (TestGalera* isolates galera2). galera1 bootstraps the cluster on every
+  # start, so restart both together; galera2 joins it and copies its data
+  # (mariabackup). No TLS, as for mariadb1011.
+  galera1:
+    image: mariadb:10.11.6
+    profiles: ["galera"]
+    hostname: galera1
+    ports: ["13321:3306"]
+    environment:
+      MARIADB_ROOT_PASSWORD: yc-root-pw
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+    command:
+      - --wsrep-on=ON
+      - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
+      - --wsrep-cluster-name=yc
+      - --wsrep-cluster-address=gcomm://
+      - --wsrep-new-cluster
+      - --wsrep-node-address=galera1
+      - --wsrep-sst-method=mariabackup
+      - --wsrep-sst-auth=root:yc-root-pw
+      - --binlog-format=ROW
+      - --innodb-autoinc-lock-mode=2
+    volumes:
+      - ./internal/capture/mysql/testdata/my_matrix_init.sql:/docker-entrypoint-initdb.d/10-yc-matrix.sql:ro
+
+  galera2:
+    image: mariadb:10.11.6
+    profiles: ["galera"]
+    hostname: galera2
+    ports: ["13322:3306"]
+    depends_on:
+      galera1:
+        condition: service_healthy
+    environment:
+      MARIADB_ROOT_PASSWORD: yc-root-pw
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+    command:
+      - --wsrep-on=ON
+      - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
+      - --wsrep-cluster-name=yc
+      - --wsrep-cluster-address=gcomm://galera1
+      - --wsrep-node-address=galera2
+      - --wsrep-sst-method=mariabackup
+      - --wsrep-sst-auth=root:yc-root-pw
+      - --binlog-format=ROW
+      - --innodb-autoinc-lock-mode=2

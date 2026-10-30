@@ -89,3 +89,16 @@ func TestMariaDBIsNamedAndItsGapsRecorded(t *testing.T) {
 		})
 	}
 }
+
+// TestMariaDBWithoutAProviderIsNotGalera: MariaDB always reports the base wsrep_
+// variables, which the spec's rule took for Galera.
+func TestMariaDBWithoutAProviderIsNotGalera(t *testing.T) {
+	file := replicationFileOf(t, mariadbTarget(t, matrixRoles[0]))
+
+	assert.NotContains(t, file, "mechanism=galera")
+	assert.Contains(t, file, "\nwsrep_cluster_status,Disconnected\n")
+	assert.Contains(t, file, "\nwsrep_provider_name,\n")
+
+	// MariaDB has no replication_group_members, and a failed check says unknown.
+	assert.Contains(t, file, " mechanism=unknown ")
+}

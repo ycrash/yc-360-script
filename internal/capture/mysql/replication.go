@@ -26,15 +26,32 @@ const (
 var replicaErrorColumns = []string{"Last_Error", "Last_SQL_Error", "Last_IO_Error"}
 
 // wsrepStatus are the Galera variables the spec names; wsrep_flow_control_paused is
-// the one to watch.
+// the one to watch. wsrep_provider_name is added: it says whether this is a
+// Galera node at all (galeraLoaded).
 var wsrepStatus = []string{"wsrep_cluster_size", "wsrep_cluster_status", "wsrep_connected", "wsrep_ready",
-	"wsrep_local_state_comment", "wsrep_flow_control_paused", "wsrep_local_recv_queue_avg"}
+	"wsrep_local_state_comment", "wsrep_flow_control_paused", "wsrep_local_recv_queue_avg",
+	"wsrep_provider_name"}
+
+// galeraLoaded reports a Galera provider loaded, which wsrep_provider_name names.
+// The spec takes any wsrep_ row as proof of Galera, but MariaDB reports four of
+// them with no provider at all (wsrep_cluster_size 0, Disconnected), and its
+// status values cannot tell that from a node cut off from its cluster. Measured
+// on 10.11.6: a standalone server's provider name is empty; a two-node cluster's
+// nodes name Galera, the one that has lost its quorum included.
+func galeraLoaded(rows [][]string) bool {
+	for _, row := range rows {
+		if len(row) == 2 && row[0] == "wsrep_provider_name" && row[1] != "" {
+			return true
+		}
+	}
+
+	return false
+}
 
 // Replication is my_replication.txt. Three mechanisms exclude one another, checked
 // in the spec's order on every sample: a replica's status; failing that, the Group
-// Replication members; failing that, Galera's status variables, which exist only on
-// a Galera node. Then the binary log's position and retention, whatever the
-// mechanism.
+// Replication members; failing that, Galera's status variables, with a provider
+// loaded. Then the binary log's position and retention, whatever the mechanism.
 type Replication struct {
 	Interval time.Duration
 
@@ -60,7 +77,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	mechanism := mechanismNone
 	unread := false
 
-	found, read, err := r.write(ctx, q, &buf, artifact, s, block{
+	outcome, err := r.write(ctx, q, &buf, artifact, s, block{
 		source:         "replica_status",
 		query:          replicaStatus,
 		messageColumns: replicaErrorColumns,
@@ -69,14 +86,14 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 		return err
 	}
 
-	unread = unread || !read
+	unread = unread || !outcome.read
 
-	if found {
+	if outcome.rows > 0 {
 		mechanism = mechanismAsync
 	}
 
 	if mechanism == mechanismNone {
-		found, read, err = r.write(ctx, q, &buf, artifact, s, block{
+		outcome, err = r.write(ctx, q, &buf, artifact, s, block{
 			source: "replication_group_members",
 			query:  "SELECT * FROM performance_schema.replication_group_members",
 		})
@@ -84,15 +101,15 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 			return err
 		}
 
-		unread = unread || !read
+		unread = unread || !outcome.read
 
-		if found {
+		if outcome.rows > 0 {
 			mechanism = mechanismGroup
 		}
 	}
 
 	if mechanism == mechanismNone {
-		found, read, err = r.write(ctx, q, &buf, artifact, s, block{
+		outcome, err = r.write(ctx, q, &buf, artifact, s, block{
 			source:  "wsrep_status",
 			query:   showGlobal("STATUS", wsrepStatus...),
 			columns: globalStatusColumns,
@@ -101,9 +118,9 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 			return err
 		}
 
-		unread = unread || !read
+		unread = unread || !outcome.read
 
-		if found {
+		if galeraLoaded(outcome.written) {
 			mechanism = mechanismGalera
 		}
 	}
@@ -119,7 +136,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 		binlogStatus = "SHOW BINARY LOG STATUS"
 	}
 
-	if _, _, err := r.write(ctx, q, &buf, artifact, s, block{
+	if _, err := r.write(ctx, q, &buf, artifact, s, block{
 		source: "binary_log_status",
 		query:  binlogStatus,
 		fields: []dbcore.HeaderField{kv("mechanism", mechanism)},
@@ -127,7 +144,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 		return err
 	}
 
-	if _, _, err := r.write(ctx, q, &buf, artifact, s, block{
+	if _, err := r.write(ctx, q, &buf, artifact, s, block{
 		source:  "binary_log_variables",
 		query:   showGlobal("VARIABLES", "log_bin", "binlog_expire_logs_seconds", "gtid_mode", "server_uuid"),
 		columns: globalStatusColumns,
@@ -140,12 +157,10 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	return err
 }
 
-// write writes one block, and reports whether it found rows and whether it was read
-// at all: refused or failed, it says nothing about the mechanism.
+// write writes one block. An outcome not read - refused or failed - says nothing
+// about the mechanism.
 func (r *Replication) write(ctx context.Context, q Querier, w io.Writer, artifact Artifact, s SampleContext,
 	b block,
-) (found, read bool, err error) {
-	outcome, err := writeBlock(ctx, q, w, artifact, s, &r.state, b)
-
-	return outcome.rows > 0, outcome.read, err
+) (blockOutcome, error) {
+	return writeBlock(ctx, q, w, artifact, s, &r.state, b)
 }
