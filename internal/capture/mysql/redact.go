@@ -20,7 +20,9 @@ const redactedValue = "<redacted>"
 //
 // MySQL's lexer, not PostgreSQL's: a double-quoted text is a string unless the
 // application runs with ANSI_QUOTES, and is replaced either way - a name lost is
-// better than a value kept; a backslash escapes inside a literal; # starts a
+// better than a value kept; a backslash escapes inside a literal unless the
+// session runs with NO_BACKSLASH_ESCAPES, which no statement records, so a literal
+// whose end depends on it is replaced to the end (see literalLength); # starts a
 // comment, and so does -- but only before a space or a control character, so
 // 5--3 is arithmetic. Text cut mid-literal - query_sample_text stops at
 // performance_schema_max_sql_text_length - is replaced to its end.
@@ -143,7 +145,7 @@ func redactValues(s string) (string, int) {
 		case c == '\'' || c == '"':
 			out.WriteString(redactedLiteral(s[i:], c))
 			redacted++
-			i += quotedLength(s[i:], c, true)
+			i += literalLength(s[i:], c)
 
 		case !afterName && literalPrefix(s[i:]) > 0:
 			prefix := literalPrefix(s[i:])
@@ -151,7 +153,7 @@ func redactValues(s string) (string, int) {
 
 			out.WriteString(s[i:i+prefix] + redactedLiteral(s[i+prefix:], quote))
 			redacted++
-			i += prefix + quotedLength(s[i+prefix:], quote, true)
+			i += prefix + literalLength(s[i+prefix:], quote)
 
 		case !afterName && (isDigit(c) || (c == '.' && i+1 < len(s) && isDigit(s[i+1]))):
 			// A run of name bytes starting with a digit is a number, or a hex or bit
@@ -199,7 +201,7 @@ func redactValues(s string) (string, int) {
 // redactedLiteral is the replacement for the literal opening s: its quote,
 // redactedValue, and the closing quote if the text has one.
 func redactedLiteral(s string, quote byte) string {
-	n := quotedLength(s, quote, true)
+	n := literalLength(s, quote)
 	closed := n >= 2 && s[n-1] == quote
 
 	if closed {
@@ -207,6 +209,21 @@ func redactedLiteral(s string, quote byte) string {
 	}
 
 	return string(quote) + redactedValue
+}
+
+// literalLength is the length of the literal opening s, read both ways a session
+// can read it: with a backslash escaping the next character, and, under
+// NO_BACKSLASH_ESCAPES, as itself. Where the two end it at different quotes, as
+// they do 'C:\dir\' and 'O\'Brien', what one reading takes for SQL after it the
+// other takes for values, and neither can be ruled out, so the literal runs to the
+// end. Where they agree, as on '\\' and '\n', the rest reads the same either way.
+func literalLength(s string, quote byte) int {
+	n := quotedLength(s, quote, true)
+	if quotedLength(s, quote, false) != n {
+		return len(s)
+	}
+
+	return n
 }
 
 // literalPrefix is the length of a prefix that makes the quote after it a literal

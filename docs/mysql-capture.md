@@ -239,9 +239,14 @@ read.
 Statement text keeps its statement and loses its values, in every file that
 carries it: `PROCESSLIST_INFO`, `query_sample_text`, `SQL_TEXT`, and the
 statements in deadlock reports and `SHOW ENGINE INNODB STATUS`. A string becomes
-`'<redacted>'` inside its own quotes and prefix, a number `<redacted>`. A
-statement that sets a credential - `CREATE USER`, `ALTER USER`, `SET PASSWORD`,
-`CHANGE REPLICATION SOURCE` and the like - is replaced past its first two words.
+`'<redacted>'` inside its own quotes and prefix, a number `<redacted>`. Where a
+string ends depends on the session's `NO_BACKSLASH_ESCAPES`, which no statement
+records: `'O\'Brien'` is one string with it off and a string and a word with it
+on. A string the two readings end at different quotes, as they do that one, is
+replaced to the end of the statement, since in one of them what follows it is a
+value. A statement that sets a credential - `CREATE USER`, `ALTER USER`, `SET
+PASSWORD`, `CHANGE REPLICATION SOURCE` and the like - is replaced past its first
+two words.
 InnoDB's dumps print each locked row's bytes as hex and text; both are replaced.
 
 A replica's last errors (`Last_Error`, `Last_SQL_Error`, `Last_IO_Error`) are the
