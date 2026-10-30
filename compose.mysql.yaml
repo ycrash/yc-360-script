@@ -247,3 +247,46 @@ services:
       - --wsrep-sst-auth=root:yc-root-pw
       - --binlog-format=ROW
       - --innodb-autoinc-lock-mode=2
+
+  # A two-node Percona XtraDB Cluster 8.4, the Galera of the spec's supported
+  # family: what mechanism=galera is measured on beside the MariaDB cluster
+  # above. pxc1 bootstraps (no CLUSTER_JOIN); pxc2 joins it and copies its data
+  # (xtrabackup). Cluster traffic is in the clear (testdata/my_pxc.cnf). The
+  # image calls home unless told not to.
+  pxc1:
+    image: percona/percona-xtradb-cluster:8.4
+    profiles: ["pxc"]
+    hostname: pxc1
+    ports: ["13331:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: yc-root-pw
+      CLUSTER_NAME: yc-pxc
+      PERCONA_TELEMETRY_DISABLE: "1"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 120
+    volumes:
+      - ./internal/capture/mysql/testdata/my_pxc.cnf:/etc/percona-xtradb-cluster.conf.d/yc.cnf:ro
+
+  pxc2:
+    image: percona/percona-xtradb-cluster:8.4
+    profiles: ["pxc"]
+    hostname: pxc2
+    ports: ["13332:3306"]
+    depends_on:
+      pxc1:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: yc-root-pw
+      CLUSTER_NAME: yc-pxc
+      CLUSTER_JOIN: pxc1
+      PERCONA_TELEMETRY_DISABLE: "1"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pyc-root-pw"]
+      interval: 2s
+      timeout: 3s
+      retries: 120
+    volumes:
+      - ./internal/capture/mysql/testdata/my_pxc.cnf:/etc/percona-xtradb-cluster.conf.d/yc.cnf:ro

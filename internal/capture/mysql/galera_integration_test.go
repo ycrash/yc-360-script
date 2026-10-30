@@ -14,52 +14,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The galera profile of compose.mysql.yaml: galera1 and galera2, a two-node
-// MariaDB Galera cluster.
+// Two-node Galera clusters from compose.mysql.yaml, each skipped when it is not up:
 //
 //	docker compose -f compose.mysql.yaml --profile galera up -d --wait galera1 galera2
+//	docker compose -f compose.mysql.yaml --profile pxc up -d --wait pxc1 pxc2
 //
-// Skipped when it is not up. Each test leaves both nodes Synced in one Primary
-// component.
+// Each test leaves both nodes Synced in one Primary component.
+
+type galeraCluster struct {
+	profile string
+	nodes   [2]galeraNodeSpec
+
+	// plaintext: the MariaDB image starts with TLS off. PXC's root authenticates
+	// with caching_sha2_password, which the agent completes over TLS only.
+	plaintext bool
+}
+
+type galeraNodeSpec struct {
+	name string
+	port int
+}
+
+var galeraClusters = []galeraCluster{
+	{profile: "galera", nodes: [2]galeraNodeSpec{{"galera1", 13321}, {"galera2", 13322}}, plaintext: true},
+	{profile: "pxc", nodes: [2]galeraNodeSpec{{"pxc1", 13331}, {"pxc2", 13332}}},
+}
 
 type galeraNode struct {
 	name   string
-	port   int
 	target Target
 	root   *sql.DB
 }
 
-func requireGalera(t *testing.T) (galera1, galera2 galeraNode) {
+func eachGaleraCluster(t *testing.T, test func(t *testing.T, nodes [2]galeraNode)) {
+	for _, cluster := range galeraClusters {
+		t.Run(cluster.profile, func(t *testing.T) {
+			var nodes [2]galeraNode
+
+			for i, spec := range cluster.nodes {
+				nodes[i] = connectGaleraNode(t, cluster, spec)
+			}
+
+			waitForCluster(t, nodes[:]...)
+			test(t, nodes)
+		})
+	}
+}
+
+func connectGaleraNode(t *testing.T, cluster galeraCluster, spec galeraNodeSpec) galeraNode {
 	t.Helper()
 
-	node := func(name string, port int) galeraNode {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
-		if err != nil {
-			t.Skip("the galera profile is not up")
-		}
-
-		conn.Close()
-
-		cfg := gomysql.NewConfig()
-		cfg.User, cfg.Passwd = "root", "yc-root-pw"
-		cfg.Net, cfg.Addr = "tcp", fmt.Sprintf("127.0.0.1:%d", port)
-
-		connector, err := gomysql.NewConnector(cfg)
-		require.NoError(t, err)
-
-		root := sql.OpenDB(connector)
-		t.Cleanup(func() { root.Close() })
-
-		target := Target{ID: name, Host: "127.0.0.1", Port: port, Username: "root", Password: "yc-root-pw", TLS: TLS{Disabled: true}}
-
-		return galeraNode{name: name, port: port, target: target, root: root}
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", spec.port), time.Second)
+	if err != nil {
+		t.Skipf("the %s profile is not up", cluster.profile)
 	}
 
-	galera1, galera2 = node("galera1", 13321), node("galera2", 13322)
+	conn.Close()
 
-	waitForCluster(t, galera1, galera2)
+	cfg := gomysql.NewConfig()
+	cfg.User, cfg.Passwd = "root", "yc-root-pw"
+	cfg.Net, cfg.Addr = "tcp", fmt.Sprintf("127.0.0.1:%d", spec.port)
+	cfg.TLSConfig = "skip-verify"
 
-	return galera1, galera2
+	if cluster.plaintext {
+		cfg.TLSConfig = "false"
+	}
+
+	connector, err := gomysql.NewConnector(cfg)
+	require.NoError(t, err)
+
+	root := sql.OpenDB(connector)
+	t.Cleanup(func() { root.Close() })
+
+	target := Target{ID: spec.name, Host: "127.0.0.1", Port: spec.port, Username: "root", Password: "yc-root-pw"}
+	target.TLS.Disabled = cluster.plaintext
+
+	return galeraNode{name: spec.name, target: target, root: root}
 }
 
 func wsrepStatusOf(t *testing.T, node galeraNode, name string) string {
@@ -92,42 +122,44 @@ func waitForCluster(t *testing.T, nodes ...galeraNode) {
 }
 
 func TestGaleraNodesReadAsGalera(t *testing.T) {
-	galera1, galera2 := requireGalera(t)
+	eachGaleraCluster(t, func(t *testing.T, nodes [2]galeraNode) {
+		for _, node := range nodes {
+			file := replicationFileOf(t, node.target)
 
-	for _, node := range []galeraNode{galera1, galera2} {
-		file := replicationFileOf(t, node.target)
-
-		assert.Contains(t, file, " mechanism=galera ", node.name)
-		assert.Contains(t, file, "\nwsrep_provider_name,Galera\n", node.name)
-		assert.Contains(t, file, "\nwsrep_cluster_status,Primary\n", node.name)
-		assert.Contains(t, file, "\nwsrep_cluster_size,2\n", node.name)
-	}
+			assert.Contains(t, file, " mechanism=galera ", node.name)
+			assert.Contains(t, file, "\nwsrep_provider_name,Galera\n", node.name)
+			assert.Contains(t, file, "\nwsrep_cluster_status,Primary\n", node.name)
+			assert.Contains(t, file, "\nwsrep_cluster_size,2\n", node.name)
+		}
+	})
 }
 
-// TestGaleraNodeWithoutItsQuorumIsStillGalera cuts galera2 off. With two nodes,
-// neither half has a quorum, and each says non-Primary and not ready: the state a
-// report most needs to name, and one whose status values a standalone MariaDB's
-// resemble. The provider still says Galera.
+// TestGaleraNodeWithoutItsQuorumIsStillGalera cuts the second node off. With two
+// nodes, neither half has a quorum, and each says non-Primary and not ready: the
+// state a report most needs to name, and one whose status values a standalone
+// MariaDB's resemble. The provider still says Galera.
 func TestGaleraNodeWithoutItsQuorumIsStillGalera(t *testing.T) {
-	galera1, galera2 := requireGalera(t)
+	eachGaleraCluster(t, func(t *testing.T, nodes [2]galeraNode) {
+		cut := nodes[1]
 
-	_, err := galera2.root.Exec("SET GLOBAL wsrep_provider_options = 'gmcast.isolate=1'")
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_, err := galera2.root.Exec("SET GLOBAL wsrep_provider_options = 'gmcast.isolate=0'")
+		_, err := cut.root.Exec("SET GLOBAL wsrep_provider_options = 'gmcast.isolate=1'")
 		require.NoError(t, err)
-		waitForCluster(t, galera1, galera2)
+
+		t.Cleanup(func() {
+			_, err := cut.root.Exec("SET GLOBAL wsrep_provider_options = 'gmcast.isolate=0'")
+			require.NoError(t, err)
+			waitForCluster(t, nodes[:]...)
+		})
+
+		require.Eventually(t, func() bool {
+			return wsrepStatusOf(t, cut, "wsrep_cluster_status") == "non-Primary"
+		}, 30*time.Second, 500*time.Millisecond)
+
+		file := replicationFileOf(t, cut.target)
+
+		assert.Contains(t, file, " mechanism=galera ")
+		assert.Contains(t, file, "\nwsrep_provider_name,Galera\n")
+		assert.Contains(t, file, "\nwsrep_cluster_status,non-Primary\n")
+		assert.Contains(t, file, "\nwsrep_ready,OFF\n")
 	})
-
-	require.Eventually(t, func() bool {
-		return wsrepStatusOf(t, galera2, "wsrep_cluster_status") == "non-Primary"
-	}, 30*time.Second, 500*time.Millisecond)
-
-	file := replicationFileOf(t, galera2.target)
-
-	assert.Contains(t, file, " mechanism=galera ")
-	assert.Contains(t, file, "\nwsrep_provider_name,Galera\n")
-	assert.Contains(t, file, "\nwsrep_cluster_status,non-Primary\n")
-	assert.Contains(t, file, "\nwsrep_ready,OFF\n")
 }

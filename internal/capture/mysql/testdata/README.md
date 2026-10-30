@@ -267,16 +267,18 @@ and caught up.
   After a restart the entrypoint is quick (0.5s), and the process start alone
   answers. Without the shared process table: `unknown`, `reason=container`.
 
-## Galera (`galera` profile, MariaDB 10.11.6)
+## Galera (`galera` and `pxc` profiles)
 
-A two-node cluster, `galera1` bootstrapping and `galera2` joining by
-mariabackup; the image ships `galera-4`. The spec's rule, that any row of its
-`wsrep_` read confirms Galera, was measured beside a standalone MariaDB:
+Two two-node clusters: MariaDB 10.11.6 (`galera1` bootstrapping, `galera2`
+joining by mariabackup; the image ships `galera-4`), and Percona XtraDB Cluster
+8.4.11 (`pxc1`, `pxc2`, joining by xtrabackup). The spec's rule, that any row of
+its `wsrep_` read confirms Galera, was measured beside a standalone MariaDB:
 
 | Server | rows | `wsrep_cluster_status` | `@@wsrep_provider` | `@@wsrep_on` | `wsrep_provider_name` |
 |---|---|---|---|---|---|
 | Galera node | 7 | `Primary` | `libgalera_smm.so` | ON | `Galera` |
 | Galera node, its quorum lost (`gmcast.isolate=1`) | 7 | `non-Primary`, `wsrep_ready=OFF` | `libgalera_smm.so` | ON | `Galera` |
+| PXC node, and one with its quorum lost | 7 | `Primary`; `non-Primary` | `galera4/libgalera_smm.so` | ON | `Galera` |
 | Standalone MariaDB | 4 | `Disconnected`, `wsrep_ready=OFF` | `none` | OFF | empty |
 | Percona Server 8.4 | 0 | | | | |
 
@@ -284,12 +286,20 @@ The status values do not tell a node cut off from its cluster from a server
 that never had one; the provider does. `wsrep_provider_name` is now in the same
 `SHOW GLOBAL STATUS` read, and Galera is a node that names one
 (`galeraLoaded`). `TestGaleraNodesReadAsGalera` and
-`TestGaleraNodeWithoutItsQuorumIsStillGalera` run on the profile, the second
-isolating `galera2` and rejoining it; the cluster re-forms its Primary
-component by itself. `TestMariaDBWithoutAProviderIsNotGalera` runs on the
+`TestGaleraNodeWithoutItsQuorumIsStillGalera` run on each cluster that is up,
+the second isolating its second node and rejoining it; both clusters re-form
+their Primary component by themselves. `TestMariaDBWithoutAProviderIsNotGalera` runs on the
 `mariadb` profile, which now reads `mechanism=unknown`: MariaDB has no
-`replication_group_members`, and a failed check says unknown. Percona XtraDB
-Cluster was not run (no local image); it loads the same library.
+`replication_group_members`, and a failed check says unknown. On PXC every
+file completes as root, `mysql_variant=percona` (its `version_comment` is
+"Percona XtraDB Cluster (GPL), ... WSREP version 26.1.4.3").
+
+PXC setup, as found: 8.x encrypts cluster traffic by default and each node
+generates a CA of its own, so the second node's state transfer fails ("Could
+not find a CA file"). `pxc-encrypt-cluster-traffic=OFF` has to be in a
+configuration file (`my_pxc.cnf`): the SST script reads it from there, and on
+mysqld's command line it is not seen. The image's entrypoint also starts a
+telemetry agent unless `PERCONA_TELEMETRY_DISABLE=1`, which the profile sets.
 
 The goldens' recordings asked the old statement; my84 answers the new one
 with no rows, as it did the old, so its text was changed in place (three

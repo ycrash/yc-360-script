@@ -1,0 +1,7 @@
+# The pxc profile's nodes (compose.mysql.yaml). Cluster traffic in the clear:
+# PXC 8.x encrypts it by default, and each node would generate a CA of its own,
+# which the other refuses. In a file, not on the command line: the SST script
+# reads it from the configuration, and on the command line it reaches only
+# mysqld. Test fixture only.
+[mysqld]
+pxc-encrypt-cluster-traffic=OFF
