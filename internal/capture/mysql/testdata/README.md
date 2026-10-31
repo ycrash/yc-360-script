@@ -399,6 +399,17 @@ root, and removed.
   run failed (the 3024 test's `SELECT SLEEP`).
 - **`schema_name` is empty** for statements run with no default database. The
   digest key is still `(schema_name, digest)`.
+- **A plan's `USE` filed the agent's statements under the application's
+  schema.** The digests summarise a statement under the schema it ran in, and
+  with no `database:` configured there was no way back: on `my84`, after the
+  first plan, the agent's `SHOW GLOBAL STATUS`, `SHOW GLOBAL VARIABLES` and
+  error-summary reads appeared a second time, under `yc_app`.
+  `EXPLAIN ... FOR SCHEMA` plans in a schema without changing the session's;
+  it answers on 8.4.13, 9.7.4 and Percona 8.4.11, and is a syntax error (1064)
+  on 8.0.46. `DATABASE()` is still NULL after it, and a role that may not use
+  the schema gets the same 1044 a `USE` does. On 8.0 the `USE` stays, and the
+  connection goes back to `information_schema`, which `yc_restricted` may use
+  too, where no database is configured.
 - **A window function is counted before the `LIMIT`.** `COUNT(*) OVER ()` on
   `my_storage.txt`'s statement with `LIMIT 2` returned 124, every table, on
   8.0.46 and 8.4.13, and the same held for the digests and the index-usage
@@ -445,6 +456,10 @@ re-recorded, so a golden's diff is the change alone:
   recording was edited, 160, not what it counted during the run.
 - `@@performance_schema` on each connection's identify statement: `1`, as
   `my84` answers.
+- The two plans in a schema, from a `USE` and an `EXPLAIN` to one
+  `EXPLAIN ... FOR SCHEMA`. The recorded digests still show what the `USE`
+  did during the run: from the second sample, the agent's own statements are
+  also filed under `yc_app`.
 
 Two values in a recording are replaced as it is written, so a replay reads the
 same on every machine: the client address the server saw (`192.0.2.10`, a

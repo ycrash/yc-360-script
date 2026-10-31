@@ -142,8 +142,6 @@ func TestExplainCapturesOnePlanPerDigestAtFirstSight(t *testing.T) {
 
 	q := (&fakeQuerier{}).
 		on("@@performance_schema_max_sql_text_length", fakeResult{columns: []string{"v"}, rows: [][]any{{1024}}}).
-		on("USE `yc_app`", fakeResult{}).
-		on("USE `orders_db`", fakeResult{}).
 		on("EXPLAIN FORMAT=JSON", fakeResult{columns: []string{"EXPLAIN"}, rows: [][]any{{testPlan}}})
 
 	explain := NewExplain("all", sq, time.Minute, "orders_db")
@@ -161,8 +159,8 @@ func TestExplainCapturesOnePlanPerDigestAtFirstSight(t *testing.T) {
 	assert.Contains(t, text, "digest=d3 mode=ESTIMATED reason=read_only_session")
 	assert.Contains(t, text, "digest=d4 mode=ESTIMATED reason=no_sample_text")
 	assert.Contains(t, text, "digest=d5 mode=ESTIMATED reason=not_explainable")
-	assert.Equal(t, 1, q.count("EXPLAIN FORMAT=JSON"))
-	assert.Equal(t, 1, q.count("USE `orders_db`"), "the configured default schema is put back")
+	assert.Equal(t, 1, q.count("EXPLAIN FORMAT=JSON FOR SCHEMA `yc_app` SELECT * FROM orders"))
+	assert.Zero(t, q.count("USE "), "the session's schema is never changed on 8.4")
 
 	out.Reset()
 	sq.read = 2
@@ -170,6 +168,59 @@ func TestExplainCapturesOnePlanPerDigestAtFirstSight(t *testing.T) {
 	require.NoError(t, explain.Sample(context.Background(), q, &out, testSample(2, 2)))
 	assert.Equal(t, 1, q.count("EXPLAIN FORMAT=JSON"), "a digest is explained once per capture")
 	assert.Contains(t, out.String(), "reason=no_new_digest plans=1")
+}
+
+func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		facts    Facts
+		database string
+		restore  string
+	}{
+		{"8.0, no database", Facts{Version: Version{8, 0, 46}, Variant: VariantMySQL}, "", "USE `information_schema`"},
+		{"8.0, a database", Facts{Version: Version{8, 0, 46}, Variant: VariantMySQL}, "orders_db", "USE `orders_db`"},
+		{"MariaDB", Facts{Version: Version{10, 11, 6}, Variant: VariantMariaDB}, "", "USE `information_schema`"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			sq := &SlowQueries{Interval: time.Minute}
+			sq.latest = []explainCandidate{{schema: "yc_app", digest: "d1", text: "SELECT * FROM orders WHERE id = 1"}}
+			sq.read = 1
+
+			q := (&fakeQuerier{}).
+				on("@@performance_schema_max_sql_text_length", fakeResult{columns: []string{"v"}, rows: [][]any{{1024}}}).
+				on("USE ", fakeResult{}).
+				on("EXPLAIN FORMAT=JSON", fakeResult{columns: []string{"EXPLAIN"}, rows: [][]any{{testPlan}}})
+
+			sample := testSample(1, 2)
+			sample.Engine = c.facts
+
+			var out bytes.Buffer
+
+			require.NoError(t, NewExplain("all", sq, time.Minute, c.database).Sample(context.Background(), q, &out, sample))
+
+			assert.Equal(t, []string{
+				"@@performance_schema_max_sql_text_length", "USE `yc_app`", "EXPLAIN FORMAT=JSON SELECT", c.restore,
+			}, sentKeys(q.sent, "@@performance_schema_max_sql_text_length", "USE `yc_app`", "EXPLAIN FORMAT=JSON SELECT",
+				c.restore), "the plan's schema, then one that is not the application's")
+		})
+	}
+}
+
+// sentKeys is, for each statement sent, the first key it contains, in order.
+func sentKeys(sent []string, keys ...string) []string {
+	var found []string
+
+	for _, statement := range sent {
+		for _, key := range keys {
+			if strings.Contains(statement, key) {
+				found = append(found, key)
+
+				break
+			}
+		}
+	}
+
+	return found
 }
 
 func TestExplainStopsAtFivePlans(t *testing.T) {

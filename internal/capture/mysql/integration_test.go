@@ -508,6 +508,15 @@ func TestMatrixScenarios(t *testing.T) {
 			assert.NotContains(t, explain, "customer_id = 7", "numbers too, in 9.x's operation strings")
 			assert.NotContains(t, explain, "near '?'", "a prepared statement's sample costs no plan")
 
+			// The digests were truncated before the window: what is filed under the
+			// application's schema now ran there. Of the agent's, only a plan may
+			// have, and on 8.0 the USE before it.
+			var filed int
+			require.NoError(t, root.QueryRow(`SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest
+WHERE schema_name = 'yc_app' AND query_sample_text LIKE '/* yCrash-DB-Agent */%'
+  AND digest_text NOT LIKE 'EXPLAIN %' AND digest_text NOT LIKE 'USE %'`).Scan(&filed))
+			assert.Zero(t, filed, "the agent's own statements are not filed under the application's schema")
+
 			assert.Contains(t, files["my_table_stats.txt"], "\nyc_app,audit_log,,",
 				"reads with no index have an empty INDEX_NAME")
 		})

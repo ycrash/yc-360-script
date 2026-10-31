@@ -169,8 +169,18 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 	start := s.Now()
 
 	// EXPLAIN resolves unqualified names against the default schema the statement
-	// ran in.
-	if c.schema != "" {
+	// ran in. FOR SCHEMA names it without changing the session's: the digests file
+	// every statement under the schema it ran in, and after a USE the agent's own
+	// on this connection were filed under the application's.
+	statement := "EXPLAIN FORMAT=JSON " + c.text
+
+	switch {
+	case c.schema == "":
+
+	case explainsForSchema(s.Engine):
+		statement = "EXPLAIN FORMAT=JSON FOR SCHEMA " + quoteName(c.schema) + " " + c.text
+
+	default:
 		if err := readAll(ctx, q, "USE "+quoteName(c.schema)); err != nil {
 			return writeTextBlock(w, artifact, s, b, dbcore.Span{Start: start, End: s.Now()}, readStatus(err),
 				append(fields, kv("error", s.ErrorText(err))), nil)
@@ -179,7 +189,7 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 		defer e.restoreSchema(ctx, q)
 	}
 
-	res, err := read(ctx, q, s, block{query: "EXPLAIN FORMAT=JSON " + c.text, uncapped: true})
+	res, err := read(ctx, q, s, block{query: statement, uncapped: true})
 	reads := dbcore.Span{Start: start, End: s.Now()}
 
 	switch {
@@ -246,15 +256,23 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 	return ""
 }
 
-// restoreSchema puts the configured default schema back after a plan's USE. With
-// none configured there is no way back to none, and nothing needs one: every agent
-// statement names its schema.
+// explainsForSchema: the server takes EXPLAIN ... FOR SCHEMA. Measured on 8.4.13,
+// 9.7.4 and Percona 8.4.11; a syntax error on 8.0.46, and MariaDB has none.
+func explainsForSchema(f Facts) bool {
+	return f.Variant != VariantMariaDB && f.Version.AtLeast(8, 4, 0)
+}
+
+// restoreSchema leaves a plan's schema after its USE, for a server without FOR
+// SCHEMA: the configured default schema, or with none information_schema, which
+// every account may use. MySQL has no way back to no schema at all, and every
+// agent statement names its tables, so any schema serves but the application's.
 func (e *Explain) restoreSchema(ctx context.Context, q Querier) {
-	if e.database == "" {
-		return
+	schema := e.database
+	if schema == "" {
+		schema = "information_schema"
 	}
 
-	_ = readAll(ctx, q, "USE "+quoteName(e.database))
+	_ = readAll(ctx, q, "USE "+quoteName(schema))
 }
 
 // quoteName quotes an identifier for MySQL.

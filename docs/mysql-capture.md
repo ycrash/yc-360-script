@@ -96,6 +96,14 @@ markers, which no server can plan, so it gets none either
 (`reason=placeholder`). EXPLAIN needs `SELECT` on the tables the statement
 reads.
 
+A plan is asked for in the schema its statement ran in. On 8.4 and later that
+is `EXPLAIN ... FOR SCHEMA`, which leaves the session where it was; 8.0 has no
+such form, so the connection `USE`s the schema for the plan and then goes back
+to the configured `database`, or with none to `information_schema`. The server
+files every statement under the schema it ran in, so with no `database` the
+agent's own statements are not filed under the application's schema; with one,
+they are filed under it, the connection's default.
+
 ### `agentOnDbHost`
 
 As for `postgres:`. The measurement it stands in for: a `mysqld` or `mariadbd`

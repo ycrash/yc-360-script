@@ -4631,10 +4631,7 @@
    ]
   },
   {
-   "query": "USE `yc_app`"
-  },
-  {
-   "query": "EXPLAIN FORMAT=JSON SELECT id, status, SLEEP(0.3) FROM yc_app.orders WHERE status = 'pending' AND customer_id = 7",
+   "query": "EXPLAIN FORMAT=JSON FOR SCHEMA `yc_app` SELECT id, status, SLEEP(0.3) FROM yc_app.orders WHERE status = 'pending' AND customer_id = 7",
    "columns": [
     "EXPLAIN"
    ],
@@ -4645,10 +4642,7 @@
    ]
   },
   {
-   "query": "USE `yc_app`"
-  },
-  {
-   "query": "EXPLAIN FORMAT=JSON SELECT COUNT(*) FROM yc_app.audit_log WHERE note LIKE '%event%'",
+   "query": "EXPLAIN FORMAT=JSON FOR SCHEMA `yc_app` SELECT COUNT(*) FROM yc_app.audit_log WHERE note LIKE '%event%'",
    "columns": [
     "EXPLAIN"
    ],
