@@ -192,8 +192,15 @@ and `my_metadata.txt` says `cpu_time_reason,performance_schema_off`.
 Every artifact is a `my_*.txt` file in the bundle, uploaded under a type of its
 own (`myMeta`, `mySessions`, and so on). The receiver may not know these types
 yet; one it does not know accepts the upload and discards it with no error at
-either end, so a reported success is not yet proof of arrival. The bundle
-carries the files regardless.
+either end, so a reported success is not yet proof of arrival.
+
+**An uploading run keeps no copy.** Once the uploads are done the agent deletes
+the capture directory, as it does for every capture, whether or not each upload
+succeeded. A refused upload is reported only in that file's line of the run's
+output (`status code 500`, say), and the run still exits 0; a type the receiver
+discards leaves no trace at all. To keep the files, run with `-onlyCapture`,
+which uploads nothing and leaves the `.zst` bundle, or with `-d=false`, which
+uploads and leaves the capture directory in place.
 
 Read once, at the start:
 

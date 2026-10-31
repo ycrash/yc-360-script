@@ -20,7 +20,8 @@ import (
 // following the postgres pattern, ahead of the receiver having them. A receiver
 // that does not know a dt accepts the upload and throws the file away with no
 // error at either end, so a reported success for these is not yet proof of
-// arrival; the bundle carries the files regardless.
+// arrival. An uploading run deletes its capture directory afterwards, success or
+// not, so only -onlyCapture or -d=false keeps a copy.
 const MySQLMetadataFileName = "my_metadata.txt"
 
 // mySampledDataType returns "" for an artifact with no dt at all: an invented value
