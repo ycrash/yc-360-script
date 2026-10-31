@@ -589,10 +589,17 @@ func collectUptime(ctx context.Context, q Querier, s SampleContext, m *Metadata)
 	}
 }
 
+// memoryInstrumentsSQL counts the memory/% instruments less
+// memory/performance_schema/%, which are always on, whatever the rest are set to.
+// Its _ is LIKE's any character, not an escaped one: with NO_BACKSLASH_ESCAPES in
+// the server's sql_mode, '\_' is a backslash and an underscore, and the always-on
+// instruments were counted with the rest (508 for 429 on my84). No other
+// instrument matches the pattern unescaped.
+const memoryInstrumentsSQL = `SELECT COUNT(*) FROM performance_schema.setup_instruments
+    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%'`
+
 // capabilitiesSQL reads performance_schema's switches in one statement. A consumer
 // the server does not have - events_statements_cpu before 8.0.28 - reads NULL.
-// memory/performance_schema/% is excluded from the memory counts: those instruments
-// are always on, whatever the rest are set to.
 const capabilitiesSQL = `SELECT
   (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu'),
   (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation'),
@@ -600,10 +607,8 @@ const capabilitiesSQL = `SELECT
   (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'statements_digest'),
   (SELECT COUNT(*) FROM performance_schema.setup_instruments
     WHERE NAME LIKE 'statement/%' AND ENABLED = 'YES' AND TIMED = 'YES'),
-  (SELECT COUNT(*) FROM performance_schema.setup_instruments
-    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\_schema/%' AND ENABLED = 'YES'),
-  (SELECT COUNT(*) FROM performance_schema.setup_instruments
-    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\_schema/%')`
+  (` + memoryInstrumentsSQL + ` AND ENABLED = 'YES'),
+  (` + memoryInstrumentsSQL + `)`
 
 // Why has_cpu_time_instrument_enabled is false.
 const (
@@ -616,8 +621,10 @@ const (
 func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Metadata) {
 	version := parseVersion(m.Version)
 
-	// max_total_memory and max_controlled_memory: 8.0.31. The column exists or it
-	// does not; nothing switches it off.
+	// max_total_memory and max_controlled_memory: 8.0.31. The spec's flag is whether
+	// the columns exist. With the memory instruments off they read zero (measured on
+	// my80), which my_slow_queries.txt writes as unavailable by
+	// has_memory_instruments_enabled's own count.
 	if version.known() {
 		m.HasStatementMemoryTracking = strconv.FormatBool(version.AtLeast(8, 0, 31))
 	}

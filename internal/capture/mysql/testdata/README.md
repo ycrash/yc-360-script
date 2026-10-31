@@ -123,6 +123,14 @@ Asserted by `TestMatrixWindow` for the two roles that may read
   `memory/performance_schema/%` instruments on: they cannot be switched off.
   `has_memory_instruments_enabled` counts every other `memory/%` instrument.
   With them off, the memory summaries read zeros, not NULLs.
+- So do the digests' `max_total_memory` and `max_controlled_memory`: on `my80`,
+  121 of 127 digests read 0, and the six that did not ran while the instruments
+  had been switched on at runtime. `my_slow_queries.txt` names both
+  `unavailable=` there, as it names `sum_cpu_time` with its consumer off;
+  `has_statement_memory_tracking` stays the spec's, whether the columns exist.
+- The count is written with an unescaped `_`, LIKE's any character. Under
+  `NO_BACKSLASH_ESCAPES`, `'memory/performance\_schema/%'` is a backslash and an
+  underscore and matches nothing: `my84` counted 508 instruments for 429.
 - On 8.0.27 the `events_statements_cpu` consumer does not exist, and
   `sum_cpu_time`, `max_total_memory` and `max_controlled_memory` are not
   columns: `my_slow_queries.txt` selects `NULL` in their place and names them

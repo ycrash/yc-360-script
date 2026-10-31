@@ -15,9 +15,10 @@ func digestRow(schema, digest, sample string) []any {
 	return []any{schema, digest, "SELECT ...", sample, "2026-10-27 09:00:00", 1, 10, 100, 5, 5, nil, 0, 1024, 512, 0}
 }
 
+// slowQueriesServer counts CPU time and has memory instruments on.
 func slowQueriesServer(rows ...[]any) *fakeQuerier {
 	return (&fakeQuerier{}).
-		on("performance_schema.setup_consumers", fakeResult{columns: []string{"n"}, rows: [][]any{{3}}}).
+		on("performance_schema.setup_consumers", fakeResult{columns: []string{"cpu", "memory"}, rows: [][]any{{3, 429}}}).
 		on("events_statements_summary_by_digest", fakeResult{columns: slowQueryColumns, rows: rows})
 }
 
@@ -43,6 +44,22 @@ func TestSlowQueriesReadsWhatThisVersionHas(t *testing.T) {
 	require.NoError(t, (&SlowQueries{Interval: time.Minute}).Sample(context.Background(), q, &out, testSample(1, 2)))
 	assert.Contains(t, q.sent[len(q.sent)-1], "sum_cpu_time AS sum_cpu_time")
 	assert.NotContains(t, out.String(), "unavailable=")
+}
+
+func TestSlowQueriesWritesNoMemoryWithTheMemoryInstrumentsOff(t *testing.T) {
+	q := (&fakeQuerier{}).
+		on("performance_schema.setup_consumers", fakeResult{columns: []string{"cpu", "memory"}, rows: [][]any{{3, 0}}}).
+		on("events_statements_summary_by_digest", fakeResult{columns: slowQueryColumns})
+
+	var out bytes.Buffer
+
+	require.NoError(t, (&SlowQueries{Interval: time.Minute}).Sample(context.Background(), q, &out, testSample(1, 2)))
+
+	statement := q.sent[len(q.sent)-1]
+	assert.Contains(t, statement, "sum_cpu_time AS sum_cpu_time")
+	assert.Contains(t, statement, "NULL AS max_total_memory, NULL AS max_controlled_memory",
+		"the server reads zero for them, which is not a measurement")
+	assert.Contains(t, out.String(), "unavailable=max_total_memory,max_controlled_memory ")
 }
 
 func TestSlowQueriesAsksARefusedConsumerCheckOnce(t *testing.T) {
@@ -71,7 +88,7 @@ func TestSlowQueriesAsksARefusedConsumerCheckOnce(t *testing.T) {
 	assert.Equal(t, 3, q.count("events_statements_summary_by_digest"), "the digests are still read")
 
 	q = (&fakeQuerier{}).
-		on("performance_schema.setup_consumers", fakeResult{columns: []string{"n"}, rows: [][]any{{3}}}).
+		on("performance_schema.setup_consumers", fakeResult{columns: []string{"cpu", "memory"}, rows: [][]any{{3, 429}}}).
 		on("events_statements_summary_by_digest", fakeResult{err: digestsDenied})
 	run(q)
 

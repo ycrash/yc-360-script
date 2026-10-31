@@ -378,7 +378,7 @@
    ]
   },
   {
-   "query": "SELECT\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'thread_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'statements_digest'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'statement/%' AND ENABLED = 'YES' AND TIMED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\\_schema/%' AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance\\_schema/%')",
+   "query": "SELECT\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'thread_instrumentation'),\n  (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'statements_digest'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'statement/%' AND ENABLED = 'YES' AND TIMED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%')",
    "columns": [
     "(SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu')",
     "(SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation')",
@@ -3764,13 +3764,15 @@
    ]
   },
   {
-   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "query": "SELECT\n  (SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')",
    "columns": [
-    "COUNT(*)"
+    "(SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES')",
+    "(SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')"
    ],
    "rows": [
     [
-     "3"
+     "3",
+     "429"
     ]
    ]
   },
@@ -7906,13 +7908,15 @@
    ]
   },
   {
-   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "query": "SELECT\n  (SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')",
    "columns": [
-    "COUNT(*)"
+    "(SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES')",
+    "(SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')"
    ],
    "rows": [
     [
-     "3"
+     "3",
+     "429"
     ]
    ]
   },
@@ -12482,13 +12486,15 @@
    ]
   },
   {
-   "query": "SELECT COUNT(*) FROM performance_schema.setup_consumers\nWHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'",
+   "query": "SELECT\n  (SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'),\n  (SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')",
    "columns": [
-    "COUNT(*)"
+    "(SELECT COUNT(*) FROM performance_schema.setup_consumers\n    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES')",
+    "(SELECT COUNT(*) FROM performance_schema.setup_instruments\n    WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%' AND ENABLED = 'YES')"
    ],
    "rows": [
     [
-     "3"
+     "3",
+     "429"
     ]
    ]
   },

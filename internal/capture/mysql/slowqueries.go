@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,17 +21,21 @@ var slowQueryColumns = []string{
 	"sum_created_tmp_disk_tables",
 }
 
-// cpuConsumerSQL reads whether sum_cpu_time is being counted: its consumer, and the
-// two every consumer below them needs. Checked, never switched on.
-const cpuConsumerSQL = `SELECT COUNT(*) FROM performance_schema.setup_consumers
-WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'`
+// countingSQL reads, in one statement, the switches two of the digest columns need.
+// sum_cpu_time needs its consumer and the two every consumer below them needs.
+// max_total_memory and max_controlled_memory need the memory instruments, and with
+// them off read zero, not NULL (measured on my80). Checked, never switched on.
+const countingSQL = `SELECT
+  (SELECT COUNT(*) FROM performance_schema.setup_consumers
+    WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'),
+  (` + memoryInstrumentsSQL + ` AND ENABLED = 'YES')`
 
 // The reads the collector's blockState remembers a refusal of: the digest block,
-// and the consumer check, which is no block but counts against the server's error
+// and the counting check, which is no block but counts against the server's error
 // statistics all the same.
 const (
 	digestSource   = "events_statements_summary_by_digest"
-	consumerSource = "setup_consumers"
+	countingSource = "setup_consumers"
 )
 
 // explainCandidate is a digest's sample statement as the server holds it, values
@@ -63,27 +68,29 @@ func (sq *SlowQueries) Artifact() Artifact {
 func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s SampleContext) error {
 	version := s.Engine.Version
 
+	// Nothing to ask before 8.0.28, which has none of the columns a switch decides;
+	// an unread version reads them as absent rather than fail the whole statement on
+	// an older server.
+	var counting digestCounting
+	if version.AtLeast(8, 0, 28) {
+		counting = sq.counting(ctx, q, s)
+	}
+
 	var unavailable []string
 
+	// sum_cpu_time is 8.0.28. Zero while the consumer is off would read as "no CPU":
+	// it is not measured.
 	cpuTime := "sum_cpu_time"
-
-	switch {
-	// sum_cpu_time is 8.0.28; an unread version reads it as absent rather than fail
-	// the whole statement on an older server.
-	case !version.AtLeast(8, 0, 28):
-		cpuTime = "NULL"
-
-		unavailable = append(unavailable, "sum_cpu_time")
-
-	case !sq.cpuCounted(ctx, q, s):
-		// Zero while the consumer is off would read as "no CPU": it is not measured.
+	if !counting.cpuTime {
 		cpuTime = "NULL"
 
 		unavailable = append(unavailable, "sum_cpu_time")
 	}
 
+	// max_total_memory and max_controlled_memory are 8.0.31, and not measured with
+	// the memory instruments off either.
 	totalMemory, controlledMemory := "max_total_memory", "max_controlled_memory"
-	if !version.AtLeast(8, 0, 31) {
+	if !version.AtLeast(8, 0, 31) || !counting.memory {
 		totalMemory, controlledMemory = "NULL", "NULL"
 
 		unavailable = append(unavailable, "max_total_memory", "max_controlled_memory")
@@ -116,21 +123,36 @@ LIMIT 100`
 	return writeBlocks(ctx, &retainingQuerier{Querier: q, sq: sq, s: s}, w, sq.Artifact(), s, &sq.state, []block{b})
 }
 
-// cpuCounted reports whether sum_cpu_time is being counted; a failed read counts as
-// not, so a zero is never written for it. A refusal is asked once and remembered,
-// as a block's is, and nothing is asked once the digest read has been refused:
-// there is no row for the answer to describe.
-func (sq *SlowQueries) cpuCounted(ctx context.Context, q Querier, s SampleContext) bool {
-	if sq.state.isRefused(consumerSource) || sq.state.isRefused(digestSource) {
-		return false
+// digestCounting is what countingSQL found counted; nothing, where it was not read.
+type digestCounting struct {
+	cpuTime bool
+	memory  bool
+}
+
+// counting reads what the switched columns are counting; a failed read counts as
+// nothing, so a zero is never written for either. A refusal is asked once and
+// remembered, as a block's is, and nothing is asked once the digest read has been
+// refused: there is no row for the answer to describe.
+func (sq *SlowQueries) counting(ctx context.Context, q Querier, s SampleContext) digestCounting {
+	if sq.state.isRefused(countingSource) || sq.state.isRefused(digestSource) {
+		return digestCounting{}
 	}
 
-	row, err := readRow(ctx, q, s, cpuConsumerSQL)
-	if err != nil && permissionDenied(err) {
-		sq.state.refuse(consumerSource)
+	row, err := readRow(ctx, q, s, countingSQL)
+
+	switch {
+	case err != nil && permissionDenied(err):
+		sq.state.refuse(countingSource)
+
+		return digestCounting{}
+
+	case err != nil || len(row) != 2:
+		return digestCounting{}
 	}
 
-	return err == nil && len(row) == 1 && row[0] == "3"
+	memory, _ := strconv.ParseInt(row[1], 10, 64)
+
+	return digestCounting{cpuTime: row[0] == "3", memory: memory > 0}
 }
 
 // Latest is the candidates of the last sample read, with the sample's index.

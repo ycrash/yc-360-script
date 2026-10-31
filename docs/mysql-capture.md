@@ -195,7 +195,8 @@ At the normal speed:
 - `my_prepared_statements.txt` — every prepared statement, by owning thread.
 - `my_slow_queries.txt` — the 100 digests with the most time, keyed by
   `(schema_name, digest)`. A column this server cannot fill - `sum_cpu_time`
-  before 8.0.28 or with its consumer off, the memory columns before 8.0.31 - is
+  before 8.0.28 or with its consumer off, the memory columns before 8.0.31 or
+  with the `memory/%` instruments off, when the server reads zero for them - is
   empty and named in `unavailable=`, never written as zero.
 - `my_explain.txt` — see *`explain`*.
 - `my_deadlocks.txt` — continuous: see *Deadlocks*.

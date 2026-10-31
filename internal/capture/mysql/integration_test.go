@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -199,6 +200,9 @@ func TestMatrixWindow(t *testing.T) {
 					assert.Contains(t, metadata, fmt.Sprintf("\nhas_cpu_time_instrument_enabled,%t\n", server.cpuTime))
 					assert.Contains(t, metadata, "\ncpu_time_reason,"+server.cpuReason+"\n")
 					assert.Contains(t, metadata, fmt.Sprintf("\nhas_memory_instruments_enabled,%t\n", server.memoryInstrument))
+					assert.Equal(t, !server.memoryTracking || !server.memoryInstrument,
+						unavailableMemory.MatchString(files["my_slow_queries.txt"]),
+						"the memory columns are unavailable before 8.0.31 or with the instruments off, never zero")
 					assert.Contains(t, files["my_sessions.txt"], ","+ProgramName+"\n",
 						"the agent's own sessions carry their program_name")
 				} else {
@@ -212,6 +216,41 @@ func TestMatrixWindow(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// unavailableMemory is a slow-queries block naming the memory columns unavailable.
+var unavailableMemory = regexp.MustCompile(`unavailable=\S*max_total_memory`)
+
+// TestMatrixMemoryInstrumentsCountTheSameInEitherQuotingMode: the count behind
+// has_memory_instruments_enabled leaves out the always-on
+// memory/performance_schema/% instruments whatever the server's sql_mode, which
+// decides what a backslash in a string means.
+func TestMatrixMemoryInstrumentsCountTheSameInEitherQuotingMode(t *testing.T) {
+	for _, server := range selectedServers(t) {
+		t.Run(server.service, func(t *testing.T) {
+			ctx := context.Background()
+
+			conn, err := rootDB(t, server).Conn(ctx)
+			require.NoError(t, err)
+
+			defer conn.Close()
+
+			count := func() int {
+				var n int
+				require.NoError(t, conn.QueryRowContext(ctx, memoryInstrumentsSQL+" AND ENABLED = 'YES'").Scan(&n))
+
+				return n
+			}
+
+			usual := count()
+
+			_, err = conn.ExecContext(ctx, "SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'")
+			require.NoError(t, err)
+
+			assert.Equal(t, usual, count())
+			assert.Equal(t, server.memoryInstrument, usual > 0)
+		})
 	}
 }
 
