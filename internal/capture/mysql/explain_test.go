@@ -170,6 +170,26 @@ func TestExplainCapturesOnePlanPerDigestAtFirstSight(t *testing.T) {
 	assert.Contains(t, out.String(), "reason=no_new_digest plans=1")
 }
 
+// A lock wait that runs out is the plan's 2s budget firing (lock_wait_timeout is
+// ExplainBudget): a plan not obtained in time, which the spec writes as TIMEOUT.
+func TestExplainWritesARunOutLockWaitAsTimeout(t *testing.T) {
+	sq := &SlowQueries{Interval: time.Minute}
+	sq.latest = []explainCandidate{{schema: "yc_app", digest: "d1", text: "SELECT COUNT(*) FROM orders"}}
+	sq.read = 1
+
+	q := (&fakeQuerier{}).
+		on("@@performance_schema_max_sql_text_length", fakeResult{columns: []string{"v"}, rows: [][]any{{1024}}}).
+		on("EXPLAIN FORMAT=JSON", fakeResult{err: serverError(errLockWaitTimeout,
+			"Lock wait timeout exceeded; try restarting transaction")})
+
+	var out bytes.Buffer
+
+	require.NoError(t, NewExplain("all", sq, time.Minute, "").Sample(context.Background(), q, &out, testSample(1, 1)))
+	assert.Contains(t, out.String(), "status=TIMEOUT")
+	assert.Contains(t, out.String(), `error="Error 1205: Lock wait timeout exceeded`)
+	assert.Equal(t, "ERROR", explainStatus(serverError(1146, "Table doesn't exist")), "any other failure is still an error")
+}
+
 func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {
 	for _, c := range []struct {
 		name     string

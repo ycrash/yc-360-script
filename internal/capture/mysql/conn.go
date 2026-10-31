@@ -122,6 +122,7 @@ const (
 	errQueryInterrupted = 1317
 	errUnknownVariable  = 1193
 	errQueryTimeout     = 3024 // max_execution_time
+	errLockWaitTimeout  = 1205 // lock_wait_timeout and innodb_lock_wait_timeout
 	errStatementTimeout = 1969 // MariaDB's max_statement_time
 )
 

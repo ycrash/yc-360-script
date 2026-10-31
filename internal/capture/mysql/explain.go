@@ -211,7 +211,7 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 			append(fields, kv("reason", reasonPermissionDenied), kv("error", s.ErrorText(err))), nil)
 
 	case err != nil:
-		return writeTextBlock(w, artifact, s, b, reads, readStatus(err), append(fields, kv("error", s.ErrorText(err))), nil)
+		return writeTextBlock(w, artifact, s, b, reads, explainStatus(err), append(fields, kv("error", s.ErrorText(err))), nil)
 	}
 
 	var plan string
@@ -233,6 +233,18 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 
 	return writeTextBlock(w, artifact, s, b, reads, status,
 		append(fields, kv("redacted", strconv.Itoa(redacted))), []byte(plan))
+}
+
+// explainStatus is the status of a plan whose read ended in err. A lock wait that
+// ran out is the plan's time bound firing - lock_wait_timeout is ExplainBudget, and
+// what an EXPLAIN waits on - so it is a plan not obtained within its budget,
+// TIMEOUT, as the spec has it, and not an ERROR.
+func explainStatus(err error) string {
+	if hasErrorNumber(err, errLockWaitTimeout) {
+		return dbcore.StatusTimeout
+	}
+
+	return readStatus(err)
 }
 
 // skipReason is why a candidate gets no plan, empty when it gets one.

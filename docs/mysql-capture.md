@@ -105,7 +105,10 @@ digest, at most five per capture: `EXPLAIN FORMAT=JSON` of the digest's
 values**, sent back to the database. The plans written to the bundle have their
 values replaced. `logged` is refused: MySQL has no `auto_explain`, so there are
 no plans in its log to copy. A digest first seen after the fifth plan is written
-with `reason=plan_limit_reached`.
+with `reason=plan_limit_reached`. A plan that waits out the 2s lock-wait bound -
+behind a queued `ALTER TABLE`, say - is `status=TIMEOUT`, with the server's error
+in `error=`, and the wait counts once as error 1205 in the server's own
+statistics.
 
 A statement is read past the comments it opens with, so an application that
 puts one before every statement (Hibernate's `use_sql_comments`, sqlcommenter)
