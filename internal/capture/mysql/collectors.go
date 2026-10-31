@@ -17,7 +17,7 @@ func Collectors(metadata *MetadataCollector, explainMode string, fast, normal, e
 		NewSessions(fast),
 		NewLockWaits(fast),
 
-		&Deadlocks{Interval: normal},
+		&Deadlocks{Interval: LogTailInterval},
 		NewCapacity(normal),
 		NewErrors(normal),
 		NewTimeouts(normal),

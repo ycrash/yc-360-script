@@ -135,3 +135,41 @@ func TestDeadlocksNamesTheFallbackWhereTheLogCannotBeRead(t *testing.T) {
 	require.NoError(t, d.WriteClosing(&out, testSample(2, 2)))
 	assert.Empty(t, out.String())
 }
+
+func TestDeadlocksNamesTheFallbackWhileTheServerLogsNoReports(t *testing.T) {
+	path, _ := deadlockLog(t)
+
+	q := (&fakeQuerier{}).on("SHOW GLOBAL VARIABLES", fakeResult{
+		columns: []string{"Variable_name", "Value"},
+		rows:    [][]any{{"log_error", path}, {"datadir", "/var/lib/mysql/"}, {"innodb_print_all_deadlocks", "OFF"}},
+	})
+
+	d := &Deadlocks{Interval: time.Minute}
+
+	var out bytes.Buffer
+
+	require.NoError(t, d.Sample(context.Background(), q, &out, testSample(1, 2)))
+	assert.Contains(t, out.String(), `innodb_print_all_deadlocks=OFF fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" `+
+		`log_path=`+path+` log_access=direct`)
+
+	appendLog(t, path, verbosity3Report)
+	out.Reset()
+
+	require.NoError(t, d.WriteClosing(&out, testSample(2, 2)))
+	assert.Contains(t, out.String(), "matched=1", "the log is still read: the setting can be turned on mid-window")
+	assert.Contains(t, out.String(), `fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK"`)
+}
+
+func TestDeadlocksAreReadAtTheLogTailCadence(t *testing.T) {
+	for _, collector := range Collectors(NewMetadata(Target{}, "test", time.Now(), ""), "", 15*time.Second,
+		5*time.Minute, 15*time.Minute) {
+		if deadlocks, ok := collector.(*Deadlocks); ok {
+			assert.Equal(t, LogTailInterval, deadlocks.Artifact().Schedule.Offsets(time.Minute)[1],
+				"a tail read at the normal speed takes at most MaxScanBytes every five minutes")
+
+			return
+		}
+	}
+
+	t.Fatal("no my_deadlocks collector")
+}

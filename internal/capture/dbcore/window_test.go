@@ -165,3 +165,59 @@ func TestWindowDialsAgainOnlyAfterARefusedSlot(t *testing.T) {
 	runTestWindow(t, engine, slow, fast)
 	assert.Equal(t, 2, dials, "a refused slot fails only its own connection")
 }
+
+// losingConn is a connection the driver has closed once lost is set.
+type losingConn struct {
+	fakeQuerier
+
+	lost bool
+}
+
+func (c *losingConn) Lost() bool { return c.lost }
+
+func (c *losingConn) LossError() error { return errors.New("connection reset by peer") }
+
+// losingCollector loses its connection in its first sample.
+type losingCollector struct {
+	fakeCollector
+
+	conn *losingConn
+}
+
+func (c losingCollector) Sample(_ context.Context, _ *fakeQuerier, _ io.Writer, _ SampleContext[fakeFacts]) error {
+	c.conn.lost = true
+
+	return errors.New("connection reset by peer")
+}
+
+func TestWindowKeepsAFileFinishedBeforeALossCompleteOnlyWhereTheEngineSaysSo(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		conn := &losingConn{}
+
+		engine := testEngine(func(context.Context) (*fakeQuerier, Closer, error) { return &conn.fakeQuerier, conn, nil })
+		engine.KeepsFinishedOnLoss = keep
+
+		results := runTestWindow(t, engine,
+			fakeCollector{artifact: Artifact{Name: "t_once", FileName: "t_once.txt", Schedule: Once()}},
+			losingCollector{
+				fakeCollector: fakeCollector{artifact: Artifact{Name: "t_lost", FileName: "t_lost.txt", Schedule: Periodic(5 * time.Second)}},
+				conn:          conn,
+			},
+		)
+
+		assert.Equal(t, StatusConnectionLost, results[1].Status, "the file the loss cut short")
+
+		once := fileLines(t, results[0])
+		if !keep {
+			assert.Equal(t, StatusConnectionLost, results[0].Status, "off, the loss overrides every file on the connection")
+			assert.Contains(t, once[len(once)-1], `connection_error="connection reset by peer"`)
+
+			continue
+		}
+
+		assert.Equal(t, StatusComplete, results[0].Status)
+		assert.Empty(t, results[0].Err)
+		assert.Contains(t, once[len(once)-1], "status=complete samples_expected=1 samples_written=1")
+		assert.NotContains(t, once[len(once)-1], "connection_error=")
+	}
+}

@@ -167,6 +167,9 @@ func engine(t Target, dial func(ctx context.Context) (Querier, dbcore.Closer, er
 		ConnectTimeout:      ConnectTimeout,
 		DefaultSampleBudget: DefaultSampleBudget,
 		CloseMargin:         WindowCloseMargin,
+
+		// my_metadata.txt is read once, at the start.
+		KeepsFinishedOnLoss: true,
 	}
 }
 

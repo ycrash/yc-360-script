@@ -16,6 +16,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,9 +77,9 @@ const (
 	idleTimeout = 9000
 )
 
-// sessionVariables are set in one SET as the connection opens, before the driver
-// returns it, so no statement ever runs without them. time_zone makes TIMESTAMP
-// columns read in UTC, as every agent timestamp is.
+// sessionVariables are set in one SET as the connection opens, before it is
+// returned, so no statement ever runs without them (see sessionConnector).
+// time_zone makes TIMESTAMP columns read in UTC, as every agent timestamp is.
 var sessionVariables = map[string]string{
 	"max_execution_time": strconv.FormatInt(StatementTimeout.Milliseconds(), 10),
 	"lock_wait_timeout":  strconv.Itoa(LockWaitTimeout),
@@ -259,7 +260,8 @@ type Conn struct {
 	// connectDuration is the dial: TCP, TLS and authentication.
 	connectDuration time.Duration
 
-	loss loss
+	loss  loss
+	cause *causeLogger
 }
 
 // loss keeps the first error observed once the driver has closed the connection.
@@ -298,8 +300,12 @@ func (l *loss) get() error {
 type lossRows struct {
 	*sql.Rows
 
-	loss *loss
+	loss  *loss
+	cause *causeLogger
 }
+
+// Err is the row set's terminal error, with the cause of a lost connection.
+func (r *lossRows) Err() error { return r.cause.explain(r.Rows.Err()) }
 
 func (r *lossRows) Next() bool {
 	next := r.Rows.Next()
@@ -345,8 +351,9 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 func login(ctx context.Context, t Target, variables map[string]string) (*Conn, string, error) {
 	guard := &keyRequestGuard{}
 	greeting := &serverGreeting{}
+	cause := &causeLogger{}
 
-	cfg, err := buildConfig(t, variables, guard, greeting)
+	cfg, err := buildConfig(t, guard, greeting, cause)
 	if err != nil {
 		return nil, "", err
 	}
@@ -356,7 +363,7 @@ func login(ctx context.Context, t Target, variables map[string]string) (*Conn, s
 		return nil, "", err
 	}
 
-	db := sql.OpenDB(connector)
+	db := sql.OpenDB(sessionConnector{Connector: connector, set: sessionStatement(variables)})
 
 	// One connection, pinned below and never reopened: a new one would restart
 	// every delta baseline under the same artifact.
@@ -369,13 +376,57 @@ func login(ctx context.Context, t Target, variables map[string]string) (*Conn, s
 	if err != nil {
 		db.Close()
 
-		return nil, greeting.serverVersion(), classifyConnectError(err, guard)
+		return nil, greeting.serverVersion(), classifyConnectError(cause.explain(err), guard)
 	}
 
-	c := &Conn{db: db, conn: conn, connectDuration: time.Since(dialedAt)}
+	c := &Conn{db: db, conn: conn, connectDuration: time.Since(dialedAt), cause: cause}
 	c.loss.closed = c.Lost
 
 	return c, greeting.serverVersion(), nil
+}
+
+// sessionStatement is the SET that opens a session with variables: marked as every
+// agent statement is, its variables in name order, so it is one digest the agent's
+// marker names.
+func sessionStatement(variables map[string]string) string {
+	assignments := make([]string, 0, len(variables))
+	for _, name := range slices.Sorted(maps.Keys(variables)) {
+		assignments = append(assignments, name+" = "+variables[name])
+	}
+
+	return statementMarker + "SET " + strings.Join(assignments, ", ")
+}
+
+// sessionConnector sends set on each connection the driver opens, before
+// database/sql has it. The driver's own session parameters would send the same SET
+// in a random order and unmarked. A server's refusal is returned as it came, so
+// Connect still sees MariaDB's unknown variable.
+type sessionConnector struct {
+	driver.Connector
+
+	set string
+}
+
+func (c sessionConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	execer, ok := conn.(driver.ExecerContext)
+	if !ok {
+		conn.Close()
+
+		return nil, errors.New("mysql driver connection runs no statement")
+	}
+
+	if _, err := execer.ExecContext(ctx, c.set, nil); err != nil {
+		conn.Close()
+
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 // Query sends query with the agent's marker. Its deadline is the caller's: a
@@ -383,12 +434,13 @@ func login(ctx context.Context, t Target, variables map[string]string) (*Conn, s
 func (c *Conn) Query(ctx context.Context, query string) (Rows, error) {
 	rows, err := c.conn.QueryContext(ctx, statementMarker+query)
 	if err != nil {
+		err = c.cause.explain(err)
 		c.loss.note(err)
 
 		return nil, err
 	}
 
-	return &lossRows{Rows: rows, loss: &c.loss}, nil
+	return &lossRows{Rows: rows, loss: &c.loss, cause: c.cause}, nil
 }
 
 // Close ends the session and the pool behind it.
@@ -428,13 +480,46 @@ func agentStatement(query string) bool {
 	return strings.HasPrefix(strings.TrimLeft(query, " \t\r\n"), statementMarker)
 }
 
-// silentLogger drops the driver's own log lines, which go to stderr and would
-// repeat what the artifact already records.
-type silentLogger struct{}
+// causeLogger takes the driver's log lines, which would go to stderr, and keeps the
+// last error among them. When a socket breaks, its own error - a read past the
+// deadline, the server's EOF, a reset - goes only to the log: the statement gets
+// the driver's "invalid connection", or "bad connection" for a write, which does
+// not say why. One per login, so a cause is never another connection's.
+type causeLogger struct {
+	mu  sync.Mutex
+	err error
+}
 
-func (silentLogger) Print(...any) {}
+func (l *causeLogger) Print(v ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-func buildConfig(t Target, variables map[string]string, guard *keyRequestGuard, greeting *serverGreeting) (*gomysql.Config, error) {
+	for _, arg := range v {
+		if err, ok := arg.(error); ok {
+			l.err = err
+		}
+	}
+}
+
+// explain is err with the cause the driver logged, when err is its word for a
+// connection it has closed; errors.Is still finds both.
+func (l *causeLogger) explain(err error) error {
+	if !errors.Is(err, gomysql.ErrInvalidConn) && !errors.Is(err, driver.ErrBadConn) {
+		return err
+	}
+
+	l.mu.Lock()
+	cause := l.err
+	l.mu.Unlock()
+
+	if cause == nil {
+		return err
+	}
+
+	return fmt.Errorf("%w: %w", err, cause)
+}
+
+func buildConfig(t Target, guard *keyRequestGuard, greeting *serverGreeting, cause *causeLogger) (*gomysql.Config, error) {
 	cfg := gomysql.NewConfig()
 
 	cfg.User = t.Username
@@ -445,7 +530,7 @@ func buildConfig(t Target, variables map[string]string, guard *keyRequestGuard, 
 	cfg.Timeout = ConnectTimeout
 	cfg.ReadTimeout = StatementDeadline
 	cfg.WriteTimeout = StatementDeadline
-	cfg.Logger = silentLogger{}
+	cfg.Logger = cause
 
 	cfg.ConnectionAttributes = "program_name:" + ProgramName
 
@@ -458,8 +543,6 @@ func buildConfig(t Target, variables map[string]string, guard *keyRequestGuard, 
 	cfg.AllowCleartextPasswords = false
 	cfg.AllowOldPasswords = false
 	cfg.AllowFallbackToPlaintext = false
-
-	cfg.Params = maps.Clone(variables)
 
 	tlsConfig, err := clientTLS(t)
 	if err != nil {

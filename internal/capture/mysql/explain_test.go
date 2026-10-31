@@ -235,8 +235,65 @@ func TestExplainStopsAtFivePlans(t *testing.T) {
 
 	var out bytes.Buffer
 
-	require.NoError(t, NewExplain("all", sq, time.Minute, "").Sample(context.Background(), q, &out, testSample(1, 2)))
+	explain := NewExplain("all", sq, time.Minute, "")
+
+	require.NoError(t, explain.Sample(context.Background(), q, &out, testSample(1, 2)))
 	assert.Equal(t, MaxPlansPerCapture, q.count("EXPLAIN FORMAT=JSON"))
+	assert.Equal(t, 3, strings.Count(out.String(), "reason=plan_limit_reached"), "a digest past the fifth says why it has no plan")
+
+	out.Reset()
+
+	sq.latest = append(sq.latest, explainCandidate{digest: "new", text: "SELECT 2"})
+	sq.read = 2
+
+	require.NoError(t, explain.Sample(context.Background(), q, &out, testSample(2, 2)))
+	assert.Contains(t, out.String(), "digest=new mode=ESTIMATED reason=plan_limit_reached",
+		"a digest first seen after the limit is not no_new_digest")
+	assert.NotContains(t, out.String(), "no_new_digest")
+	assert.Equal(t, 1, strings.Count(out.String(), "reason=plan_limit_reached"), "once per digest")
+}
+
+func TestExplainReadsTheStatementPastItsComments(t *testing.T) {
+	for _, c := range []struct {
+		text, verb string
+	}{
+		{"SELECT 1", "SELECT"},
+		{"  /* load Order */ select * from orders", "SELECT"},
+		{"-- trace\n# more\n((SELECT 1))", "SELECT"},
+		{"/* c */ UPDATE orders SET a = 1", "UPDATE"},
+		{"WITH c AS (SELECT id FROM orders) SELECT * FROM c", "SELECT"},
+		{"with recursive c (n) as (select 1 union all select n + 1 from c) delete from t where id in (select n from c)", "DELETE"},
+		{"WITH `update` AS (SELECT 'delete' AS x /* update */) UPDATE t, `update` SET t.a = 1", "UPDATE"},
+		{"/* c */ WITH c AS (SELECT 1) TABLE c", "TABLE"},
+		{"WITH c AS (SELECT 1", "WITH"},
+		{"/*!40101 SET NAMES utf8 */", ""},
+		{"SHOW TABLES", "SHOW"},
+	} {
+		assert.Equal(t, c.verb, statementVerb(c.text), c.text)
+	}
+}
+
+func TestExplainPlansAStatementOpenedByAComment(t *testing.T) {
+	sq := &SlowQueries{Interval: time.Minute, read: 1, latest: []explainCandidate{
+		{schema: "yc_app", digest: "d1", text: "/* load Order */ select * from orders where id = 1"},
+		{schema: "yc_app", digest: "d2", text: "/* save Order */ update orders set status = 'x'"},
+		{schema: "yc_app", digest: "d3", text: "WITH c AS (SELECT id FROM orders) DELETE FROM orders WHERE id IN (SELECT id FROM c)"},
+	}}
+
+	q := (&fakeQuerier{}).
+		on("@@performance_schema_max_sql_text_length", fakeResult{columns: []string{"v"}, rows: [][]any{{1024}}}).
+		on("EXPLAIN FORMAT=JSON", fakeResult{columns: []string{"EXPLAIN"}, rows: [][]any{{"{}"}}})
+
+	var out bytes.Buffer
+
+	require.NoError(t, NewExplain("all", sq, time.Minute, "").Sample(context.Background(), q, &out, testSample(1, 2)))
+
+	assert.Contains(t, out.String(), "digest=d1 mode=ESTIMATED redacted=0")
+	assert.Equal(t, 1, q.count("EXPLAIN FORMAT=JSON FOR SCHEMA `yc_app` /* load Order */ select"))
+	assert.Contains(t, out.String(), "digest=d2 mode=ESTIMATED reason=read_only_session")
+	assert.Contains(t, out.String(), "digest=d3 mode=ESTIMATED reason=read_only_session",
+		"a WITH that deletes is refused before it costs a plan")
+	assert.Equal(t, 1, q.count("EXPLAIN"))
 }
 
 func TestExplainSkipsASampleTheServerCut(t *testing.T) {

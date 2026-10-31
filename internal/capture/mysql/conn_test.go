@@ -1,6 +1,8 @@
 package mysql
 
 import (
+	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -9,18 +11,19 @@ import (
 	"strings"
 	"testing"
 
+	gomysql "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTheSessionIsBoundedBeforeAnyCollectorSeesIt(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db", Port: 3306, Username: "yc", Password: "p"}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
+	cfg, err := buildConfig(Target{Host: "db", Port: 3306, Username: "yc", Password: "p"}, &keyRequestGuard{}, &serverGreeting{}, &causeLogger{})
 	require.NoError(t, err)
 
-	assert.Equal(t, "5000", cfg.Params["max_execution_time"])
-	assert.Equal(t, "1", cfg.Params["transaction_read_only"])
-	assert.Equal(t, "2", cfg.Params["lock_wait_timeout"])
-	assert.Equal(t, "'+00:00'", cfg.Params["time_zone"])
+	assert.Equal(t, "/* yCrash-DB-Agent */ SET innodb_lock_wait_timeout = 2, lock_wait_timeout = 2, "+
+		"max_execution_time = 5000, time_zone = '+00:00', transaction_read_only = 1, wait_timeout = 9000",
+		sessionStatement(sessionVariables), "marked, and in one order, so it is one digest the agent's marker names")
+	assert.Empty(t, cfg.Params, "the driver's own SET would be unmarked, in a random order")
 	assert.Equal(t, "program_name:yCrash-DB-Agent", cfg.ConnectionAttributes)
 	assert.True(t, cfg.InterpolateParams, "no statement is ever prepared server-side")
 	assert.False(t, cfg.AllowCleartextPasswords)
@@ -29,26 +32,24 @@ func TestTheSessionIsBoundedBeforeAnyCollectorSeesIt(t *testing.T) {
 }
 
 func TestMariaDBIsBoundedTheSameUnderItsOwnNames(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db"}, mariadbSessionVariables, &keyRequestGuard{}, &serverGreeting{})
-	require.NoError(t, err)
-
-	assert.Equal(t, "5", cfg.Params["max_statement_time"], "in seconds, not milliseconds")
-	assert.Equal(t, "1", cfg.Params["tx_read_only"])
-	assert.NotContains(t, cfg.Params, "max_execution_time")
-	assert.NotContains(t, cfg.Params, "transaction_read_only")
-	assert.Len(t, cfg.Params, len(sessionVariables), "every bound has its MariaDB name")
-	assert.Equal(t, "2", cfg.Params["lock_wait_timeout"])
+	assert.Equal(t, "5", mariadbSessionVariables["max_statement_time"], "in seconds, not milliseconds")
+	assert.Equal(t, "1", mariadbSessionVariables["tx_read_only"])
+	assert.NotContains(t, mariadbSessionVariables, "max_execution_time")
+	assert.NotContains(t, mariadbSessionVariables, "transaction_read_only")
+	assert.Len(t, mariadbSessionVariables, len(sessionVariables), "every bound has its MariaDB name")
+	assert.Equal(t, "2", mariadbSessionVariables["lock_wait_timeout"])
 	assert.Equal(t, "5000", sessionVariables["max_execution_time"], "MySQL's own set is untouched")
+	assert.Contains(t, sessionStatement(mariadbSessionVariables), "max_statement_time = 5, time_zone = '+00:00', tx_read_only = 1")
 }
 
 func TestVerifiedTLSNamesTheServer(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "10.0.0.5", TLS: TLS{Verify: true, ServerName: "db.internal"}}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
+	cfg, err := buildConfig(Target{Host: "10.0.0.5", TLS: TLS{Verify: true, ServerName: "db.internal"}}, &keyRequestGuard{}, &serverGreeting{}, &causeLogger{})
 	require.NoError(t, err)
 
 	assert.False(t, cfg.TLS.InsecureSkipVerify)
 	assert.Equal(t, "db.internal", cfg.TLS.ServerName)
 
-	_, err = buildConfig(Target{Host: "db", TLS: TLS{Verify: true, CAFile: "/nonexistent/ca.pem"}}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
+	_, err = buildConfig(Target{Host: "db", TLS: TLS{Verify: true, CAFile: "/nonexistent/ca.pem"}}, &keyRequestGuard{}, &serverGreeting{}, &causeLogger{})
 	assert.ErrorContains(t, err, "tls.caFile")
 }
 
@@ -64,7 +65,7 @@ func TestOnlyAPlaintextLoginIsGuarded(t *testing.T) {
 		{tls: TLS{Disabled: true}, guarded: true},
 		{tls: TLS{}, guarded: false},
 	} {
-		cfg, err := buildConfig(Target{Host: "db", TLS: tc.tls}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
+		cfg, err := buildConfig(Target{Host: "db", TLS: tc.tls}, &keyRequestGuard{}, &serverGreeting{}, &causeLogger{})
 		require.NoError(t, err)
 
 		conn, err := cfg.DialFunc(t.Context(), "tcp", listener.Addr().String())
@@ -278,9 +279,71 @@ func TestVersionsAndVariants(t *testing.T) {
 }
 
 func TestTheSessionNeverWaitsLongOnARowLock(t *testing.T) {
-	cfg, err := buildConfig(Target{Host: "db"}, sessionVariables, &keyRequestGuard{}, &serverGreeting{})
-	require.NoError(t, err)
-
-	assert.Equal(t, "2", cfg.Params["innodb_lock_wait_timeout"],
+	assert.Equal(t, "2", sessionVariables["innodb_lock_wait_timeout"],
 		"a row lock is waited on no longer than a metadata lock")
+}
+
+func TestALostConnectionSaysWhy(t *testing.T) {
+	cause := &causeLogger{}
+
+	assert.Equal(t, gomysql.ErrInvalidConn, cause.explain(gomysql.ErrInvalidConn), "nothing logged, nothing to add")
+
+	timeout := &net.OpError{Op: "read", Net: "tcp", Err: errors.New("i/o timeout")}
+	cause.Print("packets.go:58 ", timeout)
+	cause.Print("packets.go:68 ", "[warn] unexpected sequence nr: expected 3, got 4")
+
+	err := cause.explain(gomysql.ErrInvalidConn)
+	assert.EqualError(t, err, "invalid connection: read tcp: i/o timeout")
+	assert.ErrorIs(t, err, gomysql.ErrInvalidConn)
+	assert.ErrorIs(t, err, timeout)
+
+	assert.EqualError(t, cause.explain(driver.ErrBadConn), "driver: bad connection: read tcp: i/o timeout")
+
+	serverErr := &gomysql.MySQLError{Number: 3024, Message: "Query execution was interrupted"}
+	assert.Same(t, serverErr, cause.explain(serverErr), "a server's error says why itself")
+}
+
+// setConn is a driver connection that records what it runs.
+type setConn struct {
+	driver.Conn
+
+	ran    []string
+	err    error
+	closed bool
+}
+
+func (c *setConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	c.ran = append(c.ran, query)
+
+	return driver.RowsAffected(0), c.err
+}
+
+func (c *setConn) Close() error {
+	c.closed = true
+
+	return nil
+}
+
+type setConnector struct {
+	driver.Connector
+
+	conn *setConn
+}
+
+func (c setConnector) Connect(context.Context) (driver.Conn, error) { return c.conn, nil }
+
+func TestTheSessionIsSetBeforeTheConnectionIsHandedOver(t *testing.T) {
+	conn := &setConn{}
+
+	got, err := sessionConnector{Connector: setConnector{conn: conn}, set: "SET a = 1"}.Connect(t.Context())
+	require.NoError(t, err)
+	assert.Same(t, conn, got)
+	assert.Equal(t, []string{"SET a = 1"}, conn.ran)
+
+	refused := &gomysql.MySQLError{Number: errUnknownVariable, Message: "Unknown system variable 'max_execution_time'"}
+	conn = &setConn{err: refused}
+
+	_, err = sessionConnector{Connector: setConnector{conn: conn}, set: "SET a = 1"}.Connect(t.Context())
+	assert.True(t, hasErrorNumber(err, errUnknownVariable), "Connect retries MariaDB on the server's own refusal")
+	assert.True(t, conn.closed, "a session the SET did not bound is never used")
 }

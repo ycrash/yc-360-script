@@ -405,6 +405,12 @@ type Engine[Q, E any] struct {
 
 	// CloseMargin is room to write the closing block after the last sample.
 	CloseMargin time.Duration
+
+	// KeepsFinishedOnLoss closes a file that had every sample before its connection
+	// was lost as complete rather than connection_lost: a one-shot file read at the
+	// start is whole, and its siblings on that connection say what was lost. Off, a
+	// lost connection overrides every file on it.
+	KeepsFinishedOnLoss bool
 }
 
 // Seams replace the window's clock and waits in tests; zero in production.
@@ -737,13 +743,13 @@ func (w *Window[Q, E]) closeArtifacts(results []ArtifactResult, owner []*connect
 	for i := range results {
 		line := owner[i]
 
-		results[i].Status = artifactStatus(results[i], line.stopped, line.connectErr)
+		results[i].Status = artifactStatus(results[i], line.stopped, line.connectErr, w.Engine.KeepsFinishedOnLoss)
 
 		if line.connectErr != "" {
 			results[i].Err = line.connectDetail
 		}
 
-		if line.stopped == StatusConnectionLost && results[i].Err == "" {
+		if results[i].Status == StatusConnectionLost && results[i].Err == "" {
 			results[i].Err = line.lostErr
 		}
 
@@ -771,7 +777,7 @@ func (w *Window[Q, E]) closeArtifacts(results []ArtifactResult, owner []*connect
 			fields = append(fields, HeaderField{"connect_error", line.connectErr})
 		}
 
-		if line.stopped == StatusConnectionLost {
+		if results[i].Status == StatusConnectionLost {
 			fields = append(fields, HeaderField{"connection_error", line.lostErr})
 		}
 
@@ -787,10 +793,13 @@ func (w *Window[Q, E]) closeArtifacts(results []ArtifactResult, owner []*connect
 }
 
 // A stopped window overrides the sample counts: "cancelled after one of two" isn't "one of two failed".
-func artifactStatus(result ArtifactResult, stopped, connectErr string) string {
+// With keepFinished, a lost connection does not override a file that had every sample before it.
+func artifactStatus(result ArtifactResult, stopped, connectErr string, keepFinished bool) string {
 	switch {
 	case connectErr != "":
 		return StatusConnectFailed
+	case keepFinished && stopped == StatusConnectionLost && result.SamplesWritten == result.SamplesExpected:
+		return StatusComplete
 	case stopped != "":
 		return stopped
 	case result.SamplesWritten == result.SamplesExpected:

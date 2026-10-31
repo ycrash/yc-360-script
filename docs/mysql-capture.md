@@ -48,6 +48,11 @@ default schema, and the role must be allowed to use it: a name it may not use
 refuses the connection (`Error 1044`), and every file records
 `connect_failed`.
 
+`password` takes `${NAME}` references, as for `postgres:`: each is replaced
+at startup with that environment variable's value, and one that is unset or
+empty is refused. Only the braced form is read: `$NAME` is sent as written, as
+part of the password.
+
 The `-c` file must be readable by its owner alone, as for `postgres:`.
 
 ### `tls`
@@ -60,7 +65,19 @@ The same block as `postgres:`, mapped to the MySQL driver:
 | `verifyServerCertificate: true` | encrypted; the certificate must chain to `caFile` (or the system's trust store) and name `serverName` (or `host`) |
 | `enabled: false` | plaintext, with a startup warning |
 
-The agent never falls back from TLS to plaintext.
+The agent never falls back from TLS to plaintext. `caFile` is read at startup:
+a file that cannot be read or holds no PEM certificate is refused there, and a
+relative path is from the directory the agent was started in.
+
+**The server's own certificate cannot be verified.** The certificate MySQL
+generates for itself on first start - what the official image runs with - has
+no subject alternative names, and its Common Name is
+`MySQL_Server_<version>_Auto_Generated_Server_Certificate` rather than a host.
+The agent checks the server's name against subject alternative names only, so
+with `verifyServerCertificate: true` the connection to such a server fails
+whatever `caFile` and `serverName` say. Verification needs a certificate issued
+with the server's name, or IP address, among its subject alternative names. The
+default, encrypted and unverified, works with the generated certificate.
 
 **Plaintext and `caching_sha2_password`.** MySQL 8's default authentication
 needs, over a plaintext connection, the server's RSA public key - unless the
@@ -87,14 +104,17 @@ digest, at most five per capture: `EXPLAIN FORMAT=JSON` of the digest's
 `query_sample_text`, which is the application's statement **with its real
 values**, sent back to the database. The plans written to the bundle have their
 values replaced. `logged` is refused: MySQL has no `auto_explain`, so there are
-no plans in its log to copy.
+no plans in its log to copy. A digest first seen after the fifth plan is written
+with `reason=plan_limit_reached`.
 
-The session is read-only, and MySQL refuses `EXPLAIN` of an `UPDATE`, `DELETE`,
-`INSERT` or `REPLACE` there, so write statements get no plan
-(`reason=read_only_session`). A prepared statement's sample keeps its `?`
-markers, which no server can plan, so it gets none either
-(`reason=placeholder`). EXPLAIN needs `SELECT` on the tables the statement
-reads.
+A statement is read past the comments it opens with, so an application that
+puts one before every statement (Hibernate's `use_sql_comments`, sqlcommenter)
+still gets plans. The session is read-only, and MySQL refuses `EXPLAIN` of an
+`UPDATE`, `DELETE`, `INSERT` or `REPLACE` there, so write statements get no
+plan (`reason=read_only_session`), a `WITH ... UPDATE` or `WITH ... DELETE`
+included. A prepared statement's sample keeps its `?` markers, which no server
+can plan, so it gets none either (`reason=placeholder`). EXPLAIN needs `SELECT`
+on the tables the statement reads.
 
 A plan is asked for in the schema its statement ran in. On 8.4 and later that
 is `EXPLAIN ... FOR SCHEMA`, which leaves the session where it was; 8.0 has no
@@ -123,6 +143,12 @@ As for `postgres:`. A `mysql:` block cannot run with `-m3`: M3 database
 monitoring polls PostgreSQL only, and the agent refuses the combination at
 startup rather than run a monitoring loop that captures nothing of the
 database.
+
+**A mis-nested block is silent when an application target is present.** The
+block belongs under `options:`; at the top level of the file it decodes to
+nothing. On a database-only run that is loud - the run has no target left and
+stops with `nothing can be done`. Alongside `-p` it is not: the run has a
+target, so it proceeds and captures no database. Check the nesting.
 
 ## Which role to use
 
@@ -217,7 +243,10 @@ At the normal speed:
   with the `memory/%` instruments off, when the server reads zero for them - is
   empty and named in `unavailable=`, never written as zero.
 - `my_explain.txt` — see *`explain`*.
-- `my_deadlocks.txt` — continuous: see *Deadlocks*.
+
+Every 10s, whatever `frequency` is, on the normal-speed connection:
+
+- `my_deadlocks.txt` — the error log's tail: see *Deadlocks*.
 
 At the expensive speed:
 
@@ -242,8 +271,8 @@ The three top-100 reads - `my_slow_queries.txt`, `my_table_stats.txt` and
 ## Deadlocks
 
 `my_deadlocks.txt` copies every deadlock report the error log gains during the
-window, read from its end at the first sample. Two things must both hold for
-there to be any:
+window, read from its end at the first sample and then every 10s, at most 16 MB
+a read. Two things must both hold for there to be any:
 
 - `innodb_print_all_deadlocks=ON`, which makes InnoDB write every deadlock to
   the error log; and
@@ -258,8 +287,9 @@ there to be any:
 Without them the only deadlock the server shows is its most recent, in `SHOW
 ENGINE INNODB STATUS`'s LATEST DETECTED DEADLOCK, which `my_buffer_pool.txt`
 already captures every sample; the deadlock file's blocks say so
-(`fallback=`). On Amazon RDS and Aurora the log is not a file the agent can
-read.
+(`fallback=`), whichever of the two is missing. With the setting off and the
+log readable, the log is still read, in case the setting is turned on during
+the window. On Amazon RDS and Aurora the log is not a file the agent can read.
 
 ## What leaves the database
 
@@ -298,7 +328,8 @@ and `innodb_lock_wait_timeout` of 2s, `transaction_read_only`, a `wait_timeout`
 longer than the longest window, and `time_zone='+00:00'`. Statements carry no arguments, so none is
 prepared server-side and the agent never appears in its own
 `my_prepared_statements.txt`. Every statement starts with
-`/* yCrash-DB-Agent */`.
+`/* yCrash-DB-Agent */`, the opening `SET` included, which names its variables
+in the same order every time and so is one digest.
 
 ## A connection lost mid-capture
 
@@ -307,8 +338,10 @@ reconnected: a new one would restart every delta baseline under the same
 artifact. When the driver closes one, that connection's timeline stops at the
 sample that found out, and every file sampled on it closes with
 `status=connection_lost`, a `samples_written` below `samples_expected`, and the
-driver's error in `connection_error=`. The files on the other two connections go
-on to the end of the window, and everything written is in the bundle.
+driver's error in `connection_error=`. A file that already had all its samples -
+`my_metadata.txt`, read once at the start - closes `complete`. The files on the
+other two connections go on to the end of the window, and everything written is
+in the bundle.
 
 Besides a killed session, a broken network or a failover, a statement the server
 has not answered within 10s - the agent's own deadline - closes its connection,
@@ -322,9 +355,12 @@ connection counts once in `Aborted_clients`, which `my_timeouts.txt` reads.
 So a stall ends the window for each connection with a statement waiting 10s on
 it, and only those. With the server paused for 12s, 8s into a 30s window, the
 fast connection's statement was in flight when the pause began: it reached the
-deadline (`duration_ms=10002`, `sample_error="invalid connection"`), and both
-fast files closed `connection_lost` with 2 of 9 samples. The normal and
-expensive connections sent their next statements 4s into the pause and were
-answered 8s later; their files skipped one tick and closed `status=partial`.
-`connection_error=` is then the driver's `invalid connection`, which does not
-say why; a `duration_ms=` at the 10s deadline does.
+deadline (`duration_ms=10002`), and both fast files closed `connection_lost`
+with 2 of 9 samples. The normal and expensive connections sent their next
+statements 4s into the pause and were answered 8s later; their files skipped
+one tick and closed `status=partial`.
+
+`connection_error=` says why the connection ended. A statement that reached the
+10s deadline says `context deadline exceeded`, or `invalid connection: read tcp
+…: i/o timeout` when the socket's own read deadline fired first. A session the
+server closed - a `KILL`, a restart - says `invalid connection: unexpected EOF`.

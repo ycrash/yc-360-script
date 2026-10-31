@@ -17,6 +17,16 @@ import (
 // the next sample, so a log that grew by gigabytes cannot stall the timeline.
 const MaxScanBytes = 16 << 20
 
+// LogTailInterval is how often the error log is read, whatever mysql.frequency is:
+// the postgres capture's log-tail cadence. A read sends no statement, and each
+// takes at most MaxScanBytes, so at a slower one a deadlock storm could leave a
+// backlog unread by the window's close.
+const LogTailInterval = 10 * time.Second
+
+// deadlockFallback is where the server's one deadlock report is, when the log
+// holds none.
+const deadlockFallback = "my_buffer_pool.txt:LATEST DETECTED DEADLOCK"
+
 // The codes a deadlock report is logged under at log_error_verbosity=3: the
 // opening line, and each section's heading.
 const (
@@ -329,6 +339,12 @@ func (d *Deadlocks) writeEvents(w io.Writer, s SampleContext, events []string, f
 
 	fields := d.blockFields(s, drain)
 
+	// With the setting off, InnoDB writes no report to the log. It is read all the
+	// same, since the setting can be turned on during the window.
+	if !strings.EqualFold(d.printAll, "ON") {
+		fields = append(fields, kv("fallback", deadlockFallback))
+	}
+
 	if !d.announced || d.rotated {
 		fields = append(fields, kv("log_path", d.path), kv("log_access", LogAccessDirect))
 		d.announced = true
@@ -372,7 +388,7 @@ func (d *Deadlocks) writeReason(w io.Writer, s SampleContext, drain bool) error 
 		kv("log_path", d.path),
 		kv("log_access", LogAccessNone),
 		kv("reason", d.reason),
-		kv("fallback", "my_buffer_pool.txt:LATEST DETECTED DEADLOCK"),
+		kv("fallback", deadlockFallback),
 		kv("bytes", "0"),
 	)
 

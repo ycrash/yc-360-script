@@ -120,6 +120,8 @@ func (c *MySQLCapture) Run() (Result, error) {
 	hostStarted := false
 
 	metadata.AfterCollect(func(m mysql.Metadata) {
+		warnMariaDB(m)
+
 		hostStarted = true
 		hostCollectors = c.startHostCapture(ctx, m, duration)
 	})
@@ -128,6 +130,8 @@ func (c *MySQLCapture) Run() (Result, error) {
 		mysql.Collectors(metadata, c.Target.Explain, fast, normal, expensive), "")
 
 	results := window.Run(ctx)
+
+	warnConnectFailures(results)
 
 	collected := metadata.ResolveHostDecision()
 
@@ -145,6 +149,43 @@ func (c *MySQLCapture) Run() (Result, error) {
 	}
 
 	return withHostCapture(result, hostMessages, hostOK), nil
+}
+
+// warnMariaDB says at the window's start what the run reached: the run goes on, and
+// the files it uploads record MariaDB's refusals.
+func warnMariaDB(m mysql.Metadata) {
+	if m.MySQLVariant != mysql.VariantMariaDB {
+		return
+	}
+
+	logger.Warn().Msgf("The mysql: target is MariaDB %s, which the MySQL capture does not support: "+
+		"my_metadata.txt records the server, and the other my_* files what it refused or lacks.", m.Version)
+}
+
+// warnConnectFailures says each distinct connect failure once: the run goes on to
+// upload files that record only the failure, and its closing summary is INF. A
+// window that connects nowhere returns at once, so this comes at the start.
+func warnConnectFailures(results []mysql.ArtifactResult) {
+	files := map[string]int{}
+
+	var failures []string
+
+	for _, artifact := range results {
+		if artifact.Status != mysql.StatusConnectFailed {
+			continue
+		}
+
+		if files[artifact.Err] == 0 {
+			failures = append(failures, artifact.Err)
+		}
+
+		files[artifact.Err]++
+	}
+
+	for _, failure := range failures {
+		logger.Warn().Msgf("mysql connect failed: %s (%d of %d files record connect_failed)",
+			failure, files[failure], len(results))
+	}
 }
 
 // Kill overrides Capture.Kill, which returns nil when Cmd is nil and would

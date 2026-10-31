@@ -1,8 +1,11 @@
 package config
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 
 	"gopkg.in/yaml.v3"
@@ -63,6 +66,28 @@ func (m *MySQL) ExplainMode() string {
 	return m.DBTarget.ExplainMode()
 }
 
+// checkCAFile makes a CA file's path absolute and reads it now. The capture runs
+// from the bundle's own directory, where a relative path would no longer resolve,
+// and a file the driver cannot use would otherwise fail every connection only once
+// the window opens.
+func checkCAFile(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, err
+	}
+
+	pem, err := os.ReadFile(abs)
+	if err != nil {
+		return abs, err
+	}
+
+	if !x509.NewCertPool().AppendCertsFromPEM(pem) {
+		return abs, fmt.Errorf("%s holds no PEM certificate", abs)
+	}
+
+	return abs, nil
+}
+
 // Validate normalizes the block in place; not idempotent (destructive defaults, one-shot warnings).
 func (m *MySQL) Validate() (warnings []string, err error) {
 	if m == nil {
@@ -96,6 +121,15 @@ func (m *MySQL) Validate() (warnings []string, err error) {
 	tlsWarnings, tlsErrs := m.validateTLS(mysqlKey)
 	warnings = append(warnings, tlsWarnings...)
 	errs = append(errs, tlsErrs...)
+
+	if m.TLSVerified() && m.TLS.CAFile != "" {
+		caFile, err := checkCAFile(m.TLS.CAFile)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s.tls.caFile: %w", mysqlKey, err))
+		}
+
+		m.TLS.CAFile = caFile
+	}
 
 	switch {
 	case m.Explain == "":

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -34,13 +33,18 @@ const (
 // Explain modes; config accepts only all, and an omitted key is off.
 const explainAll = "all"
 
-// explainableStatement opens a statement EXPLAIN accepts and does not run.
-var explainableStatement = regexp.MustCompile(`(?i)^\s*(\(\s*)*(SELECT|WITH|TABLE|INSERT|REPLACE|UPDATE|DELETE)\b`)
+// explainableVerbs open a statement EXPLAIN accepts and does not run.
+var explainableVerbs = map[string]bool{
+	"SELECT": true, "WITH": true, "TABLE": true, "INSERT": true, "REPLACE": true, "UPDATE": true, "DELETE": true,
+}
 
-// writeStatement opens a statement that writes. The session is read-only
+// writeVerbs open a statement that writes. The session is read-only
 // (transaction_read_only), and the server refuses EXPLAIN of one there with error
 // 1792, measured on the matrix; the read-only guard is kept and the plan is not.
-var writeStatement = regexp.MustCompile(`(?i)^\s*(INSERT|REPLACE|UPDATE|DELETE)\b`)
+var writeVerbs = map[string]bool{"INSERT": true, "REPLACE": true, "UPDATE": true, "DELETE": true}
+
+// withVerbs are the statements a WITH can open.
+var withVerbs = map[string]bool{"SELECT": true, "TABLE": true, "UPDATE": true, "DELETE": true}
 
 // Why a candidate got no plan, as a skipped block's reason=.
 const (
@@ -49,6 +53,10 @@ const (
 	explainReasonNotExplain   = "not_explainable"
 	explainReasonCut          = "sample_text_cut"
 	explainReasonReadOnly     = "read_only_session"
+
+	// explainReasonPlanLimit: the capture had already asked for MaxPlansPerCapture
+	// plans. The postgres capture's reason for the same limit.
+	explainReasonPlanLimit = "plan_limit_reached"
 
 	// explainReasonPlaceholder: a prepared statement's sample keeps its ? markers,
 	// which EXPLAIN cannot parse (error 1064, measured on the matrix).
@@ -120,7 +128,7 @@ func (e *Explain) Sample(ctx context.Context, q Querier, w io.Writer, s SampleCo
 	if read == s.Index {
 		for _, candidate := range candidates {
 			key := candidate.schema + "\x00" + candidate.digest
-			if e.seen[key] || e.plans >= MaxPlansPerCapture {
+			if e.seen[key] {
 				continue
 			}
 
@@ -159,7 +167,12 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 	fields := []dbcore.HeaderField{kv("schema_name", c.schema), kv("digest", c.digest), kv("mode", "ESTIMATED")}
 	b := block{source: "explain"}
 
-	if reason := e.skipReason(ctx, q, s, c); reason != "" {
+	reason := e.skipReason(ctx, q, s, c)
+	if reason == "" && e.plans >= MaxPlansPerCapture {
+		reason = explainReasonPlanLimit
+	}
+
+	if reason != "" {
 		return writeTextBlock(w, artifact, s, b, dbcore.Span{}, dbcore.StatusOK,
 			append(fields, kv("reason", reason)), nil)
 	}
@@ -231,10 +244,10 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 	case agentStatement(c.text):
 		return explainReasonOwnStatement
 
-	case !explainableStatement.MatchString(c.text):
+	case !explainableVerbs[statementVerb(c.text)]:
 		return explainReasonNotExplain
 
-	case writeStatement.MatchString(c.text):
+	case writeVerbs[statementVerb(c.text)]:
 		return explainReasonReadOnly
 
 	case hasPlaceholder(c.text):
@@ -254,6 +267,78 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 	}
 
 	return ""
+}
+
+// statementVerb is the word that says what a statement does, upper-cased: its first,
+// past whitespace, plain comments - an ORM may open every statement with one - and
+// opening parentheses. For a WITH it is the statement's past the common table
+// expressions, since WITH ... UPDATE writes. Empty when the text opens with neither,
+// as an executable comment /*! ... */ does.
+func statementVerb(s string) string {
+	i := skipSpaceAndComments(s, 0)
+	for i < len(s) && s[i] == '(' {
+		i = skipSpaceAndComments(s, i+1)
+	}
+
+	n := nameLength(s[i:])
+
+	verb := strings.ToUpper(s[i : i+n])
+	if verb != "WITH" {
+		return verb
+	}
+
+	return withVerb(s, i+n)
+}
+
+// withVerb is the statement a WITH opens, read from i: the first word at the WITH's
+// own level, outside parentheses, literals, quoted names and comments, that opens
+// one. WITH when the text has none, as a cut sample may not.
+func withVerb(s string, i int) string {
+	depth := 0
+
+	for i < len(s) {
+		switch c := s[i]; {
+		case strings.HasPrefix(s[i:], "/*!"):
+			i += 3
+
+		case strings.HasPrefix(s[i:], "/*"):
+			i += blockCommentLength(s[i:])
+
+		case c == '#' || lineComment(s[i:]):
+			i += lineLength(s[i:])
+
+		case c == '`':
+			i += quotedLength(s[i:], '`', false)
+
+		case c == '\'' || c == '"':
+			i += quotedLength(s[i:], c, true)
+
+		case literalPrefix(s[i:]) > 0:
+			prefix := literalPrefix(s[i:])
+			i += prefix + quotedLength(s[i+prefix:], s[i+prefix], true)
+
+		case c == '(':
+			depth++
+			i++
+
+		case c == ')':
+			depth--
+			i++
+
+		case isNameByte(c):
+			n := nameLength(s[i:])
+			if word := strings.ToUpper(s[i : i+n]); depth == 0 && withVerbs[word] {
+				return word
+			}
+
+			i += n
+
+		default:
+			i++
+		}
+	}
+
+	return "WITH"
 }
 
 // explainsForSchema: the server takes EXPLAIN ... FOR SCHEMA. Measured on 8.4.13,
