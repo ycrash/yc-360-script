@@ -71,8 +71,8 @@ func runToCompletionOrSigterm(f func() error) error {
 	// Wait for either completion or sigterm signals
 	select {
 	case s := <-osSigChan:
-		logger.Log("Received OS signal: %s. Stopping: a capture in flight ends early and "+
-			"uploads what it has captured. Signal again to exit without waiting for it.", s)
+		logger.Log("Received OS signal: %s. Stopping: a database window in flight ends early "+
+			"and uploads what it has; other captures finish first. Signal again to exit at once.", s)
 
 		go exitOnSignal(osSigChan)
 	case err = <-completed:
