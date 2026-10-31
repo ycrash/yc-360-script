@@ -299,3 +299,32 @@ longer than the longest window, and `time_zone='+00:00'`. Statements carry no ar
 prepared server-side and the agent never appears in its own
 `my_prepared_statements.txt`. Every statement starts with
 `/* yCrash-DB-Agent */`.
+
+## A connection lost mid-capture
+
+As for `postgres:`, each connection is held for the whole window and never
+reconnected: a new one would restart every delta baseline under the same
+artifact. When the driver closes one, that connection's timeline stops at the
+sample that found out, and every file sampled on it closes with
+`status=connection_lost`, a `samples_written` below `samples_expected`, and the
+driver's error in `connection_error=`. The files on the other two connections go
+on to the end of the window, and everything written is in the bundle.
+
+Besides a killed session, a broken network or a failover, a statement the server
+has not answered within 10s - the agent's own deadline - closes its connection,
+because the driver can end a statement only by closing the socket. A `SELECT`
+does not get there: `max_execution_time` ends it at 5s with error 3024, the block
+says `status=TIMEOUT`, and the connection stays open. A `SHOW` or `EXPLAIN` has
+no server-side bound on its running time, only `lock_wait_timeout` on a wait,
+and on a server that has stopped answering no statement has any. The server runs a statement the agent gave up on to its end, and the lost
+connection counts once in `Aborted_clients`, which `my_timeouts.txt` reads.
+
+So a stall ends the window for each connection with a statement waiting 10s on
+it, and only those. With the server paused for 12s, 8s into a 30s window, the
+fast connection's statement was in flight when the pause began: it reached the
+deadline (`duration_ms=10002`, `sample_error="invalid connection"`), and both
+fast files closed `connection_lost` with 2 of 9 samples. The normal and
+expensive connections sent their next statements 4s into the pause and were
+answered 8s later; their files skipped one tick and closed `status=partial`.
+`connection_error=` is then the driver's `invalid connection`, which does not
+say why; a `duration_ms=` at the 10s deadline does.

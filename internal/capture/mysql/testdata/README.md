@@ -410,6 +410,16 @@ root, and removed.
   the schema gets the same 1044 a `USE` does. On 8.0 the `USE` stays, and the
   connection goes back to `information_schema`, which `yc_restricted` may use
   too, where no database is configured.
+- **A 12s stall lost one connection of three.** A throwaway 8.4.13 was paused
+  (`docker pause`) 8s into a 30s window, for 12s. The fast connection's
+  statement was in flight: at the 10s deadline the driver closed it, the sample
+  wrote `status=ERROR duration_ms=10002 sample_error="invalid connection"`, and
+  `my_sessions.txt` and `my_lock_waits.txt` closed `connection_lost`, 2 of 9
+  samples, `connection_error="invalid connection"`. The normal and expensive
+  connections' next statements went out 4s into the pause and were answered 8s
+  later: each of their files skipped one tick and closed `status=partial`. The
+  driver logs the read's own error and returns `invalid connection`, so the
+  cause is not in the file beyond the duration.
 - **A window function is counted before the `LIMIT`.** `COUNT(*) OVER ()` on
   `my_storage.txt`'s statement with `LIMIT 2` returned 124, every table, on
   8.0.46 and 8.4.13, and the same held for the digests and the index-usage
