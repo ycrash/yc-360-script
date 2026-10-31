@@ -353,6 +353,26 @@ reached. `TestMariaDBIsNamedAndItsGapsRecorded` and
   `SLAVE MONITOR` (or `SUPER`), which `yc_monitor`'s `REPLICATION CLIENT` does
   not give on MariaDB.
 
+## `performance_schema=OFF` (a throwaway 8.4.13)
+
+Not a matrix service: a `mysql:8.4` container started with
+`--performance-schema=OFF`, probed by hand and then given one 12s window as
+root, and removed.
+
+- The tables are all there and answer without an error, with no rows:
+  `threads`, `data_lock_waits`, `metadata_locks`, the digest, error, index-usage
+  and memory summaries, `prepared_statements_instances`, and `setup_consumers`
+  and `setup_instruments` too. `global_status`, `global_variables` and
+  `variables_info` answer as usual (330, 624 and 648 rows).
+- Before, every one of those blocks read `status=OK rows=0` with no reason, and
+  `my_metadata.txt` said `cpu_time_reason,consumers_off`, reading the empty
+  `setup_consumers`. Now `@@performance_schema` is read with the version on
+  each connection; those blocks are not asked and say
+  `reason=performance_schema_off`, as does `my_explain.txt`, and the metadata
+  says `cpu_time_reason,performance_schema_off`. All sixteen files were
+  `status=complete`. `replication_group_members` is one of them, so a server
+  that is no replica reads `mechanism=unknown`.
+
 ## Other findings
 
 - **`EXPLAIN` of an `UPDATE` or `DELETE` fails in a read-only session**: error
@@ -423,6 +443,8 @@ re-recorded, so a golden's diff is the change alone:
   counts, all under 100 and so exact; `my_storage.txt`'s is the recorded run's
   `tables_visible`, 124; `my_table_stats.txt`'s is what `my84` counted when the
   recording was edited, 160, not what it counted during the run.
+- `@@performance_schema` on each connection's identify statement: `1`, as
+  `my84` answers.
 
 Two values in a recording are replaced as it is written, so a replay reads the
 same on every machine: the client address the server saw (`192.0.2.10`, a

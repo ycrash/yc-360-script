@@ -105,6 +105,12 @@ func (e *Explain) Sample(ctx context.Context, q Querier, w io.Writer, s SampleCo
 			[]dbcore.HeaderField{kv("reason", "explain_off")}, nil)
 	}
 
+	// The candidates are the digests, which performance_schema off leaves empty.
+	if s.Engine.PerformanceSchemaOff {
+		return writeTextBlock(w, artifact, s, block{source: "explain"}, dbcore.Span{}, dbcore.StatusOK,
+			[]dbcore.HeaderField{kv("reason", reasonPerformanceSchemaOff)}, nil)
+	}
+
 	candidates, read := e.slowQueries.Latest()
 
 	var buf bytes.Buffer

@@ -146,6 +146,64 @@ func TestATopHundredSaysHowManyThereWere(t *testing.T) {
 	assert.Contains(t, sample(nil), "rows=0 truncated=false scope=cluster rows_total=0 ")
 }
 
+func TestIdentifyReadsWhetherPerformanceSchemaIsOn(t *testing.T) {
+	for value, off := range map[string]bool{"1": false, "0": true} {
+		q := (&fakeQuerier{}).on(identifySQL, fakeResult{
+			columns: []string{"DATABASE()", "VERSION()", "@@version_comment", "@@performance_schema"},
+			rows:    [][]any{{nil, "8.4.13", "MySQL Community Server - GPL", value}},
+		})
+
+		s := identify(context.Background(), q, SampleContext{})
+
+		assert.Equal(t, off, s.Engine.PerformanceSchemaOff, value)
+		assert.Equal(t, Version{8, 4, 13}, s.Engine.Version)
+	}
+}
+
+func TestWithPerformanceSchemaOffItsTablesAreNotAskedAndSaySo(t *testing.T) {
+	off := testSample(1, 2)
+	off.Engine.PerformanceSchemaOff = true
+
+	q := (&fakeQuerier{}).
+		on("information_schema.innodb_trx", fakeResult{columns: []string{"trx_id"}}).
+		on("SHOW REPLICA STATUS", fakeResult{columns: []string{"Replica_IO_State"}}).
+		on("SHOW BINARY LOG STATUS", fakeResult{columns: []string{"File"}}).
+		on("SHOW GLOBAL", fakeResult{columns: globalStatusColumns})
+
+	slowQueries := &SlowQueries{Interval: time.Minute}
+
+	for _, c := range []Collector{
+		NewSessions(time.Second), NewLockWaits(time.Second), NewPreparedStatements(time.Minute),
+		NewTableStats(time.Hour), NewErrors(time.Minute), NewTimeouts(time.Minute), NewMemory(time.Minute),
+		slowQueries, NewExplain("all", slowQueries, time.Minute, ""), &Replication{Interval: time.Minute},
+	} {
+		var out bytes.Buffer
+
+		require.NoError(t, c.Sample(context.Background(), q, &out, off))
+		assert.Contains(t, out.String(), " reason=performance_schema_off ", c.Artifact().Name)
+		assert.NotContains(t, out.String(), "error=", c.Artifact().Name)
+	}
+
+	assert.Zero(t, q.count("performance_schema."), "a table only instruments fill is not asked")
+	assert.Equal(t, 1, q.count("innodb_trx"), "information_schema still is")
+	assert.Equal(t, 4, q.count("SHOW GLOBAL STATUS"), "and the status counters: memory's two, timeouts', wsrep's")
+}
+
+func TestReplicationIsUnknownWithPerformanceSchemaOff(t *testing.T) {
+	off := testSample(1, 2)
+	off.Engine.PerformanceSchemaOff = true
+
+	q := (&fakeQuerier{}).
+		on("SHOW REPLICA STATUS", fakeResult{columns: []string{"Replica_IO_State"}}).
+		on("SHOW BINARY LOG STATUS", fakeResult{columns: []string{"File"}}).
+		on("SHOW GLOBAL", fakeResult{columns: globalStatusColumns})
+
+	var out bytes.Buffer
+
+	require.NoError(t, (&Replication{Interval: time.Minute}).Sample(context.Background(), q, &out, off))
+	assert.Contains(t, out.String(), "mechanism=unknown", "an empty replication_group_members says nothing then")
+}
+
 func TestATextValueIsCappedAndAStatementCutMidLiteralIsStillReplaced(t *testing.T) {
 	long := "SELECT '" + strings.Repeat("x", DefaultMaxText) + "'"
 

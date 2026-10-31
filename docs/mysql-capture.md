@@ -140,6 +140,16 @@ A read the role may not make is not an error. Its block says
 once per capture and remembered: every refusal counts once more in the server's
 own error statistics, which `my_errors.txt` reads.
 
+Most files also need `performance_schema` on. A server started with
+`performance_schema=OFF` keeps its tables, but the ones its instruments fill
+answer with no rows. Each block that reads one is then not asked: it says
+`reason=performance_schema_off`, with no rows, which the spec calls data not
+available because a required setting is off, not an error. The status and
+variable reads, `information_schema.innodb_trx`, `my_buffer_pool.txt`,
+`my_storage.txt` and `my_nondefault_settings.txt` are unaffected.
+`my_replication.txt`'s mechanism is `unknown` unless the server is a replica,
+and `my_metadata.txt` says `cpu_time_reason,performance_schema_off`.
+
 ## What a capture writes
 
 Every artifact is a `my_*.txt` file in the bundle, uploaded under a type of its

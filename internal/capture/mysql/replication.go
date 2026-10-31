@@ -93,9 +93,12 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	}
 
 	if mechanism == mechanismNone {
+		// With performance_schema off the table answers with no rows whatever the
+		// server is, so the check is not made, and the mechanism is unknown.
 		outcome, err = r.write(ctx, q, &buf, artifact, s, block{
-			source: "replication_group_members",
-			query:  "SELECT * FROM performance_schema.replication_group_members",
+			source:       "replication_group_members",
+			query:        "SELECT * FROM performance_schema.replication_group_members",
+			instrumented: true,
 		})
 		if err != nil {
 			return err

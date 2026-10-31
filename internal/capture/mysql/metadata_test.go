@@ -127,6 +127,23 @@ func TestMetadataSaysWhyCPUTimeIsNotCounted(t *testing.T) {
 	assert.Equal(t, "true", m.HasMemoryInstrumentsEnabled)
 }
 
+func TestMetadataSaysPerformanceSchemaIsOff(t *testing.T) {
+	q := metadataServer("8.4.13", "stderr")
+	q.results = append([]fakeMatch{{"SHOW GLOBAL VARIABLES", fakeResult{
+		columns: []string{"Variable_name", "Value"},
+		rows:    [][]any{{"performance_schema", "OFF"}},
+	}}}, q.results...)
+
+	m := Collect(context.Background(), q, Target{}, testAt, fakeProcesses{})
+
+	assert.Equal(t, "OFF", m.PerformanceSchema)
+	assert.Equal(t, "false", m.HasCPUTimeInstrumentEnabled)
+	assert.Equal(t, cpuReasonPerformanceSchemaOff, m.CPUTimeReason, "not consumers_off: the setup tables are empty")
+	assert.Equal(t, "false", m.HasMemoryInstrumentsEnabled)
+	assert.Equal(t, "true", m.HasStatementMemoryTracking, "the columns exist")
+	assert.Zero(t, q.count("setup_consumers"), "nothing to read in an empty table")
+}
+
 func TestMetadataRecordsARefusedProbeAndKeepsTheRest(t *testing.T) {
 	q := metadataServer("8.4.3", "stderr")
 	q.results = append([]fakeMatch{{"performance_schema.setup_consumers", fakeResult{

@@ -50,11 +50,16 @@ const (
 )
 
 // Facts is what identify reads about a connection: the server's version, parsed,
-// and which member of the family it is. Every version gate reads these, never a
-// statement of its own.
+// which member of the family it is, and whether performance_schema is off. Every
+// version gate reads these, never a statement of its own.
 type Facts struct {
 	Version Version
 	Variant string
+
+	// PerformanceSchemaOff: the server started with performance_schema=OFF, which
+	// only a restart changes. Its tables are still there, and answer with no rows
+	// (measured on 8.4.13); an unread setting is read as on.
+	PerformanceSchemaOff bool
 }
 
 // Version is a server version's numbers; zero where VERSION() could not be read
@@ -121,7 +126,7 @@ func variantOf(version, versionComment string) string {
 }
 
 // identifySQL reads what every collector on a connection needs.
-const identifySQL = `SELECT DATABASE(), VERSION(), @@version_comment`
+const identifySQL = `SELECT DATABASE(), VERSION(), @@version_comment, @@performance_schema`
 
 // NewWindow is the window for t's collectors, dialling with Connect.
 func NewWindow(t Target, duration time.Duration, collectors []Collector, captureID string) *Window {
@@ -165,7 +170,8 @@ func engine(t Target, dial func(ctx context.Context) (Querier, dbcore.Closer, er
 	}
 }
 
-// identify reads the database, version and variant once for every collector.
+// identify reads the database, version, variant and performance_schema once for
+// every collector.
 func identify(ctx context.Context, q Querier, sampleCtx SampleContext) SampleContext {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
@@ -180,8 +186,8 @@ func identify(ctx context.Context, q Querier, sampleCtx SampleContext) SampleCon
 		return sampleCtx
 	}
 
-	var database, version, comment sql.NullString
-	if err := rows.Scan(&database, &version, &comment); err != nil {
+	var database, version, comment, performanceSchema sql.NullString
+	if err := rows.Scan(&database, &version, &comment, &performanceSchema); err != nil {
 		return sampleCtx
 	}
 
@@ -189,6 +195,7 @@ func identify(ctx context.Context, q Querier, sampleCtx SampleContext) SampleCon
 	sampleCtx.EngineVersion = version.String
 	sampleCtx.Engine.Version = parseVersion(version.String)
 	sampleCtx.Engine.Variant = variantOf(version.String, comment.String)
+	sampleCtx.Engine.PerformanceSchemaOff = performanceSchema.String == "0"
 
 	return sampleCtx
 }

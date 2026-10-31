@@ -616,6 +616,10 @@ const (
 	cpuReasonConsumers = "consumers_off"
 	cpuReasonUntimed   = "no_timed_statement_instrument"
 	cpuReasonUnread    = "capabilities_unread"
+
+	// cpuReasonPerformanceSchemaOff: the setup tables are empty, so every consumer
+	// would read as off; the setting is why.
+	cpuReasonPerformanceSchemaOff = reasonPerformanceSchemaOff
 )
 
 func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Metadata) {
@@ -627,6 +631,20 @@ func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Met
 	// has_memory_instruments_enabled's own count.
 	if version.known() {
 		m.HasStatementMemoryTracking = strconv.FormatBool(version.AtLeast(8, 0, 31))
+	}
+
+	// performance_schema off leaves the setup tables empty: nothing to read, and
+	// nothing counted.
+	if strings.EqualFold(m.PerformanceSchema, "OFF") {
+		m.HasCPUTimeInstrumentEnabled = "false"
+		m.CPUTimeReason = cpuReasonPerformanceSchemaOff
+		m.HasMemoryInstrumentsEnabled = "false"
+
+		if version.known() && !version.AtLeast(8, 0, 28) {
+			m.CPUTimeReason = cpuReasonVersion
+		}
+
+		return
 	}
 
 	row, err := readRow(ctx, q, s, capabilitiesSQL)

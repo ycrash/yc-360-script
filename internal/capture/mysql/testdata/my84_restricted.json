@@ -3,47 +3,53 @@
  "role": "yc_restricted",
  "statements": [
   {
-   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment, @@performance_schema",
    "columns": [
     "DATABASE()",
     "VERSION()",
-    "@@version_comment"
+    "@@version_comment",
+    "@@performance_schema"
    ],
    "rows": [
     [
      null,
      "8.4.13",
-     "MySQL Community Server - GPL"
+     "MySQL Community Server - GPL",
+     "1"
     ]
    ]
   },
   {
-   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment, @@performance_schema",
    "columns": [
     "DATABASE()",
     "VERSION()",
-    "@@version_comment"
+    "@@version_comment",
+    "@@performance_schema"
    ],
    "rows": [
     [
      null,
      "8.4.13",
-     "MySQL Community Server - GPL"
+     "MySQL Community Server - GPL",
+     "1"
     ]
    ]
   },
   {
-   "query": "SELECT DATABASE(), VERSION(), @@version_comment",
+   "query": "SELECT DATABASE(), VERSION(), @@version_comment, @@performance_schema",
    "columns": [
     "DATABASE()",
     "VERSION()",
-    "@@version_comment"
+    "@@version_comment",
+    "@@performance_schema"
    ],
    "rows": [
     [
      null,
      "8.4.13",
-     "MySQL Community Server - GPL"
+     "MySQL Community Server - GPL",
+     "1"
     ]
    ]
   },

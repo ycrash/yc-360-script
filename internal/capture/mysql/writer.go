@@ -27,6 +27,11 @@ const (
 	// once more against the server's own error statistics, which my_errors.txt
 	// reads.
 	reasonPermissionDenied = "permission_denied"
+
+	// reasonPerformanceSchemaOff: the server runs with performance_schema=OFF, so
+	// the tables its instruments fill answer with no rows, and are not asked. Spec
+	// §7: not available because a required setting is off, not an error.
+	reasonPerformanceSchemaOff = "performance_schema_off"
 )
 
 func kv(key, value string) dbcore.HeaderField { return dbcore.HeaderField{Key: key, Value: value} }
@@ -68,6 +73,11 @@ type block struct {
 
 	// uncapped reads values whole: a plan has a cap of its own.
 	uncapped bool
+
+	// instrumented: the statement reads a performance_schema table its instruments
+	// fill, empty with performance_schema off. Its settings and status tables are
+	// not: global_status, global_variables and variables_info answer either way.
+	instrumented bool
 }
 
 // result is one read.
@@ -260,10 +270,15 @@ type blockOutcome struct {
 // writeBlock reads b and writes it as one sample block of artifact. A refusal for
 // want of a privilege is written as reason=permission_denied, and remembered in st
 // so the next sample does not ask again; any other failure is the block's
-// status=, with error=, and the column header alone.
+// status=, with error=, and the column header alone. An instrumented block on a
+// server with performance_schema off is not read: its reason says why it is empty.
 func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, s SampleContext,
 	st *blockState, b block,
 ) (blockOutcome, error) {
+	if b.instrumented && s.Engine.PerformanceSchemaOff {
+		return blockOutcome{}, writeReason(w, artifact, s, b, reasonPerformanceSchemaOff, dbcore.Span{})
+	}
+
 	if st != nil && st.isRefused(b.source) {
 		return blockOutcome{}, writeReason(w, artifact, s, b, reasonPermissionDenied, dbcore.Span{})
 	}

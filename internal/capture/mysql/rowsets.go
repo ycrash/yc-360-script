@@ -38,6 +38,7 @@ ORDER BY t.THREAD_ID`, DefaultMaxSessions),
 						"PROCESSLIST_INFO", "program_name"},
 					statementColumns: []string{"PROCESSLIST_INFO"},
 					maxRows:          DefaultMaxSessions,
+					instrumented:     true,
 				},
 				{
 					source: "innodb_trx",
@@ -68,7 +69,8 @@ FROM performance_schema.data_lock_waits`, DefaultMaxLocks),
 					columns: []string{"ENGINE", "REQUESTING_ENGINE_LOCK_ID", "REQUESTING_ENGINE_TRANSACTION_ID",
 						"REQUESTING_THREAD_ID", "BLOCKING_ENGINE_LOCK_ID", "BLOCKING_ENGINE_TRANSACTION_ID",
 						"BLOCKING_THREAD_ID"},
-					maxRows: DefaultMaxLocks,
+					maxRows:      DefaultMaxLocks,
+					instrumented: true,
 				},
 				{
 					source: "metadata_locks",
@@ -77,7 +79,8 @@ FROM performance_schema.metadata_locks
 WHERE LOCK_STATUS = 'PENDING'`, DefaultMaxLocks),
 					columns: []string{"OBJECT_TYPE", "OBJECT_SCHEMA", "OBJECT_NAME", "LOCK_TYPE", "LOCK_STATUS",
 						"OWNER_THREAD_ID"},
-					maxRows: DefaultMaxLocks,
+					maxRows:      DefaultMaxLocks,
+					instrumented: true,
 				},
 			}
 		},
@@ -101,6 +104,7 @@ ORDER BY OWNER_THREAD_ID, STATEMENT_ID`, DefaultMaxPreparedStatements),
 					"SUM_TIMER_EXECUTE"},
 				statementColumns: []string{"SQL_TEXT"},
 				maxRows:          DefaultMaxPreparedStatements,
+				instrumented:     true,
 			}}
 		},
 	}
@@ -120,8 +124,9 @@ func NewTableStats(interval time.Duration) Collector {
 FROM performance_schema.table_io_waits_summary_by_index_usage
 ORDER BY COUNT_READ DESC
 LIMIT 100`,
-				columns: []string{"OBJECT_SCHEMA", "OBJECT_NAME", "INDEX_NAME", "COUNT_READ", "COUNT_FETCH"},
-				counted: true,
+				columns:      []string{"OBJECT_SCHEMA", "OBJECT_NAME", "INDEX_NAME", "COUNT_READ", "COUNT_FETCH"},
+				counted:      true,
+				instrumented: true,
 			}}
 		},
 	}

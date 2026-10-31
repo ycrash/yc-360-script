@@ -89,7 +89,8 @@ GROUP BY t.THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_USER, t.PROCESSLIST_HOST, 
 ORDER BY current_bytes DESC`, maxThreadMemoryRows),
 					columns: []string{"THREAD_ID", "PROCESSLIST_ID", "PROCESSLIST_USER", "PROCESSLIST_HOST",
 						"PROCESSLIST_DB", "PROCESSLIST_COMMAND", "current_bytes"},
-					maxRows: maxThreadMemoryRows,
+					maxRows:      maxThreadMemoryRows,
+					instrumented: true,
 				},
 				{
 					source: "prepared_statement_memory",
@@ -97,7 +98,8 @@ ORDER BY current_bytes DESC`, maxThreadMemoryRows),
 FROM performance_schema.memory_summary_global_by_event_name
 WHERE EVENT_NAME IN ('memory/sql/Prepared_statement::main_mem_root',
                      'memory/sql/Prepared_statement::infrastructure')`,
-					columns: []string{"EVENT_NAME", "CURRENT_NUMBER_OF_BYTES_USED", "HIGH_NUMBER_OF_BYTES_USED"},
+					columns:      []string{"EVENT_NAME", "CURRENT_NUMBER_OF_BYTES_USED", "HIGH_NUMBER_OF_BYTES_USED"},
+					instrumented: true,
 				},
 				{
 					// The buffer pool's own instrument is excluded, so the two regions
@@ -106,14 +108,16 @@ WHERE EVENT_NAME IN ('memory/sql/Prepared_statement::main_mem_root',
 					query: `SELECT EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED
 FROM performance_schema.memory_summary_global_by_event_name
 WHERE EVENT_NAME LIKE 'memory/innodb/%' AND EVENT_NAME != 'memory/innodb/buf_buf_pool'`,
-					columns: []string{"EVENT_NAME", "CURRENT_NUMBER_OF_BYTES_USED"},
+					columns:      []string{"EVENT_NAME", "CURRENT_NUMBER_OF_BYTES_USED"},
+					instrumented: true,
 				},
 				{
 					source: "performance_schema_memory",
 					query: `SELECT SUM(CURRENT_NUMBER_OF_BYTES_USED) AS current_bytes
 FROM performance_schema.memory_summary_global_by_event_name
 WHERE EVENT_NAME LIKE 'memory/performance\_schema/%'`,
-					columns: []string{"current_bytes"},
+					columns:      []string{"current_bytes"},
+					instrumented: true,
 				},
 			}
 		},
@@ -160,6 +164,7 @@ WHERE sum_error_raised > 0
 ORDER BY error_number`,
 				columns: []string{"error_number", "error_name", "sql_state", "sum_error_raised",
 					"sum_error_handled", "first_seen", "last_seen"},
+				instrumented: true,
 			}}
 		},
 	}
@@ -187,7 +192,8 @@ func NewTimeouts(interval time.Duration) Collector {
 FROM performance_schema.events_errors_summary_global_by_error
 WHERE error_number IN (` + strings.Join(timeoutErrors, ", ") + `)
 ORDER BY error_number`,
-					columns: []string{"error_number", "error_name", "sum_error_raised", "first_seen", "last_seen"},
+					columns:      []string{"error_number", "error_name", "sum_error_raised", "first_seen", "last_seen"},
+					instrumented: true,
 				},
 				{
 					source:  "global_status",

@@ -70,9 +70,10 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 
 	// Nothing to ask before 8.0.28, which has none of the columns a switch decides;
 	// an unread version reads them as absent rather than fail the whole statement on
-	// an older server.
+	// an older server. Nothing either with performance_schema off, whose digests are
+	// not read.
 	var counting digestCounting
-	if version.AtLeast(8, 0, 28) {
+	if version.AtLeast(8, 0, 28) && !s.Engine.PerformanceSchemaOff {
 		counting = sq.counting(ctx, q, s)
 	}
 
@@ -118,6 +119,7 @@ LIMIT 100`
 		statementColumns: []string{"query_sample_text"},
 		fields:           fields,
 		counted:          true,
+		instrumented:     true,
 	}
 
 	// Read raw for my_explain.txt, then written through the same path as every
