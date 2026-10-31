@@ -373,15 +373,16 @@ var recordField = regexp.MustCompile(`^(\s*\d+: len \d+; hex )\S*(; asc ).*$`)
 // InnoDB's monitor output and deadlock reports.
 var monitorStatementEnd = []string{
 	"RECORD LOCKS", "TABLE LOCK", "------- TRX", "---TRANSACTION", "*** ", "TRANSACTION ",
-	"Trx read view", "Record lock", "LOCK WAIT", "mysql tables in use", "MySQL thread id",
+	"Trx read view", "Record lock", "LOCK WAIT", "mysql tables in use", "MySQL thread id", "MariaDB thread id",
 	"--------", "Hold", "TOO DEEP", "WE ROLL BACK", "Trx #rec",
 }
 
 // redactMonitorText replaces the values in InnoDB's monitor output: SHOW ENGINE
 // INNODB STATUS, and the deadlock reports innodb_print_all_deadlocks writes to the
-// error log. A transaction's statement - the lines after its "MySQL thread id"
-// line - keeps its shape with its values replaced, and every record field's hex and
-// text are replaced. Every other line is InnoDB's own counters and names, kept.
+// error log. A transaction's statement - the lines after its thread line, "MySQL
+// thread id" or MariaDB's "MariaDB thread id" - keeps its shape with its values
+// replaced, and every record field's hex and text are replaced. Every other line is
+// InnoDB's own counters and names, kept.
 func redactMonitorText(text string) (string, int) {
 	lines := strings.Split(text, "\n")
 	redacted := 0
@@ -398,7 +399,7 @@ func redactMonitorText(text string) (string, int) {
 
 		trimmed := strings.TrimLeft(line, " \t")
 
-		if strings.HasPrefix(trimmed, "MySQL thread id") {
+		if isMonitorThreadLine(trimmed) {
 			inStatement = true
 
 			continue
@@ -409,7 +410,7 @@ func redactMonitorText(text string) (string, int) {
 		}
 
 		if statementEnds(trimmed) || hasLogPrefix(line) {
-			inStatement = strings.HasPrefix(trimmed, "MySQL thread id")
+			inStatement = isMonitorThreadLine(trimmed)
 
 			continue
 		}
@@ -517,6 +518,13 @@ func messageQuotes(s string) []int {
 }
 
 func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
+// isMonitorThreadLine reports the line that opens a transaction's statement in
+// monitor output. MariaDB names itself there, and a line this did not know would
+// leave the statement after it unredacted.
+func isMonitorThreadLine(line string) bool {
+	return strings.HasPrefix(line, "MySQL thread id") || strings.HasPrefix(line, "MariaDB thread id")
+}
 
 func statementEnds(line string) bool {
 	for _, prefix := range monitorStatementEnd {

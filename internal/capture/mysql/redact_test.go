@@ -142,6 +142,28 @@ MySQL thread id 13, OS thread handle 141, query id 46 localhost root
 	assert.Equal(t, 1, n)
 }
 
+// MariaDB's InnoDB names itself on the thread line; as read from a Galera node.
+func TestRedactMonitorTextReadsMariaDBsThreadLine(t *testing.T) {
+	status := `---TRANSACTION 561, ACTIVE 4 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 3 lock struct(s), heap size 1128, 2 row lock(s), undo log entries 1
+MariaDB thread id 66, OS thread handle 123328656926272, query id 154 localhost root Updating
+UPDATE customers SET ssn='111-22-3333' WHERE id=1
+------- TRX HAS BEEN WAITING 806074 ns FOR THIS LOCK TO BE GRANTED:
+---TRANSACTION (0x702ab0ce6d80), ACTIVE 4 sec
+MariaDB thread id 62, OS thread handle 123328657233472, query id 133 localhost root User sleep
+SELECT  SLEEP(2) FROM customers WHERE email = 'carol@secret.org'
+Trx read view will not see trx with id >= 549, sees < 549`
+
+	got, n := redactMonitorText(status)
+
+	assert.Contains(t, got, "UPDATE customers SET ssn='<redacted>' WHERE id=<redacted>\n------- TRX HAS BEEN WAITING")
+	assert.Contains(t, got, "SELECT  SLEEP(<redacted>) FROM customers WHERE email = '<redacted>'\nTrx read view")
+	assert.NotContains(t, got, "111-22-3333")
+	assert.NotContains(t, got, "carol@secret.org")
+	assert.Equal(t, 4, n)
+}
+
 func TestRedactServerMessageReplacesWhatIsQuotedAndKeepsTheTemplate(t *testing.T) {
 	// The first three as my84-replica (8.4.13) wrote them, with a row inserted on the
 	// replica and then on the source.
