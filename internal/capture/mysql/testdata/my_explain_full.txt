@@ -5,7 +5,7 @@
   "query_block": {
     "select_id": 1,
     "cost_info": {
-      "query_cost": "3.25"
+      "query_cost": "1.52"
     },
     "table": {
       "table_name": "orders",
@@ -25,9 +25,9 @@
       "rows_produced_per_join": 1,
       "filtered": "10.00",
       "cost_info": {
-        "read_cost": "2.25",
+        "read_cost": "0.53",
         "eval_cost": "0.10",
-        "prefix_cost": "3.25",
+        "prefix_cost": "1.52",
         "data_read_per_join": "80"
       },
       "used_columns": [
@@ -40,19 +40,7 @@
   }
 }
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=5e18b503343466373cc0ce1922b04a77902f0cce5386ce599cb95b682d29415e mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=e7f212c90b57a82f376cb7e1e2e9fd61c10c69a112b0df9a7b324d56780f8358 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=06a39ce8c691e6a6df2153a831acf9c96c58141280a6659d61b6b3c95386ccf6 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=4b44467a26c819fa1d73f2045f4d049795029a2a53e689147cb8cb99aee8dc4c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=56d7b706bf6e90dc846aa8aad34142437050ad1c57f12055098470e9a2d793a5 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=ceca5f5c85312da0f98f1aa8f46a5512b92d08dc7592a22b5c22909c1caabb2f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=d0c008f33034ab8d49a0b0d041beac0c989ee19a30ae8001989abdae4a966e21 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts=2026-10-30T09:00:00.008Z end_ts=2026-10-30T09:00:00.011Z duration_ms=3 status=OK rows=1 truncated=false scope=cluster schema_name=yc_app digest=4d0261838fa9e360bf6e68b0b1576edbdfc7a0ad88a5d378404c9273c5f31189 mode=ESTIMATED redacted=1 bytes=561 ts=2026-10-30T09:00:00.000Z
 {
@@ -81,51 +69,59 @@
   }
 }
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f25f720703c06b620bb429cb08af0f3ec56b377e5623bf826a821a581267e199 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=5e18b503343466373cc0ce1922b04a77902f0cce5386ce599cb95b682d29415e mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=d0c008f33034ab8d49a0b0d041beac0c989ee19a30ae8001989abdae4a966e21 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=56d7b706bf6e90dc846aa8aad34142437050ad1c57f12055098470e9a2d793a5 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=54e3214b56970aba997c1a930db8af997f86b317221ad242f8b8a1a61a4dfb9a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=4b44467a26c819fa1d73f2045f4d049795029a2a53e689147cb8cb99aee8dc4c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=b0a2105f85f781a2af3593f66431f1528f14f14566499839ea27e23911fb9a5a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=c5144d5b145f862cbb7bd1fb6655a1e792441ea9fdb26ba7d3003c0f4a4b6444 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f25f720703c06b620bb429cb08af0f3ec56b377e5623bf826a821a581267e199 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=06a39ce8c691e6a6df2153a831acf9c96c58141280a6659d61b6b3c95386ccf6 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=dea84343fedeb9eee0dde414c3b96bdeccad74f9372b89559a33b3db11a1722e mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=99b5a1dbc9f71c80e389dd3f004ce4ea6615f52f2f11039bcea1dc59e82f0ef3 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=aba74f3e0a9d192deb417f8bb2212b86b7e20a2f032d1fb38a594a4e073c670f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=23733b0469df54894f97ce1618955267d5b63af917cc2178f567d8ed1ab2bc23 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=a839e9b6d0d4b5ee23d2b16dd9704a27e8dc579f263af0eda28987b762ac80c9 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=9f10abe987bcc2a9f1fef16b24b2ee5ebf3d91ebe4c1444c84486795957aaa0c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=432ce3b4d5106435d704d79d49f3890b71f52d261d7e690c174fc83ff5713d73 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f2b422a4b26a8c028ff93b18dedb9cf7b184fd727621fd75c86b9d72e7d079e1 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=23733b0469df54894f97ce1618955267d5b63af917cc2178f567d8ed1ab2bc23 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=c5144d5b145f862cbb7bd1fb6655a1e792441ea9fdb26ba7d3003c0f4a4b6444 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=aba74f3e0a9d192deb417f8bb2212b86b7e20a2f032d1fb38a594a4e073c670f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=09e010493a2c79790b416606f5c38af2b6fed0c3c01b65a773e604f7a7b3a591 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=1cd41ed293193dde95f97f780253f308fcc9d4971d5fa575df2b859475258413 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=b286e0112035a80389b2eaca5c74553a13b03da6ff167ceb95b5d1e5df5f8808 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=a839e9b6d0d4b5ee23d2b16dd9704a27e8dc579f263af0eda28987b762ac80c9 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=42e269c71611344fa80eb69712bc71291055048c44b811c17bf4e39af58cc124 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=727cd91a135d582e200d00cb10a59a2b3d7289cc80db244d459efc27324f139a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=b41f6bf832679f710787c6b89ba400b45fcc320fbe471e11191acf56cfc6557d mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=ac9920a127a84ea177016cfc08ad3f535a67283fb3890f8979e06036fac01978 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=011e2837e0873318d6fa705d898635af20d92d9c8b889acc67c207eb7a88e29c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=65b31f564d7c505bae8e34221bcb9f84320cf5b13e936480a99526116aa3a31e mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=0033b9a7a32bc57d87fec1b358f957ec121756b5507437054ad8986a2317cbce mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=718fd76df351824c6b9535cb6bf5acddf4cd0dbfe6a921ca4007df0a7468d600 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f4f75049ab3ee5cefb135aad398b8624ae079577877fbf796a16930e9fb7ee7e mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=fb9b5427b68046160bbb25f55a40de0fab47fbbe933c53e7d1138985002a057f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=9a3ab3f74fdefae224f0fc283828f12664f0fee1d4fa3a34aba9c3c099b7555a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=4754b2a48a2f31cacb66f609c3d0bfc0b24beec1c9577fb67c52addce69429fa mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=42e269c71611344fa80eb69712bc71291055048c44b811c17bf4e39af58cc124 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=b286e0112035a80389b2eaca5c74553a13b03da6ff167ceb95b5d1e5df5f8808 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=25d3f47cf41061d1a16027b8e7180362bfe223e140cf993b6db8ada9aa08e289 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=65b31f564d7c505bae8e34221bcb9f84320cf5b13e936480a99526116aa3a31e mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=1cd41ed293193dde95f97f780253f308fcc9d4971d5fa575df2b859475258413 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=b41f6bf832679f710787c6b89ba400b45fcc320fbe471e11191acf56cfc6557d mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=011e2837e0873318d6fa705d898635af20d92d9c8b889acc67c207eb7a88e29c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=0033b9a7a32bc57d87fec1b358f957ec121756b5507437054ad8986a2317cbce mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f47f1343b38afc9ec39e159899039accb28279112ee393500c49113fee288a55 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:00.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
@@ -133,19 +129,9 @@
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=344534f8c8871f1020df3aa1fa8809b011cc3303c86e8f819cd460937ce34b07 mode=ESTIMATED reason=no_sample_text bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=56d7b706bf6e90dc846aa8aad34142437050ad1c57f12055098470e9a2d793a5 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=3fa999034b71cd6d72f8a39faeee083f3439592b31945677a31f2f62b34bfbbb mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=4b44467a26c819fa1d73f2045f4d049795029a2a53e689147cb8cb99aee8dc4c mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=b0a2105f85f781a2af3593f66431f1528f14f14566499839ea27e23911fb9a5a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=e7f212c90b57a82f376cb7e1e2e9fd61c10c69a112b0df9a7b324d56780f8358 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=307331afbc1552cd3fbf2e90d36b1791a5d62b2a28ea15eb87ea80bad1fc79a1 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=432ce3b4d5106435d704d79d49f3890b71f52d261d7e690c174fc83ff5713d73 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=b286e0112035a80389b2eaca5c74553a13b03da6ff167ceb95b5d1e5df5f8808 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=55fa5810fbb2760e86d578526176c1497b134d4ef3dd0863dd78b1c5e819848c mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=2 source=explain start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.005Z duration_ms=3 status=OK rows=1 truncated=false scope=cluster schema_name= digest=136e74c2ac899eac2bf3cb20d7f88b7d27feb9fb3c8de3cdb3cd3e59e2f09cf0 mode=ESTIMATED redacted=0 bytes=694 ts=2026-10-30T09:00:06.000Z
 {
@@ -185,49 +171,25 @@
   }
 }
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=55fa5810fbb2760e86d578526176c1497b134d4ef3dd0863dd78b1c5e819848c mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=0033b9a7a32bc57d87fec1b358f957ec121756b5507437054ad8986a2317cbce mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=1cd41ed293193dde95f97f780253f308fcc9d4971d5fa575df2b859475258413 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=463d8babed2fb13eec54dd6ef44195ea7d7a60959bc44e1b095fca9349181d4f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=0533ead389b55c64b57fefe0234095973c8390283e12cc93cb61a28317b388ae mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=cecf27ddf81e32a888f7dca20cd11a0e6f6b556c75994e7bfa339643c3d00ac7 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=65b31f564d7c505bae8e34221bcb9f84320cf5b13e936480a99526116aa3a31e mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=acd735d90499a8c320129ffab219a58a6c26ba4cde76daf9b60cada6923ba99b mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=c5144d5b145f862cbb7bd1fb6655a1e792441ea9fdb26ba7d3003c0f4a4b6444 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=215d446af3d9078335910bf1526258d0ccce2c456805625c62f75cc7432435ca mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=4a828aa1fe3bd0bf2a28fbc6219437d7106edadb1aa284a7832de0ce5446de78 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=4754b2a48a2f31cacb66f609c3d0bfc0b24beec1c9577fb67c52addce69429fa mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=8f9c3c06141d9a718dfcae94ade744b8e938317fa06cca1b0e91b74fc8754f87 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=9a3ab3f74fdefae224f0fc283828f12664f0fee1d4fa3a34aba9c3c099b7555a mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=cecf27ddf81e32a888f7dca20cd11a0e6f6b556c75994e7bfa339643c3d00ac7 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=0533ead389b55c64b57fefe0234095973c8390283e12cc93cb61a28317b388ae mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=a3a6e2f65de861068bd69b07ee1ff337490bb2f0a0dbb522920f03bbf08eac4f mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=8e5a0c650e4ffbc295474e375b2adabc84282e2b7ce8995715a3103fb78b2514 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=a24639723cd35f20fcd4ec1094a3ba5d35b6cea7caac579599567aa2683b1378 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=f47f1343b38afc9ec39e159899039accb28279112ee393500c49113fee288a55 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=8e5a0c650e4ffbc295474e375b2adabc84282e2b7ce8995715a3103fb78b2514 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=33f09b7423ff20fff66be0fcb205dbbb8289cef680ac50b7b086b5c6d5b133cf mode=ESTIMATED reason=read_only_session bytes=0 ts=2026-10-30T09:00:12.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=d5c1fc87a283010c26df11e508f6290360c2adabfce9d8afb9f62db46592a4ee mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:12.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=41242820b8f198e0f49fe2e239ec309fb0fc82831e179b2301443aef558c1758 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:12.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name=yc_app digest=307331afbc1552cd3fbf2e90d36b1791a5d62b2a28ea15eb87ea80bad1fc79a1 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:12.000Z
-# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
-# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=3e67fa9d38d82054e7fc01fe3ee8844dc76faaaefbd74d213a2af42e60e95520 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:12.000Z
+# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=41242820b8f198e0f49fe2e239ec309fb0fc82831e179b2301443aef558c1758 mode=ESTIMATED reason=agent_statement bytes=0 ts=2026-10-30T09:00:12.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
 # sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=f2b9be5f0f32ca7507e4ddf133cd2fad0993a1c26fde9caa6f067b1af2b7603c mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:12.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster schema_name= digest=3e67fa9d38d82054e7fc01fe3ee8844dc76faaaefbd74d213a2af42e60e95520 mode=ESTIMATED reason=not_explainable bytes=0 ts=2026-10-30T09:00:12.000Z
 # engine=mysql source=my_explain v=1 format=text scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

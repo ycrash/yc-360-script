@@ -21,12 +21,12 @@ version,8.4.13
 version_comment,MySQL Community Server - GPL
 mysql_variant,mysql
 current_user,root@%
-connection_id,2863
+connection_id,18
 agent_session_variables,"innodb_lock_wait_timeout,lock_wait_timeout,max_execution_time,time_zone,transaction_read_only,wait_timeout"
 database,
-server_utc,2026-10-30T07:35:30.349Z
-uptime_seconds,5596
-hostname,f18093e4d77c
+server_utc,2026-10-31T10:09:55.411Z
+uptime_seconds,14
+hostname,cc99290eeb14
 port,3306
 datadir,/var/lib/mysql/
 socket,/var/run/mysqld/mysqld.sock

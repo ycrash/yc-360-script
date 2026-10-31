@@ -17,6 +17,7 @@ var slowQueryColumns = []string{
 	"schema_name", "digest", "digest_text", "query_sample_text", "query_sample_seen", "query_sample_timer_wait",
 	"count_star", "sum_timer_wait", "sum_rows_examined", "sum_rows_sent",
 	"sum_cpu_time", "sum_lock_time",
+	"quantile_95", "quantile_99", "max_timer_wait", "sum_errors",
 	"max_total_memory", "max_controlled_memory",
 	"sum_created_tmp_disk_tables",
 }
@@ -105,6 +106,7 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
        CAST(query_sample_seen AS CHAR) AS query_sample_seen,
        query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,
        ` + cpuTime + ` AS sum_cpu_time, sum_lock_time,
+       quantile_95, quantile_99, max_timer_wait, sum_errors,
        ` + totalMemory + ` AS max_total_memory, ` + controlledMemory + ` AS max_controlled_memory,
        sum_created_tmp_disk_tables,
        ` + rowsTotalSelect + `

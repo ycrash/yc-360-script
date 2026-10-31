@@ -243,10 +243,13 @@ At the normal speed:
   from its cluster reports much the same status, still naming its provider.
 - `my_prepared_statements.txt` — every prepared statement, by owning thread.
 - `my_slow_queries.txt` — the 100 digests with the most time, keyed by
-  `(schema_name, digest)`. A column this server cannot fill - `sum_cpu_time`
-  before 8.0.28 or with its consumer off, the memory columns before 8.0.31 or
-  with the `memory/%` instruments off, when the server reads zero for them - is
-  empty and named in `unavailable=`, never written as zero.
+  `(schema_name, digest)`, with `quantile_95`, `quantile_99`, `max_timer_wait`
+  and `sum_errors` beside the totals. The first three are cumulative since the
+  last statistics reset, and every timer is in picoseconds. A column this
+  server cannot fill - `sum_cpu_time` before 8.0.28 or with its consumer off,
+  the memory columns before 8.0.31 or with the `memory/%` instruments off, when
+  the server reads zero for them - is empty and named in `unavailable=`, never
+  written as zero.
 - `my_explain.txt` — see *`explain`*.
 
 Every 10s, whatever `frequency` is, on the normal-speed connection:

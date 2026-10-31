@@ -452,28 +452,12 @@ order - and compares each file with its golden. No server is needed.
 - `my_metadata_connect_failure.txt`, `my_sessions_connect_failure.txt` - a run
   refused a connection slot; every other file's failure is the same envelope.
 
-Statements whose text changed since were edited in place rather than
-re-recorded, so a golden's diff is the change alone:
-
-- The Galera check's `wsrep_provider_name`; `my84` answers no rows either way.
-- The per-sample check of the CPU consumers and memory instruments, which
-  replaced the consumer count, and the capabilities' memory count: the
-  check's answer takes the recorded run's own `memory_instruments_enabled`,
-  429.
-- `rows_total` on the three top-100 reads. The digests' totals are their row
-  counts, all under 100 and so exact; `my_storage.txt`'s is the recorded run's
-  `tables_visible`, 124; `my_table_stats.txt`'s is what `my84` counted when the
-  recording was edited, 160, not what it counted during the run.
-- `@@performance_schema` on each connection's identify statement: `1`, as
-  `my84` answers.
-- The digest read's `query_sample_seen`, now `CAST(... AS CHAR)`: the same
-  text, read without the warning a zero datetime raised.
-- `log_error_verbosity` in the deadlock read's `SHOW GLOBAL VARIABLES`, with
-  `2` as its answer: what the same run's metadata read from `my84`.
-- The two plans in a schema, from a `USE` and an `EXPLAIN` to one
-  `EXPLAIN ... FOR SCHEMA`. The recorded digests still show what the `USE`
-  did during the run: from the second sample, the agent's own statements are
-  also filed under `yc_app`.
+Both recordings were re-made on 2026-10-31, when the digest read gained spec
+5.28's four columns (`quantile_95`, `quantile_99`, `max_timer_wait`,
+`sum_errors`): new columns have no recorded answer to edit in. The earlier
+in-place edits are therefore gone, every statement now as the run sent it. A statement whose text changes
+later may be edited in place again, so a golden's diff is the change alone;
+list each such edit here.
 
 Two values in a recording are replaced as it is written, so a replay reads the
 same on every machine: the client address the server saw (`192.0.2.10`, a

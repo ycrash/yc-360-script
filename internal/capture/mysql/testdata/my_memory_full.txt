@@ -7,8 +7,8 @@ innodb_page_size,16384
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=buffer_pool_status start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 Variable_name,Value
-Innodb_buffer_pool_bytes_data,22003712
-Innodb_buffer_pool_pages_free,6849
+Innodb_buffer_pool_bytes_data,21774336
+Innodb_buffer_pool_pages_free,6863
 Innodb_buffer_pool_pages_total,8192
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=temp_spill_status start_ts=2026-10-30T09:00:00.006Z end_ts=2026-10-30T09:00:00.007Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
@@ -16,25 +16,24 @@ Variable_name,Value
 Created_tmp_disk_tables,0
 Sort_merge_passes,0
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
-# sample_id=1 source=memory_by_thread start_ts=2026-10-30T09:00:00.008Z end_ts=2026-10-30T09:00:00.009Z duration_ms=1 status=OK rows=8 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+# sample_id=1 source=memory_by_thread start_ts=2026-10-30T09:00:00.008Z end_ts=2026-10-30T09:00:00.009Z duration_ms=1 status=OK rows=7 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,current_bytes
-2902,2863,root,192.0.2.10,,Query,1338873
-2901,2862,root,192.0.2.10,,Query,1194117
-2900,2861,root,192.0.2.10,,Sleep,98861
-2897,2858,root,192.0.2.10,yc_app,Sleep,83584
-2896,2857,root,192.0.2.10,,Sleep,78189
-1386,1347,yc_replicator,172.22.0.8,,Binlog Dump GTID,25832
-42,5,event_scheduler,localhost,,Daemon,16665
-46,7,,,,Daemon,16358
+55,18,root,192.0.2.10,,Query,1881092
+54,17,root,192.0.2.10,,Query,1432304
+51,14,root,192.0.2.10,yc_app,Sleep,331295
+50,13,root,192.0.2.10,,Sleep,316300
+53,16,root,192.0.2.10,,Sleep,173271
+40,5,event_scheduler,localhost,,Daemon,16665
+44,7,,,,Daemon,16350
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=prepared_statement_memory start_ts=2026-10-30T09:00:00.010Z end_ts=2026-10-30T09:00:00.011Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED,HIGH_NUMBER_OF_BYTES_USED
-memory/sql/Prepared_statement::infrastructure,1920,5152
-memory/sql/Prepared_statement::main_mem_root,0,248640
+memory/sql/Prepared_statement::infrastructure,2640,3120
+memory/sql/Prepared_statement::main_mem_root,0,170528
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=innodb_memory start_ts=2026-10-30T09:00:00.012Z end_ts=2026-10-30T09:00:00.013Z duration_ms=1 status=OK rows=215 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED
-memory/innodb/adaptive hash index,1656
+memory/innodb/adaptive hash index,1688
 memory/innodb/log and page archiver,720
 memory/innodb/buf_stat_per_index_t,152
 memory/innodb/clone,256
@@ -47,16 +46,16 @@ memory/innodb/other,0
 memory/innodb/partitioning,0
 memory/innodb/row_log_buf,0
 memory/innodb/ddl,0
-memory/innodb/std,533264
-memory/innodb/trx_sys_t::rw_trx_ids,48
+memory/innodb/std,532032
+memory/innodb/trx_sys_t::rw_trx_ids,40
 memory/innodb/undo::Tablespaces,1184
-memory/innodb/ut_lock_free_hash_t,33056
+memory/innodb/ut_lock_free_hash_t,33024
 memory/innodb/api0api,0
 memory/innodb/api0misc,0
 memory/innodb/btr0btr,0
 memory/innodb/btr0cur,0
 memory/innodb/btr0load,0
-memory/innodb/btr0pcur,3862
+memory/innodb/btr0pcur,1126
 memory/innodb/btr0sea,0
 memory/innodb/btr0types,0
 memory/innodb/buf,0
@@ -90,7 +89,7 @@ memory/innodb/dict,0
 memory/innodb/dict0boot,0
 memory/innodb/dict0crea,0
 memory/innodb/dict0dd,0
-memory/innodb/dict0dict,15848
+memory/innodb/dict0dict,14968
 memory/innodb/dict0load,0
 memory/innodb/dict0mem,128
 memory/innodb/dict0priv,0
@@ -102,7 +101,7 @@ memory/innodb/dyn0buf,0
 memory/innodb/dyn0types,0
 memory/innodb/eval0eval,0
 memory/innodb/eval0proc,0
-memory/innodb/fil0fil,81032
+memory/innodb/fil0fil,81024
 memory/innodb/fil0types,0
 memory/innodb/file,0
 memory/innodb/fsp0file,0
@@ -132,7 +131,7 @@ memory/innodb/gis0sea,0
 memory/innodb/gis0type,0
 memory/innodb/ha0ha,0
 memory/innodb/ha0storage,0
-memory/innodb/ha_innodb,313358
+memory/innodb/ha_innodb,178526
 memory/innodb/ha_innopart,0
 memory/innodb/ha_prototypes,0
 memory/innodb/handler0alter,0
@@ -149,19 +148,19 @@ memory/innodb/lock0prdt,0
 memory/innodb/lock0priv,0
 memory/innodb/lock0types,0
 memory/innodb/lock0wait,0
-memory/innodb/log0log,52120
+memory/innodb/log0log,50120
 memory/innodb/log0recv,480
 memory/innodb/log0write,0
 memory/innodb/mach0data,0
 memory/innodb/mem,0
 memory/innodb/mem0mem,16724
-memory/innodb/memory,2274584
+memory/innodb/memory,1499368
 memory/innodb/mtr0log,0
 memory/innodb/mtr0mtr,0
 memory/innodb/mtr0types,0
 memory/innodb/os0atomic,0
-memory/innodb/os0event,4550976
-memory/innodb/os0file,2731352
+memory/innodb/os0event,4296104
+memory/innodb/os0file,2731296
 memory/innodb/os0numa,0
 memory/innodb/os0once,0
 memory/innodb/os0proc,0
@@ -180,11 +179,11 @@ memory/innodb/pars0sym,0
 memory/innodb/pars0types,0
 memory/innodb/que0que,0
 memory/innodb/que0types,0
-memory/innodb/read0read,173632
+memory/innodb/read0read,165856
 memory/innodb/read0types,0
 memory/innodb/rec,0
 memory/innodb/rem0cmp,0
-memory/innodb/rem0rec,12635
+memory/innodb/rem0rec,5549
 memory/innodb/rem0types,0
 memory/innodb/row0ext,0
 memory/innodb/row0ft,0
@@ -195,7 +194,7 @@ memory/innodb/row0mysql,0
 memory/innodb/row0purge,0
 memory/innodb/row0quiesce,0
 memory/innodb/row0row,0
-memory/innodb/row0sel,35344
+memory/innodb/row0sel,17984
 memory/innodb/row0types,0
 memory/innodb/row0uins,0
 memory/innodb/row0umod,0
@@ -208,14 +207,14 @@ memory/innodb/srv0mon,0
 memory/innodb/srv0srv,560
 memory/innodb/srv0start,0
 memory/innodb/srv0tmp,720
-memory/innodb/sync0arr,7373040
-memory/innodb/sync0debug,17489
+memory/innodb/sync0arr,7373032
+memory/innodb/sync0debug,16569
 memory/innodb/sync0policy,0
 memory/innodb/sync0sharded_rw,11808
 memory/innodb/sync0rw,0
 memory/innodb/sync0sync,0
 memory/innodb/sync0types,96
-memory/innodb/trx0i_s,245976
+memory/innodb/trx0i_s,152
 memory/innodb/trx0purge,1318
 memory/innodb/trx0rec,0
 memory/innodb/trx0roll,0
@@ -223,7 +222,7 @@ memory/innodb/trx0rseg,95840
 memory/innodb/trx0sys,62568
 memory/innodb/trx0trx,7672
 memory/innodb/trx0types,0
-memory/innodb/trx0undo,147232
+memory/innodb/trx0undo,146544
 memory/innodb/trx0xa,0
 memory/innodb/usr0sess,96
 memory/innodb/usr0types,0
@@ -252,7 +251,7 @@ memory/innodb/log_buffer_memory,67109872
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=performance_schema_memory start_ts=2026-10-30T09:00:00.014Z end_ts=2026-10-30T09:00:00.015Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 current_bytes
-247090176
+245058464
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=buffer_pool_variables start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.003Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 Variable_name,Value
@@ -261,8 +260,8 @@ innodb_page_size,16384
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=buffer_pool_status start_ts=2026-10-30T09:00:06.004Z end_ts=2026-10-30T09:00:06.005Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 Variable_name,Value
-Innodb_buffer_pool_bytes_data,22003712
-Innodb_buffer_pool_pages_free,6849
+Innodb_buffer_pool_bytes_data,21790720
+Innodb_buffer_pool_pages_free,6862
 Innodb_buffer_pool_pages_total,8192
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=temp_spill_status start_ts=2026-10-30T09:00:06.006Z end_ts=2026-10-30T09:00:06.007Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
@@ -270,30 +269,29 @@ Variable_name,Value
 Created_tmp_disk_tables,0
 Sort_merge_passes,0
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
-# sample_id=2 source=memory_by_thread start_ts=2026-10-30T09:00:06.008Z end_ts=2026-10-30T09:00:06.009Z duration_ms=1 status=OK rows=13 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+# sample_id=2 source=memory_by_thread start_ts=2026-10-30T09:00:06.008Z end_ts=2026-10-30T09:00:06.009Z duration_ms=1 status=OK rows=12 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,current_bytes
-2901,2862,root,192.0.2.10,yc_app,Query,1229164
-2902,2863,root,192.0.2.10,,Sleep,1194475
-2905,2866,root,192.0.2.10,,Sleep,126222
-2906,2867,root,192.0.2.10,,Query,118162
-2903,2864,root,192.0.2.10,,Query,112882
-2904,2865,root,192.0.2.10,,Prepare,111958
-2908,2869,root,192.0.2.10,,Prepare,107061
-2900,2861,root,192.0.2.10,,Sleep,98861
-2896,2857,root,192.0.2.10,,Sleep,97013
-2897,2858,root,192.0.2.10,yc_app,Sleep,83584
-1386,1347,yc_replicator,172.22.0.8,,Binlog Dump GTID,25832
-42,5,event_scheduler,localhost,,Daemon,16665
-46,7,,,,Daemon,16358
+55,18,root,192.0.2.10,,Sleep,1507632
+54,17,root,192.0.2.10,,Query,1495835
+53,16,root,192.0.2.10,,Sleep,419095
+50,13,root,192.0.2.10,,Sleep,340593
+51,14,root,192.0.2.10,yc_app,Sleep,331295
+58,21,root,192.0.2.10,,Prepare,153674
+59,22,root,192.0.2.10,,Query,151255
+60,23,root,192.0.2.10,,Prepare,145651
+57,20,root,192.0.2.10,,Query,113054
+62,25,root,192.0.2.10,,Prepare,107049
+40,5,event_scheduler,localhost,,Daemon,16665
+44,7,,,,Daemon,16350
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=prepared_statement_memory start_ts=2026-10-30T09:00:06.010Z end_ts=2026-10-30T09:00:06.011Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED,HIGH_NUMBER_OF_BYTES_USED
-memory/sql/Prepared_statement::infrastructure,2088,5632
+memory/sql/Prepared_statement::infrastructure,3528,4728
 memory/sql/Prepared_statement::main_mem_root,80208,250736
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=innodb_memory start_ts=2026-10-30T09:00:06.012Z end_ts=2026-10-30T09:00:06.013Z duration_ms=1 status=OK rows=215 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED
-memory/innodb/adaptive hash index,1656
+memory/innodb/adaptive hash index,1688
 memory/innodb/log and page archiver,720
 memory/innodb/buf_stat_per_index_t,152
 memory/innodb/clone,256
@@ -306,16 +304,16 @@ memory/innodb/other,0
 memory/innodb/partitioning,0
 memory/innodb/row_log_buf,0
 memory/innodb/ddl,0
-memory/innodb/std,533264
+memory/innodb/std,532032
 memory/innodb/trx_sys_t::rw_trx_ids,48
 memory/innodb/undo::Tablespaces,1184
-memory/innodb/ut_lock_free_hash_t,33056
+memory/innodb/ut_lock_free_hash_t,33024
 memory/innodb/api0api,0
 memory/innodb/api0misc,0
 memory/innodb/btr0btr,0
 memory/innodb/btr0cur,0
 memory/innodb/btr0load,0
-memory/innodb/btr0pcur,3862
+memory/innodb/btr0pcur,1126
 memory/innodb/btr0sea,0
 memory/innodb/btr0types,0
 memory/innodb/buf,0
@@ -349,7 +347,7 @@ memory/innodb/dict,0
 memory/innodb/dict0boot,0
 memory/innodb/dict0crea,0
 memory/innodb/dict0dd,0
-memory/innodb/dict0dict,15848
+memory/innodb/dict0dict,14968
 memory/innodb/dict0load,0
 memory/innodb/dict0mem,128
 memory/innodb/dict0priv,0
@@ -361,7 +359,7 @@ memory/innodb/dyn0buf,0
 memory/innodb/dyn0types,0
 memory/innodb/eval0eval,0
 memory/innodb/eval0proc,0
-memory/innodb/fil0fil,81032
+memory/innodb/fil0fil,81024
 memory/innodb/fil0types,0
 memory/innodb/file,0
 memory/innodb/fsp0file,0
@@ -391,7 +389,7 @@ memory/innodb/gis0sea,0
 memory/innodb/gis0type,0
 memory/innodb/ha0ha,0
 memory/innodb/ha0storage,0
-memory/innodb/ha_innodb,317278
+memory/innodb/ha_innodb,182550
 memory/innodb/ha_innopart,0
 memory/innodb/ha_prototypes,0
 memory/innodb/handler0alter,0
@@ -408,19 +406,19 @@ memory/innodb/lock0prdt,0
 memory/innodb/lock0priv,0
 memory/innodb/lock0types,0
 memory/innodb/lock0wait,0
-memory/innodb/log0log,52120
+memory/innodb/log0log,50120
 memory/innodb/log0recv,480
 memory/innodb/log0write,0
 memory/innodb/mach0data,0
 memory/innodb/mem,0
 memory/innodb/mem0mem,16724
-memory/innodb/memory,2302792
+memory/innodb/memory,1541024
 memory/innodb/mtr0log,0
 memory/innodb/mtr0mtr,0
 memory/innodb/mtr0types,0
 memory/innodb/os0atomic,0
-memory/innodb/os0event,4550976
-memory/innodb/os0file,2731352
+memory/innodb/os0event,4296240
+memory/innodb/os0file,2731296
 memory/innodb/os0numa,0
 memory/innodb/os0once,0
 memory/innodb/os0proc,0
@@ -439,11 +437,11 @@ memory/innodb/pars0sym,0
 memory/innodb/pars0types,0
 memory/innodb/que0que,0
 memory/innodb/que0types,0
-memory/innodb/read0read,175072
+memory/innodb/read0read,167584
 memory/innodb/read0types,0
 memory/innodb/rec,0
 memory/innodb/rem0cmp,0
-memory/innodb/rem0rec,12738
+memory/innodb/rem0rec,5792
 memory/innodb/rem0types,0
 memory/innodb/row0ext,0
 memory/innodb/row0ft,0
@@ -454,7 +452,7 @@ memory/innodb/row0mysql,0
 memory/innodb/row0purge,0
 memory/innodb/row0quiesce,0
 memory/innodb/row0row,0
-memory/innodb/row0sel,35344
+memory/innodb/row0sel,26352
 memory/innodb/row0types,0
 memory/innodb/row0uins,0
 memory/innodb/row0umod,0
@@ -467,8 +465,8 @@ memory/innodb/srv0mon,0
 memory/innodb/srv0srv,560
 memory/innodb/srv0start,0
 memory/innodb/srv0tmp,720
-memory/innodb/sync0arr,7373040
-memory/innodb/sync0debug,17489
+memory/innodb/sync0arr,7373032
+memory/innodb/sync0debug,16569
 memory/innodb/sync0policy,0
 memory/innodb/sync0sharded_rw,11808
 memory/innodb/sync0rw,0
@@ -482,7 +480,7 @@ memory/innodb/trx0rseg,95840
 memory/innodb/trx0sys,62568
 memory/innodb/trx0trx,7672
 memory/innodb/trx0types,0
-memory/innodb/trx0undo,147232
+memory/innodb/trx0undo,146544
 memory/innodb/trx0xa,0
 memory/innodb/usr0sess,96
 memory/innodb/usr0types,0
@@ -520,8 +518,8 @@ innodb_page_size,16384
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=buffer_pool_status start_ts=2026-10-30T09:00:12.004Z end_ts=2026-10-30T09:00:12.005Z duration_ms=1 status=OK rows=3 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
 Variable_name,Value
-Innodb_buffer_pool_bytes_data,22003712
-Innodb_buffer_pool_pages_free,6849
+Innodb_buffer_pool_bytes_data,21823488
+Innodb_buffer_pool_pages_free,6860
 Innodb_buffer_pool_pages_total,8192
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=temp_spill_status start_ts=2026-10-30T09:00:12.006Z end_ts=2026-10-30T09:00:12.007Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
@@ -529,26 +527,27 @@ Variable_name,Value
 Created_tmp_disk_tables,0
 Sort_merge_passes,0
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
-# sample_id=3 source=memory_by_thread start_ts=2026-10-30T09:00:12.008Z end_ts=2026-10-30T09:00:12.009Z duration_ms=1 status=OK rows=9 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+# sample_id=3 source=memory_by_thread start_ts=2026-10-30T09:00:12.008Z end_ts=2026-10-30T09:00:12.009Z duration_ms=1 status=OK rows=10 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
 THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,current_bytes
-2901,2862,root,192.0.2.10,yc_app,Query,1229804
-2902,2863,root,192.0.2.10,,Sleep,1194475
-2906,2867,root,192.0.2.10,,Sleep,100391
-2900,2861,root,192.0.2.10,,Sleep,98861
-2903,2864,root,192.0.2.10,,Sleep,96338
-2897,2858,root,192.0.2.10,yc_app,Sleep,83584
-1386,1347,yc_replicator,172.22.0.8,,Binlog Dump GTID,25832
-42,5,event_scheduler,localhost,,Daemon,16665
-46,7,,,,Daemon,16358
+55,18,root,192.0.2.10,,Sleep,1507632
+54,17,root,192.0.2.10,,Query,1496632
+53,16,root,192.0.2.10,,Sleep,419095
+50,13,root,192.0.2.10,,Sleep,340593
+51,14,root,192.0.2.10,yc_app,Sleep,331295
+58,21,root,192.0.2.10,,Sleep,159779
+59,22,root,192.0.2.10,,Sleep,133484
+57,20,root,192.0.2.10,,Sleep,96510
+40,5,event_scheduler,localhost,,Daemon,16665
+44,7,,,,Daemon,16350
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=prepared_statement_memory start_ts=2026-10-30T09:00:12.010Z end_ts=2026-10-30T09:00:12.011Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED,HIGH_NUMBER_OF_BYTES_USED
-memory/sql/Prepared_statement::infrastructure,1920,5632
-memory/sql/Prepared_statement::main_mem_root,0,250736
+memory/sql/Prepared_statement::infrastructure,3176,4728
+memory/sql/Prepared_statement::main_mem_root,39056,250736
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=innodb_memory start_ts=2026-10-30T09:00:12.012Z end_ts=2026-10-30T09:00:12.013Z duration_ms=1 status=OK rows=215 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
 EVENT_NAME,CURRENT_NUMBER_OF_BYTES_USED
-memory/innodb/adaptive hash index,1656
+memory/innodb/adaptive hash index,1688
 memory/innodb/log and page archiver,720
 memory/innodb/buf_stat_per_index_t,152
 memory/innodb/clone,256
@@ -561,16 +560,16 @@ memory/innodb/other,0
 memory/innodb/partitioning,0
 memory/innodb/row_log_buf,0
 memory/innodb/ddl,0
-memory/innodb/std,533264
+memory/innodb/std,532032
 memory/innodb/trx_sys_t::rw_trx_ids,64
 memory/innodb/undo::Tablespaces,1184
-memory/innodb/ut_lock_free_hash_t,33056
+memory/innodb/ut_lock_free_hash_t,33024
 memory/innodb/api0api,0
 memory/innodb/api0misc,0
 memory/innodb/btr0btr,0
 memory/innodb/btr0cur,0
 memory/innodb/btr0load,0
-memory/innodb/btr0pcur,3862
+memory/innodb/btr0pcur,1812
 memory/innodb/btr0sea,0
 memory/innodb/btr0types,0
 memory/innodb/buf,0
@@ -604,7 +603,7 @@ memory/innodb/dict,0
 memory/innodb/dict0boot,0
 memory/innodb/dict0crea,0
 memory/innodb/dict0dd,0
-memory/innodb/dict0dict,15848
+memory/innodb/dict0dict,14968
 memory/innodb/dict0load,0
 memory/innodb/dict0mem,128
 memory/innodb/dict0priv,0
@@ -616,7 +615,7 @@ memory/innodb/dyn0buf,0
 memory/innodb/dyn0types,0
 memory/innodb/eval0eval,0
 memory/innodb/eval0proc,0
-memory/innodb/fil0fil,81032
+memory/innodb/fil0fil,81024
 memory/innodb/fil0types,0
 memory/innodb/file,0
 memory/innodb/fsp0file,0
@@ -646,7 +645,7 @@ memory/innodb/gis0sea,0
 memory/innodb/gis0type,0
 memory/innodb/ha0ha,0
 memory/innodb/ha0storage,0
-memory/innodb/ha_innodb,316966
+memory/innodb/ha_innodb,183942
 memory/innodb/ha_innopart,0
 memory/innodb/ha_prototypes,0
 memory/innodb/handler0alter,0
@@ -663,19 +662,19 @@ memory/innodb/lock0prdt,0
 memory/innodb/lock0priv,0
 memory/innodb/lock0types,0
 memory/innodb/lock0wait,0
-memory/innodb/log0log,52120
+memory/innodb/log0log,50120
 memory/innodb/log0recv,480
 memory/innodb/log0write,0
 memory/innodb/mach0data,0
 memory/innodb/mem,0
 memory/innodb/mem0mem,16724
-memory/innodb/memory,2302072
+memory/innodb/memory,1552864
 memory/innodb/mtr0log,0
 memory/innodb/mtr0mtr,0
 memory/innodb/mtr0types,0
 memory/innodb/os0atomic,0
-memory/innodb/os0event,4550976
-memory/innodb/os0file,2731352
+memory/innodb/os0event,4296376
+memory/innodb/os0file,2731296
 memory/innodb/os0numa,0
 memory/innodb/os0once,0
 memory/innodb/os0proc,0
@@ -694,11 +693,11 @@ memory/innodb/pars0sym,0
 memory/innodb/pars0types,0
 memory/innodb/que0que,0
 memory/innodb/que0types,0
-memory/innodb/read0read,175360
+memory/innodb/read0read,168160
 memory/innodb/read0types,0
 memory/innodb/rec,0
 memory/innodb/rem0cmp,0
-memory/innodb/rem0rec,12738
+memory/innodb/rem0rec,5931
 memory/innodb/rem0types,0
 memory/innodb/row0ext,0
 memory/innodb/row0ft,0
@@ -709,7 +708,7 @@ memory/innodb/row0mysql,0
 memory/innodb/row0purge,0
 memory/innodb/row0quiesce,0
 memory/innodb/row0row,0
-memory/innodb/row0sel,35344
+memory/innodb/row0sel,26352
 memory/innodb/row0types,0
 memory/innodb/row0uins,0
 memory/innodb/row0umod,0
@@ -722,8 +721,8 @@ memory/innodb/srv0mon,0
 memory/innodb/srv0srv,560
 memory/innodb/srv0start,0
 memory/innodb/srv0tmp,720
-memory/innodb/sync0arr,7373040
-memory/innodb/sync0debug,17489
+memory/innodb/sync0arr,7373032
+memory/innodb/sync0debug,16569
 memory/innodb/sync0policy,0
 memory/innodb/sync0sharded_rw,11808
 memory/innodb/sync0rw,0
@@ -737,7 +736,7 @@ memory/innodb/trx0rseg,95840
 memory/innodb/trx0sys,62568
 memory/innodb/trx0trx,7672
 memory/innodb/trx0types,0
-memory/innodb/trx0undo,147232
+memory/innodb/trx0undo,146888
 memory/innodb/trx0xa,0
 memory/innodb/usr0sess,96
 memory/innodb/usr0types,0

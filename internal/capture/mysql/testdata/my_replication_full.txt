@@ -11,14 +11,14 @@ Variable_name,Value
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=binary_log_status start_ts=2026-10-30T09:00:00.008Z end_ts=2026-10-30T09:00:00.009Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster mechanism=none ts=2026-10-30T09:00:00.000Z
 File,Position,Binlog_Do_DB,Binlog_Ignore_DB,Executed_Gtid_Set
-binlog.000002,13546,,,6e9de8eb-d427-11f1-bfba-ea9351c6cd45:1-187
+binlog.000002,198,,,2c9e9d8a-d513-11f1-95d4-aee1d880a385:1-144
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=1 source=binary_log_variables start_ts=2026-10-30T09:00:00.010Z end_ts=2026-10-30T09:00:00.011Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
 Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=replica_status start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster redacted=0 ts=2026-10-30T09:00:06.000Z
 Replica_IO_State,Source_Host,Source_User,Source_Port,Connect_Retry,Source_Log_File,Read_Source_Log_Pos,Relay_Log_File,Relay_Log_Pos,Relay_Source_Log_File,Replica_IO_Running,Replica_SQL_Running,Replicate_Do_DB,Replicate_Ignore_DB,Replicate_Do_Table,Replicate_Ignore_Table,Replicate_Wild_Do_Table,Replicate_Wild_Ignore_Table,Last_Errno,Last_Error,Skip_Counter,Exec_Source_Log_Pos,Relay_Log_Space,Until_Condition,Until_Log_File,Until_Log_Pos,Source_SSL_Allowed,Source_SSL_CA_File,Source_SSL_CA_Path,Source_SSL_Cert,Source_SSL_Cipher,Source_SSL_Key,Seconds_Behind_Source,Source_SSL_Verify_Server_Cert,Last_IO_Errno,Last_IO_Error,Last_SQL_Errno,Last_SQL_Error,Replicate_Ignore_Server_Ids,Source_Server_Id,Source_UUID,Source_Info_File,SQL_Delay,SQL_Remaining_Delay,Replica_SQL_Running_State,Source_Retry_Count,Source_Bind,Last_IO_Error_Timestamp,Last_SQL_Error_Timestamp,Source_SSL_Crl,Source_SSL_Crlpath,Retrieved_Gtid_Set,Executed_Gtid_Set,Auto_Position,Replicate_Rewrite_DB,Channel_Name,Source_TLS_Version,Source_public_key_path,Get_Source_public_key,Network_Namespace
@@ -31,14 +31,14 @@ Variable_name,Value
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=binary_log_status start_ts=2026-10-30T09:00:06.008Z end_ts=2026-10-30T09:00:06.009Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster mechanism=none ts=2026-10-30T09:00:06.000Z
 File,Position,Binlog_Do_DB,Binlog_Ignore_DB,Executed_Gtid_Set
-binlog.000002,13546,,,6e9de8eb-d427-11f1-bfba-ea9351c6cd45:1-187
+binlog.000002,198,,,2c9e9d8a-d513-11f1-95d4-aee1d880a385:1-144
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=binary_log_variables start_ts=2026-10-30T09:00:06.010Z end_ts=2026-10-30T09:00:06.011Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
 Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=replica_status start_ts=2026-10-30T09:00:12.002Z end_ts=2026-10-30T09:00:12.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster redacted=0 ts=2026-10-30T09:00:12.000Z
 Replica_IO_State,Source_Host,Source_User,Source_Port,Connect_Retry,Source_Log_File,Read_Source_Log_Pos,Relay_Log_File,Relay_Log_Pos,Relay_Source_Log_File,Replica_IO_Running,Replica_SQL_Running,Replicate_Do_DB,Replicate_Ignore_DB,Replicate_Do_Table,Replicate_Ignore_Table,Replicate_Wild_Do_Table,Replicate_Wild_Ignore_Table,Last_Errno,Last_Error,Skip_Counter,Exec_Source_Log_Pos,Relay_Log_Space,Until_Condition,Until_Log_File,Until_Log_Pos,Source_SSL_Allowed,Source_SSL_CA_File,Source_SSL_CA_Path,Source_SSL_Cert,Source_SSL_Cipher,Source_SSL_Key,Seconds_Behind_Source,Source_SSL_Verify_Server_Cert,Last_IO_Errno,Last_IO_Error,Last_SQL_Errno,Last_SQL_Error,Replicate_Ignore_Server_Ids,Source_Server_Id,Source_UUID,Source_Info_File,SQL_Delay,SQL_Remaining_Delay,Replica_SQL_Running_State,Source_Retry_Count,Source_Bind,Last_IO_Error_Timestamp,Last_SQL_Error_Timestamp,Source_SSL_Crl,Source_SSL_Crlpath,Retrieved_Gtid_Set,Executed_Gtid_Set,Auto_Position,Replicate_Rewrite_DB,Channel_Name,Source_TLS_Version,Source_public_key_path,Get_Source_public_key,Network_Namespace
@@ -51,12 +51,12 @@ Variable_name,Value
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=binary_log_status start_ts=2026-10-30T09:00:12.008Z end_ts=2026-10-30T09:00:12.009Z duration_ms=1 status=OK rows=1 truncated=false scope=cluster mechanism=none ts=2026-10-30T09:00:12.000Z
 File,Position,Binlog_Do_DB,Binlog_Ignore_DB,Executed_Gtid_Set
-binlog.000002,13546,,,6e9de8eb-d427-11f1-bfba-ea9351c6cd45:1-187
+binlog.000002,660,,,2c9e9d8a-d513-11f1-95d4-aee1d880a385:1-145
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=binary_log_variables start_ts=2026-10-30T09:00:12.010Z end_ts=2026-10-30T09:00:12.011Z duration_ms=1 status=OK rows=4 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
 Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # engine=mysql source=my_replication v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

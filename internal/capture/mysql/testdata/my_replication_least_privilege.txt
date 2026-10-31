@@ -14,7 +14,7 @@ Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=2 source=replica_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:06.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
@@ -30,7 +30,7 @@ Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
 # sample_id=3 source=replica_status start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:12.000Z
 # capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
@@ -46,5 +46,5 @@ Variable_name,Value
 binlog_expire_logs_seconds,2592000
 gtid_mode,ON
 log_bin,ON
-server_uuid,6e9de8eb-d427-11f1-bfba-ea9351c6cd45
+server_uuid,2c9e9d8a-d513-11f1-95d4-aee1d880a385
 # engine=mysql source=my_replication v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

@@ -13,7 +13,7 @@ import (
 )
 
 func digestRow(schema, digest, sample string) []any {
-	return []any{schema, digest, "SELECT ...", sample, "2026-10-27 09:00:00", 1, 10, 100, 5, 5, nil, 0, 1024, 512, 0}
+	return []any{schema, digest, "SELECT ...", sample, "2026-10-27 09:00:00", 1, 10, 100, 5, 5, nil, 0, 75858000, 91201000, 120000000, 0, 1024, 512, 0}
 }
 
 // slowQueriesServer counts CPU time and has memory instruments on.
@@ -197,6 +197,7 @@ func TestSlowQueriesReadsTheSampleTimeAsText(t *testing.T) {
 	require.NoError(t, (&SlowQueries{Interval: time.Minute}).Sample(context.Background(), q, io.Discard, testSample(1, 1)))
 	assert.Equal(t, 1, q.count("CAST(query_sample_seen AS CHAR) AS query_sample_seen"),
 		"a zero datetime returned as a datetime raises warning 1292 into the error statistics")
+	assert.Equal(t, 1, q.count("quantile_95, quantile_99, max_timer_wait, sum_errors"), "spec 5.28's columns")
 }
 
 func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {
