@@ -78,8 +78,6 @@ func TestOnlyAPlaintextLoginIsGuarded(t *testing.T) {
 	}
 }
 
-// greetingPacket is the start of a server's first packet: the header, the protocol,
-// the version and its terminator, and the first bytes of what follows.
 func greetingPacket(version string) []byte {
 	payload := append([]byte{greetingProtocol}, version...)
 	payload = append(payload, 0, 0x2a, 0, 0, 0)
@@ -87,8 +85,7 @@ func greetingPacket(version string) []byte {
 	return append([]byte{byte(len(payload)), 0, 0, 0}, payload...)
 }
 
-// chunkedConn returns no more than one chunk per read, the rest of a chunk on the
-// next.
+// chunkedConn returns at most one chunk per read.
 type chunkedConn struct {
 	net.Conn
 
@@ -130,7 +127,7 @@ func readSocket(t *testing.T, conn net.Conn) []byte {
 }
 
 func TestTheGreetingNamesTheServer(t *testing.T) {
-	// As mariadb:10.11.6 and mysql:8.4 sent them on the matrix.
+	// As sent by mariadb:10.11.6 and mysql:8.4.
 	const mariadb = "5.5.5-10.11.6-MariaDB-1:10.11.6+maria~ubu2204"
 
 	packet := greetingPacket(mariadb)
@@ -311,7 +308,7 @@ func TestALostConnectionSaysWhy(t *testing.T) {
 	assert.Same(t, serverErr, cause.explain(serverErr), "a server's error says why itself")
 }
 
-// setConn is a driver connection that records what it runs.
+// setConn records what it runs.
 type setConn struct {
 	driver.Conn
 

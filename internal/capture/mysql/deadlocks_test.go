@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// verbosity2Report is a deadlock as log_error_verbosity=2 leaves it: InnoDB's dump
-// with no note before it, measured on the matrix.
+// A deadlock at log_error_verbosity=2: no note before it.
 const verbosity2Report = `TRANSACTION 2575, ACTIVE 3 sec starting index read
 mysql tables in use 1, locked 1
 LOCK WAIT 3 lock struct(s), heap size 1128, 2 row lock(s), undo log entries 1
@@ -28,7 +27,7 @@ MySQL thread id 171, OS thread handle 2815, query id 321 127.0.0.1 root updating
 UPDATE yc_app.orders SET status='b' WHERE id=1
 `
 
-// verbosity3Report is the same at log_error_verbosity=3: the notes frame it.
+// The same at log_error_verbosity=3: notes frame it.
 const verbosity3Report = `2026-10-27T13:29:48.410257Z 0 [Note] [MY-012468] [InnoDB] Transactions deadlock detected, dumping detailed information.
 2026-10-27T13:29:48.411828Z 0 [Note] [MY-012469] [InnoDB]  *** (1) TRANSACTION:
 TRANSACTION 2582, ACTIVE 3 sec starting index read
@@ -102,8 +101,7 @@ func TestDeadlocksFollowsARotatedLog(t *testing.T) {
 
 	require.NoError(t, d.Sample(context.Background(), q, &out, testSample(1, 3)))
 
-	// The old file's last report, then a new file at the path, as FLUSH ERROR LOGS
-	// after a rename leaves it.
+	// Old file's last report, then a new file, as FLUSH ERROR LOGS after a rename leaves it.
 	appendLog(t, path, verbosity2Report)
 	require.NoError(t, os.Rename(path, path+".1"))
 	require.NoError(t, os.WriteFile(path, []byte(verbosity3Report), 0o600))

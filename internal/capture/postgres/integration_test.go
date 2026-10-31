@@ -3874,8 +3874,7 @@ func assertMatrixCaptureIsInItsOwnArtifact(t *testing.T, block capacityMatrixBlo
 	t.Helper()
 
 	for _, row := range block.rows {
-		// PostgreSQL 14-17 keep the statement's leading comment, the agent's marker,
-		// in the stored text; 18 drops it.
+		// 14-17 keep the agent's leading marker comment; 18 drops it.
 		query := strings.TrimPrefix(block.cell(t, row, "query"), statementMarker)
 
 		if strings.HasPrefix(query, "WITH m AS MATERIALIZED") {

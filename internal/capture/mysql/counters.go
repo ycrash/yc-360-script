@@ -11,14 +11,11 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// Status and variable reads: the counters and settings each sample reads whole.
-
-// globalStatusColumns are SHOW GLOBAL STATUS's and SHOW GLOBAL VARIABLES's own.
+// globalStatusColumns are SHOW GLOBAL STATUS/VARIABLES columns.
 var globalStatusColumns = []string{"Variable_name", "Value"}
 
-// showGlobal is SHOW GLOBAL STATUS or VARIABLES for the named variables, in one
-// statement. GLOBAL, never the unqualified form: that is the agent's own session.
-// A name the server does not have is absent from the result.
+// showGlobal is SHOW GLOBAL STATUS or VARIABLES for the named variables. Always
+// GLOBAL: the unqualified form reads the agent's own session.
 func showGlobal(kind string, names ...string) string {
 	quoted := make([]string, len(names))
 	for i, name := range names {
@@ -29,9 +26,7 @@ func showGlobal(kind string, names ...string) string {
 }
 
 // NewCapacity is my_capacity.txt: connection and throughput counters.
-// Threads_connected includes the agent's own connections, a reference value only
-// (spec §1.3): the report counts connections from my_sessions.txt. Connections is
-// read beside Threads_created for the thread cache's hit rate.
+// Threads_connected includes the agent's own connections (spec §1.3).
 func NewCapacity(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_capacity", ConnectionNormal, interval),
@@ -49,10 +44,8 @@ func NewCapacity(interval time.Duration) Collector {
 // maxThreadMemoryRows bounds my_memory.txt's per-connection block.
 const maxThreadMemoryRows = 1000
 
-// NewMemory is my_memory.txt: the Buffer Pool, Connections and Internal Engine
-// Memory regions, one block per statement. The memory-summary blocks read zeros
-// where the memory/% instruments are off; my_metadata.txt's
-// has_memory_instruments_enabled says which.
+// NewMemory is my_memory.txt: buffer pool, connection and engine memory. Summary
+// blocks read zeros with memory/% instruments off (has_memory_instruments_enabled).
 func NewMemory(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_memory", ConnectionNormal, interval),
@@ -70,8 +63,7 @@ func NewMemory(interval time.Duration) Collector {
 					columns: globalStatusColumns,
 				},
 				{
-					// A count of tables, never bytes, and instance-wide: per-statement
-					// attribution is my_slow_queries.txt's sum_created_tmp_disk_tables.
+					// Instance-wide table counts; per-digest is in my_slow_queries.txt.
 					source:  "temp_spill_status",
 					query:   showGlobal("STATUS", "Created_tmp_disk_tables", "Sort_merge_passes"),
 					columns: globalStatusColumns,
@@ -102,8 +94,7 @@ WHERE EVENT_NAME IN ('memory/sql/Prepared_statement::main_mem_root',
 					instrumented: true,
 				},
 				{
-					// The buffer pool's own instrument is excluded, so the two regions
-					// never count it twice.
+					// Excludes the buffer pool, counted above.
 					source: "innodb_memory",
 					query: `SELECT EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED
 FROM performance_schema.memory_summary_global_by_event_name
@@ -125,10 +116,7 @@ WHERE EVENT_NAME LIKE 'memory/performance\_schema/%'`,
 }
 
 // NewNonDefaultSettings is my_nondefault_settings.txt: every variable not at its
-// compiled-in default, with its current value. The spec's text joins
-// performance_schema.global_variables for the value and its query did not; this is
-// the joined query. Both tables are readable without a grant. A session-only
-// variable has no global value, and keeps an empty one.
+// compiled default, joined to its global value (empty for session-only ones).
 func NewNonDefaultSettings(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_nondefault_settings", ConnectionExpensive, interval),
@@ -148,9 +136,8 @@ ORDER BY i.VARIABLE_NAME`,
 	}
 }
 
-// NewErrors is my_errors.txt: the server's own error counts, aggregated across the
-// instance. A refusal the agent itself met is counted here too, once per read that
-// met it: a refused read is asked once and remembered.
+// NewErrors is my_errors.txt: instance-wide error counts, including the agent's
+// own refusals (each asked once).
 func NewErrors(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_errors", ConnectionNormal, interval),
@@ -170,17 +157,11 @@ ORDER BY error_number`,
 	}
 }
 
-// timeoutErrors are the errors a timeout ends a statement or a session with:
-// lock wait timeout, max_execution_time, and a session closed for inactivity
-// (8.0.24 and later; older servers end it without a word to the client).
+// timeoutErrors: lock wait timeout, max_execution_time, idle session closed (8.0.24+).
 var timeoutErrors = []string{"1205", "3024", "4031"}
 
-// NewTimeouts is my_timeouts.txt. The spec reads it from the error log, but the
-// server writes none of these there: a lock wait timeout (1205) and an execution
-// timeout (3024) go to the client and nowhere else, and an idle session's end is a
-// Note only log_error_verbosity=3 writes, measured on the matrix. The errors are
-// counted instead, by number, beside Aborted_clients - every session that ended
-// without closing, wait_timeout's among them.
+// NewTimeouts is my_timeouts.txt: timeout error counts and Aborted_clients. Not
+// read from the error log as the spec says: the server doesn't log these (measured).
 func NewTimeouts(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_timeouts", ConnectionNormal, interval),
@@ -205,14 +186,11 @@ ORDER BY error_number`,
 	}
 }
 
-// bufferPoolColumns are SHOW ENGINE INNODB STATUS's.
+// bufferPoolColumns are SHOW ENGINE INNODB STATUS columns.
 var bufferPoolColumns = []string{"Type", "Name", "Status"}
 
-// BufferPool is my_buffer_pool.txt: SHOW ENGINE INNODB STATUS, written as text. Its
-// one value is the monitor's whole report, whose line breaks the server's parser
-// reads by, so the body is the report itself rather than a CSV cell. Its
-// TRANSACTIONS and LATEST DETECTED DEADLOCK sections quote statements and print
-// rows; both have their values replaced.
+// BufferPool is my_buffer_pool.txt: SHOW ENGINE INNODB STATUS's report as text,
+// redacted.
 type BufferPool struct {
 	Interval time.Duration
 
@@ -261,8 +239,7 @@ func (b *BufferPool) Sample(ctx context.Context, q Querier, w io.Writer, s Sampl
 		[]dbcore.HeaderField{kv("redacted", strconv.Itoa(redacted))}, []byte(body))
 }
 
-// writeTextBlock writes a text block: its header, with bytes= the body's length,
-// then the body, ending in a newline, so the next header starts a line.
+// writeTextBlock writes a header with bytes= and the body, newline-terminated.
 func writeTextBlock(w io.Writer, artifact Artifact, s SampleContext, b block, reads dbcore.Span, status string,
 	fields []dbcore.HeaderField, body []byte,
 ) error {

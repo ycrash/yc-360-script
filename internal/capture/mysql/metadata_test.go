@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// metadataServer answers my_metadata.txt's statements as a server would.
 func metadataServer(version string, logError string) *fakeQuerier {
 	return (&fakeQuerier{}).
 		on("SELECT VERSION(), @@version_comment, CURRENT_USER()", fakeResult{
@@ -219,9 +218,7 @@ func TestSameHostIsTheServersOwnStart(t *testing.T) {
 	}
 }
 
-// statLine is a /proc stat line with starttime, field 22, at ticks.
 func statLine(pid int, comm string, ticks int) string {
-	// Fields 3 to 21, then starttime and two more.
 	return fmt.Sprintf("%d (%s) S %s %d 0 0\n", pid, comm, strings.TrimSpace(strings.Repeat("0 ", 18)), ticks)
 }
 
@@ -233,8 +230,7 @@ func TestTheFirstThreadsStartIsReadFromProc(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	}
 
-	// As the matrix's my84-perms showed them: pid 1 an exec'd entrypoint, its
-	// first thread 6.62s younger.
+	// As on my84-perms: pid 1 an exec'd entrypoint, its first thread 6.62s younger.
 	write(filepath.Join(proc, "1", "stat"), statLine(1, "mysqld", 1000))
 	write(filepath.Join(proc, "1", "task", "1", "stat"), statLine(1, "mysqld", 1000))
 	write(filepath.Join(proc, "1", "task", "214", "stat"), statLine(214, "ib_io_rd-1", 1663))

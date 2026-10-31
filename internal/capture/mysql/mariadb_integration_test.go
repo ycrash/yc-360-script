@@ -12,15 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The mariadb profile of compose.mysql.yaml, not one of the matrix's five:
+// Skipped unless up:
 //
 //	docker compose -f compose.mysql.yaml --profile mariadb up -d --wait mariadb1011
-//
-// Skipped when it is not up.
 var mariadbServer = matrixServer{service: "mariadb1011", port: 13311, variant: VariantMariaDB}
 
-// mariadbTarget is plaintext: the 10.11 image starts with TLS off, and an omitted
-// tls: would fail every file with "TLS requested but server does not support TLS".
+// mariadbTarget is plaintext: the 10.11 image has TLS off.
 func mariadbTarget(t *testing.T, role matrixRole) Target {
 	t.Helper()
 
@@ -80,8 +77,7 @@ func TestMariaDBIsNamedAndItsGapsRecorded(t *testing.T) {
 				return
 			}
 
-			// What plan §1 believed missing, each recorded in its own block rather than
-			// failing the run. A role without the grant is refused first (1142).
+			// Each refusal is its own block, not a failed run; without the grant, 1142 comes first.
 			assert.Contains(t, files["my_lock_waits.txt"], "Table 'performance_schema.data_lock_waits' doesn't exist")
 			assert.Contains(t, files["my_nondefault_settings.txt"], "Table 'performance_schema.variables_info' doesn't exist")
 			assert.Contains(t, files["my_errors.txt"], "Table 'performance_schema.events_errors_summary_global_by_error' doesn't exist")
@@ -90,8 +86,6 @@ func TestMariaDBIsNamedAndItsGapsRecorded(t *testing.T) {
 	}
 }
 
-// TestMariaDBWithoutAProviderIsNotGalera: MariaDB always reports the base wsrep_
-// variables, which the spec's rule took for Galera.
 func TestMariaDBWithoutAProviderIsNotGalera(t *testing.T) {
 	file := replicationFileOf(t, mariadbTarget(t, matrixRoles[0]))
 
@@ -99,6 +93,6 @@ func TestMariaDBWithoutAProviderIsNotGalera(t *testing.T) {
 	assert.Contains(t, file, "\nwsrep_cluster_status,Disconnected\n")
 	assert.Contains(t, file, "\nwsrep_provider_name,\n")
 
-	// MariaDB has no replication_group_members, and a failed check says unknown.
+	// No replication_group_members on MariaDB: the check says unknown.
 	assert.Contains(t, file, " mechanism=unknown ")
 }

@@ -18,12 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The replica profile of compose.mysql.yaml: my84-replica, a GTID async replica of
-// my84.
+// my84-replica, a GTID async replica of my84; skipped unless up:
 //
 //	docker compose -f compose.mysql.yaml --profile replica up -d --wait my84-replica
-//
-// Skipped when it is not up. Each test leaves the replica running and caught up.
 var replicaServer = matrixServer{service: "my84-replica", port: 13385, variant: VariantMySQL}
 
 func requireReplica(t *testing.T) (replica, source *sql.DB) {
@@ -42,7 +39,6 @@ func requireReplica(t *testing.T) (replica, source *sql.DB) {
 	return replica, source
 }
 
-// replicationFile runs my_replication.txt alone over a short window, as yc_monitor.
 func replicationFile(t *testing.T, server matrixServer) string {
 	t.Helper()
 
@@ -69,8 +65,6 @@ func replicationFileOf(t *testing.T, target Target) string {
 	return string(content)
 }
 
-// firstReplicaStatus is the first sample's SHOW REPLICA STATUS row by column, empty
-// when it had none.
 func firstReplicaStatus(t *testing.T, file string) map[string]string {
 	t.Helper()
 
@@ -101,7 +95,6 @@ func firstReplicaStatus(t *testing.T, file string) map[string]string {
 	return row
 }
 
-// serverReplicaStatus is SHOW REPLICA STATUS as root reads it.
 func serverReplicaStatus(t *testing.T, replica *sql.DB) map[string]string {
 	t.Helper()
 
@@ -163,8 +156,7 @@ func TestReplicaRunningIsAsyncWithItsLag(t *testing.T) {
 	assert.Equal(t, "Yes", status["Replica_SQL_Running"])
 	assert.Equal(t, "0", status["Seconds_Behind_Source"])
 
-	// The source has a replica but is none, by the spec's test: mechanism is what
-	// this server replicates from.
+	// A source is not a replica: mechanism is what this server replicates from.
 	file = replicationFile(t, matrixServers[2])
 
 	assert.Contains(t, file, " mechanism=none ")
@@ -193,9 +185,6 @@ func TestReplicaWithItsApplierStoppedHasNoLag(t *testing.T) {
 	assert.Empty(t, status["Seconds_Behind_Source"], "NULL: no lag is known")
 }
 
-// TestReplicaErrorsKeepTheirDiagnosticsAndLoseTheirValues breaks replication the
-// way an application write on a replica does: a row inserted there, then the same
-// key on the source. Each applier and log format words the failure differently.
 func TestReplicaErrorsKeepTheirDiagnosticsAndLoseTheirValues(t *testing.T) {
 	replica, source := requireReplica(t)
 
@@ -206,8 +195,7 @@ func TestReplicaErrorsKeepTheirDiagnosticsAndLoseTheirValues(t *testing.T) {
 		id      int
 		kept    *regexp.Regexp
 
-		// redacted is the count each sample's block gives: none for a message that
-		// names only the transaction.
+		// Redactions per block: none when the message names only the transaction.
 		redacted string
 	}{
 		{"parallel applier, row events", 4, "ROW", 774421,

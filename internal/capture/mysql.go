@@ -15,18 +15,13 @@ import (
 	"yc-agent/internal/logger"
 )
 
-// MySQLMetadataFileName is the first MySQL artifact, the rest named by their
-// collectors. Every my_* artifact uploads under a dt value the agent proposed,
-// following the postgres pattern, ahead of the receiver having them. A receiver
-// that does not know a dt accepts the upload and throws the file away with no
-// error at either end, so a reported success for these is not yet proof of
-// arrival. An uploading run deletes its capture directory afterwards, success or
-// not, so only -onlyCapture or -d=false keeps a copy.
+// MySQLMetadataFileName is the first MySQL artifact. my_* dt values are proposed
+// ahead of the receiver, which silently drops an unknown dt, so a reported
+// success is not proof of arrival. An uploading run keeps no copy unless
+// -onlyCapture or -d=false.
 const MySQLMetadataFileName = "my_metadata.txt"
 
-// mySampledDataType returns "" for an artifact with no dt at all: an invented value
-// would upload and drop silently, so the caller writes the artifact but skips the
-// upload with an explicit reason instead.
+// mySampledDataType returns "" for an artifact with no dt; the caller skips its upload.
 func mySampledDataType(artifact mysql.Artifact) string {
 	switch artifact.Name {
 	case "my_metadata":
@@ -66,15 +61,13 @@ func mySampledDataType(artifact mysql.Artifact) string {
 	return ""
 }
 
-// MySQLCapture runs every my_* artifact as one collector each, over one connection
-// per speed. Target is a pointer so %v/%+v/%#v route through config.MySQL's
-// String/GoString, which redact the password.
+// MySQLCapture runs every my_* collector, one connection per speed. Target is a
+// pointer so %v routes through config.MySQL's redacting String.
 type MySQLCapture struct {
 	Capture
 	Target *config.MySQL
 
-	// RunCtx is the run's: its end stops the window early, as Kill does, and,
-	// unlike Kill, also before Run has begun. nil never ends.
+	// RunCtx ends the window early, like Kill but also before Run starts. nil never ends.
 	RunCtx context.Context
 
 	// mu guards cancel, set by Run and read by Kill from another goroutine.
@@ -82,10 +75,9 @@ type MySQLCapture struct {
 	cancel context.CancelFunc
 }
 
-// Run opens the window, writes every artifact, uploads each under its own dt, and
-// runs the host collectors where the run established that this machine is the
-// database's. Only a file-I/O failure returns a non-nil error: a refused connection
-// is a successful capture of a failure.
+// Run opens the window, writes and uploads every artifact, and runs host capture
+// where allowed. Only file I/O errors are returned; a refused connection is a
+// captured outcome.
 func (c *MySQLCapture) Run() (Result, error) {
 	if c.Target == nil {
 		return Result{Msg: "skipped mysql capture window: no mysql block configured"}, nil
@@ -109,9 +101,8 @@ func (c *MySQLCapture) Run() (Result, error) {
 
 	duration := c.captureDuration()
 
-	// Three speeds derived from mysql.frequency, each a fixed property of the file:
-	// session and lock state at fast, counters at normal, whole-table reads and
-	// settings at expensive.
+	// Three speeds from mysql.frequency: fast (sessions, locks), normal (counters),
+	// expensive (whole-table reads, settings).
 	normal := c.frequency()
 	fast := config.FastFrequency(normal)
 	expensive := config.ExpensiveFrequency(normal)
@@ -136,8 +127,7 @@ func (c *MySQLCapture) Run() (Result, error) {
 
 	collected := metadata.ResolveHostDecision()
 
-	// The window never reached the server, so the operator's declaration is the only
-	// thing that can authorise host capture.
+	// Never reached the server: only the operator's declaration allows host capture.
 	if !hostStarted {
 		hostCollectors = c.startHostCapture(ctx, collected, duration)
 	}
@@ -152,8 +142,7 @@ func (c *MySQLCapture) Run() (Result, error) {
 	return withHostCapture(result, hostMessages, hostOK), nil
 }
 
-// warnMariaDB says at the window's start what the run reached: the run goes on, and
-// the files it uploads record MariaDB's refusals.
+// warnMariaDB warns that the target is MariaDB; the run goes on.
 func warnMariaDB(m mysql.Metadata) {
 	if m.MySQLVariant != mysql.VariantMariaDB {
 		return
@@ -163,9 +152,7 @@ func warnMariaDB(m mysql.Metadata) {
 		"my_metadata.txt records the server, and the other my_* files what it refused or lacks.", m.Version)
 }
 
-// warnConnectFailures says each distinct connect failure once: the run goes on to
-// upload files that record only the failure, and its closing summary is INF. A
-// window that connects nowhere returns at once, so this comes at the start.
+// warnConnectFailures logs each distinct connect failure once.
 func warnConnectFailures(results []mysql.ArtifactResult) {
 	files := map[string]int{}
 
@@ -189,8 +176,7 @@ func warnConnectFailures(results []mysql.ArtifactResult) {
 	}
 }
 
-// Kill overrides Capture.Kill, which returns nil when Cmd is nil and would
-// otherwise ignore teardown and hold the run open.
+// Kill overrides Capture.Kill, which ignores a nil Cmd.
 func (c *MySQLCapture) Kill() error {
 	c.mu.Lock()
 	cancel := c.cancel
@@ -226,8 +212,7 @@ func (c *MySQLCapture) frequency() time.Duration {
 	return c.Target.Frequency.Duration()
 }
 
-// startHostCapture runs the host collectors when the run established this machine
-// is the database's, and records the skip otherwise.
+// startHostCapture runs host collectors on the database's machine, else records the skip.
 func (c *MySQLCapture) startHostCapture(ctx context.Context, m mysql.Metadata, window time.Duration) []hostCollector {
 	if m.DeclarationContradicted {
 		logger.Warn().Msgf("mysql agentOnDbHost is set, but this run measured that the database "+
@@ -309,8 +294,7 @@ func mysqlArtifactSummary(artifact mysql.ArtifactResult, collected mysql.Metadat
 	parts := []string{fmt.Sprintf("%s written (mysql_variant=%s, log_access=%s, agent_on_db_host=%s)",
 		MySQLMetadataFileName, collected.MySQLVariant, collected.LogAccess, collected.AgentOnDBHost)}
 
-	// MariaDB is identified and nothing more: its performance_schema lacks tables the
-	// other files read, so they fail and this says why.
+	// MariaDB lacks performance_schema tables the other files read; say so.
 	if collected.MySQLVariant == mysql.VariantMariaDB {
 		parts = append(parts, "MariaDB is not supported by the MySQL capture; the other my_* files record refusals")
 	}

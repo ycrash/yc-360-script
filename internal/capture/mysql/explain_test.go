@@ -16,7 +16,6 @@ func digestRow(schema, digest, sample string) []any {
 	return []any{schema, digest, "SELECT ...", sample, "2026-10-27 09:00:00", 1, 10, 100, 5, 5, nil, 0, 75858000, 91201000, 120000000, 0, 1024, 512, 0}
 }
 
-// slowQueriesServer counts CPU time and has memory instruments on.
 func slowQueriesServer(rows ...[]any) *fakeQuerier {
 	return (&fakeQuerier{}).
 		on("performance_schema.setup_consumers", fakeResult{columns: []string{"cpu", "memory"}, rows: [][]any{{3, 429}}}).
@@ -171,8 +170,6 @@ func TestExplainCapturesOnePlanPerDigestAtFirstSight(t *testing.T) {
 	assert.Contains(t, out.String(), "reason=no_new_digest plans=1")
 }
 
-// A lock wait that runs out is the plan's 2s budget firing (lock_wait_timeout is
-// ExplainBudget): a plan not obtained in time, which the spec writes as TIMEOUT.
 func TestExplainWritesARunOutLockWaitAsTimeout(t *testing.T) {
 	sq := &SlowQueries{Interval: time.Minute}
 	sq.latest = []explainCandidate{{schema: "yc_app", digest: "d1", text: "SELECT COUNT(*) FROM orders"}}
@@ -236,7 +233,6 @@ func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {
 	}
 }
 
-// sentKeys is, for each statement sent, the first key it contains, in order.
 func sentKeys(sent []string, keys ...string) []string {
 	var found []string
 
@@ -350,8 +346,7 @@ func TestExplainOffSendsNothing(t *testing.T) {
 	assert.Contains(t, out.String(), "reason=explain_off")
 }
 
-// planV2 is 9.x's default JSON plan format, as my9 returned it: the rewritten query
-// and each operation carry the statement's values.
+// 9.x's default JSON plan format, as my9 returned it; it carries the statement's values.
 const planV2 = `{
   "query": "/* select#1 */ select ` + "`yc_app`.`orders`.`id` AS `id`" + ` from ` + "`yc_app`.`orders`" + ` where ((` + "`yc_app`.`orders`.`customer_id`" + ` = 7) and (` + "`yc_app`.`orders`.`status`" + ` = 'pending'))",
   "query_plan": {

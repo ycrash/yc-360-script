@@ -17,8 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// signalHelper is the environment variable that makes the test binary the agent
-// under test: a run that never ends, then a stop that never ends.
+// signalHelper makes the test binary an agent whose run and stop never end.
 const signalHelper = "YC_TEST_SIGNAL_HELPER"
 
 func TestTheFirstSignalStopsAndTheSecondExits(t *testing.T) {
@@ -30,7 +29,6 @@ func TestTheFirstSignalStopsAndTheSecondExits(t *testing.T) {
 			return nil
 		})
 
-		// As Shutdown waits for a capture whose upload hangs.
 		fmt.Println("stopping")
 		time.Sleep(time.Hour)
 
@@ -82,7 +80,7 @@ func TestTheFirstSignalStopsAndTheSecondExits(t *testing.T) {
 	exited := make(chan error, 1)
 
 	go func() {
-		// Drain, so the helper never blocks writing its log.
+		// Drain so the helper never blocks on its log.
 		for range lines {
 		}
 

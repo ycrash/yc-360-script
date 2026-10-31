@@ -2,22 +2,18 @@ package mysql
 
 import "time"
 
-// Row bounds for the fast files, whose sources have no natural limit: a server can
-// hold thousands of sessions, and a lock storm many more lock rows.
+// Row bounds for sources with no natural limit.
 const (
 	DefaultMaxSessions = 1000
 	DefaultMaxLocks    = 5000
 
-	// DefaultMaxPreparedStatements bounds my_prepared_statements.txt;
-	// max_prepared_stmt_count defaults to 16382.
+	// DefaultMaxPreparedStatements: max_prepared_stmt_count defaults to 16382.
 	DefaultMaxPreparedStatements = 5000
 )
 
-// NewSessions is my_sessions.txt: every foreground thread with its client's
-// program_name - the agent's own included, as an ordinary column (spec §1.3) - and
-// every InnoDB transaction. performance_schema.threads, not
-// information_schema.processlist, which contends on a global lock under load.
-// Without PROCESS the role sees only its own threads, and innodb_trx is refused.
+// NewSessions is my_sessions.txt: foreground threads with program_name, the agent's
+// included (spec §1.3), and InnoDB transactions. Reads performance_schema.threads,
+// not processlist, which takes a global lock.
 func NewSessions(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_sessions", ConnectionFast, interval),
@@ -53,9 +49,8 @@ ORDER BY trx_started`, DefaultMaxSessions),
 	}
 }
 
-// NewLockWaits is my_lock_waits.txt: row lock waits, and pending metadata locks -
-// an ALTER TABLE queued behind an open transaction holds no row lock at all.
-// Sessions are named by thread id, which my_sessions.txt resolves.
+// NewLockWaits is my_lock_waits.txt: row lock waits and pending metadata locks, by
+// thread id.
 func NewLockWaits(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_lock_waits", ConnectionFast, interval),
@@ -87,9 +82,8 @@ WHERE LOCK_STATUS = 'PENDING'`, DefaultMaxLocks),
 	}
 }
 
-// NewPreparedStatements is my_prepared_statements.txt: every statement prepared
-// right now, by the thread holding it. The agent prepares none of its own: its
-// statements carry no arguments, and the driver interpolates any that would.
+// NewPreparedStatements is my_prepared_statements.txt: currently prepared
+// statements, by owning thread. The agent prepares none.
 func NewPreparedStatements(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_prepared_statements", ConnectionNormal, interval),
@@ -110,9 +104,8 @@ ORDER BY OWNER_THREAD_ID, STATEMENT_ID`, DefaultMaxPreparedStatements),
 	}
 }
 
-// NewTableStats is my_table_stats.txt: the 100 most-read index uses. An empty
-// INDEX_NAME is a read that used no index - a full scan. rows_total= is how many
-// there were, so a cut at 100 says so.
+// NewTableStats is my_table_stats.txt: the 100 most-read index uses; an empty
+// INDEX_NAME is a full scan.
 func NewTableStats(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_table_stats", ConnectionExpensive, interval),
@@ -132,13 +125,9 @@ LIMIT 100`,
 	}
 }
 
-// NewStorage is my_storage.txt: the 100 largest tables outside the system schemas.
-// information_schema.TABLES lists only tables the role holds some privilege on, so
-// a role with none on the application's schemas reads an empty list. The sizes are
-// the server's cached statistics, as old as information_schema_stats_expiry allows
-// (my_metadata.txt records it): asking for fresh ones would open every table, on a
-// database that may already be struggling. rows_total= is how many tables the role
-// can see, so a cut at 100 says so.
+// NewStorage is my_storage.txt: the 100 largest non-system tables the role can see.
+// Sizes are cached statistics (information_schema_stats_expiry); fresh ones would
+// open every table.
 func NewStorage(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_storage", ConnectionExpensive, interval),

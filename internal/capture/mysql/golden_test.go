@@ -20,14 +20,10 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// The goldens are every my_* file as a recorded server answered, byte for byte.
-// A recording (testdata/my84_*.json) holds each statement's columns and rows as
-// my84 returned them, written by TestRecordGoldens (-tags mysqlintegration,
-// YC_MY_RECORD=1). Replay runs the collectors over it with a scripted clock, one
-// window per connection, so each file's ticks come in one order on every run.
-// YC_UPDATE_GOLDEN=1 rewrites the goldens from the replay.
+// Goldens replay testdata/my84_*.json, recorded by TestRecordGoldens (-tags mysqlintegration,
+// YC_MY_RECORD=1). YC_UPDATE_GOLDEN=1 rewrites them.
 
-// The run a recording is made with and replayed through: runMatrixWindow's.
+// Must match runMatrixWindow's.
 const (
 	goldenWindow    = 12 * time.Second
 	goldenFast      = 4 * time.Second
@@ -39,13 +35,10 @@ const (
 
 var goldenStart = time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)
 
-// goldenTarget is matrixTarget's my84, without the password a replay never sends.
 func goldenTarget(user string) Target {
 	return Target{ID: "my84", Host: "127.0.0.1", Port: 13384, Username: user}
 }
 
-// goldenCollectors is Collectors as a run builds them, with a process table that
-// holds no server, so the same-host verdict does not depend on the machine.
 func goldenCollectors(target Target, agentNow time.Time) []Collector {
 	metadata := NewMetadata(target, "golden", agentNow, goldenExplain)
 	metadata.inspect = fakeProcesses{foreignVisible: true}
@@ -59,7 +52,6 @@ type recording struct {
 	Statements []recordedStatement `json:"statements"`
 }
 
-// recordedStatement is one answer: its rows, nil for NULL, or the error.
 type recordedStatement struct {
 	Query   string         `json:"query"`
 	Columns []string       `json:"columns,omitempty"`
@@ -67,7 +59,7 @@ type recordedStatement struct {
 	Error   *recordedError `json:"error,omitempty"`
 }
 
-// recordedError is a server's error; number 0 is the client's own.
+// Number 0 is a client error.
 type recordedError struct {
 	Number  uint16 `json:"number"`
 	Message string `json:"message"`
@@ -93,9 +85,7 @@ func loadRecording(t *testing.T, name string) recording {
 	return r
 }
 
-// replayQuerier answers each statement with the next recorded answer to the same
-// text, and the last again once they run out: a recorded run that skipped a tick
-// asked one time fewer.
+// replayQuerier repeats the last answer once a statement's recordings run out.
 type replayQuerier struct {
 	mu      sync.Mutex
 	answers map[string][]recordedStatement
@@ -169,13 +159,12 @@ func (r *replayRows) Scan(dest ...any) error {
 func (r *replayRows) Err() error   { return nil }
 func (r *replayRows) Close() error { return nil }
 
-// replayConn is the connection a replay dials: closed at once, dialled in 1.5ms.
 type replayConn struct{}
 
 func (replayConn) Close(context.Context) error    { return nil }
 func (replayConn) ConnectDuration() time.Duration { return 1500 * time.Microsecond }
 
-// goldenClock is the window's clock: a wait passes at once and moves it on.
+// goldenClock passes a wait at once and moves on.
 type goldenClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -200,7 +189,6 @@ func (c *goldenClock) After(d time.Duration) <-chan time.Time {
 	return fired
 }
 
-// goldenStatements times a sample's statements 1ms apart from its clock read.
 func goldenStatements(at time.Time) func() time.Time {
 	reads := 0
 
@@ -211,8 +199,6 @@ func goldenStatements(at time.Time) func() time.Time {
 	}
 }
 
-// replayRun runs every collector over a recording, one window per connection in
-// the order Collectors names them, and returns the files' contents by name.
 func replayRun(t *testing.T, r recording, target Target, dial func(context.Context) (Querier, dbcore.Closer, error)) map[string]string {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -267,8 +253,6 @@ func replayRun(t *testing.T, r recording, target Target, dial func(context.Conte
 	return files
 }
 
-// assertGoldens compares each file with testdata/<file name less .txt>_<regime>.txt,
-// or writes it under YC_UPDATE_GOLDEN=1.
 func assertGoldens(t *testing.T, files map[string]string, regime string, only ...string) {
 	t.Helper()
 
@@ -293,7 +277,7 @@ func assertGoldens(t *testing.T, files map[string]string, regime string, only ..
 	}
 }
 
-// packageDir is where testdata is, read before a test changes directory.
+// Read before a test changes directory.
 var packageDir, _ = os.Getwd()
 
 func TestGoldenFull(t *testing.T) {

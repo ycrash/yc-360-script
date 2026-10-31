@@ -19,10 +19,7 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// TestRecordGoldens records what my84 answers to every statement of a run, for
-// golden_test.go to replay: as root while the matrix's scenarios are staged, and
-// as yc_restricted. YC_MY_RECORD=1, since it rewrites testdata; then
-// YC_UPDATE_GOLDEN=1 go test -run TestGolden rewrites the goldens from it.
+// Run with YC_MY_RECORD=1 (rewrites testdata), then YC_UPDATE_GOLDEN=1 go test -run TestGolden.
 func TestRecordGoldens(t *testing.T) {
 	if os.Getenv("YC_MY_RECORD") == "" {
 		t.Skip("YC_MY_RECORD=1 rewrites testdata/my84_*.json")
@@ -32,9 +29,7 @@ func TestRecordGoldens(t *testing.T) {
 	root := rootDB(t, server)
 	app := rootDBOn(t, server, "yc_app")
 
-	// What the server sees of this machine, and where the matrix keeps its logs:
-	// replaced in the recording, so a replay is the same on every machine and never
-	// finds a file of this one's.
+	// Replaced in the recording so a replay is machine-independent.
 	var client string
 	require.NoError(t, root.QueryRow("SELECT SUBSTRING_INDEX(USER(), '@', -1)").Scan(&client))
 
@@ -123,7 +118,6 @@ func sanitiseRecording(r *recording, sanitise *strings.Replacer) {
 	}
 }
 
-// recorder keeps every answer, in the order the connections got them.
 type recorder struct {
 	mu         sync.Mutex
 	statements []recordedStatement
@@ -143,7 +137,6 @@ type recordingQuerier struct {
 	recorder *recorder
 }
 
-// Query reads the whole answer, keeps it, and hands the collector the same rows.
 func (q *recordingQuerier) Query(ctx context.Context, query string) (Rows, error) {
 	statement := recordedStatement{Query: query}
 

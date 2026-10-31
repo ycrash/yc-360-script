@@ -13,30 +13,23 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// The same-host test (spec §1.5's hostMetricsAvailable). PostgreSQL forks a backend
-// per connection whose title names it; MySQL is one mysqld process for every
-// connection, so the test is the server's own start: a mysqld or mariadbd process
-// on this machine that started when the connected server says it did. Never a
-// false yes: that would file another machine's CPU, memory and kernel readings
-// under the database.
+// Same-host test (spec §1.5 hostMetricsAvailable): a local mysqld/mariadbd whose
+// start matches the server's uptime. Never a false yes.
 
 // Which test produced a yes.
 const (
 	hostConfirmedByStartTime = "process_start_time"
 
-	// hostConfirmedByThreadStart: the process is older than the server, and its
-	// threads are not. The official Docker image's entrypoint is a shell that
-	// initialises the data directory and then execs mysqld, which keeps the shell's
-	// pid and start: a first boot's init (6.6s on the matrix) is the process's age
-	// at the server's start for the container's whole life. mysqld's own threads
-	// begin with it (its first, InnoDB's, 0.4s after the server's start).
+	// hostConfirmedByThreadStart: the process predates the server but its threads
+	// don't. The Docker entrypoint execs mysqld after init, keeping the shell's
+	// start (6.6s earlier on the matrix).
 	hostConfirmedByThreadStart = "thread_start_time"
 
 	// hostConfirmedByConfigured is a claim, not a reading.
 	hostConfirmedByConfigured = "configured"
 )
 
-// Why the verdict is not yes. Mandatory whenever it is not.
+// Why the verdict is not yes; always set when it isn't.
 const (
 	hostReasonNoConnection     = "no_connection"
 	hostReasonUptimeUnread     = "uptime_unread"
@@ -47,19 +40,16 @@ const (
 	hostReasonForeignProcesses = "foreign_processes_hidden"
 )
 
-// Supporting signals, recorded and never deciding the verdict: a shared mount or a
-// tunnel produces either from another machine.
+// Supporting signals, recorded but never deciding: a shared mount or tunnel fakes them.
 const (
 	evidencePidFile = "pid_file"
 	evidenceSocket  = "socket"
 	evidenceLogFile = "log_file"
 )
 
-// startTolerance covers Uptime's whole seconds on one side and the clock read on
-// the other.
+// startTolerance covers Uptime's whole-second resolution.
 const startTolerance = 2 * time.Second
 
-// serverProcessNames are the server's executable names.
 var serverProcessNames = []string{"mysqld", "mariadbd"}
 
 // serverProcess is one local process that could be the server.
@@ -67,18 +57,16 @@ type serverProcess struct {
 	pid     int32
 	started time.Time
 
-	// threadsStarted is when its threads but the first began; zero where unknown.
+	// threadsStarted is its earliest non-main thread's start; zero if unknown.
 	threadsStarted time.Time
 }
 
-// processLister reads the local process table: the server processes it can see,
-// and whether it can see other users' processes at all.
+// processLister reads the local process table.
 type processLister interface {
 	serverProcesses() (processes []serverProcess, foreignVisible bool, ok bool)
 	inContainer() bool
 }
 
-// localProcesses is the real process table.
 type localProcesses struct{}
 
 func (localProcesses) serverProcesses() ([]serverProcess, bool, bool) {
@@ -93,8 +81,7 @@ func (localProcesses) serverProcesses() ([]serverProcess, bool, bool) {
 	self := int32(os.Getpid())
 
 	for _, p := range all {
-		// PID 1 belongs to another user on every system the agent runs on; a
-		// hidepid mount hides it, and then a missing server proves nothing.
+		// Seeing PID 1 means hidepid isn't hiding other users' processes.
 		if p.Pid == 1 && p.Pid != self {
 			foreignVisible = true
 		}
@@ -121,7 +108,7 @@ func (localProcesses) serverProcesses() ([]serverProcess, bool, bool) {
 	return found, foreignVisible, true
 }
 
-// inContainer: the files the two common runtimes leave at the root.
+// inContainer checks the Docker and Podman marker files.
 func (localProcesses) inContainer() bool {
 	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
 		if _, err := os.Stat(marker); err == nil {
@@ -142,8 +129,7 @@ func isServerProcessName(name string) bool {
 	return false
 }
 
-// collectSameHost decides agent_on_db_host from the server's uptime, read at now,
-// and the local process table.
+// collectSameHost decides agent_on_db_host from the server's uptime and local processes.
 func collectSameHost(m *Metadata, inspect processLister, now time.Time) {
 	if inspect == nil {
 		inspect = localProcesses{}
@@ -170,8 +156,7 @@ func collectSameHost(m *Metadata, inspect processLister, now time.Time) {
 		return
 
 	case len(processes) == 0 && inspect.inContainer():
-		// The agent's container hides the host's processes, and the server may be
-		// in another container on the same machine.
+		// The server may be in a sibling container we can't see.
 		m.AgentOnDBHostReason = hostReasonContainer
 
 		return
@@ -210,7 +195,7 @@ func collectSameHost(m *Metadata, inspect processLister, now time.Time) {
 		return
 	}
 
-	// A server runs here, but not the one connected to: its start disagrees.
+	// A local server, but not the connected one.
 	m.AgentOnDBHost = dbcore.OnDBHostNo
 	m.AgentOnDBHostReason = hostReasonStartMismatch
 }
@@ -221,13 +206,11 @@ func startsTogether(a, b time.Time) bool {
 	return gap >= -startTolerance && gap <= startTolerance
 }
 
-// userHZ is the unit of a start time in /proc/<pid>/stat: USER_HZ, fixed at 100 for
-// user space on every architecture Linux runs the agent on.
+// userHZ is USER_HZ, the tick unit of /proc/<pid>/stat start times.
 const userHZ = 100
 
-// firstThreadStart is when the earliest of pid's threads but its first began, read
-// under proc and placed against started, the process's own start. Zero without
-// /proc, or with no thread but the first.
+// firstThreadStart is when pid's earliest non-main thread began, relative to
+// started. Zero without /proc or other threads.
 func firstThreadStart(proc string, pid int32, started time.Time) time.Time {
 	id := strconv.Itoa(int(pid))
 
@@ -260,8 +243,8 @@ func firstThreadStart(proc string, pid int32, started time.Time) time.Time {
 	return started.Add(time.Duration(first-own) * time.Second / userHZ)
 }
 
-// startTicks is field 22 of a stat file, starttime, read past the command's closing
-// parenthesis: the command itself may hold spaces and parentheses.
+// startTicks is a stat file's starttime (field 22), parsed past the command's
+// last ')' since the command may contain spaces and parentheses.
 func startTicks(statFile string) (uint64, bool) {
 	content, err := os.ReadFile(statFile)
 	if err != nil {
@@ -273,7 +256,7 @@ func startTicks(statFile string) (uint64, bool) {
 		return 0, false
 	}
 
-	// Fields from the third, state, on.
+	// Fields from the third (state) on.
 	fields := strings.Fields(string(content[end+1:]))
 	if len(fields) < 20 {
 		return 0, false
@@ -284,8 +267,7 @@ func startTicks(statFile string) (uint64, bool) {
 	return ticks, err == nil
 }
 
-// sameHostEvidence lists the supporting signals: the pid file names the process, the
-// socket exists, the error log opened.
+// sameHostEvidence lists the supporting signals present.
 func sameHostEvidence(m *Metadata, pid int32) []string {
 	var evidence []string
 

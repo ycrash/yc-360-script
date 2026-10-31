@@ -11,15 +11,14 @@ import (
 	gomysql "github.com/go-sql-driver/mysql"
 )
 
-// fakeResult is one statement's answer: rows of values, nil for NULL, or an error.
+// fakeResult is rows (nil for NULL) or an error.
 type fakeResult struct {
 	columns []string
 	rows    [][]any
 	err     error
 }
 
-// fakeQuerier answers each statement with the first result whose key the statement
-// contains, and records every statement sent.
+// fakeQuerier answers with the first result whose key the statement contains.
 type fakeQuerier struct {
 	results []fakeMatch
 	sent    []string
@@ -105,14 +104,12 @@ func (r *fakeRows) Scan(dest ...any) error {
 func (r *fakeRows) Err() error   { return nil }
 func (r *fakeRows) Close() error { return nil }
 
-// serverError is the error the server sends.
 func serverError(number uint16, message string) error {
 	return &gomysql.MySQLError{Number: number, Message: message}
 }
 
 var testAt = time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
 
-// testSample is sample index of total at testAt, on 8.4.3, statements timed 1ms apart.
 func testSample(index, total int) SampleContext {
 	reads := 0
 

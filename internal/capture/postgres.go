@@ -167,8 +167,7 @@ type PostgresCapture struct {
 	Capture
 	Target *config.Postgres
 
-	// RunCtx is the run's: its end stops the window early, as Kill does, and,
-	// unlike Kill, also before Run has begun. nil never ends.
+	// RunCtx ends the window early, like Kill but also before Run starts. nil never ends.
 	RunCtx context.Context
 
 	// mu guards cancel, set by Run and read by Kill from another goroutine.

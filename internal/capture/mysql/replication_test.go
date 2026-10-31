@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// replicationServer is a server with no replica channel and no Group Replication,
-// answering the wsrep_ read with rows.
 func replicationServer(wsrep [][]any) *fakeQuerier {
 	empty := fakeResult{columns: []string{"Variable_name", "Value"}}
 
@@ -23,8 +21,7 @@ func replicationServer(wsrep [][]any) *fakeQuerier {
 }
 
 func TestGaleraIsAProviderLoadedNotAnyWsrepRow(t *testing.T) {
-	// As the servers returned them, measured on MariaDB 10.11.6 and a two-node
-	// Galera cluster of it.
+	// As MariaDB 10.11.6 and a two-node Galera cluster returned them.
 	tests := []struct {
 		name  string
 		wsrep [][]any

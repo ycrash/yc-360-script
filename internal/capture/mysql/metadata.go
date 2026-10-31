@@ -18,16 +18,15 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// Log access, detected rather than configured: whether this process can open the
-// file the server names as its error log. A permission, never a location.
-// LogAccessUnknown means the test could not run, and is treated as LogAccessNone.
+// Log access: whether this process can open the server's error log.
+// LogAccessUnknown (test not run) is treated as LogAccessNone.
 const (
 	LogAccessDirect  = "direct"
 	LogAccessNone    = "none"
 	LogAccessUnknown = "unknown"
 )
 
-// Why the error log cannot be read: log_access_reason.
+// log_access_reason values.
 const (
 	logReasonSettingsUnread = "settings_unread"
 	logReasonStderr         = "stderr"
@@ -35,9 +34,7 @@ const (
 	logReasonUnreadable     = "unreadable"
 )
 
-// Why the open failed, where it did: log_open_error. The two causes an operator
-// fixes differently - a path the agent cannot see, a file it may not read - and
-// other for the rest.
+// log_open_error values.
 const (
 	logOpenNotFound         = "not_found"
 	logOpenPermissionDenied = "permission_denied"
@@ -47,8 +44,7 @@ const (
 // metadataScope is "cluster": db= means connected through, not about.
 const metadataScope = "cluster"
 
-// explainLiteralsRedacted is stated rather than assumed: plans and statement text
-// carry the application's values.
+// explainLiteralsRedacted is stated explicitly: plans carry application values.
 const explainLiteralsRedacted = "redacted"
 
 // Metadata is written to my_metadata.txt, one field per row in declaration order.
@@ -64,17 +60,14 @@ type Metadata struct {
 	TargetDatabase string
 	TargetUsername string
 
-	// The tls: settings the connection uses. TargetTLSMode is the driver's tls=;
-	// TargetTLSCAFile is "system" when the certificate is verified against the
-	// system's trust store, and empty when it is not verified.
+	// The connection's tls: settings (see TLS.Mode and TLS.caFileText).
 	TargetTLSMode       string
 	TargetTLSEnabled    string
 	TargetTLSVerify     string
 	TargetTLSCAFile     string
 	TargetTLSServerName string
 
-	// ExplainMode and ExplainLiterals are policy, not readings: written in the target
-	// block so they survive a refused connection.
+	// Policy, in the target block so it survives a refused connection.
 	ExplainMode     string
 	ExplainLiterals string
 
@@ -88,19 +81,14 @@ type Metadata struct {
 	CurrentUser    string
 	ConnectionID   string
 
-	// AgentSessionVariables names the variables the agent SETs on each of its
-	// sessions. performance_schema.variables_info marks a variable DYNAMIC, with the
-	// setting account as SET_USER, after a session-scope SET from any session, so
-	// these appear in my_nondefault_settings.txt with the global value unchanged.
-	// They are written rather than filtered (spec 1.3: the server excludes the
-	// agent's rows): a row naming one of them and set by current_user is the agent's.
+	// AgentSessionVariables names the agent's session SETs, which variables_info
+	// shows as DYNAMIC by SET_USER in my_nondefault_settings.txt (spec 1.3).
 	AgentSessionVariables string
 	Database              string
 	ServerUTC             string
 	UptimeSeconds         string
 
-	// Settings, from SHOW GLOBAL VARIABLES; a name the server does not have is empty
-	// and listed in SettingsUnavailable.
+	// From SHOW GLOBAL VARIABLES; missing names are listed in SettingsUnavailable.
 	Hostname                string
 	Port                    string
 	Datadir                 string
@@ -124,12 +112,10 @@ type Metadata struct {
 	BinlogExpireLogsSeconds string
 	SettingsUnavailable     string
 
-	// settingsRead: the settings statement succeeded, so an empty value is the
-	// server's and not a failed read.
+	// settingsRead: an empty value is the server's, not a failed read.
 	settingsRead bool
 
-	// The error log, resolved and tested: LogErrorResolved is the path the agent
-	// opened, LogAccess whether it could.
+	// The error log: the resolved path, and whether it opened.
 	LogErrorResolved string
 	LogAccess        string
 	LogAccessReason  string
@@ -145,16 +131,14 @@ type Metadata struct {
 	StatementsDigestConsumer    string
 	CapabilitiesError           string
 
-	// The role's privileges, granted to the account itself; one held through a role
-	// is not listed, which EnabledRoles says may be the case.
+	// Privileges granted directly; ones via a role are not listed (see EnabledRoles).
 	HasProcess                 string
 	HasReplicationClient       string
 	HasPerformanceSchemaSelect string
 	EnabledRoles               string
 	PrivilegesError            string
 
-	// Tables by engine, among those the role can see: information_schema.TABLES
-	// lists only tables the role holds some privilege on.
+	// Tables by engine, among those the role can see.
 	TablesVisible     string
 	InnodbTables      string
 	OtherEngines      string
@@ -164,19 +148,17 @@ type Metadata struct {
 	SettingsError     string
 	UptimeError       string
 
-	// Is the agent on the database's machine? Measured every run, never guessed from
-	// the target host. Reason is mandatory whenever the verdict is not yes.
+	// Whether the agent is on the database's machine, measured every run. Reason
+	// is required unless yes.
 	AgentOnDBHost         string
 	AgentOnDBHostBy       string
 	AgentOnDBHostEvidence string
 	AgentOnDBHostReason   string
 
-	// DeclarationContradicted: agentOnDbHost said yes, the probe measured no. Logged,
-	// not written.
+	// DeclarationContradicted: declared yes, measured no. Logged, not written.
 	DeclarationContradicted bool
 
-	// HostArtifacts says whether host files were captured or skipped. Follows
-	// AgentOnDBHost.
+	// HostArtifacts: captured or skipped, following AgentOnDBHost.
 	HostArtifacts string
 
 	// ConnectMS is the dial: TCP, TLS and authentication.
@@ -199,15 +181,13 @@ func targetFields(m Metadata) []dbcore.Field {
 		{Key: "target_tls_ca_file", Value: m.TargetTLSCAFile},
 		{Key: "target_tls_server_name", Value: m.TargetTLSServerName},
 
-		// Policy, not readings: written here so a refused connection still records what
-		// the run intended.
+		// Policy, so a refused connection still records intent.
 		{Key: "explain_mode", Value: m.ExplainMode},
 		{Key: "explain_literals", Value: m.ExplainLiterals},
 	}
 }
 
-// serverFields is every row requiring a connection, written whether or not the
-// statement behind it succeeded.
+// serverFields is every connected row, written whether or not its read succeeded.
 func serverFields(m Metadata) []dbcore.Field {
 	return []dbcore.Field{
 		{Key: "version", Value: m.Version},
@@ -248,7 +228,7 @@ func serverFields(m Metadata) []dbcore.Field {
 		{Key: "log_access_reason", Value: m.LogAccessReason},
 		{Key: "log_open_error", Value: m.LogOpenError},
 
-		// The spec's flag, said again as true|false; log_access is its reading.
+		// The spec's flag; log_access is its reading.
 		{Key: "has_mysql_error_log_access", Value: strconv.FormatBool(m.LogAccess == LogAccessDirect)},
 
 		{Key: "has_cpu_time_instrument_enabled", Value: m.HasCPUTimeInstrumentEnabled},
@@ -275,8 +255,7 @@ func serverFields(m Metadata) []dbcore.Field {
 		{Key: "agent_on_db_host_reason", Value: m.AgentOnDBHostReason},
 		{Key: "host_artifacts", Value: m.HostArtifacts},
 
-		// host_artifacts said again as a true|false flag: whether this capture's host
-		// files describe the database's machine.
+		// host_artifacts as a true|false flag.
 		{Key: "host_metrics_available", Value: strconv.FormatBool(m.HostArtifacts == dbcore.HostArtifactsCaptured)},
 
 		{Key: "server_facts_error", Value: m.ServerFactsError},
@@ -290,8 +269,7 @@ func serverFields(m Metadata) []dbcore.Field {
 }
 
 // MetadataCollector writes the target block before connecting and the server block
-// from the one sample Once() gives it. Held by pointer; Collected() is safe because
-// Window.Run is synchronous.
+// on its one sample. Collected() is safe because Window.Run is synchronous.
 type MetadataCollector struct {
 	target       Target
 	yc360Version string
@@ -306,9 +284,8 @@ type MetadataCollector struct {
 	collected Metadata
 }
 
-// NewMetadata seeds the collector's pre-connection state, which Collected() returns
-// if the connection never happens. explainMode is config's own value; "" means the
-// key was omitted, which the bundle records as off.
+// NewMetadata seeds the state Collected() returns if the run never connects.
+// explainMode "" records as off.
 func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode string) *MetadataCollector {
 	m := &MetadataCollector{target: t, yc360Version: yc360Version, agentNow: agentNow}
 
@@ -317,8 +294,7 @@ func NewMetadata(t Target, yc360Version string, agentNow time.Time, explainMode 
 	m.collected.ExplainMode = explainModeText(explainMode)
 	m.collected.ExplainLiterals = explainLiteralsRedacted
 
-	// Kept by a run whose connection was refused: no server to ask which machine it
-	// runs on, so no answer and no host capture - unless the operator declared it.
+	// Defaults for a run that never connects, unless the operator declared on-host.
 	m.collected.AgentOnDBHost = dbcore.OnDBHostUnknown
 	m.collected.AgentOnDBHostReason = hostReasonNoConnection
 	m.collected.HostArtifacts = dbcore.HostArtifactsSkipped
@@ -354,13 +330,11 @@ func targetMetadata(t Target, agentNow time.Time) Metadata {
 	}
 }
 
-// DeclareOnDBHost records mysql.agentOnDbHost. It only raises an unknown to yes; a
-// measured verdict stands.
+// DeclareOnDBHost records mysql.agentOnDbHost; it only turns unknown into yes.
 func (m *MetadataCollector) DeclareOnDBHost(declared bool) { m.declaredOnDBHost = declared }
 
-// AfterCollect runs once the server block is written, while the window is still
-// open, so the caller can act on host_artifacts at its opening edge. It runs on the
-// window's goroutine and must return promptly.
+// AfterCollect sets fn to run after the server block is written, on the window's
+// goroutine, so it must return promptly.
 func (m *MetadataCollector) AfterCollect(fn func(Metadata)) { m.afterCollect = fn }
 
 // String and GoString redact the password through Target's own.
@@ -378,28 +352,24 @@ func (m *MetadataCollector) Artifact() Artifact {
 		Scope:    metadataScope,
 		Schedule: dbcore.Once(),
 
-		// Read once, with the other reads of what changes slowly.
 		Connection: ConnectionExpensive,
 	}
 }
 
-// WriteOpening writes what the run was aimed at, knowable before the network and so
-// surviving any later failure.
+// WriteOpening writes the target block, before any network failure can occur.
 func (m *MetadataCollector) WriteOpening(w io.Writer, s SampleContext) error {
 	return writeMetadataBlock(w, "my_metadata_target", location(s), targetFields(m.collected), s.At)
 }
 
-// Sample writes what the server said. Collect never errors - each probe records its
-// own failure - so only the write can fail.
+// Sample writes the server block; only the write can fail.
 func (m *MetadataCollector) Sample(ctx context.Context, q Querier, w io.Writer, s SampleContext) error {
 	collected := Collect(ctx, q, m.target, m.agentNow, m.inspect)
 
-	// Intent rather than readings, carried across by hand.
 	collected.YC360Version = m.yc360Version
 	collected.ExplainMode = m.collected.ExplainMode
 	collected.ExplainLiterals = m.collected.ExplainLiterals
 
-	// The window owns the dial - the one reading Collect cannot take.
+	// The window owns the dial.
 	collected.ConnectMS = dbcore.MillisText(s.ConnectDuration)
 
 	m.collected = collected
@@ -417,12 +387,10 @@ func (m *MetadataCollector) Sample(ctx context.Context, q Querier, w io.Writer, 
 	return err
 }
 
-// Collected is what the run knows: the target alone where it never connected.
+// Collected is what the run knows; just the target if it never connected.
 func (m *MetadataCollector) Collected() Metadata { return m.collected }
 
-// ResolveHostDecision applies the declaration and settles host_artifacts. Sample
-// calls it so the rows it writes are resolved; the caller calls it again for a run
-// that never reached the server. Idempotent.
+// ResolveHostDecision applies the declaration and settles host_artifacts. Idempotent.
 func (m *MetadataCollector) ResolveHostDecision() Metadata {
 	if m.declaredOnDBHost {
 		switch m.collected.AgentOnDBHost {
@@ -443,8 +411,7 @@ func (m *MetadataCollector) ResolveHostDecision() Metadata {
 	return m.collected
 }
 
-// writeMetadataBlock renders whole and writes once, so a failure can't leave a
-// half-written block.
+// writeMetadataBlock writes once, so a failure leaves no half block.
 func writeMetadataBlock(w io.Writer, source string, header []dbcore.HeaderField, fields []dbcore.Field, at time.Time) error {
 	var block bytes.Buffer
 
@@ -462,8 +429,8 @@ func writeMetadataBlock(w io.Writer, source string, header []dbcore.HeaderField,
 	return err
 }
 
-// Collect runs the probes; never errors, since each records its own failure. Split
-// along the privilege boundary, so one missing grant costs one section.
+// Collect runs the probes, each recording its own failure, split by privilege so
+// one missing grant costs one section.
 func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time, inspect processLister) Metadata {
 	m := targetMetadata(t, agentNow)
 	m.LogAccess = LogAccessUnknown
@@ -478,7 +445,7 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time, inspe
 	collectPrivileges(ctx, q, s, &m)
 	collectTableEngines(ctx, q, s, &m)
 
-	// After the settings: both read log_error, datadir and pid_file from them.
+	// Both need the settings.
 	collectLogAccess(&m)
 	collectSameHost(&m, inspect, time.Now())
 
@@ -488,8 +455,7 @@ func Collect(ctx context.Context, q Querier, t Target, agentNow time.Time, inspe
 const serverFactsSQL = `SELECT VERSION(), @@version_comment, CURRENT_USER(), CONNECTION_ID(), DATABASE(),
        DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ')`
 
-// collectServerFacts reads what any account may: who the server is and who the
-// agent is to it.
+// collectServerFacts reads what any account may.
 func collectServerFacts(ctx context.Context, q Querier, s SampleContext, m *Metadata) {
 	row, err := readRow(ctx, q, s, serverFactsSQL)
 	if err != nil {
@@ -514,8 +480,7 @@ func collectServerFacts(ctx context.Context, q Querier, s SampleContext, m *Meta
 	}
 }
 
-// metadataSettings are the server variables my_metadata.txt records, each with the
-// field it fills.
+// metadataSettings maps each recorded variable to its field.
 var metadataSettings = []struct {
 	name  string
 	field func(m *Metadata) *string
@@ -543,8 +508,7 @@ var metadataSettings = []struct {
 	{"system_time_zone", func(m *Metadata) *string { return &m.SystemTimeZone }},
 }
 
-// settingsSQL names every variable it reads: a name the server does not have is
-// simply absent from the result, where @@name would fail the whole statement.
+// settingsSQL uses SHOW so a missing name is absent rather than failing like @@name.
 var settingsSQL = func() string {
 	names := make([]string, len(metadataSettings))
 	for i, setting := range metadataSettings {
@@ -599,17 +563,13 @@ func collectUptime(ctx context.Context, q Querier, s SampleContext, m *Metadata)
 	}
 }
 
-// memoryInstrumentsSQL counts the memory/% instruments less
-// memory/performance_schema/%, which are always on, whatever the rest are set to.
-// Its _ is LIKE's any character, not an escaped one: with NO_BACKSLASH_ESCAPES in
-// the server's sql_mode, '\_' is a backslash and an underscore, and the always-on
-// instruments were counted with the rest (508 for 429 on my84). No other
-// instrument matches the pattern unescaped.
+// memoryInstrumentsSQL counts memory/% instruments, less the always-on
+// memory/performance_schema/%. The _ is deliberately unescaped: under
+// NO_BACKSLASH_ESCAPES '\_' miscounts (508 for 429 on my84).
 const memoryInstrumentsSQL = `SELECT COUNT(*) FROM performance_schema.setup_instruments
     WHERE NAME LIKE 'memory/%' AND NAME NOT LIKE 'memory/performance_schema/%'`
 
-// capabilitiesSQL reads performance_schema's switches in one statement. A consumer
-// the server does not have - events_statements_cpu before 8.0.28 - reads NULL.
+// capabilitiesSQL reads performance_schema's switches; a missing consumer reads NULL.
 const capabilitiesSQL = `SELECT
   (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_statements_cpu'),
   (SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'global_instrumentation'),
@@ -620,31 +580,26 @@ const capabilitiesSQL = `SELECT
   (` + memoryInstrumentsSQL + ` AND ENABLED = 'YES'),
   (` + memoryInstrumentsSQL + `)`
 
-// Why has_cpu_time_instrument_enabled is false.
+// cpu_time_reason values.
 const (
 	cpuReasonVersion   = "version_before_8.0.28"
 	cpuReasonConsumers = "consumers_off"
 	cpuReasonUntimed   = "no_timed_statement_instrument"
 	cpuReasonUnread    = "capabilities_unread"
 
-	// cpuReasonPerformanceSchemaOff: the setup tables are empty, so every consumer
-	// would read as off; the setting is why.
 	cpuReasonPerformanceSchemaOff = reasonPerformanceSchemaOff
 )
 
 func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Metadata) {
 	version := parseVersion(m.Version)
 
-	// max_total_memory and max_controlled_memory: 8.0.31. The spec's flag is whether
-	// the columns exist. With the memory instruments off they read zero (measured on
-	// my80), which my_slow_queries.txt writes as unavailable by
-	// has_memory_instruments_enabled's own count.
+	// Whether max_total_memory/max_controlled_memory exist (8.0.31). Off instruments
+	// read zero (measured on my80); has_memory_instruments_enabled covers that.
 	if version.known() {
 		m.HasStatementMemoryTracking = strconv.FormatBool(version.AtLeast(8, 0, 31))
 	}
 
-	// performance_schema off leaves the setup tables empty: nothing to read, and
-	// nothing counted.
+	// performance_schema off leaves the setup tables empty.
 	if strings.EqualFold(m.PerformanceSchema, "OFF") {
 		m.HasCPUTimeInstrumentEnabled = "false"
 		m.CPUTimeReason = cpuReasonPerformanceSchemaOff
@@ -681,8 +636,7 @@ func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Met
 
 	timed, _ := strconv.ParseInt(row[4], 10, 64)
 
-	// sum_cpu_time is 8.0.28, and needs its consumer, both instrumentation
-	// consumers and a timed statement instrument - checked, never switched on.
+	// sum_cpu_time (8.0.28) needs three consumers and a timed statement instrument.
 	switch {
 	case version.known() && !version.AtLeast(8, 0, 28):
 		m.HasCPUTimeInstrumentEnabled = "false"
@@ -704,9 +658,8 @@ func collectCapabilities(ctx context.Context, q Querier, s SampleContext, m *Met
 // grantee is CURRENT_USER() in the quoted form the privilege tables name it by.
 const grantee = `CONCAT('''', SUBSTRING_INDEX(CURRENT_USER(), '@', 1), '''@''', SUBSTRING_INDEX(CURRENT_USER(), '@', -1), '''')`
 
-// privilegesSQL lists the account's own global privileges, and its SELECT on
-// performance_schema as a schema privilege. Filtered to the account: a superuser
-// sees every account's rows.
+// privilegesSQL lists the account's global privileges and performance_schema
+// schema privileges, filtered to the account (a superuser sees all).
 const privilegesSQL = `SELECT PRIVILEGE_TYPE FROM information_schema.USER_PRIVILEGES WHERE GRANTEE = ` + grantee + `
 UNION ALL
 SELECT CONCAT('performance_schema:', PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES
@@ -742,8 +695,7 @@ func collectPrivileges(ctx context.Context, q Querier, s SampleContext, m *Metad
 	m.EnabledRoles = strings.Join(roles, ",")
 }
 
-// tableEnginesSQL counts the base tables outside the system schemas by engine:
-// every InnoDB-specific read in the MySQL section is blind to the rest.
+// tableEnginesSQL counts user base tables by engine; InnoDB reads miss the rest.
 const tableEnginesSQL = `SELECT ENGINE, COUNT(*) FROM information_schema.TABLES
 WHERE TABLE_TYPE = 'BASE TABLE'
   AND TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
@@ -790,9 +742,7 @@ func collectTableEngines(ctx context.Context, q Querier, s SampleContext, m *Met
 	}
 }
 
-// collectLogAccess resolves @@log_error as the server would and tests whether this
-// process can open it: the same string, read in the agent's own namespace. stderr
-// means the server writes no file - the official container image's default.
+// collectLogAccess resolves @@log_error and tests whether this process can open it.
 func collectLogAccess(m *Metadata) {
 	if !m.settingsRead {
 		return
@@ -821,8 +771,8 @@ func collectLogAccess(m *Metadata) {
 	m.LogAccessReason = ""
 }
 
-// resolveErrorLog turns @@log_error into a path: absolute as it is, relative against
-// the data directory. Empty, with a reason, where the server writes no file.
+// resolveErrorLog makes @@log_error a path (relative to datadir), or "" with a
+// reason when there is no file (stderr is the container image default).
 func resolveErrorLog(logError, datadir string) (string, string) {
 	switch {
 	case logError == "" || strings.EqualFold(logError, "stderr"):
@@ -843,13 +793,12 @@ func resolveErrorLog(logError, datadir string) (string, string) {
 	return filepath.Join(datadir, logError), ""
 }
 
-// isAbsolutePath also counts a leading slash, since the agent can be Windows
-// talking to a POSIX server.
+// isAbsolutePath accepts a leading slash for a POSIX server seen from Windows.
 func isAbsolutePath(p string) bool {
 	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
-// openable opens rather than stats: permission, not existence, is the question.
+// openable opens rather than stats: permission is the question.
 func openable(p string) error {
 	f, err := os.Open(p)
 	if err != nil {

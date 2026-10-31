@@ -1,7 +1,5 @@
-// Package mysql captures MySQL server state for a yc-360 bundle. The target is
-// assumed already in trouble, so every statement is read-only and bounded, and
-// the session's limits are set as the connection opens, before it is handed to
-// any collector.
+// Package mysql captures MySQL server state for a yc-360 bundle. Every statement
+// is read-only and bounded; session limits are set before any collector runs.
 package mysql
 
 import (
@@ -29,75 +27,57 @@ import (
 )
 
 const (
-	// ProgramName tags every connection as a connection attribute, so
-	// performance_schema.session_connect_attrs names the agent's own sessions
-	// (spec §1.3).
+	// ProgramName is the program_name connection attribute (spec §1.3).
 	ProgramName = "yCrash-DB-Agent"
 
-	// statementMarker prefixes every statement the agent sends. query_sample_text and
-	// processlist_info keep it, so the agent's statements are recognisable in the
-	// files that carry statement text; the digest is unaffected.
+	// statementMarker prefixes every agent statement so it is recognisable in
+	// statement text; the digest is unaffected.
 	statementMarker = "/* " + ProgramName + " */ "
 
 	// ConnectTimeout bounds TCP connect, TLS and authentication.
 	ConnectTimeout = 5 * time.Second
 
-	// StatementTimeout is the server-side max_execution_time, set as the session
-	// opens. A SELECT that reaches it fails with error 3024 and the connection stays
-	// open. It covers SELECT only: SHOW and EXPLAIN are bounded by StatementDeadline
-	// alone. It is also the floor config puts under mysql.frequency (MinFrequency,
-	// pinned equal by a test in internal/capture).
+	// StatementTimeout is the session's max_execution_time (SELECT only; error 3024,
+	// connection kept). Also config's MinFrequency floor, pinned by a test.
 	StatementTimeout = 5 * time.Second
 
-	// StatementDeadline is the client-side bound on the same statement, the backstop
-	// for a server that never answers and the only bound on SHOW. The driver closes
-	// the socket when a context expires mid-statement, which ends the window for that
-	// connection, so it sits above StatementTimeout and the server's own error is
-	// what arrives for a SELECT.
+	// StatementDeadline is the client-side backstop, and the only bound on SHOW.
+	// Expiry closes the socket, so it sits above StatementTimeout.
 	StatementDeadline = StatementTimeout + 5*time.Second
 
-	// LockWaitTimeout is lock_wait_timeout, in seconds: how long a statement waits
-	// for a metadata lock - behind an ALTER TABLE, for example - before failing.
+	// LockWaitTimeout is lock_wait_timeout, in seconds.
 	LockWaitTimeout = 2
 
-	// DefaultSampleBudget covers one sample of an artifact that declares none:
-	// two statements at StatementTimeout each.
+	// DefaultSampleBudget is two statements' worth, for an artifact that declares none.
 	DefaultSampleBudget = 2 * StatementTimeout
 
-	// WindowCloseMargin is room to write the closing block after the last sample.
+	// WindowCloseMargin leaves room for the closing block.
 	WindowCloseMargin = 5 * time.Second
 
 	// ModuleDeadline bounds a one-shot read outside a window.
 	ModuleDeadline = 30 * time.Second
 
-	// idleTimeout is the session's wait_timeout, in seconds: longer than any gap
-	// between two samples on one connection, which is at most the two-hour window.
-	// The server's own default may be far shorter, and a connection it closes for
-	// idleness is not reopened.
+	// idleTimeout is wait_timeout, in seconds: above the two-hour window, since a
+	// connection closed for idleness is not reopened.
 	idleTimeout = 9000
 )
 
-// sessionVariables are set in one SET as the connection opens, before it is
-// returned, so no statement ever runs without them (see sessionConnector).
-// time_zone makes TIMESTAMP columns read in UTC, as every agent timestamp is.
+// sessionVariables are set before the connection is returned (see
+// sessionConnector). time_zone reads TIMESTAMPs in UTC.
 var sessionVariables = map[string]string{
 	"max_execution_time": strconv.FormatInt(StatementTimeout.Milliseconds(), 10),
 	"lock_wait_timeout":  strconv.Itoa(LockWaitTimeout),
 
-	// No agent statement is known to wait on a row lock: consistent reads do not,
-	// and EXPLAIN of a FOR UPDATE on a locked row returned at once on the matrix.
-	// This bounds the unknown at the metadata-lock bound, against the server's
-	// 50s default.
+	// No agent statement is known to wait on a row lock; this caps the unknown
+	// below the 50s default.
 	"innodb_lock_wait_timeout": strconv.Itoa(LockWaitTimeout),
 	"transaction_read_only":    "1",
 	"wait_timeout":             strconv.Itoa(idleTimeout),
 	"time_zone":                "'+00:00'",
 }
 
-// mariadbSessionVariables are sessionVariables under MariaDB's names, for the second
-// login Connect makes when the first one's SET fails on a MariaDB, which has no
-// max_execution_time (and 10.11 no transaction_read_only). max_statement_time is
-// in seconds and bounds every statement, SHOW and EXPLAIN as well as SELECT.
+// mariadbSessionVariables are sessionVariables under MariaDB's names, for Connect's
+// retry. max_statement_time is in seconds and bounds every statement.
 var mariadbSessionVariables = func() map[string]string {
 	variables := maps.Clone(sessionVariables)
 
@@ -110,9 +90,7 @@ var mariadbSessionVariables = func() map[string]string {
 	return variables
 }()
 
-// sessionVariableNames is the variables the agent's sessions were opened with on a
-// server of variant, sorted and comma-separated: MariaDB's names where Connect
-// logged in with them.
+// sessionVariableNames lists the session variables used for variant, sorted.
 func sessionVariableNames(variant string) string {
 	variables := sessionVariables
 	if variant == VariantMariaDB {
@@ -138,17 +116,13 @@ const (
 	errStatementTimeout = 1969 // MariaDB's max_statement_time
 )
 
-// ErrTooManyConnections distinguishes a refusal for want of a connection slot from
-// every other connect failure.
+// ErrTooManyConnections is a refusal for want of a connection slot.
 var ErrTooManyConnections = errors.New("too_many_connections")
 
-// ErrPublicKeyRetrieval is a plaintext login the agent refused to complete: the
-// server asked for full authentication, which over plaintext sends the password
-// encrypted with a key the server hands over - a key a man-in-the-middle could hand
-// over instead. The agent never asks for it.
+// ErrPublicKeyRetrieval is a plaintext login refused because it needed the
+// server's RSA key, which a man-in-the-middle could supply.
 var ErrPublicKeyRetrieval = errors.New("public_key_retrieval_refused")
 
-// publicKeyAdvice is what a refused key request tells the operator.
 const publicKeyAdvice = "the account authenticates with caching_sha2_password or sha256_password, " +
 	"and the server asked for full authentication; over a plaintext connection that needs the " +
 	"server's RSA public key, which the agent never requests because a man-in-the-middle could " +
@@ -157,10 +131,9 @@ const publicKeyAdvice = "the account authenticates with caching_sha2_password or
 	"the account's last TLS login, until a restart or FLUSH PRIVILEGES - so this failure comes and goes. " +
 	"A wrong password ends here too: the server asks for full authentication whenever the quick check fails"
 
-// Target is config.MySQL narrowed to what this package needs, keeping config out
-// of this package's imports.
+// Target is config.MySQL narrowed to what this package needs.
 type Target struct {
-	// ID names the target on every sample block, as target_id=.
+	// ID is target_id=.
 	ID string
 
 	Host     string
@@ -172,7 +145,7 @@ type Target struct {
 	TLS TLS
 }
 
-// id is the target's name, or its address where it has none.
+// id is ID, or the address.
 func (t Target) id() string {
 	if t.ID != "" {
 		return t.ID
@@ -188,25 +161,20 @@ func (t Target) id() string {
 
 func (t Target) address() string { return net.JoinHostPort(t.Host, strconv.Itoa(t.Port)) }
 
-// TLS is how the connection is encrypted and checked. The zero value is encrypted
-// and unverified, the config's default when it has no tls: block.
+// TLS settings. The zero value is encrypted and unverified, the config default.
 type TLS struct {
-	// Disabled connects in plaintext.
 	Disabled bool
 
-	// Verify checks the certificate's chain, and that it names ServerName, or Host
-	// when that is empty.
+	// Verify checks the chain and ServerName (or Host).
 	Verify bool
 
-	// CAFile is what the certificate must chain to; empty is the system's trust store.
+	// CAFile is the trust root; empty is the system store.
 	CAFile string
 
-	// ServerName is the name checked on the certificate and sent to the server.
 	ServerName string
 }
 
-// Mode is the driver's tls= the settings amount to. Never "preferred", which
-// falls back to plaintext.
+// Mode is the driver's tls= value; never "preferred", which falls back to plaintext.
 func (t TLS) Mode() string {
 	switch {
 	case t.Disabled:
@@ -219,8 +187,7 @@ func (t TLS) Mode() string {
 	return "skip-verify"
 }
 
-// caFileText is target_tls_ca_file: the file verified against, "system" for the
-// system's trust store, and empty when nothing is verified.
+// caFileText is target_tls_ca_file: the file, "system", or empty when unverified.
 func (t TLS) caFileText() string {
 	switch {
 	case !t.Verify || t.Disabled:
@@ -243,14 +210,12 @@ func (t Target) String() string {
 		t.Host, t.Port, t.Database, t.Username, password, t.TLS.Mode())
 }
 
-// GoString redacts under %#v, which ignores String; WrapRun formats a failing task
-// with %#v into an agent log that is itself uploaded.
+// GoString redacts under %#v, which WrapRun logs and the log is uploaded.
 func (t Target) GoString() string {
 	return "mysql.Target{" + t.String() + "}"
 }
 
-// Rows is the part of *sql.Rows a collector uses: the seam that makes every
-// statement testable without a server.
+// Rows is the part of *sql.Rows a collector uses; the test seam.
 type Rows interface {
 	Columns() ([]string, error)
 	Next() bool
@@ -259,8 +224,7 @@ type Rows interface {
 	Close() error
 }
 
-// Querier runs one statement. No arguments: every statement the agent sends is a
-// fixed text, so the driver never prepares one server-side.
+// Querier runs one fixed-text statement, so nothing is prepared server-side.
 type Querier interface {
 	Query(ctx context.Context, query string) (Rows, error)
 }
@@ -270,17 +234,14 @@ type Conn struct {
 	db   *sql.DB
 	conn *sql.Conn
 
-	// connectDuration is the dial: TCP, TLS and authentication.
 	connectDuration time.Duration
 
 	loss  loss
 	cause *causeLogger
 }
 
-// loss keeps the first error observed once the driver has closed the connection.
-// The statement that finds a lost connection gets the network's error; every later
-// one gets the driver's "bad connection" or database/sql's "connection is already
-// closed", which say nothing about why.
+// loss keeps the first error seen after the driver closed the connection; later
+// errors are generic "bad connection".
 type loss struct {
 	mu     sync.Mutex
 	closed func() bool
@@ -309,7 +270,7 @@ func (l *loss) get() error {
 	return l.err
 }
 
-// lossRows reports a row set's terminal error to the connection's loss record.
+// lossRows reports a row set's terminal error to loss.
 type lossRows struct {
 	*sql.Rows
 
@@ -317,7 +278,6 @@ type lossRows struct {
 	cause *causeLogger
 }
 
-// Err is the row set's terminal error, with the cause of a lost connection.
 func (r *lossRows) Err() error { return r.cause.explain(r.Rows.Err()) }
 
 func (r *lossRows) Next() bool {
@@ -336,19 +296,14 @@ func (r *lossRows) Close() error {
 	return err
 }
 
-// ConnectDuration is what the connection cost.
+// ConnectDuration is the dial's TCP, TLS and authentication time.
 func (c *Conn) ConnectDuration() time.Duration { return c.connectDuration }
 
-// Connect opens one connection to t. A refusal for want of a slot is
-// ErrTooManyConnections; a plaintext login the agent would not complete is
-// ErrPublicKeyRetrieval. No returned error exposes the password: it never enters a
-// DSN.
+// Connect opens one connection to t, failing with ErrTooManyConnections or
+// ErrPublicKeyRetrieval where they apply. The password never enters a DSN.
 //
-// MariaDB is out of scope, but a run against one must say what it reached rather
-// than fail on a session variable it lacks: the SET that opens the session fails,
-// the greeting has already named the server, and the login is made once more with
-// MariaDB's names for the same bounds. identify then reads the variant, and
-// my_metadata.txt reports it. A refused login is never retried.
+// If the greeting names MariaDB and the session SET fails, it logs in once more
+// with MariaDB's variable names. A refused login is never retried.
 func Connect(ctx context.Context, t Target) (*Conn, error) {
 	conn, greeting, err := login(ctx, t, sessionVariables)
 
@@ -359,8 +314,7 @@ func Connect(ctx context.Context, t Target) (*Conn, error) {
 	return conn, err
 }
 
-// login is one connection attempt, opened with variables. It returns the server
-// version the greeting named, read whether or not the login then completed.
+// login is one attempt; it returns the greeting's version even on failure.
 func login(ctx context.Context, t Target, variables map[string]string) (*Conn, string, error) {
 	guard := &keyRequestGuard{}
 	greeting := &serverGreeting{}
@@ -378,8 +332,7 @@ func login(ctx context.Context, t Target, variables map[string]string) (*Conn, s
 
 	db := sql.OpenDB(sessionConnector{Connector: connector, set: sessionStatement(variables)})
 
-	// One connection, pinned below and never reopened: a new one would restart
-	// every delta baseline under the same artifact.
+	// One pinned connection: reopening would restart every delta baseline.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
@@ -398,9 +351,7 @@ func login(ctx context.Context, t Target, variables map[string]string) (*Conn, s
 	return c, greeting.serverVersion(), nil
 }
 
-// sessionStatement is the SET that opens a session with variables: marked as every
-// agent statement is, its variables in name order, so it is one digest the agent's
-// marker names.
+// sessionStatement is the marked SET, variables in name order so it is one digest.
 func sessionStatement(variables map[string]string) string {
 	assignments := make([]string, 0, len(variables))
 	for _, name := range slices.Sorted(maps.Keys(variables)) {
@@ -410,10 +361,8 @@ func sessionStatement(variables map[string]string) string {
 	return statementMarker + "SET " + strings.Join(assignments, ", ")
 }
 
-// sessionConnector sends set on each connection the driver opens, before
-// database/sql has it. The driver's own session parameters would send the same SET
-// in a random order and unmarked. A server's refusal is returned as it came, so
-// Connect still sees MariaDB's unknown variable.
+// sessionConnector runs set on each new connection; the driver's own params would
+// send it unmarked and unordered. Errors pass through unchanged for Connect.
 type sessionConnector struct {
 	driver.Connector
 
@@ -442,8 +391,7 @@ func (c sessionConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	return conn, nil
 }
 
-// Query sends query with the agent's marker. Its deadline is the caller's: a
-// collector bounds each statement with statementContext.
+// Query sends query with the marker; callers bound it with statementContext.
 func (c *Conn) Query(ctx context.Context, query string) (Rows, error) {
 	rows, err := c.conn.QueryContext(ctx, statementMarker+query)
 	if err != nil {
@@ -456,15 +404,12 @@ func (c *Conn) Query(ctx context.Context, query string) (Rows, error) {
 	return &lossRows{Rows: rows, loss: &c.loss, cause: c.cause}, nil
 }
 
-// Close ends the session and the pool behind it.
 func (c *Conn) Close(context.Context) error {
 	return errors.Join(c.conn.Close(), c.db.Close())
 }
 
-// Lost reports whether the driver has closed the connection underneath the window:
-// a killed session, a broken socket, or a context that expired mid-statement - the
-// driver closes on all three. Read after every sample, it is what tells a lost
-// connection from a failed statement, which leaves the connection open.
+// Lost reports whether the driver closed the connection (killed session, broken
+// socket, or expired context), telling a loss from a failed statement.
 func (c *Conn) Lost() bool {
 	valid := true
 
@@ -479,25 +424,20 @@ func (c *Conn) Lost() bool {
 	return err != nil || !valid
 }
 
-// LossError is the error the driver closed the connection on; nil while it is open.
+// LossError is the error the connection was lost on; nil while open.
 func (c *Conn) LossError() error { return c.loss.get() }
 
-// statementContext bounds one statement on the client side, at StatementDeadline;
-// the server's own max_execution_time is the bound expected to fire for a SELECT.
+// statementContext bounds one statement at StatementDeadline.
 func statementContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, StatementDeadline)
 }
 
-// agentStatement reports a statement text the agent itself sent.
 func agentStatement(query string) bool {
 	return strings.HasPrefix(strings.TrimLeft(query, " \t\r\n"), statementMarker)
 }
 
-// causeLogger takes the driver's log lines, which would go to stderr, and keeps the
-// last error among them. When a socket breaks, its own error - a read past the
-// deadline, the server's EOF, a reset - goes only to the log: the statement gets
-// the driver's "invalid connection", or "bad connection" for a write, which does
-// not say why. One per login, so a cause is never another connection's.
+// causeLogger keeps the last error the driver logged: on a broken socket the real
+// cause goes only to the log. One per login.
 type causeLogger struct {
 	mu  sync.Mutex
 	err error
@@ -514,8 +454,7 @@ func (l *causeLogger) Print(v ...any) {
 	}
 }
 
-// explain is err with the cause the driver logged, when err is its word for a
-// connection it has closed; errors.Is still finds both.
+// explain wraps a closed-connection err with the logged cause.
 func (l *causeLogger) explain(err error) error {
 	if !errors.Is(err, gomysql.ErrInvalidConn) && !errors.Is(err, driver.ErrBadConn) {
 		return err
@@ -547,12 +486,10 @@ func buildConfig(t Target, guard *keyRequestGuard, greeting *serverGreeting, cau
 
 	cfg.ConnectionAttributes = "program_name:" + ProgramName
 
-	// Without it, every statement with an argument would be prepared server-side,
-	// and the agent would appear in its own my_prepared_statements.txt.
+	// Keeps the agent out of its own my_prepared_statements.txt.
 	cfg.InterpolateParams = true
 
-	// The cleartext plugin sends the password as typed; the old password scheme is
-	// broken. Neither is ever wanted.
+	// Never cleartext or old-scheme passwords.
 	cfg.AllowCleartextPasswords = false
 	cfg.AllowOldPasswords = false
 	cfg.AllowFallbackToPlaintext = false
@@ -564,8 +501,7 @@ func buildConfig(t Target, guard *keyRequestGuard, greeting *serverGreeting, cau
 
 	cfg.TLS = tlsConfig
 
-	// The greeting is read in either mode: it precedes the TLS upgrade. The key
-	// guard watches plaintext logins only; under TLS it would see ciphertext.
+	// The greeting precedes TLS; the key guard watches plaintext logins only.
 	if tlsConfig == nil {
 		cfg.TLSConfig = "false"
 	} else {
@@ -586,8 +522,7 @@ func buildConfig(t Target, guard *keyRequestGuard, greeting *serverGreeting, cau
 	return cfg, nil
 }
 
-// watch wraps a freshly dialled socket: the greeting is recorded from its reads and,
-// with a guard, the login's writes are guarded.
+// watch records the greeting and, with a guard, guards the login's writes.
 func watch(conn net.Conn, greeting *serverGreeting, guard *keyRequestGuard) net.Conn {
 	conn = &greetingConn{Conn: conn, greeting: greeting}
 
@@ -598,10 +533,8 @@ func watch(conn net.Conn, greeting *serverGreeting, guard *keyRequestGuard) net.
 	return conn
 }
 
-// serverGreeting is the server's version string as its first packet, the
-// handshake greeting, gives it. The greeting comes before TLS and before the login,
-// so it names the server even when the login or the session's SET then fails.
-// MariaDB's begins "5.5.5-" for old clients' sake; variantOf still finds it.
+// serverGreeting is the version from the handshake greeting, read before TLS and
+// login, so it is known even when they fail.
 type serverGreeting struct {
 	mu      sync.Mutex
 	read    []byte
@@ -609,13 +542,10 @@ type serverGreeting struct {
 	version string
 }
 
-// maxGreeting caps what is kept looking for the version: the packet header, the
-// protocol byte, and a version string far longer than any server sends.
+// maxGreeting is header + protocol byte + a generous version string.
 const maxGreeting = 4 + 1 + 255
 
-// greetingProtocol is the handshake protocol every supported server speaks. An
-// error packet (0xff) in its place - too many connections, a blocked host - has
-// no version.
+// greetingProtocol is handshake v10; an error packet (0xff) has no version.
 const greetingProtocol = 10
 
 func (g *serverGreeting) observe(p []byte) {
@@ -655,8 +585,7 @@ func (g *serverGreeting) serverVersion() string {
 	return g.version
 }
 
-// greetingConn passes every read through, showing the bytes to the greeting until
-// it has the version.
+// greetingConn shows reads to the greeting.
 type greetingConn struct {
 	net.Conn
 
@@ -677,8 +606,7 @@ func clientTLS(t Target) (*tls.Config, error) {
 	}
 
 	if !t.TLS.Verify {
-		// Encrypted, and the certificate is not checked: the config's default, and
-		// what the server's auto-generated certificate allows.
+		// The default; works with the server's auto-generated certificate.
 		return &tls.Config{InsecureSkipVerify: true}, nil
 	}
 
@@ -706,20 +634,13 @@ func clientTLS(t Target) (*tls.Config, error) {
 	return config, nil
 }
 
-// keyRequestGuard refuses the one packet a plaintext login must never send: the
-// request for the server's RSA public key. The driver sends it, with no option to
-// stop it, whenever caching_sha2_password or sha256_password asks for full
-// authentication over a connection without TLS. Only the login is watched: once it
-// completes, a one-byte packet is COM_QUIT, which carries the same byte as
-// sha256_password's request.
+// keyRequestGuard blocks the plaintext RSA public-key request, which the driver
+// sends unconditionally. Only the login is watched: afterwards the same byte is COM_QUIT.
 type keyRequestGuard struct {
 	refused atomic.Bool
 }
 
-// guardedConn watches the login's writes. authenticated flips on the first read
-// after the server's OK, which the guard cannot see; it flips instead on the first
-// packet past the login's sequence, a command, which always starts a new sequence
-// at zero.
+// guardedConn watches the login's writes until the first command (sequence 0).
 type guardedConn struct {
 	net.Conn
 
@@ -728,7 +649,7 @@ type guardedConn struct {
 	done   bool
 }
 
-// Packet bytes: a 3-byte little-endian length, the sequence number, the payload.
+// Packet: 3-byte LE length, sequence number, payload.
 const (
 	requestPublicKeyCachingSha2 = 0x02
 	requestPublicKeySha256      = 0x01
@@ -738,8 +659,7 @@ func (c *guardedConn) Write(p []byte) (int, error) {
 	if !c.done {
 		c.writes++
 
-		// The handshake response is the login's first write, sequence 1. A command
-		// opens its own exchange at sequence 0, which only happens once logged in.
+		// After the handshake response, sequence 0 means a command: logged in.
 		if c.writes > 1 && len(p) >= 4 && p[3] == 0 {
 			c.done = true
 		}
@@ -754,7 +674,7 @@ func (c *guardedConn) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
-// isPublicKeyRequest is a one-byte packet carrying either plugin's request.
+// isPublicKeyRequest matches either plugin's one-byte request.
 func isPublicKeyRequest(p []byte) bool {
 	if len(p) != 5 || p[0] != 1 || p[1] != 0 || p[2] != 0 {
 		return false
@@ -779,9 +699,7 @@ func classifyConnectError(err error, guard *keyRequestGuard) error {
 	return err
 }
 
-// ConnectErrorText renders a Connect failure for the closing block's connect_error=.
-// A classified failure is written as the bare token a reader matches on; the full
-// text goes to the agent log.
+// ConnectErrorText is connect_error=: a bare token for a classified failure.
 func ConnectErrorText(err error, t Target) string {
 	switch {
 	case err == nil:
@@ -797,8 +715,7 @@ func ConnectErrorText(err error, t Target) string {
 	return errorText(err, t.Password)
 }
 
-// errorNumber is the server's error number, zero for an error that is not the
-// server's.
+// errorNumber is the server's error number, or zero.
 func errorNumber(err error) uint16 {
 	var serverErr *gomysql.MySQLError
 	if errors.As(err, &serverErr) {
@@ -820,13 +737,11 @@ func hasErrorNumber(err error, numbers ...uint16) bool {
 	return false
 }
 
-// permissionDenied reports a refusal for want of a privilege: a table the role may
-// not read, or a global privilege it lacks.
+// permissionDenied reports a missing table or global privilege.
 func permissionDenied(err error) bool {
 	return hasErrorNumber(err, errTableAccess, errColumnAccess, errSpecificAccess, errDBAccessDenied)
 }
 
-// readStatus is the status of a block whose read ended in err.
 func readStatus(err error) string {
 	switch {
 	case err == nil:
@@ -839,7 +754,7 @@ func readStatus(err error) string {
 	return dbcore.StatusError
 }
 
-// errorText renders err for an artifact field, password redacted.
+// errorText renders err with the password redacted.
 func errorText(err error, password string) string {
 	return dbcore.RedactError(err, password)
 }

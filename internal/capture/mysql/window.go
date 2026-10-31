@@ -35,8 +35,7 @@ type (
 	Artifact       = dbcore.Artifact
 	ArtifactResult = dbcore.ArtifactResult
 
-	// Collector and SampleContext are the core's, over this package's querier and
-	// the facts identify reads.
+	// The core's types, over this package's Querier and Facts.
 	Collector     = dbcore.Collector[Querier, Facts]
 	SampleContext = dbcore.SampleContext[Facts]
 	Window        = dbcore.Window[Querier, Facts]
@@ -49,28 +48,23 @@ const (
 	VariantMariaDB = "mariadb"
 )
 
-// Facts is what identify reads about a connection: the server's version, parsed,
-// which member of the family it is, and whether performance_schema is off. Every
-// version gate reads these, never a statement of its own.
+// Facts is what identify reads once per connection; every version gate uses it.
 type Facts struct {
 	Version Version
 	Variant string
 
-	// PerformanceSchemaOff: the server started with performance_schema=OFF, which
-	// only a restart changes. Its tables are still there, and answer with no rows
-	// (measured on 8.4.13); an unread setting is read as on.
+	// PerformanceSchemaOff: started with performance_schema=OFF; its tables then
+	// return no rows (measured on 8.4.13). Unread reads as on.
 	PerformanceSchemaOff bool
 }
 
-// Version is a server version's numbers; zero where VERSION() could not be read
-// or parsed.
+// Version is VERSION()'s numbers; zero if unread or unparsed.
 type Version struct {
 	Major, Minor, Patch int
 }
 
-// AtLeast reports a version at or past major.minor.patch: a gate is >= at the
-// release where a change takes effect, never >. An unread version is never at least
-// anything, so a gated statement falls back to the older form.
+// AtLeast reports v >= major.minor.patch. An unread version is never at least
+// anything, so gates fall back to the older form.
 func (v Version) AtLeast(major, minor, patch int) bool {
 	switch {
 	case v.Major != major:
@@ -84,8 +78,8 @@ func (v Version) AtLeast(major, minor, patch int) bool {
 
 func (v Version) known() bool { return v.Major > 0 }
 
-// parseVersion reads the leading x.y.z of VERSION(): "8.0.46", "8.4.3-3" for
-// Percona, "10.11.6-MariaDB-1:10.11.6+maria~ubu2204".
+// parseVersion reads the leading x.y.z of VERSION(), e.g. "8.4.3-3",
+// "10.11.6-MariaDB-1:10.11.6+maria~ubu2204".
 func parseVersion(s string) Version {
 	numbers := strings.SplitN(strings.SplitN(s, "-", 2)[0], ".", 3)
 	if len(numbers) < 2 {
@@ -111,8 +105,7 @@ func parseVersion(s string) Version {
 	return Version{Major: parts[0], Minor: parts[1], Patch: parts[2]}
 }
 
-// variantOf names the family member: VERSION() ends in -MariaDB on MariaDB, and
-// version_comment says Percona Server on Percona's builds.
+// variantOf names the family member from VERSION() and version_comment.
 func variantOf(version, versionComment string) string {
 	switch {
 	case strings.Contains(strings.ToLower(version), "mariadb"):
@@ -125,7 +118,6 @@ func variantOf(version, versionComment string) string {
 	return VariantMySQL
 }
 
-// identifySQL reads what every collector on a connection needs.
 const identifySQL = `SELECT DATABASE(), VERSION(), @@version_comment, @@performance_schema`
 
 // NewWindow is the window for t's collectors, dialling with Connect.
@@ -140,7 +132,7 @@ func NewWindow(t Target, duration time.Duration, collectors []Collector, capture
 	}
 }
 
-// engine is what is MySQL about the window. dial replaces Connect in tests.
+// engine is the window's MySQL specifics; tests pass dial in place of Connect.
 func engine(t Target, dial func(ctx context.Context) (Querier, dbcore.Closer, error)) dbcore.Engine[Querier, Facts] {
 	if dial == nil {
 		dial = func(ctx context.Context) (Querier, dbcore.Closer, error) {
@@ -173,8 +165,7 @@ func engine(t Target, dial func(ctx context.Context) (Querier, dbcore.Closer, er
 	}
 }
 
-// identify reads the database, version, variant and performance_schema once for
-// every collector.
+// identify fills SampleContext once per connection.
 func identify(ctx context.Context, q Querier, sampleCtx SampleContext) SampleContext {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
@@ -203,8 +194,8 @@ func identify(ctx context.Context, q Querier, sampleCtx SampleContext) SampleCon
 	return sampleCtx
 }
 
-// location is db=: the connection's default schema, empty when it has none. MySQL's
-// statistics are the instance's whichever schema a block was read through.
+// location is db=, the connection's default schema (MySQL statistics are
+// instance-wide regardless).
 func location(s SampleContext) []dbcore.HeaderField {
 	return []dbcore.HeaderField{{Key: "db", Value: s.Database}}
 }

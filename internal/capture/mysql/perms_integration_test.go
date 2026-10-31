@@ -12,18 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The perms profile of compose.mysql.yaml: my84-perms writes its error log where a
-// real installation does, in the data directory, 0640 and owned by the server's
-// uid, with no bind mount.
+// my84-perms keeps its error log in the data directory, 0640, server-owned:
 //
 //	docker compose -f compose.mysql.yaml --profile perms up -d --wait my84-perms
 //
-// From the host the agent cannot see that file at all; only beside the server can
-// it be refused. scripts/mysql-perms-check.sh runs TestPermsBesideTheServer in a
-// container that shares my84-perms's network and data directory, as a uid that
-// is not the server's: once sharing its process table, once not.
+// scripts/mysql-perms-check.sh runs TestPermsBesideTheServer in a container sharing
+// its network and data directory as another uid, with and without its process table.
 
-// permsContainer is set by the script to shared-pid or own-pid.
+// Set by the script to shared-pid or own-pid.
 const permsContainer = "YC_MY_PERMS_CONTAINER"
 
 func TestPermsFromTheHostTheLogIsNotThere(t *testing.T) {
@@ -85,8 +81,6 @@ func TestPermsBesideTheServer(t *testing.T) {
 
 	switch mode {
 	case "shared-pid":
-		// thread_start_time after the first boot, whose init the entrypoint ran
-		// before exec'ing mysqld; either after a restart, a quick one.
 		assert.Contains(t, metadata, "\nagent_on_db_host,yes\n")
 		assert.Regexp(t, "\nagent_on_db_host_by,("+hostConfirmedByThreadStart+"|"+hostConfirmedByStartTime+")\n", metadata)
 		assert.Contains(t, metadata, "\nhost_artifacts,captured\n")

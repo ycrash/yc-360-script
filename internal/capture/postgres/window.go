@@ -9,9 +9,8 @@ import (
 )
 
 // One connection per timeline: pgx connections aren't safe for concurrent use.
-// The window itself is dbcore's; this file supplies what is Postgres about it - the
-// dial, the identify statement, the error classes and db=/dbid= - and keeps the
-// package's own names for the types every collector uses.
+// The window is dbcore's; this file supplies Postgres's dial, identify, error
+// classes and db=/dbid=.
 
 // engineName is engine= on every block header.
 const engineName = "postgres"
@@ -50,8 +49,7 @@ func Once() Schedule                    { return dbcore.Once() }
 func Every(d time.Duration) Schedule    { return dbcore.Every(d) }
 func Periodic(d time.Duration) Schedule { return dbcore.Periodic(d) }
 
-// Facts is what identify reads about a connection beyond the core's: the connected
-// database's OID, and whether PostgreSQL 17's checkpointer view exists.
+// Facts is what identify reads beyond the core's.
 type Facts struct {
 	// DBID is current_database()'s OID; empty before a connection, or where
 	// identify failed.

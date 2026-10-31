@@ -13,22 +13,17 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// MaxScanBytes bounds what one sample reads of the error log; the rest waits for
-// the next sample, so a log that grew by gigabytes cannot stall the timeline.
+// MaxScanBytes bounds one sample's read of the error log; the rest waits.
 const MaxScanBytes = 16 << 20
 
-// LogTailInterval is how often the error log is read, whatever mysql.frequency is:
-// the postgres capture's log-tail cadence. A read sends no statement, and each
-// takes at most MaxScanBytes, so at a slower one a deadlock storm could leave a
-// backlog unread by the window's close.
+// LogTailInterval is the error-log read cadence, independent of mysql.frequency
+// (same as postgres), so a deadlock storm doesn't outrun MaxScanBytes per read.
 const LogTailInterval = 10 * time.Second
 
-// deadlockFallback is where the server's one deadlock report is, when the log
-// holds none.
+// deadlockFallback names where the latest deadlock is when the log holds none.
 const deadlockFallback = "my_buffer_pool.txt:LATEST DETECTED DEADLOCK"
 
-// The codes a deadlock report is logged under at log_error_verbosity=3: the
-// opening line, and each section's heading.
+// Deadlock report codes at log_error_verbosity=3: opening line, section heading.
 const (
 	codeDeadlockDetected = "MY-012468"
 	codeDeadlockSection  = "MY-012469"
@@ -40,21 +35,12 @@ const (
 	deadlockReasonUnreadable = "log_unreadable"
 )
 
-// Deadlocks is my_deadlocks.txt: every deadlock report innodb_print_all_deadlocks
-// writes to the error log during the window, copied with its statements' and rows'
-// values replaced. The log is opened at its end on the first sample, so only the
-// window's reports are read.
+// Deadlocks is my_deadlocks.txt: the window's innodb_print_all_deadlocks reports
+// from the error log, redacted, tailed from the log's end at the first sample.
 //
-// A report has two shapes, and both are read. At log_error_verbosity=3 it opens
-// with a [Note] [MY-012468] line and each section is a [Note] [MY-012469] heading;
-// at the default verbosity of 2 those notes are filtered out and only InnoDB's raw
-// dump remains, opening with a bare "TRANSACTION <id>, ACTIVE" line. Two reports
-// logged back to back at verbosity 2 have nothing between them and are read as one.
-//
-// Where the log cannot be read, the only deadlock the server will show is its most
-// recent, in SHOW ENGINE INNODB STATUS's LATEST DETECTED DEADLOCK - which
-// my_buffer_pool.txt already captures every sample, so this file names it as the
-// fallback rather than run the statement a second time.
+// At verbosity 3 a report opens with [MY-012468]; at 2 only the raw dump remains
+// ("TRANSACTION <id>, ACTIVE"), and back-to-back reports read as one. If the log is
+// unreadable, the fallback is my_buffer_pool.txt's LATEST DETECTED DEADLOCK.
 type Deadlocks struct {
 	Interval time.Duration
 
@@ -98,8 +84,7 @@ func (d *Deadlocks) Sample(ctx context.Context, q Querier, w io.Writer, s Sample
 	return d.writeEvents(w, s, events, from, to, false)
 }
 
-// WriteClosing drains what the log gained since the last sample, the report still
-// being assembled included, and closes the file.
+// WriteClosing drains the log, including any open report, and closes it.
 func (d *Deadlocks) WriteClosing(w io.Writer, s SampleContext) error {
 	if d.file == nil {
 		return nil
@@ -123,8 +108,7 @@ func (d *Deadlocks) resolve(ctx context.Context, q Querier, s SampleContext) {
 		return
 	}
 
-	// Resolved once the settings are read; a log that will not open stays closed for
-	// the window rather than be retried each sample.
+	// A log that won't open isn't retried.
 	d.resolved = true
 
 	values := map[string]string{}
@@ -163,15 +147,13 @@ func (d *Deadlocks) resolve(ctx context.Context, q Querier, s SampleContext) {
 	d.offset = info.Size()
 }
 
-// readNew reads what the log gained and returns the reports it completed, with the
-// offsets read between. drain completes the report still open.
+// readNew returns the reports completed since the last read and the offsets read.
+// drain completes the report still open.
 func (d *Deadlocks) readNew(drain bool) (events []string, from, to int64) {
 	from = d.offset
 	d.rotated = false
 
-	// The held file first, to its end: after a rotation, that is the old file's
-	// last lines, and its last report ends with it. Then the file now at the path,
-	// from its start.
+	// Finish the held file, then follow a rotation from the new file's start.
 	d.readChunk()
 	events = d.consumeLines(events)
 
@@ -185,8 +167,8 @@ func (d *Deadlocks) readNew(drain bool) (events []string, from, to int64) {
 		events = d.consumeLines(events)
 	}
 
-	// InnoDB writes a report in one go, so a read that ended on a line boundary has
-	// the whole of it: at the default verbosity nothing else would ever close it.
+	// InnoDB writes a report in one go, so ending on a line boundary completes it;
+	// at verbosity 2 nothing else would.
 	if !drain && len(d.pending) == 0 {
 		if event, done := d.finish(); done {
 			events = append(events, event)
@@ -211,8 +193,7 @@ func (d *Deadlocks) readNew(drain bool) (events []string, from, to int64) {
 	return events, from, d.offset
 }
 
-// consumeLines reads the whole lines pending - the last may still be being written -
-// and appends the reports they complete.
+// consumeLines consumes complete pending lines and appends finished reports.
 func (d *Deadlocks) consumeLines(events []string) []string {
 	for {
 		end := bytes.IndexByte(d.pending, '\n')
@@ -246,10 +227,8 @@ func (d *Deadlocks) readChunk() {
 	d.pending = append(d.pending, chunk...)
 }
 
-// followRotation reports a log that is no longer the one held: a new file at the
-// path, which is opened, or the same file truncated in place. Either is then read
-// from its start. A line the old file left unfinished is dropped, so two files'
-// halves are never welded into one line.
+// followRotation detects a replaced or truncated log and rewinds to its start,
+// dropping the old file's unfinished line.
 func (d *Deadlocks) followRotation() bool {
 	current, err := os.Stat(d.path)
 	if err != nil {
@@ -283,8 +262,7 @@ func (d *Deadlocks) followRotation() bool {
 	return true
 }
 
-// consume adds one line to the report being read, and returns a report when the line
-// ends one.
+// consume adds a line to the open report, returning a report the line ends.
 func (d *Deadlocks) consume(line string) (string, bool) {
 	prefixed := hasLogPrefix(line)
 	code, _ := entryCode(line)
@@ -341,8 +319,7 @@ func (d *Deadlocks) writeEvents(w io.Writer, s SampleContext, events []string, f
 
 	fields := d.blockFields(s, drain)
 
-	// With the setting off, InnoDB writes no report to the log. It is read all the
-	// same, since the setting can be turned on during the window.
+	// Still read with the setting off: it can be turned on mid-window.
 	if !strings.EqualFold(d.printAll, "ON") {
 		fields = append(fields, kv("fallback", deadlockFallback))
 	}
@@ -383,8 +360,7 @@ func (d *Deadlocks) writeEvents(w io.Writer, s SampleContext, events []string, f
 	return err
 }
 
-// writeReason writes a sample's block where the log is not read, naming the
-// fallback.
+// writeReason writes a block for an unread log, naming the fallback.
 func (d *Deadlocks) writeReason(w io.Writer, s SampleContext, drain bool) error {
 	fields := append(d.blockFields(s, drain),
 		kv("log_path", d.path),
@@ -398,10 +374,8 @@ func (d *Deadlocks) writeReason(w io.Writer, s SampleContext, drain bool) error 
 		dbcore.FormatText, fields, s.At)
 }
 
-// blockFields opens every block's header: where it was read through, which sample,
-// the setting without which no report is written at all, and the verbosity that
-// decides whether two reports can be told apart (below 3, back-to-back reports are
-// one stretch of text, and matched= counts stretches, not deadlocks).
+// blockFields opens every block's header. Below verbosity 3, matched= counts
+// stretches of text, not deadlocks.
 func (d *Deadlocks) blockFields(s SampleContext, drain bool) []dbcore.HeaderField {
 	fields := location(s)
 

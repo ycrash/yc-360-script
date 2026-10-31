@@ -22,20 +22,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The matrix of compose.mysql.yaml. Opt-in, as the postgres matrix is:
+// The compose.mysql.yaml matrix, opt-in:
 //
 //	scripts/mysql-matrix-setup.sh
 //	docker compose -f compose.mysql.yaml up -d --wait
 //	go test -tags mysqlintegration ./internal/capture/mysql/...
 //
-// YC_MY_MATRIX_SERVERS limits the run to the named services, for a machine that
-// cannot hold all five.
+// YC_MY_MATRIX_SERVERS limits the run to the named services.
 
 type matrixServer struct {
 	service string
 	port    int
 
-	// What the server's version and command line make each flag.
+	// Flags per the server's version and command line.
 	cpuTime          bool
 	cpuReason        string
 	memoryTracking   bool
@@ -86,8 +85,6 @@ func matrixTarget(server matrixServer, role matrixRole) Target {
 	return Target{ID: server.service, Host: "127.0.0.1", Port: server.port, Username: role.user, Password: role.password}
 }
 
-// runMatrixWindow runs every collector over a short window and returns the files'
-// contents by name.
 func runMatrixWindow(t *testing.T, target Target, during func()) (map[string]string, []ArtifactResult) {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -120,15 +117,12 @@ func runMatrixWindow(t *testing.T, target Target, during func()) (map[string]str
 	return files, results
 }
 
-// rootDB is a plain connection for driving the server during a window.
 func rootDB(t *testing.T, server matrixServer) *sql.DB {
 	t.Helper()
 
 	return rootDBOn(t, server, "")
 }
 
-// rootDBOn is rootDB with a default schema, which the statements it runs are
-// summarised under.
 func rootDBOn(t *testing.T, server matrixServer, database string) *sql.DB {
 	t.Helper()
 
@@ -147,7 +141,6 @@ func rootDBOn(t *testing.T, server matrixServer, database string) *sql.DB {
 	return db
 }
 
-// forceDeadlock runs two transactions that take two rows in opposite orders.
 func forceDeadlock(t *testing.T, db *sql.DB) {
 	ctx := context.Background()
 
@@ -224,13 +217,8 @@ func TestMatrixWindow(t *testing.T) {
 	}
 }
 
-// unavailableMemory is a slow-queries block naming the memory columns unavailable.
 var unavailableMemory = regexp.MustCompile(`unavailable=\S*max_total_memory`)
 
-// TestMatrixMemoryInstrumentsCountTheSameInEitherQuotingMode: the count behind
-// has_memory_instruments_enabled leaves out the always-on
-// memory/performance_schema/% instruments whatever the server's sql_mode, which
-// decides what a backslash in a string means.
 func TestMatrixMemoryInstrumentsCountTheSameInEitherQuotingMode(t *testing.T) {
 	for _, server := range selectedServers(t) {
 		t.Run(server.service, func(t *testing.T) {
@@ -264,8 +252,7 @@ func TestMatrixPlaintextLoginNeverRequestsTheServersKey(t *testing.T) {
 		t.Run(server.service, func(t *testing.T) {
 			db := rootDB(t, server)
 
-			// The server caches a password after a login that proved it; flushing
-			// is what makes the next plaintext login need the key.
+			// Flushing makes the next plaintext login need the key.
 			_, err := db.Exec("FLUSH PRIVILEGES")
 			require.NoError(t, err)
 
@@ -306,16 +293,11 @@ func TestMatrixVerifiedTLS(t *testing.T) {
 	assert.False(t, errors.Is(err, ErrPublicKeyRetrieval))
 }
 
-// appQuery is the application statement the scenario makes the slowest, so it is
-// the first digest my_explain.txt plans. SLEEP inflates its time; EXPLAIN does not
-// run it.
+// appQuery is the slowest digest, so my_explain.txt plans it first.
 const appQuery = "SELECT id, status, SLEEP(0.3) FROM yc_app.orders WHERE status = 'pending' AND customer_id = 7"
 
-// preparedLiteral is held open as a server-side prepared statement for the window.
 const preparedLiteral = "secret-status"
 
-// stageBeforeWindow resets the two summaries the scenario reads - test setup the
-// agent itself never does - and runs what the first sample should find.
 func stageBeforeWindow(t *testing.T, root, app *sql.DB) {
 	t.Helper()
 
@@ -331,17 +313,13 @@ func stageBeforeWindow(t *testing.T, root, app *sql.DB) {
 	require.NoError(t, err)
 	require.NoError(t, rows.Close())
 
-	// Full scans of the table with no index: its INDEX_NAME is NULL.
+	// Unindexed full scans: INDEX_NAME is NULL.
 	for range 20 {
 		var n int
 		require.NoError(t, app.QueryRow("SELECT COUNT(*) FROM yc_app.audit_log WHERE note LIKE '%event%'").Scan(&n))
 	}
 }
 
-// stageDuringWindow holds what the fast and normal samples should see: a row lock
-// with a waiter, an ALTER TABLE queued for the metadata lock behind it, a prepared
-// statement held open, and a statement past max_execution_time. Both waits end in
-// error 1205, counted with the 3024 in my_timeouts.txt.
 func stageDuringWindow(t *testing.T, root *sql.DB) {
 	ctx := context.Background()
 
@@ -379,8 +357,7 @@ func stageDuringWindow(t *testing.T, root *sql.DB) {
 		}
 		defer conn.Close()
 
-		// A metadata-only change, which queues for the exclusive metadata lock
-		// behind the open transaction and times out before it could apply.
+		// Queues behind the open transaction for the metadata lock, then times out.
 		_, _ = conn.ExecContext(ctx, "SET SESSION lock_wait_timeout = 5")
 		_, err = conn.ExecContext(ctx, "ALTER TABLE yc_app.orders COMMENT = 'yc matrix'")
 		assert.ErrorContains(t, err, "1205", "the queued ALTER TABLE times out")
@@ -393,7 +370,7 @@ func stageDuringWindow(t *testing.T, root *sql.DB) {
 		}
 		defer conn.Close()
 
-		// The default driver configuration prepares server-side.
+		// The driver prepares server-side by default.
 		stmt, err := conn.PrepareContext(ctx,
 			"SELECT id FROM yc_app.orders WHERE status = '"+preparedLiteral+"' AND customer_id = ?")
 		if !assert.NoError(t, err) {
@@ -437,7 +414,6 @@ func stageDuringWindow(t *testing.T, root *sql.DB) {
 	wg.Wait()
 }
 
-// timeoutCount is error's sum_error_raised in each sample of my_timeouts.txt.
 func timeoutCount(t *testing.T, file, number string) []int {
 	t.Helper()
 
@@ -456,7 +432,6 @@ func timeoutCount(t *testing.T, file, number string) []int {
 	return counts
 }
 
-// blocksWithRows reports whether some sample block of source wrote rows.
 func blocksWithRows(file, source string) bool {
 	for _, line := range strings.Split(file, "\n") {
 		if strings.Contains(line, "source="+source+" ") && strings.Contains(line, "status=OK") &&
@@ -508,9 +483,7 @@ func TestMatrixScenarios(t *testing.T) {
 			assert.NotContains(t, explain, "customer_id = 7", "numbers too, in 9.x's operation strings")
 			assert.NotContains(t, explain, "near '?'", "a prepared statement's sample costs no plan")
 
-			// The digests were truncated before the window: what is filed under the
-			// application's schema now ran there. Of the agent's, only a plan may
-			// have, and on 8.0 the USE before it.
+			// Digests were truncated before the window; of the agent's, only a plan (and on 8.0 its USE) may appear.
 			var filed int
 			require.NoError(t, root.QueryRow(`SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest
 WHERE schema_name = 'yc_app' AND query_sample_text LIKE '/* yCrash-DB-Agent */%'

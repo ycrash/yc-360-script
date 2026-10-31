@@ -88,8 +88,7 @@ func validate() error {
 	}
 
 	if config.GlobalConfig.DBTargetConfigured() {
-		// Only with a database block: a config file for an application capture holds
-		// no database settings, and keeps whatever mode it has.
+		// Only a database block's config file holds credentials.
 		if err := config.CheckConfigFilePermissions(config.GlobalConfig.ConfigPath); err != nil {
 			logger.Error().Msgf("%v", err)
 			return ErrInvalidArgumentCantContinue

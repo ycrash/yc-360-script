@@ -35,17 +35,14 @@ import (
 	ps "github.com/shirou/gopsutil/v3/process"
 )
 
-// Wg counts the captures in flight, each for the whole of FullCapture: its upload
-// and the removal of its directory included.
+// Wg counts captures in flight, upload and cleanup included.
 var Wg sync.WaitGroup
 
-// stopping ends when the run is asked to stop (Stop). A database window in flight
-// then closes early - its files say status=cancelled, and are uploaded as a full
-// window's would be - and no capture starts after it.
+// stopping ends on Stop: a database window in flight closes early (status=cancelled)
+// and is still uploaded; no capture starts after it.
 var stopping, stop = context.WithCancel(context.Background())
 
-// startMu orders Stop against a capture's start, so none that Wg has not counted
-// starts once Shutdown is waiting on it.
+// startMu orders Stop against a capture's start, so none escapes Wg.
 var startMu sync.Mutex
 
 // Stop asks the captures in flight to end early, and keeps any more from starting.

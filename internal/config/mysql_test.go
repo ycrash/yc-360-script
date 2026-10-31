@@ -197,7 +197,6 @@ func TestMySQLBlockMustBeNestedUnderOptions(t *testing.T) {
 	assert.Equal(t, "test-key", c.ApiKey)
 }
 
-// writeTestCA writes a self-signed CA certificate to dir and returns its path.
 func writeTestCA(t *testing.T, dir string) string {
 	t.Helper()
 

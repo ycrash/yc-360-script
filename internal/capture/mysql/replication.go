@@ -16,28 +16,21 @@ const (
 	mechanismGalera = "galera"
 	mechanismNone   = "none"
 
-	// mechanismUnknown: a check that would have found it was refused or failed.
+	// mechanismUnknown: a deciding check was refused or failed.
 	mechanismUnknown = "unknown"
 )
 
-// replicaErrorColumns are server messages that can quote a value or the failing
-// statement - "Duplicate entry '42' for key ...", "Query: 'INSERT ...'" - and have
-// them replaced (redactServerMessage).
+// replicaErrorColumns can quote values, so go through redactServerMessage.
 var replicaErrorColumns = []string{"Last_Error", "Last_SQL_Error", "Last_IO_Error"}
 
-// wsrepStatus are the Galera variables the spec names; wsrep_flow_control_paused is
-// the one to watch. wsrep_provider_name is added: it says whether this is a
-// Galera node at all (galeraLoaded).
+// wsrepStatus are the spec's Galera variables plus wsrep_provider_name (galeraLoaded).
 var wsrepStatus = []string{"wsrep_cluster_size", "wsrep_cluster_status", "wsrep_connected", "wsrep_ready",
 	"wsrep_local_state_comment", "wsrep_flow_control_paused", "wsrep_local_recv_queue_avg",
 	"wsrep_provider_name"}
 
-// galeraLoaded reports a Galera provider loaded, which wsrep_provider_name names.
-// The spec takes any wsrep_ row as proof of Galera, but MariaDB reports four of
-// them with no provider at all (wsrep_cluster_size 0, Disconnected), and its
-// status values cannot tell that from a node cut off from its cluster. Measured
-// on 10.11.6: a standalone server's provider name is empty; a two-node cluster's
-// nodes name Galera, the one that has lost its quorum included.
+// galeraLoaded reports a non-empty wsrep_provider_name. The spec's "any wsrep_ row"
+// misfires: standalone MariaDB reports wsrep_ status with no provider (measured on
+// 10.11.6), indistinguishable from a node that lost quorum.
 func galeraLoaded(rows [][]string) bool {
 	for _, row := range rows {
 		if len(row) == 2 && row[0] == "wsrep_provider_name" && row[1] != "" {
@@ -48,10 +41,8 @@ func galeraLoaded(rows [][]string) bool {
 	return false
 }
 
-// Replication is my_replication.txt. Three mechanisms exclude one another, checked
-// in the spec's order on every sample: a replica's status; failing that, the Group
-// Replication members; failing that, Galera's status variables, with a provider
-// loaded. Then the binary log's position and retention, whatever the mechanism.
+// Replication is my_replication.txt: the first of replica status, Group Replication
+// or Galera that applies (spec order), then binary log position and retention.
 type Replication struct {
 	Interval time.Duration
 
@@ -93,8 +84,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	}
 
 	if mechanism == mechanismNone {
-		// With performance_schema off the table answers with no rows whatever the
-		// server is, so the check is not made, and the mechanism is unknown.
+		// With performance_schema off this reads empty, so the mechanism is unknown.
 		outcome, err = r.write(ctx, q, &buf, artifact, s, block{
 			source:       "replication_group_members",
 			query:        "SELECT * FROM performance_schema.replication_group_members",
@@ -132,8 +122,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 		mechanism = mechanismUnknown
 	}
 
-	// SHOW BINARY LOG STATUS is 8.2; 8.4 removed SHOW MASTER STATUS. An unread
-	// version takes the older form, which every server before 8.4 has.
+	// SHOW BINARY LOG STATUS is 8.2+; 8.4 removed SHOW MASTER STATUS.
 	binlogStatus := "SHOW MASTER STATUS"
 	if version.AtLeast(8, 2, 0) {
 		binlogStatus = "SHOW BINARY LOG STATUS"
@@ -160,8 +149,7 @@ func (r *Replication) Sample(ctx context.Context, q Querier, w io.Writer, s Samp
 	return err
 }
 
-// write writes one block. An outcome not read - refused or failed - says nothing
-// about the mechanism.
+// write writes one block; an unread outcome says nothing about the mechanism.
 func (r *Replication) write(ctx context.Context, q Querier, w io.Writer, artifact Artifact, s SampleContext,
 	b block,
 ) (blockOutcome, error) {

@@ -13,10 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DBTarget is what every database block shares: the target, how to reach it and
-// prove who is asking, and the window it is sampled over. Each engine's block
-// embeds it inline, so its keys sit beside the engine's own in the file, and
-// validates it in the same order, with its own key in every message.
+// DBTarget is what every database block shares: target, credentials, TLS and the
+// window. Engines embed it inline.
 type DBTarget struct {
 	// ID names the target; every sample block carries it as target_id=. Required.
 	ID string `yaml:"id"`
@@ -27,36 +25,27 @@ type DBTarget struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 
-	// TLS is how the connection is encrypted and checked. nil (key omitted) is
-	// encrypted with the certificate not verified; Validate fills it in.
+	// TLS: nil is encrypted, unverified; Validate fills it in.
 	TLS *TargetTLS `yaml:"tls"`
 
-	// CaptureDuration is how long to capture. Required: nil (key omitted) and 0s are
-	// configuration errors.
+	// CaptureDuration is how long to capture. Required.
 	CaptureDuration *Duration `yaml:"captureDuration"`
 
-	// Frequency is how often the periodic artifacts are sampled, and the source of
-	// the three speeds (FastFrequency, ExpensiveFrequency). Pointer: nil (key
-	// omitted) takes the default; 0s is a configuration error. Whatever the value,
-	// the opening and closing samples are always taken, so a frequency no shorter
-	// than the window leaves exactly those two - and Validate says so.
+	// Frequency is the periodic cadence and the source of the three speeds. nil
+	// takes the default; 0s is an error.
 	Frequency *Duration `yaml:"frequency"`
 
-	// Explain selects which plan-capture tiers run. Empty (key omitted) captures no
-	// plans: EXPLAIN carries a privilege and a load cost the other artifacts do not.
+	// Explain selects the plan-capture tiers; empty captures no plans.
 	Explain string `yaml:"explain"`
 
-	// AgentOnDBHost declares that this machine runs the database, for the one case
-	// the probe cannot reach: the database is down, so there is no backend to look
-	// for - exactly when host readings matter most. A measurement always wins.
+	// AgentOnDBHost declares this is the database's machine, for when the probe
+	// cannot run (database down). A measurement always wins.
 	AgentOnDBHost bool `yaml:"agentOnDbHost"`
 
-	// shapeErr is why the block was not a list of one target, set when it is
-	// decoded; Validate refuses it.
+	// shapeErr is why the block was not a list of one target; Validate refuses it.
 	shapeErr string
 
-	// keyErrs are the entry's keys the block does not take, set when it is decoded;
-	// Validate refuses them.
+	// keyErrs are unknown keys; Validate refuses them.
 	keyErrs []error
 }
 
@@ -65,53 +54,40 @@ type TargetTLS struct {
 	// Enabled: nil (key omitted) is true. false connects in plaintext.
 	Enabled *bool `yaml:"enabled"`
 
-	// VerifyServerCertificate checks the certificate's chain and that it names
-	// the server. nil (key omitted) is false.
+	// VerifyServerCertificate checks chain and name. nil is false.
 	VerifyServerCertificate *bool `yaml:"verifyServerCertificate"`
 
-	// CAFile is what the certificate must chain to; empty is the system's trust
-	// store. Used only when verifying.
+	// CAFile is the trust root when verifying; empty is the system store.
 	CAFile string `yaml:"caFile"`
 
-	// ServerName is the name the certificate must carry, and the one sent to the
-	// server; empty is host. For connecting by IP to a certificate issued for a name.
+	// ServerName is the certificate's expected name (and SNI); empty is host.
 	ServerName string `yaml:"serverName"`
 }
 
 const (
-	// MaxCaptureDuration caps captureDuration: a load commitment against a shared
-	// database. Two hours is the longest window supported; the host files stretch
-	// with it, so a long window's netstat and ps readings are far apart.
+	// MaxCaptureDuration caps captureDuration.
 	MaxCaptureDuration = 2 * time.Hour
 
-	// DefaultFrequency is 5m. A short incident capture that wants samples between
-	// the endpoints sets frequency itself (30s, for example), and one that does not
-	// is warned.
+	// DefaultFrequency is 5m.
 	DefaultFrequency = 5 * time.Minute
 
-	// MaxFastFrequency caps the fast speed, session and lock state: a blocking
-	// episode shorter than one sampling interval can pass unseen.
+	// MaxFastFrequency caps the fast speed (session and lock state).
 	MaxFastFrequency = 15 * time.Second
 
-	// MinExpensiveFrequency floors the expensive speed: whole-table reads and
-	// settings, costly to take and slow to change.
+	// MinExpensiveFrequency floors the expensive speed (whole-table reads, settings).
 	MinExpensiveFrequency = 5 * time.Minute
 
-	// MinFrequency floors frequency. It equals each engine's per-statement
-	// timeout, pinned by a test in internal/capture, so a maxed-out sample can
-	// never outrun the tick behind it; below it the timeline could not catch up
-	// under load.
+	// MinFrequency floors frequency at each engine's statement timeout (pinned by a
+	// test in internal/capture), so a maxed-out sample cannot outrun the next tick.
 	MinFrequency = 5 * time.Second
 
-	// ExplainLogged captures only the plans the server itself logged - nothing is
-	// submitted back to the database.
+	// ExplainLogged captures only plans the server logged; nothing is submitted.
 	ExplainLogged = "logged"
 
 	// ExplainAll adds the estimated tiers, which submit EXPLAIN statements.
 	ExplainAll = "all"
 
-	// ExplainOff is what an omitted key reports as. It is not an accepted input:
-	// presence is the switch, so turning the feature off means deleting the line.
+	// ExplainOff is what an omitted key reports; it is not an accepted input.
 	ExplainOff = "off"
 )
 
@@ -125,14 +101,12 @@ func ExpensiveFrequency(frequency time.Duration) time.Duration {
 	return max(frequency, MinExpensiveFrequency)
 }
 
-// explainBooleans are what a human types instead of omitting the key; yaml.v3
-// passes them through, where the generic error would not say to delete the line.
+// explainBooleans get an error saying to delete the line instead.
 var explainBooleans = []string{"true", "false", "on", "off", "yes", "no"}
 
 var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// TLSEnabled and TLSVerified read the block with its defaults, whether or not
-// Validate has filled them in.
+// TLSEnabled and TLSVerified read the block with its defaults.
 func (t *DBTarget) TLSEnabled() bool {
 	return t.TLS == nil || t.TLS.Enabled == nil || *t.TLS.Enabled
 }
@@ -141,8 +115,7 @@ func (t *DBTarget) TLSVerified() bool {
 	return t.TLSEnabled() && t.TLS != nil && t.TLS.VerifyServerCertificate != nil && *t.TLS.VerifyServerCertificate
 }
 
-// ExplainMode is the run's plan-capture intent as a token: an accepted value, or
-// ExplainOff for an omitted key. Each engine's metadata file records it.
+// ExplainMode is the plan-capture intent, ExplainOff for an omitted key.
 func (t *DBTarget) ExplainMode() string {
 	if t == nil || t.Explain == "" {
 		return ExplainOff
@@ -151,10 +124,8 @@ func (t *DBTarget) ExplainMode() string {
 	return t.Explain
 }
 
-// decodeTargetList reads key: as a list of targets, decoding a list of one into
-// entry, the engine's block as a type without UnmarshalYAML. Any other shape still
-// decodes, with the reason in shapeErr, so that Validate can say what to write
-// instead; so does an entry with keys the block does not take, in keyErrs.
+// decodeTargetList decodes a list of one target into entry. Any other shape, or
+// unknown keys, still decodes, with the reason left for Validate.
 func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, entry any) error {
 	switch value.Kind {
 	case yaml.MappingNode:
@@ -185,8 +156,7 @@ func (t *DBTarget) decodeTargetList(key string, value *yaml.Node, entry any) err
 	return fmt.Errorf("line %d: %s: is a list of targets, not a %s", value.Line, key, value.Tag)
 }
 
-// decodeErr is why the block was not read as written: its shape, or keys it does
-// not take.
+// decodeErr is why the block was not read as written.
 func (t *DBTarget) decodeErr() error {
 	if t.shapeErr != "" {
 		return errors.New(t.shapeErr)
@@ -195,11 +165,9 @@ func (t *DBTarget) decodeErr() error {
 	return errors.Join(t.keyErrs...)
 }
 
-// unknownKeys refuses each key of the mapping node that no field of typ takes,
-// naming it under path with its line, and looks inside a key whose field is a
-// struct, as tls: is. Decoding drops such a key without a word, so a misspelled
-// verifyServerCertificate: true would run unverified. A << merge brings its
-// mapping's keys in, and they are checked the same way.
+// unknownKeys refuses keys no field of typ takes, recursing into structs and <<
+// merges. Decoding drops them silently, so a misspelled verifyServerCertificate
+// would run unverified.
 func unknownKeys(path string, node *yaml.Node, typ reflect.Type) []error {
 	node = unaliased(node)
 	if node.Kind != yaml.MappingNode {
@@ -243,9 +211,7 @@ func unknownKeys(path string, node *yaml.Node, typ reflect.Type) []error {
 	return errs
 }
 
-// yamlFields are the keys a struct takes, in its order, and each one's type with
-// any pointer taken off: the yaml tag's name, or as yaml.v3 does without one, the
-// lowercased field name. An inline field's keys sit beside its own.
+// yamlFields are the keys a struct takes, as yaml.v3 names them, with their types.
 func yamlFields(typ reflect.Type) ([]string, map[string]reflect.Type) {
 	var names []string
 
@@ -332,8 +298,7 @@ func (t *DBTarget) targetString() string {
 	)
 }
 
-// trim normalizes the free-text fields in place. The password is not trimmed: it
-// must reach the driver byte-exact.
+// trim normalizes the free-text fields in place; never the password.
 func (t *DBTarget) trim() {
 	t.ID = strings.TrimSpace(t.ID)
 	t.Host = strings.TrimSpace(t.Host)
@@ -347,9 +312,7 @@ func (t *DBTarget) trim() {
 	t.Explain = strings.ToLower(strings.TrimSpace(t.Explain))
 }
 
-// isZero reports whether the block names no target. CaptureDuration and Frequency
-// are excluded: a window or a cadence alone hasn't said what to capture, so that
-// case gets the "empty" error.
+// isZero reports whether the block names no target (window fields ignored).
 func (t *DBTarget) isZero() bool {
 	return t.ID == "" &&
 		t.Host == "" &&
@@ -367,9 +330,7 @@ func emptyBlockError(key string) error {
 		"frequency, explain, agentOnDbHost)", key)
 }
 
-// validateWindow checks captureDuration and frequency, clamping what is over the
-// ceiling or under the floor, and warns when the frequency leaves only the
-// bookends. fastFiles names the engine's fast-speed files for that warning.
+// validateWindow checks and clamps captureDuration and frequency.
 func (t *DBTarget) validateWindow(key, fastFiles string) (warnings []string, errs []error) {
 	// Over-ceiling clamps and warns (partial intent); missing or non-positive is rejected outright.
 	switch {
@@ -415,9 +376,7 @@ func (t *DBTarget) validateWindow(key, fastFiles string) (warnings []string, err
 		t.Frequency = newDuration(MinFrequency)
 	}
 
-	// The bookend is always taken, so this is a warning and not an error - but a
-	// short window with the default frequency lands here, and a capture that was
-	// never told a cadence would otherwise be silently two samples of most files.
+	// Warn: a short window at the default frequency would be two samples of most files.
 	if t.CaptureDuration != nil && t.Frequency.Duration() > 0 && t.CaptureDuration.Duration() > 0 &&
 		t.Frequency.Duration() >= t.CaptureDuration.Duration() {
 		warnings = append(warnings, t.bookendWarning(key, fastFiles, frequencyDefaulted))
@@ -426,9 +385,7 @@ func (t *DBTarget) validateWindow(key, fastFiles string) (warnings []string, err
 	return warnings, errs
 }
 
-// bookendWarning says which files keep only the opening and closing samples when
-// frequency meets or exceeds the window. The fast speed is capped below
-// frequency, so session state still samples within a window longer than it.
+// bookendWarning names the files left with only opening and closing samples.
 func (t *DBTarget) bookendWarning(key, fastFiles string, frequencyDefaulted bool) string {
 	window := t.CaptureDuration.Duration()
 	fast := FastFrequency(t.Frequency.Duration())
@@ -471,8 +428,7 @@ func (t *DBTarget) validateIdentity(key string) (errs []error) {
 	return errs
 }
 
-// validateTLS fills in the block's defaults, so what the run uses is what it
-// says, and refuses the combinations that could only be a mistake.
+// validateTLS fills in defaults and refuses contradictory combinations.
 func (t *DBTarget) validateTLS(key string) (warnings []string, errs []error) {
 	if t.TLS == nil {
 		t.TLS = &TargetTLS{}
@@ -506,8 +462,7 @@ func (t *DBTarget) validateTLS(key string) (warnings []string, errs []error) {
 	return warnings, errs
 }
 
-// agentOnDBHostWarning is said whenever the declaration is made: it widens what the
-// run captures.
+// agentOnDBHostWarning is said whenever the declaration is made.
 func agentOnDBHostWarning(key string) string {
 	return key + ".agentOnDbHost=true - this machine's process list, " +
 		"connection table, kernel messages and kernel settings will be captured and filed " +
@@ -515,8 +470,7 @@ func agentOnDBHostWarning(key string) string {
 		"the same machine. A run that establishes they are not still skips them."
 }
 
-// expandPassword resolves every ${NAME} in the password from the environment, with
-// one error per name that could not be resolved.
+// expandPassword resolves ${NAME} in the password from the environment.
 func (t *DBTarget) expandPassword(key string) []error {
 	if t.Password == "" {
 		return nil
@@ -562,8 +516,7 @@ func newDuration(d time.Duration) *Duration {
 var ErrBothDatabaseTargets = errors.New("postgres: and mysql: are both configured - a run captures " +
 	"one database target; keep one block, and run the agent once for each database")
 
-// DBTargetConfigured reports whether the options name a database target of any
-// engine, which makes the run a database capture.
+// DBTargetConfigured reports whether a database block is configured.
 func (o *Options) DBTargetConfigured() bool {
 	return o.Postgres.IsConfigured() || o.MySQL.IsConfigured()
 }

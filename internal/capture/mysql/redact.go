@@ -5,27 +5,16 @@ import (
 	"strings"
 )
 
-// redactedValue replaces one value; a string literal keeps its quotes and prefix
-// around it. The same token the postgres capture writes.
+// redactedValue replaces one value; the same token the postgres capture writes.
 const redactedValue = "<redacted>"
 
-// redactStatement replaces the values in SQL text and keeps the statement: a string
-// literal becomes '<redacted>' inside its own quotes, with whatever prefix it had
-// (X, B, N, _charset), and a number, hex or bit value <redacted>. Names, `quoted`
-// identifiers, keywords such as NULL and TRUE, ? placeholders, @variables, plain
-// comments and optimizer hints stay. An executable comment /*! ... */ is SQL the
-// server runs, so its body is read as SQL. A statement that sets a credential is
-// replaced whole, past its first two words. It returns the text and the number of
-// values replaced.
+// redactStatement replaces literal values in SQL text, keeping names, keywords,
+// placeholders, @variables, comments and hints; /*! */ bodies are read as SQL. A
+// credential-setting statement is replaced past its first two words. Returns the
+// text and the number of values replaced.
 //
-// MySQL's lexer, not PostgreSQL's: a double-quoted text is a string unless the
-// application runs with ANSI_QUOTES, and is replaced either way - a name lost is
-// better than a value kept; a backslash escapes inside a literal unless the
-// session runs with NO_BACKSLASH_ESCAPES, which no statement records, so a literal
-// whose end depends on it is replaced to the end (see literalLength); # starts a
-// comment, and so does -- but only before a space or a control character, so
-// 5--3 is arithmetic. Text cut mid-literal - query_sample_text stops at
-// performance_schema_max_sql_text_length - is replaced to its end.
+// Double-quoted text is always replaced (ANSI_QUOTES is unknown). A literal whose
+// end depends on NO_BACKSLASH_ESCAPES, or text cut mid-literal, is replaced to the end.
 func redactStatement(s string) (string, int) {
 	if head, ok := credentialStatement(s); ok {
 		return head + " " + redactedValue, 1
@@ -48,8 +37,7 @@ var credentialStatements = [][]string{
 	{"ALTER", "SERVER"},
 }
 
-// credentialStatement reports a statement that sets a credential, and the text it
-// keeps: everything before its words, and the words.
+// credentialStatement reports a credential-setting statement and the head it keeps.
 func credentialStatement(s string) (string, bool) {
 	start := skipSpaceAndComments(s, 0)
 
@@ -156,8 +144,7 @@ func redactValues(s string) (string, int) {
 			i += prefix + literalLength(s[i+prefix:], quote)
 
 		case !afterName && (isDigit(c) || (c == '.' && i+1 < len(s) && isDigit(s[i+1]))):
-			// A run of name bytes starting with a digit is a number, or a hex or bit
-			// value, unless it is a name: MySQL allows names like 1st_quarter.
+			// MySQL allows names starting with a digit, like 1st_quarter.
 			n := numberLength(s[i:])
 			if word := nameLength(s[i:]); word > n {
 				out.WriteString(s[i : i+word])
@@ -198,8 +185,7 @@ func redactValues(s string) (string, int) {
 	return out.String(), redacted
 }
 
-// redactedLiteral is the replacement for the literal opening s: its quote,
-// redactedValue, and the closing quote if the text has one.
+// redactedLiteral replaces the literal opening s, keeping its quotes.
 func redactedLiteral(s string, quote byte) string {
 	n := literalLength(s, quote)
 	closed := n >= 2 && s[n-1] == quote
@@ -211,12 +197,8 @@ func redactedLiteral(s string, quote byte) string {
 	return string(quote) + redactedValue
 }
 
-// literalLength is the length of the literal opening s, read both ways a session
-// can read it: with a backslash escaping the next character, and, under
-// NO_BACKSLASH_ESCAPES, as itself. Where the two end it at different quotes, as
-// they do 'C:\dir\' and 'O\'Brien', what one reading takes for SQL after it the
-// other takes for values, and neither can be ruled out, so the literal runs to the
-// end. Where they agree, as on '\\' and '\n', the rest reads the same either way.
+// literalLength is the length of the literal opening s. If it ends differently with
+// and without NO_BACKSLASH_ESCAPES ('C:\dir\', 'O\'Brien'), it runs to the end.
 func literalLength(s string, quote byte) int {
 	n := quotedLength(s, quote, true)
 	if quotedLength(s, quote, false) != n {
@@ -226,9 +208,7 @@ func literalLength(s string, quote byte) int {
 	return n
 }
 
-// literalPrefix is the length of a prefix that makes the quote after it a literal
-// of another kind: X'..' and B'..' (hex and bit), N'..' (national), and an
-// introducer such as _utf8mb4'..' or _binary'..'.
+// literalPrefix is the length of a literal prefix: X, B, N, or an introducer like _utf8mb4.
 func literalPrefix(s string) int {
 	if len(s) >= 2 && strings.IndexByte("XxBbNn", s[0]) >= 0 && (s[1] == '\'' || s[1] == '"') {
 		return 1
@@ -244,9 +224,8 @@ func literalPrefix(s string) int {
 	return 0
 }
 
-// quotedLength is the length of the quoted text opening s, its quotes included: a
-// doubled quote is one character, and, in a literal, a backslash escapes the next.
-// Unterminated, it runs to the end.
+// quotedLength is the length of the quoted text opening s, quotes included;
+// unterminated, it runs to the end.
 func quotedLength(s string, quote byte, backslash bool) int {
 	for i := 1; i < len(s); i++ {
 		switch {
@@ -264,8 +243,7 @@ func quotedLength(s string, quote byte, backslash bool) int {
 	return len(s)
 }
 
-// numberLength is the length of the number opening s: 0x and 0b values, digits
-// with a fraction and an exponent.
+// numberLength is the length of the number opening s, including 0x and 0b forms.
 func numberLength(s string) int {
 	if len(s) > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') && isHexDigit(s[2]) {
 		n := 2
@@ -325,8 +303,7 @@ func nameLength(s string) int {
 	return n
 }
 
-// lineComment: -- starts a comment only before whitespace, a control character, or
-// the end.
+// lineComment: -- starts a comment only before whitespace or a control character.
 func lineComment(s string) bool {
 	return strings.HasPrefix(s, "--") && (len(s) == 2 || s[2] <= ' ')
 }
@@ -357,32 +334,25 @@ func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func isHexDigit(c byte) bool { return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') }
 
-// isNameByte: letters, digits, _ and $, and any byte of a multi-byte character,
-// which MySQL allows in an unquoted name.
+// isNameByte: letters, digits, _, $ and multi-byte character bytes.
 func isNameByte(c byte) bool {
 	return c == '_' || c == '$' || isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 }
 
-// recordField is one field of a record InnoDB prints in a lock report: its bytes in
-// hex and as text, which are the row's values.
+// recordField is a record field in an InnoDB lock report; its hex and text are row values.
 //
 //	0: len 8; hex 8000000000000001; asc         ;;
 var recordField = regexp.MustCompile(`^(\s*\d+: len \d+; hex )\S*(; asc ).*$`)
 
-// monitorStatementEnd opens the lines that follow a transaction's statement in
-// InnoDB's monitor output and deadlock reports.
+// monitorStatementEnd are line prefixes that end a transaction's statement in InnoDB monitor output.
 var monitorStatementEnd = []string{
 	"RECORD LOCKS", "TABLE LOCK", "------- TRX", "---TRANSACTION", "*** ", "TRANSACTION ",
 	"Trx read view", "Record lock", "LOCK WAIT", "mysql tables in use", "MySQL thread id", "MariaDB thread id",
 	"--------", "Hold", "TOO DEEP", "WE ROLL BACK", "Trx #rec",
 }
 
-// redactMonitorText replaces the values in InnoDB's monitor output: SHOW ENGINE
-// INNODB STATUS, and the deadlock reports innodb_print_all_deadlocks writes to the
-// error log. A transaction's statement - the lines after its thread line, "MySQL
-// thread id" or MariaDB's "MariaDB thread id" - keeps its shape with its values
-// replaced, and every record field's hex and text are replaced. Every other line is
-// InnoDB's own counters and names, kept.
+// redactMonitorText redacts InnoDB monitor output (SHOW ENGINE INNODB STATUS,
+// logged deadlocks): statements after a thread line and record field values.
 func redactMonitorText(text string) (string, int) {
 	lines := strings.Split(text, "\n")
 	redacted := 0
@@ -424,25 +394,13 @@ func redactMonitorText(text string) (string, int) {
 	return strings.Join(lines, "\n"), redacted
 }
 
-// redactServerMessage replaces the values in a server's error message: a replica's
-// Last_Error, Last_SQL_Error and Last_IO_Error. It is not SQL, and its quotes do not
-// pair. The server drops a value, a whole message or a whole statement into its
-// template unescaped, as in this statement-based failure:
+// redactServerMessage redacts a replica's Last_*_Error. Values are embedded
+// unescaped, so quotes don't pair:
 //
 //	Error 'Duplicate entry '42' for key 'orders.PRIMARY'' on query. Default database: 'app'. Query: 'INSERT ... VALUES (42, 'x')'
 //
-// so a SQL lexer reading it leaves part of a value outside any string, and keeps
-// it. A value is always inside the quotes, though, so everything from the first
-// quote to the last is replaced; with an odd count, a value holding a quote or a
-// message cut short, to the end. What lies outside - error codes, worker numbers,
-// log files and positions, the table a row event was for - is the template's own
-// and stays.
-//
-// Two shapes keep more. A message whose every quoted text is a GTID or ANONYMOUS,
-// the parallel applier's "Worker 1 failed executing transaction '...'", is kept
-// whole: it names the transaction to skip or repair. A statement-based failure
-// ends in the statement as sent, whose own quotes are escaped, and that is read as
-// SQL, keeping its words with its values replaced.
+// Everything from the first quote to the last is replaced (to the end if the count
+// is odd). Messages quoting only GTIDs are kept; a trailing Query: is redacted as SQL.
 func redactServerMessage(s string) (string, int) {
 	i := strings.Index(s, messageQuery)
 	if i < 0 {
@@ -463,12 +421,10 @@ func redactServerMessage(s string) (string, int) {
 	return head + messageQuery[1:] + statement + closing, headRedacted + statementRedacted
 }
 
-// messageQuery opens the statement in a statement-based failure, after the default
-// database's closing quote: "... Default database: 'app'. Query: '...'".
+// messageQuery opens the statement in a statement-based failure.
 const messageQuery = "'. Query: '"
 
-// transactionName is a quoted text a message may keep: one GTID, tagged or not, or
-// ANONYMOUS, a transaction without one.
+// transactionName matches a GTID (tagged or not) or ANONYMOUS.
 var transactionName = regexp.MustCompile(`^(?:ANONYMOUS|[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}(?::[A-Za-z_][A-Za-z0-9_]{0,31})?:[0-9]+)$`)
 
 func redactMessageText(s string) (string, int) {
@@ -496,9 +452,7 @@ func redactMessageText(s string) (string, int) {
 	return s[:first+1] + redactedValue + s[last:], 1
 }
 
-// messageQuotes are the offsets of the quotes in s that open or close a quoted
-// text. An apostrophe between two letters - "the event's source log", "O'Brien" -
-// is a word's, not a quote. One misread the other way only widens what is replaced.
+// messageQuotes are the offsets of quotes in s, skipping apostrophes between letters.
 func messageQuotes(s string) []int {
 	var quotes []int
 
@@ -519,9 +473,7 @@ func messageQuotes(s string) []int {
 
 func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
 
-// isMonitorThreadLine reports the line that opens a transaction's statement in
-// monitor output. MariaDB names itself there, and a line this did not know would
-// leave the statement after it unredacted.
+// isMonitorThreadLine reports the line that opens a transaction's statement (MySQL or MariaDB).
 func isMonitorThreadLine(line string) bool {
 	return strings.HasPrefix(line, "MySQL thread id") || strings.HasPrefix(line, "MariaDB thread id")
 }
@@ -536,8 +488,7 @@ func statementEnds(line string) bool {
 	return false
 }
 
-// hasPlaceholder reports a ? marker outside literals, quoted names and comments: a
-// prepared statement's text, which no server can run as written.
+// hasPlaceholder reports a ? outside literals, quoted names and comments.
 func hasPlaceholder(s string) bool {
 	for i := 0; i < len(s); {
 		afterName := i > 0 && isNameByte(s[i-1])

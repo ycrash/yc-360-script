@@ -81,9 +81,8 @@ func runToCompletionOrSigterm(f func() error) error {
 	return err
 }
 
-// exitOnSignal exits at once on the next signal. A signal Notify catches no longer
-// ends the process by default, so without this a stop that takes too long - an
-// upload that hangs - could be ended only by SIGKILL.
+// exitOnSignal exits on the next signal; Notify disables the default exit, so a
+// hung stop could otherwise be ended only by SIGKILL.
 func exitOnSignal(osSigChan <-chan os.Signal) {
 	s := <-osSigChan
 	logger.Log("Received OS signal: %s again. Exiting at once: the capture's remaining "+

@@ -142,7 +142,6 @@ MySQL thread id 13, OS thread handle 141, query id 46 localhost root
 	assert.Equal(t, 1, n)
 }
 
-// MariaDB's InnoDB names itself on the thread line; as read from a Galera node.
 func TestRedactMonitorTextReadsMariaDBsThreadLine(t *testing.T) {
 	status := `---TRANSACTION 561, ACTIVE 4 sec starting index read
 mysql tables in use 1, locked 1
@@ -165,8 +164,7 @@ Trx read view will not see trx with id >= 549, sees < 549`
 }
 
 func TestRedactServerMessageReplacesWhatIsQuotedAndKeepsTheTemplate(t *testing.T) {
-	// The first three as my84-replica (8.4.13) wrote them, with a row inserted on the
-	// replica and then on the source.
+	// As my84-replica (8.4.13) wrote them.
 	tests := []struct {
 		name     string
 		in       string

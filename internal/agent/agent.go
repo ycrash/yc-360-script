@@ -71,9 +71,8 @@ func Run() error {
 	return nil
 }
 
-// Shutdown stops the run and waits for it: a database window in flight ends early
-// and uploads what it has, any other capture in flight finishes first, and none
-// starts after it.
+// Shutdown stops the run and waits: a database window ends early and uploads what
+// it has; other captures finish first.
 func Shutdown() {
 	ondemand.Stop()
 
@@ -134,9 +133,7 @@ func runM3Mode() {
 	m3App.RunLoop()
 }
 
-// ErrMySQLM3 refuses a mysql: block under -m3: M3 polls PostgreSQL only, and a
-// database monitoring run that captured nothing of the database would look like
-// one that found it healthy.
+// ErrMySQLM3 refuses a mysql: block under -m3, which polls PostgreSQL only.
 var ErrMySQLM3 = errors.New("mysql: block with -m3")
 
 // checkM3DatabaseTarget refuses a mysql: block under -m3, saying what runs instead.
@@ -169,9 +166,7 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode 
 		return ErrConflictingMode
 	}
 
-	// Validation: -m3 with a database block and no application target is database
-	// monitoring. The refusal below is about composing two targets; this run has one,
-	// and it reuses the M3 loop rather than growing a second one.
+	// Validation: -m3 with only a database block is database monitoring.
 	if dbTargetMode && m3Mode && !onDemandMode && !apiMode && !appTokensMode {
 		return nil
 	}
@@ -208,7 +203,7 @@ func runOnDemandMode() {
 	}
 
 	for i, pid := range resolveCapturePids(pidStr) {
-		// SkipPostgres and SkipMySQL for i>0: one database capture per run, not per pid.
+		// One database capture per run, not per pid.
 		var opts []ondemand.CaptureOptions
 		if i > 0 {
 			opts = append(opts, ondemand.CaptureOptions{SkipPostgres: true, SkipMySQL: true})

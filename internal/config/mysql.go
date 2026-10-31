@@ -11,13 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MySQL is a MySQL capture target and the window it is sampled over. In the file,
-// mysql: is a list of targets with one entry, the same shape as postgres:.
-//
-// database is optional: MySQL has no database that always exists to default to,
-// and none is needed to connect - every capture reads performance_schema, which
-// is instance-wide. Named, it is the connection's default schema, and a name the
-// server does not know refuses the connection.
+// MySQL is a MySQL capture target, a list of one like postgres:. database is
+// optional: performance_schema is instance-wide.
 type MySQL struct {
 	DBTarget `yaml:",inline"`
 }
@@ -27,8 +22,7 @@ const mysqlKey = "mysql"
 
 const DefaultMySQLPort = 3306
 
-// mysqlExplainModes is all alone: MySQL has no auto_explain, so there is no logged
-// tier, and every plan is one the agent asks the server for.
+// mysqlExplainModes is all alone: MySQL has no auto_explain, so no logged tier.
 var mysqlExplainModes = []string{ExplainAll}
 
 // UnmarshalYAML reads mysql: as a list of targets. Any other shape still decodes,
@@ -56,8 +50,7 @@ func (m MySQL) GoString() string {
 	return "config.MySQL{" + m.String() + "}"
 }
 
-// ExplainMode is the run's plan-capture intent as a token: all, or ExplainOff for
-// an omitted key. my_metadata.txt records it.
+// ExplainMode is all, or ExplainOff for an omitted key.
 func (m *MySQL) ExplainMode() string {
 	if m == nil {
 		return ExplainOff
@@ -66,10 +59,8 @@ func (m *MySQL) ExplainMode() string {
 	return m.DBTarget.ExplainMode()
 }
 
-// checkCAFile makes a CA file's path absolute and reads it now. The capture runs
-// from the bundle's own directory, where a relative path would no longer resolve,
-// and a file the driver cannot use would otherwise fail every connection only once
-// the window opens.
+// checkCAFile makes the CA path absolute (the capture runs from another directory)
+// and reads it now, so a bad file fails validation, not the window.
 func checkCAFile(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -133,7 +124,7 @@ func (m *MySQL) Validate() (warnings []string, err error) {
 
 	switch {
 	case m.Explain == "":
-		// Omission is the off switch, so there is nothing to check and nothing to say.
+		// Omitted: off.
 
 	case slices.Contains(explainBooleans, m.Explain):
 		errs = append(errs, fmt.Errorf(

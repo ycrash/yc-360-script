@@ -14,19 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Two-node Galera clusters from compose.mysql.yaml, each skipped when it is not up:
+// Two-node Galera clusters from compose.mysql.yaml, skipped when not up:
 //
 //	docker compose -f compose.mysql.yaml --profile galera up -d --wait galera1 galera2
 //	docker compose -f compose.mysql.yaml --profile pxc up -d --wait pxc1 pxc2
-//
-// Each test leaves both nodes Synced in one Primary component.
 
 type galeraCluster struct {
 	profile string
 	nodes   [2]galeraNodeSpec
 
-	// plaintext: the MariaDB image starts with TLS off. PXC's root authenticates
-	// with caching_sha2_password, which the agent completes over TLS only.
+	// plaintext: MariaDB starts with TLS off; PXC's caching_sha2_password root needs TLS.
 	plaintext bool
 }
 
@@ -103,8 +100,6 @@ func wsrepStatusOf(t *testing.T, node galeraNode, name string) string {
 	return value
 }
 
-// waitForCluster waits until both nodes are Synced members of one Primary
-// component of two.
 func waitForCluster(t *testing.T, nodes ...galeraNode) {
 	t.Helper()
 
@@ -134,10 +129,6 @@ func TestGaleraNodesReadAsGalera(t *testing.T) {
 	})
 }
 
-// TestGaleraNodeWithoutItsQuorumIsStillGalera cuts the second node off. With two
-// nodes, neither half has a quorum, and each says non-Primary and not ready: the
-// state a report most needs to name, and one whose status values a standalone
-// MariaDB's resemble. The provider still says Galera.
 func TestGaleraNodeWithoutItsQuorumIsStillGalera(t *testing.T) {
 	eachGaleraCluster(t, func(t *testing.T, nodes [2]galeraNode) {
 		cut := nodes[1]

@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The window's own behaviour is pinned by the postgres package's window tests,
-// which run it through that engine. These pin what an engine parameterises.
+// Window behaviour is tested through postgres; these pin what an engine parameterises.
 
 var testStart = time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
 
@@ -166,7 +165,6 @@ func TestWindowDialsAgainOnlyAfterARefusedSlot(t *testing.T) {
 	assert.Equal(t, 2, dials, "a refused slot fails only its own connection")
 }
 
-// losingConn is a connection the driver has closed once lost is set.
 type losingConn struct {
 	fakeQuerier
 
@@ -177,7 +175,6 @@ func (c *losingConn) Lost() bool { return c.lost }
 
 func (c *losingConn) LossError() error { return errors.New("connection reset by peer") }
 
-// losingCollector loses its connection in its first sample.
 type losingCollector struct {
 	fakeCollector
 

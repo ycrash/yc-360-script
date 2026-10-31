@@ -1,8 +1,6 @@
-// Package dbcore is the engine-neutral core of a database capture: the window
-// that owns a run's connections and clock, the schedules artifacts sample on,
-// and the block headers every artifact writes. Each engine's package supplies
-// the connection, the statements and the collectors; nothing here knows which
-// database it is talking to.
+// Package dbcore is the engine-neutral core of a database capture: the window,
+// its schedules and the block headers. Engines supply connections, statements
+// and collectors.
 package dbcore
 
 import (
@@ -20,17 +18,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// The connections a run opens, one per speed, so a slow read on one never delays
-// the samples on another. Artifacts name theirs; those naming the same one share
-// its timeline.
+// One connection per speed, so a slow read never delays another's samples.
 const (
 	ConnectionFast      = "fast"
 	ConnectionNormal    = "normal"
 	ConnectionExpensive = "expensive"
 )
 
-// connectionOrder is the dialling order: fast first, so on a server with one slot
-// left, session state is what gets it. A name not listed is dialled after these.
+// connectionOrder: fast first, so the last free slot goes to session state.
 var connectionOrder = []string{ConnectionFast, ConnectionNormal, ConnectionExpensive}
 
 // Status values for an artifact's closing block.
@@ -44,12 +39,8 @@ const (
 	StatusCancelled        = "cancelled"
 	StatusDeadlineExceeded = "deadline_exceeded"
 
-	// StatusConnectionLost: the driver closed the connection mid-window. That
-	// connection's timeline stopped at the sample that found out, its artifacts keep
-	// what they had written, and the other connections' timelines go on. No reconnect
-	// is attempted: a new connection would restart every delta baseline under the
-	// same artifact. A window stopped by its own context reports the stop instead:
-	// the driver closes the connection then too, but the stop is the cause.
+	// StatusConnectionLost: the driver closed the connection mid-window; other
+	// connections go on. No reconnect: it would restart every delta baseline.
 	StatusConnectionLost = "connection_lost"
 
 	// StatusConnectFailed: the file still exists, the only record the run tried.
@@ -85,9 +76,7 @@ func Every(d time.Duration) Schedule {
 	return Schedule{kind: scheduleEvery, interval: d}
 }
 
-// Periodic is Every plus a sample at the close. A window shorter than the interval
-// still gives two samples, so the first reading always has a second to be read
-// against. Periodic with no interval is StartEnd.
+// Periodic is Every plus a sample at the close, so always at least two samples.
 func Periodic(d time.Duration) Schedule {
 	return Schedule{kind: schedulePeriodic, interval: d}
 }
@@ -136,9 +125,8 @@ func periodicOffsets(interval, window time.Duration) []time.Duration {
 		offsets = append(offsets, at)
 	}
 
-	// Drop the last step if it lands within half an interval of the close. Periodic(119s)
-	// on a 120s window would sample at 119s and 120s, and a one-second gap is noise the
-	// counters cannot be read against. Never drop the opening sample.
+	// Drop a last step within half an interval of the close (too short a delta to
+	// read), never the opening sample.
 	if last := len(offsets) - 1; last > 0 && window-offsets[last] < interval/2 {
 		offsets = offsets[:last]
 	}
@@ -187,13 +175,10 @@ type Artifact struct {
 	// connection's closing tick. Zero means the engine's DefaultSampleBudget.
 	SampleBudget time.Duration
 
-	// Format is the body format, FormatCSV when empty.
-	// Header-only blocks (preamble/closing/stub) still carry the real format=, or a receiver dispatching on the first block misparses the file.
+	// Format is the body format, FormatCSV when empty. Header-only blocks carry it too.
 	Format string
 
-	// Connection is the connection the artifact samples on (ConnectionFast and the
-	// two others). Empty names one of its own like any other name, which a test's
-	// window of fakes shares.
+	// Connection is the connection the artifact samples on.
 	Connection string
 
 	// Version is the file's format version, v= on each of its blocks. Zero is
@@ -201,8 +186,7 @@ type Artifact struct {
 	Version int
 }
 
-// Periodic reports a periodic file, whose sample blocks carry the capture line and the
-// sample line: the window's own stub for a failed sample does too.
+// Periodic reports a periodic file, whose sample blocks carry capture and sample lines.
 func (a Artifact) Periodic() bool { return a.Schedule.kind == schedulePeriodic }
 
 // BodyFormat is format=, FormatCSV for an artifact that names none.
@@ -258,9 +242,7 @@ type SampleContext[E any] struct {
 	// where identify fails, it is the configured name.
 	Database string
 
-	// ConnectDuration is the cost of dialling the collector's own connection. The
-	// window owns the connections, so this is where a collector learns it. Zero on
-	// every path that never dialled.
+	// ConnectDuration is the cost of dialling this connection; zero if never dialled.
 	ConnectDuration time.Duration
 
 	// CaptureID is the run's, the same in every file; TargetID names the target;
@@ -269,9 +251,7 @@ type SampleContext[E any] struct {
 	TargetID      string
 	EngineVersion string
 
-	// Engine is what the engine's identify step read about the connection: facts
-	// only that engine's collectors use. Its zero value is the run that never
-	// identified.
+	// Engine is what identify read; zero if it never ran.
 	Engine E
 
 	// Redact renders an error for an artifact with the password removed; nil is
@@ -309,12 +289,10 @@ type ArtifactResult struct {
 	SamplesExpected int
 	SamplesWritten  int
 
-	// SamplesSkipped counts ticks that fell due before their collector's previous
-	// sample ended, and so were not run late.
+	// SamplesSkipped counts ticks due before the previous sample ended.
 	SamplesSkipped int
 
-	// Err is the last capture-level error, already redacted. It reaches the agent
-	// log, never an artifact row, so it keeps the failure in full.
+	// Err is the last capture-level error, redacted; for the log only.
 	Err string
 
 	IOErr error
@@ -328,15 +306,12 @@ type Closer interface {
 	Close(ctx context.Context) error
 }
 
-// connectTimer is the part of a connection reporting the dial's cost. Asserted
-// rather than required, so a fake reports nothing - the truth about a dial it
-// never made.
+// connectTimer reports a dial's cost; optional, so fakes report nothing.
 type connectTimer interface {
 	ConnectDuration() time.Duration
 }
 
-// connectionState is the part of a connection that knows the driver closed it.
-// Asserted the same way: a fake that cannot say is a live connection.
+// connectionState reports a driver-closed connection; optional, absent means live.
 type connectionState interface {
 	Lost() bool
 }
@@ -365,36 +340,26 @@ type Engine[Q, E any] struct {
 	// Name is engine= on every block header.
 	Name string
 
-	// Dial opens one connection. ctx is already bounded by ConnectTimeout. The
-	// closer is usually the querier itself; it may also report ConnectDuration,
-	// Lost and LossError, which the window asserts for.
+	// Dial opens one connection; ctx is bounded by ConnectTimeout.
 	Dial func(ctx context.Context) (Q, Closer, error)
 
-	// Identify reads what every collector on the connection needs, once, into a
-	// copy of base. On failure it returns base unchanged, and the collectors run
-	// on the configured database with zero facts.
+	// Identify reads the connection's facts once; on failure it returns base.
 	Identify func(ctx context.Context, q Q, base SampleContext[E]) SampleContext[E]
 
-	// Location is the fields naming where a block was read through, written after
-	// format= on the preamble, the closing block and a sample's capture line:
-	// db= and whatever else the engine identifies a database by.
+	// Location is the fields naming where a block was read (db= and the like).
 	Location func(s SampleContext[E]) []HeaderField
 
-	// ErrorText renders an error in full with the password removed: what reaches
-	// a sample_error= and the agent log.
+	// ErrorText renders an error in full, password removed.
 	ErrorText func(error) string
 
-	// ConnectErrorText renders a refused dial for the closing block's
-	// connect_error=, the token a reader matches on.
+	// ConnectErrorText renders a refused dial as connect_error='s token.
 	ConnectErrorText func(error) string
 
-	// SlotRefused reports a refusal for want of a connection slot. Such a refusal
-	// fails only its own timeline, and the next one is still dialled; any other
-	// refusal is the target's and is not dialled again.
+	// SlotRefused reports a refusal for want of a connection slot, which fails
+	// only its own timeline; any other refusal fails the rest undialled.
 	SlotRefused func(error) bool
 
-	// ReadStatus is a failed sample's status=: TIMEOUT for the engine's own
-	// statement timeout, ERROR otherwise.
+	// ReadStatus is a failed sample's status=: TIMEOUT or ERROR.
 	ReadStatus func(error) string
 
 	// ConnectTimeout bounds a dial and the close of a connection.
@@ -406,10 +371,8 @@ type Engine[Q, E any] struct {
 	// CloseMargin is room to write the closing block after the last sample.
 	CloseMargin time.Duration
 
-	// KeepsFinishedOnLoss closes a file that had every sample before its connection
-	// was lost as complete rather than connection_lost: a one-shot file read at the
-	// start is whole, and its siblings on that connection say what was lost. Off, a
-	// lost connection overrides every file on it.
+	// KeepsFinishedOnLoss closes a file that had every sample before the loss as
+	// complete rather than connection_lost.
 	KeepsFinishedOnLoss bool
 }
 
@@ -426,30 +389,24 @@ type Seams struct {
 	StatementClock func(at time.Time) func() time.Time
 }
 
-// Window owns a run's connections, one for each name its collectors' artifacts
-// give, and one clock: every connection's timeline counts its offsets from the
-// same start, and they run at the same time.
+// Window owns a run's connections, one per named connection, all on one clock.
 type Window[Q, E any] struct {
 	Engine     Engine[Q, E]
 	Duration   time.Duration
 	Collectors []Collector[Q, E]
 
-	// CaptureID is written on every sample block of every file. A run without one
-	// gets its own.
+	// CaptureID is on every sample block; generated when empty.
 	CaptureID string
 
-	// TargetID names the target on every sample block; Database is the configured
-	// database, what a block says before a connection names its own.
+	// TargetID names the target; Database is the configured database.
 	TargetID string
 	Database string
 
 	Seams Seams
 }
 
-// ModuleDeadline: Duration + the closing tick's SampleBudgets + CloseMargin.
-// A connection's closing tick runs its collectors one after another, so their
-// budgets are summed; the connections run at the same time, so the deadline covers
-// the longest of those sums.
+// ModuleDeadline: Duration + the longest connection's summed closing-tick
+// SampleBudgets + CloseMargin.
 func (w *Window[Q, E]) ModuleDeadline() time.Duration {
 	if w.Seams.Grace > 0 {
 		return w.Duration + w.Seams.Grace
@@ -484,8 +441,7 @@ func (w *Window[Q, E]) sampleBudget(artifact Artifact) time.Duration {
 	return w.Engine.DefaultSampleBudget
 }
 
-// connectionTimeline is one connection, the collectors that sample on it, and how
-// its part of the run ended.
+// connectionTimeline is one connection, its collectors, and how it ended.
 type connectionTimeline[Q, E any] struct {
 	name string
 
@@ -496,19 +452,16 @@ type connectionTimeline[Q, E any] struct {
 	conn      Closer
 	sampleCtx SampleContext[E]
 
-	// connectErr is the refused dial's artifact row value, connectDetail the same
-	// failure in full, for the log. Both empty once connected.
+	// connectErr is the artifact's token, connectDetail the full text for the log.
 	connectErr    string
 	connectDetail string
 
-	// stopped is the status that ended the timeline early, empty if it ran its
-	// course; lostErr is the sample error that revealed a lost connection.
+	// stopped is the status that ended the timeline early; lostErr reveals a loss.
 	stopped string
 	lostErr string
 }
 
-// timelines groups the collectors by the connection their artifacts name, in
-// dialling order, and maps each collector to its timeline.
+// timelines groups the collectors by connection, in dialling order.
 func (w *Window[Q, E]) timelines() ([]*connectionTimeline[Q, E], []*connectionTimeline[Q, E]) {
 	var lines []*connectionTimeline[Q, E]
 
@@ -544,8 +497,7 @@ func (w *Window[Q, E]) timelines() ([]*connectionTimeline[Q, E], []*connectionTi
 	return lines, owner
 }
 
-// ConnectionNames is the connections a window of these collectors opens, in
-// dialling order.
+// ConnectionNames is the connections these collectors open, in dialling order.
 func (w *Window[Q, E]) ConnectionNames() []string {
 	lines, _ := w.timelines()
 
@@ -625,11 +577,8 @@ func (w *Window[Q, E]) runTimelines(
 	wg.Wait()
 }
 
-// dialAll opens each timeline's connection in turn. A refusal for want of a slot
-// fails only that timeline, and the next is still dialled: a slot may have come
-// free, and the timelines that connect still run. Any other failure is the
-// target's - its address, TLS, credentials or database - and would fail every
-// dial the same way, so the timelines not yet dialled take it without trying.
+// dialAll dials each timeline in turn. A slot refusal fails only that timeline;
+// any other failure is the target's and is given to the rest without dialling.
 func (w *Window[Q, E]) dialAll(ctx context.Context, lines []*connectionTimeline[Q, E]) {
 	var targetErr error
 
@@ -642,8 +591,7 @@ func (w *Window[Q, E]) dialAll(ctx context.Context, lines []*connectionTimeline[
 		}
 
 		if err != nil {
-			// Two renderings of one failure: the token for the artifact row, which a
-			// reader matches on, and the full text for the log.
+			// Token for the artifact, full text for the log.
 			var zero Q
 
 			line.querier, line.conn = zero, nil
@@ -732,12 +680,9 @@ func (w *Window[Q, E]) writeClosing(result *ArtifactResult, collector Collector[
 	SyncArtifact(result.File)
 }
 
-// closeArtifacts is the last pass, run with no context so it can record an expired deadline.
-// Each artifact closes with its own connection's outcome: the status that ended that
-// timeline early, if any; for a lost connection, the sample error that revealed it,
-// already redacted, as connection_error= so each file says on its own what ended it;
-// and for a connection never made, connect_error=, the artifact row's value, while
-// the same failure in full goes to the caller's log. Only the row is a contract.
+// closeArtifacts is the last pass, with no context so it can record an expired
+// deadline. Each file closes with its own connection's outcome (connection_error=,
+// connect_error=).
 func (w *Window[Q, E]) closeArtifacts(results []ArtifactResult, owner []*connectionTimeline[Q, E]) {
 	// Drains run before the clock read below, so the closing timestamp doesn't predate their bytes.
 	for i := range results {
@@ -848,8 +793,7 @@ func (w *Window[Q, E]) sample(
 	ctx context.Context, line *connectionTimeline[Q, E], start time.Time, owner []*connectionTimeline[Q, E],
 	results []ArtifactResult,
 ) (stopped, lostErr string) {
-	// finished is when each collector's latest sample ended. The timeline is serial, so
-	// that is the clock read the next tick takes; previous is the collector awaiting it.
+	// finished is when each collector's latest sample ended.
 	finished := map[int]time.Time{}
 	previous := -1
 
@@ -869,9 +813,8 @@ func (w *Window[Q, E]) sample(
 			return StoppedStatus(ctx), ""
 		}
 
-		// A tick that fell due before its collector's previous sample ended is skipped, not
-		// run late: back to back it would add load when the database is slowest, for a
-		// near-duplicate reading. The opening and closing samples always run.
+		// A tick due before the previous sample ended is skipped, not run late (load
+		// when the database is slowest). Opening and closing samples always run.
 		result := &results[event.Collector]
 		if event.Index > 1 && event.Index < result.SamplesExpected &&
 			start.Add(event.At).Before(finished[event.Collector]) {
@@ -880,8 +823,7 @@ func (w *Window[Q, E]) sample(
 			continue
 		}
 
-		// Offsets are absolute: a slow sample doesn't delay the next tick, and a tick
-		// late only because other collectors ran first fires immediately.
+		// Offsets are absolute: a slow sample doesn't delay the next tick.
 		if wait := start.Add(event.At).Sub(now); wait > 0 {
 			select {
 			case <-ctx.Done():
@@ -894,16 +836,13 @@ func (w *Window[Q, E]) sample(
 			return StoppedStatus(ctx), ""
 		}
 
-		// A failed sample on a live connection is that sample's stub block and the next
-		// tick proceeds; on a connection the driver has closed, whether the sample
-		// returned the error or folded it into its own block, every later tick would
-		// fail the same way, so the timeline stops here and its artifacts say why.
+		// A failed sample on a live connection gets a stub block; a closed
+		// connection stops the timeline.
 		lost, err := w.sampleOnce(ctx, line, results, event)
 		previous = event.Collector
 
 		if lost {
-			// The driver also closes the connection when the window's context ends
-			// mid-statement. That is a cancel or a deadline, and it says so.
+			// The driver also closes on a context end; report that stop instead.
 			if ctx.Err() != nil {
 				return StoppedStatus(ctx), ""
 			}
@@ -915,8 +854,7 @@ func (w *Window[Q, E]) sample(
 	return "", ""
 }
 
-// sampleOnce runs one tick; lost reports a connection the driver has closed, with the
-// redacted error it closed on - or, for a connection that kept none, the sample's.
+// sampleOnce runs one tick; lost reports a closed connection and its redacted error.
 func (w *Window[Q, E]) sampleOnce(
 	ctx context.Context, line *connectionTimeline[Q, E], results []ArtifactResult, event SampleEvent,
 ) (lost bool, err string) {
@@ -939,8 +877,7 @@ func (w *Window[Q, E]) sampleOnce(
 		result.SamplesWritten++
 	}
 
-	// Checked whatever the sample returned: a collector that localises failures to a
-	// block carries the loss on that block's header and reports nothing.
+	// Checked even on success: a collector may fold the error into its block.
 	if !connectionLost(line.conn) {
 		return false, ""
 	}
@@ -985,8 +922,7 @@ func (w *Window[Q, E]) writeSampleError(result *ArtifactResult, sampleCtx Sample
 	}
 }
 
-// Identify reads the connection's facts once for every collector on it, falling back
-// to the base context when the engine has no identify step.
+// Identify reads the connection's facts once, or returns base if the engine has none.
 func (w *Window[Q, E]) Identify(ctx context.Context, q Q) SampleContext[E] {
 	base := w.BaseSampleContext()
 

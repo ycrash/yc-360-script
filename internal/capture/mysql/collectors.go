@@ -2,14 +2,9 @@ package mysql
 
 import "time"
 
-// Collectors is every my_* artifact for one run, in registration order. Each names
-// the connection for its speed, and the three connections' timelines run at the same
-// time. Within one, registration order is sampling order on a shared tick: the log
-// tail goes first on the normal connection, so its starting offset is taken before
-// that connection's own statements; then the cheap counter reads; then the
-// digest read, and my_explain last, since it walks that read every tick. On the
-// expensive connection my_metadata is read once, at the start, before the
-// whole-table reads.
+// Collectors is every my_* artifact for one run. Within a connection, order is
+// sampling order: the log tail first (its offset predates our own statements),
+// my_explain after the digest read it walks, my_metadata before the whole-table reads.
 func Collectors(metadata *MetadataCollector, explainMode string, fast, normal, expensive time.Duration) []Collector {
 	slowQueries := &SlowQueries{Interval: normal}
 

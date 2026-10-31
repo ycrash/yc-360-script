@@ -10,9 +10,8 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// slowQueryColumns are the spec's, in its order. A column this server has no source
-// for is still written, empty, and named on the block as unavailable=: a reader sees
-// one shape for every server.
+// slowQueryColumns are the spec's, in order. A column the server lacks is written
+// empty and named in unavailable=, so every server has one shape.
 var slowQueryColumns = []string{
 	"schema_name", "digest", "digest_text", "query_sample_text", "query_sample_seen", "query_sample_timer_wait",
 	"count_star", "sum_timer_wait", "sum_rows_examined", "sum_rows_sent",
@@ -22,42 +21,34 @@ var slowQueryColumns = []string{
 	"sum_created_tmp_disk_tables",
 }
 
-// countingSQL reads, in one statement, the switches two of the digest columns need.
-// sum_cpu_time needs its consumer and the two every consumer below them needs.
-// max_total_memory and max_controlled_memory need the memory instruments, and with
-// them off read zero, not NULL (measured on my80). Checked, never switched on.
+// countingSQL checks (never enables) what sum_cpu_time and the max_*_memory columns
+// need: three consumers, and the memory instruments, without which they read zero,
+// not NULL (measured on my80).
 const countingSQL = `SELECT
   (SELECT COUNT(*) FROM performance_schema.setup_consumers
     WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'),
   (` + memoryInstrumentsSQL + ` AND ENABLED = 'YES')`
 
-// The reads the collector's blockState remembers a refusal of: the digest block,
-// and the counting check, which is no block but counts against the server's error
-// statistics all the same.
+// Sources whose refusal blockState remembers.
 const (
 	digestSource   = "events_statements_summary_by_digest"
 	countingSource = "setup_consumers"
 )
 
-// explainCandidate is a digest's sample statement as the server holds it, values
-// and all: what EXPLAIN is run against, and never written.
+// explainCandidate is a digest's unredacted sample statement, for EXPLAIN; never written.
 type explainCandidate struct {
 	schema string
 	digest string
 	text   string
 }
 
-// SlowQueries is my_slow_queries.txt: the 100 digests with the most cumulative time,
-// of rows_total=, keyed by (schema_name, digest) - the table's own key, so two
-// schemas running the same statement never merge. query_sample_text is written with its values
-// replaced; the text as read is kept in memory for my_explain.txt, which reads this
-// collector's latest read rather than running the statement again.
+// SlowQueries is my_slow_queries.txt: the top 100 digests by total time, keyed by
+// (schema_name, digest). Unredacted samples are kept in memory for my_explain.txt.
 type SlowQueries struct {
 	Interval time.Duration
 
 	state blockState
 
-	// latest is the last sample's candidates, in the order read.
 	latest []explainCandidate
 	read   int
 }
@@ -69,10 +60,7 @@ func (sq *SlowQueries) Artifact() Artifact {
 func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s SampleContext) error {
 	version := s.Engine.Version
 
-	// Nothing to ask before 8.0.28, which has none of the columns a switch decides;
-	// an unread version reads them as absent rather than fail the whole statement on
-	// an older server. Nothing either with performance_schema off, whose digests are
-	// not read.
+	// The switched columns are 8.0.28+; an unread version treats them as absent.
 	var counting digestCounting
 	if version.AtLeast(8, 0, 28) && !s.Engine.PerformanceSchemaOff {
 		counting = sq.counting(ctx, q, s)
@@ -80,8 +68,7 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 
 	var unavailable []string
 
-	// sum_cpu_time is 8.0.28. Zero while the consumer is off would read as "no CPU":
-	// it is not measured.
+	// NULL, not zero, while the consumer is off: zero would read as "no CPU".
 	cpuTime := "sum_cpu_time"
 	if !counting.cpuTime {
 		cpuTime = "NULL"
@@ -89,8 +76,7 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 		unavailable = append(unavailable, "sum_cpu_time")
 	}
 
-	// max_total_memory and max_controlled_memory are 8.0.31, and not measured with
-	// the memory instruments off either.
+	// 8.0.31+, and need the memory instruments.
 	totalMemory, controlledMemory := "max_total_memory", "max_controlled_memory"
 	if !version.AtLeast(8, 0, 31) || !counting.memory {
 		totalMemory, controlledMemory = "NULL", "NULL"
@@ -98,10 +84,8 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 		unavailable = append(unavailable, "max_total_memory", "max_controlled_memory")
 	}
 
-	// query_sample_seen is read as text. A digest with no sample holds the zero
-	// datetime there, and returning that as a datetime raises warning 1292 once per
-	// such row, on every sample, into the error statistics my_errors.txt reads. As
-	// text it is the same bytes, and raises nothing.
+	// query_sample_seen as text: a zero datetime would raise warning 1292 per row,
+	// polluting my_errors.txt.
 	query := `SELECT schema_name, digest, digest_text, query_sample_text,
        CAST(query_sample_seen AS CHAR) AS query_sample_seen,
        query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,
@@ -129,21 +113,18 @@ LIMIT 100`
 		instrumented:     true,
 	}
 
-	// Read raw for my_explain.txt, then written through the same path as every
-	// other block, which replaces the values.
+	// Rows are retained raw for my_explain.txt, then written redacted.
 	return writeBlocks(ctx, &retainingQuerier{Querier: q, sq: sq, s: s}, w, sq.Artifact(), s, &sq.state, []block{b})
 }
 
-// digestCounting is what countingSQL found counted; nothing, where it was not read.
+// digestCounting is what countingSQL found enabled.
 type digestCounting struct {
 	cpuTime bool
 	memory  bool
 }
 
-// counting reads what the switched columns are counting; a failed read counts as
-// nothing, so a zero is never written for either. A refusal is asked once and
-// remembered, as a block's is, and nothing is asked once the digest read has been
-// refused: there is no row for the answer to describe.
+// counting runs countingSQL; failure means nothing is counted. Skipped once it or
+// the digest read has been refused.
 func (sq *SlowQueries) counting(ctx context.Context, q Querier, s SampleContext) digestCounting {
 	if sq.state.isRefused(countingSource) || sq.state.isRefused(digestSource) {
 		return digestCounting{}
@@ -166,11 +147,10 @@ func (sq *SlowQueries) counting(ctx context.Context, q Querier, s SampleContext)
 	return digestCounting{cpuTime: row[0] == "3", memory: memory > 0}
 }
 
-// Latest is the candidates of the last sample read, with the sample's index.
+// Latest returns the last read's candidates and its sample index.
 func (sq *SlowQueries) Latest() ([]explainCandidate, int) { return sq.latest, sq.read }
 
-// retainingQuerier hands the slow-queries statement's rows to the collector as they
-// are read, values and all, before the block writer replaces them.
+// retainingQuerier captures rows unredacted before the block writer redacts them.
 type retainingQuerier struct {
 	Querier
 
@@ -190,8 +170,7 @@ func (r *retainingQuerier) Query(ctx context.Context, query string) (Rows, error
 	return &retainingRows{Rows: rows, sq: r.sq}, nil
 }
 
-// retainingRows copies schema_name, digest and query_sample_text from each row the
-// block writer scans.
+// retainingRows copies schema_name, digest and query_sample_text from each scanned row.
 type retainingRows struct {
 	Rows
 

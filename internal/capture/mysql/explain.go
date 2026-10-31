@@ -20,13 +20,9 @@ const (
 	// MaxPlanBytes bounds one plan; a longer one is cut and written as TRUNCATED.
 	MaxPlanBytes = 1 << 20
 
-	// ExplainBudget is the time one plan is allowed. MySQL has no server-side bound
-	// on EXPLAIN - max_execution_time covers SELECT only - and the driver closes the
-	// connection when a context expires mid-statement, which would end this
-	// connection's timeline. So the bound that fires is the server's
-	// lock_wait_timeout, which is what an EXPLAIN waits on in practice; the client
-	// deadline stays at StatementDeadline; and a plan that took longer than this is
-	// still written, as TIMEOUT, with its duration.
+	// ExplainBudget is the time one plan is allowed. max_execution_time doesn't cover
+	// EXPLAIN and a client deadline would close the connection, so lock_wait_timeout
+	// enforces it; a slower plan is still written, as TIMEOUT.
 	ExplainBudget = 2 * time.Second
 )
 
@@ -38,9 +34,8 @@ var explainableVerbs = map[string]bool{
 	"SELECT": true, "WITH": true, "TABLE": true, "INSERT": true, "REPLACE": true, "UPDATE": true, "DELETE": true,
 }
 
-// writeVerbs open a statement that writes. The session is read-only
-// (transaction_read_only), and the server refuses EXPLAIN of one there with error
-// 1792, measured on the matrix; the read-only guard is kept and the plan is not.
+// writeVerbs open a writing statement, whose EXPLAIN the read-only session refuses
+// (error 1792, measured on the matrix).
 var writeVerbs = map[string]bool{"INSERT": true, "REPLACE": true, "UPDATE": true, "DELETE": true}
 
 // withVerbs are the statements a WITH can open.
@@ -54,21 +49,16 @@ const (
 	explainReasonCut          = "sample_text_cut"
 	explainReasonReadOnly     = "read_only_session"
 
-	// explainReasonPlanLimit: the capture had already asked for MaxPlansPerCapture
-	// plans. The postgres capture's reason for the same limit.
+	// explainReasonPlanLimit: MaxPlansPerCapture reached; same reason as postgres.
 	explainReasonPlanLimit = "plan_limit_reached"
 
-	// explainReasonPlaceholder: a prepared statement's sample keeps its ? markers,
-	// which EXPLAIN cannot parse (error 1064, measured on the matrix).
+	// explainReasonPlaceholder: ? markers EXPLAIN cannot parse (error 1064, measured).
 	explainReasonPlaceholder = "placeholder"
 )
 
-// Explain is my_explain.txt: one estimated plan per digest, the first time the digest
-// is seen, at most MaxPlansPerCapture per capture - EXPLAIN FORMAT=JSON of the
-// digest's query_sample_text, the one runnable example the server keeps, never
-// digest_text, whose ? placeholders do not parse. Never EXPLAIN ANALYZE, which runs
-// the statement. The plan's conditions carry the application's values and are
-// replaced; its structure, costs and row estimates are kept.
+// Explain is my_explain.txt: EXPLAIN FORMAT=JSON of each new digest's
+// query_sample_text, at most MaxPlansPerCapture per capture, values redacted.
+// Never EXPLAIN ANALYZE, which runs the statement.
 type Explain struct {
 	Interval time.Duration
 
@@ -83,8 +73,7 @@ type Explain struct {
 	textCap int
 }
 
-// NewExplain reads the candidates slowQueries offers each sample. mode is config's
-// explain value; anything but all captures no plans.
+// NewExplain plans slowQueries' candidates; any mode but all captures no plans.
 func NewExplain(mode string, slowQueries *SlowQueries, interval time.Duration, database string) *Explain {
 	return &Explain{
 		Interval:    interval,
@@ -99,7 +88,6 @@ func (e *Explain) Artifact() Artifact {
 	artifact := periodicArtifact("my_explain", ConnectionNormal, e.Interval)
 	artifact.Format = dbcore.FormatText
 
-	// Up to five plans at ExplainBudget each, past the sample's other statements.
 	artifact.SampleBudget = DefaultSampleBudget + MaxPlansPerCapture*ExplainBudget
 
 	return artifact
@@ -113,7 +101,6 @@ func (e *Explain) Sample(ctx context.Context, q Querier, w io.Writer, s SampleCo
 			[]dbcore.HeaderField{kv("reason", "explain_off")}, nil)
 	}
 
-	// The candidates are the digests, which performance_schema off leaves empty.
 	if s.Engine.PerformanceSchemaOff {
 		return writeTextBlock(w, artifact, s, block{source: "explain"}, dbcore.Span{}, dbcore.StatusOK,
 			[]dbcore.HeaderField{kv("reason", reasonPerformanceSchemaOff)}, nil)
@@ -142,7 +129,7 @@ func (e *Explain) Sample(ctx context.Context, q Querier, w io.Writer, s SampleCo
 		}
 	}
 
-	// A sample with no new digest still says so, so the file's samples count.
+	// Every sample writes a block, so samples can be counted.
 	if written == 0 {
 		fields := []dbcore.HeaderField{kv("reason", "no_new_digest"), kv("plans", strconv.Itoa(e.plans))}
 		if read != s.Index {
@@ -181,10 +168,8 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 
 	start := s.Now()
 
-	// EXPLAIN resolves unqualified names against the default schema the statement
-	// ran in. FOR SCHEMA names it without changing the session's: the digests file
-	// every statement under the schema it ran in, and after a USE the agent's own
-	// on this connection were filed under the application's.
+	// Resolve names in the digest's schema. FOR SCHEMA avoids a USE, which would file
+	// the agent's later statements under the application's schema.
 	statement := "EXPLAIN FORMAT=JSON " + c.text
 
 	switch {
@@ -235,10 +220,7 @@ func (e *Explain) explain(ctx context.Context, q Querier, w io.Writer, artifact 
 		append(fields, kv("redacted", strconv.Itoa(redacted))), []byte(plan))
 }
 
-// explainStatus is the status of a plan whose read ended in err. A lock wait that
-// ran out is the plan's time bound firing - lock_wait_timeout is ExplainBudget, and
-// what an EXPLAIN waits on - so it is a plan not obtained within its budget,
-// TIMEOUT, as the spec has it, and not an ERROR.
+// explainStatus: a lock wait timeout is ExplainBudget firing, so TIMEOUT, not ERROR.
 func explainStatus(err error) string {
 	if hasErrorNumber(err, errLockWaitTimeout) {
 		return dbcore.StatusTimeout
@@ -266,8 +248,7 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 		return explainReasonPlaceholder
 	}
 
-	// A sample cut at performance_schema_max_sql_text_length is not the statement:
-	// EXPLAIN would fail on it, or plan a different one.
+	// A sample cut at performance_schema_max_sql_text_length is not the statement.
 	if e.textCap == 0 {
 		if row, err := readRow(ctx, q, s, "SELECT @@performance_schema_max_sql_text_length"); err == nil {
 			e.textCap, _ = strconv.Atoi(row[0])
@@ -281,11 +262,8 @@ func (e *Explain) skipReason(ctx context.Context, q Querier, s SampleContext, c 
 	return ""
 }
 
-// statementVerb is the word that says what a statement does, upper-cased: its first,
-// past whitespace, plain comments - an ORM may open every statement with one - and
-// opening parentheses. For a WITH it is the statement's past the common table
-// expressions, since WITH ... UPDATE writes. Empty when the text opens with neither,
-// as an executable comment /*! ... */ does.
+// statementVerb is a statement's upper-cased first word past comments and
+// parentheses; for WITH, the verb after the CTEs. Empty for /*! ... */.
 func statementVerb(s string) string {
 	i := skipSpaceAndComments(s, 0)
 	for i < len(s) && s[i] == '(' {
@@ -302,9 +280,7 @@ func statementVerb(s string) string {
 	return withVerb(s, i+n)
 }
 
-// withVerb is the statement a WITH opens, read from i: the first word at the WITH's
-// own level, outside parentheses, literals, quoted names and comments, that opens
-// one. WITH when the text has none, as a cut sample may not.
+// withVerb is the first top-level verb after a WITH, or WITH if there is none.
 func withVerb(s string, i int) string {
 	depth := 0
 
@@ -353,16 +329,13 @@ func withVerb(s string, i int) string {
 	return "WITH"
 }
 
-// explainsForSchema: the server takes EXPLAIN ... FOR SCHEMA. Measured on 8.4.13,
-// 9.7.4 and Percona 8.4.11; a syntax error on 8.0.46, and MariaDB has none.
+// explainsForSchema: EXPLAIN ... FOR SCHEMA works on 8.4+ (measured); not 8.0 or MariaDB.
 func explainsForSchema(f Facts) bool {
 	return f.Variant != VariantMariaDB && f.Version.AtLeast(8, 4, 0)
 }
 
-// restoreSchema leaves a plan's schema after its USE, for a server without FOR
-// SCHEMA: the configured default schema, or with none information_schema, which
-// every account may use. MySQL has no way back to no schema at all, and every
-// agent statement names its tables, so any schema serves but the application's.
+// restoreSchema undoes a plan's USE: back to the configured schema, else
+// information_schema (MySQL can't return to no schema).
 func (e *Explain) restoreSchema(ctx context.Context, q Querier) {
 	schema := e.database
 	if schema == "" {
@@ -395,11 +368,8 @@ func readAll(ctx context.Context, q Querier, query string) error {
 	return rows.Err()
 }
 
-// planNameKeys hold names, structure or the optimizer's own numbers, never a value
-// from the statement: their strings are kept. Every other string in a plan - a
-// condition, an operation ("Filter: (orders.status = 'pending')"), the rewritten
-// query 9.x's second JSON format carries whole - has its values replaced, so a key
-// a later version adds is replaced until it is listed here.
+// planNameKeys hold names, structure or optimizer numbers and are kept; every other
+// plan string is redacted, including keys a later version adds.
 var planNameKeys = map[string]bool{
 	// Tables, indexes and columns.
 	"table_name": true, "schema_name": true, "index_name": true, "key": true, "possible_keys": true,
@@ -415,16 +385,14 @@ var planNameKeys = map[string]bool{
 	"data_read_per_join": true, "filtered": true,
 }
 
-// redactPlan replaces the values in a JSON plan's strings, keeping the strings of
-// planNameKeys and the plan's layout byte for byte. JSON numbers - row estimates and
-// costs - are the optimizer's, and are kept.
+// redactPlan redacts a JSON plan's strings outside planNameKeys, keeping its layout
+// and numbers.
 func redactPlan(plan string) (string, int) {
 	var out strings.Builder
 
 	out.Grow(len(plan))
 
-	// Each open object or array, with the key its strings fall under: an object's
-	// latest key, or for an array the key it is the value of.
+	// Each open object or array, with the key its strings fall under.
 	type frame struct {
 		object bool
 		key    string

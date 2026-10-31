@@ -11,8 +11,7 @@ import (
 	"unicode"
 )
 
-// DefaultArtifactVersion is v= for an artifact that sets no Version. An artifact's version changes
-// when its key set or value forms change in a way an existing reader would get wrong.
+// DefaultArtifactVersion is v= for an artifact that sets no Version.
 const DefaultArtifactVersion = 1
 
 // SampleHeaderVersion is v= for a periodic file whose one break is the two-line sample
@@ -29,9 +28,7 @@ const (
 // TimestampLayout is every timestamp the agent writes: UTC, milliseconds, a Z.
 const TimestampLayout = "2006-01-02T15:04:05.000Z"
 
-// A sample block's status=: its reads succeeded, or found by design that there was
-// nothing to read (reason=); a read failed; a read ran out of time; a plan was cut at
-// its size cap.
+// A sample block's status=.
 const (
 	StatusOK        = "OK"
 	StatusError     = "ERROR"
@@ -55,9 +52,7 @@ type Field struct {
 //
 //	# engine=<engine> source=<source> v=<n> format=<format> scope=<scope> [k=v ...] ts=<ts>
 //
-// An empty value means "not read" (e.g. dbid= before a connection exists); a
-// missing key (error=, connect_error=) means the thing it describes didn't
-// happen.
+// An empty value means "not read"; a missing key means it didn't happen.
 func WriteBlockHeader(w io.Writer, engine, source string, version int, scope, format string,
 	fields []HeaderField, ts time.Time,
 ) error {
@@ -118,9 +113,8 @@ type SampleHeader struct {
 //	# capture_id=<uuid> target_id=<id> engine=<engine> engine_version=<n> v=<n> format=<f> <location>
 //	# sample_id=<n> source=<source> start_ts=<ts> end_ts=<ts> duration_ms=<n> status=<status> rows=<n> truncated=<bool> scope=<scope> [k=v ...] ts=<ts>
 //
-// The first line is the same on every sample block of a file, the second is the
-// block's own; on each, the envelope's keys come first. location is the engine's
-// db= and the like. The times are empty on a block no statement was run for.
+// The first line is the same on every block of a file; times are empty where no
+// statement ran.
 func WriteSampleHeader[E any](w io.Writer, engine string, location []HeaderField, artifact Artifact,
 	s SampleContext[E], h SampleHeader,
 ) error {
@@ -171,14 +165,11 @@ func DurationMillis(reads Span) string {
 	return strconv.FormatInt(reads.End.Sub(reads.Start).Milliseconds(), 10)
 }
 
-// MaxHeaderValue bounds a header value in runes: a server error can carry detail
-// and hints, and a kilobyte has nowhere to wrap in header space.
+// MaxHeaderValue bounds a header value in runes.
 const MaxHeaderValue = 200
 
-// HeaderValue quotes anything that would break space-delimited k=v tokenisation.
-// QuoteToGraphic, not Quote: Quote escapes non-ASCII to \uXXXX, and identifiers
-// may legally be non-ASCII. Parser rule: split on unquoted whitespace; a value
-// starting with " runs to the next unescaped ", per strconv.Unquote's escapes.
+// HeaderValue quotes anything that would break k=v tokenisation. QuoteToGraphic
+// keeps non-ASCII identifiers readable.
 func HeaderValue(s string) string {
 	s = TruncateRunes(SingleLine(s), MaxHeaderValue)
 
@@ -189,8 +180,7 @@ func HeaderValue(s string) string {
 	return s
 }
 
-// needsHeaderQuoting also quotes non-graphic runes, which makes them visible as
-// escapes rather than unreadable off a terminal.
+// needsHeaderQuoting also quotes non-graphic runes, so they show as escapes.
 func needsHeaderQuoting(s string) bool {
 	for _, r := range s {
 		if unicode.IsSpace(r) || r == '"' || !unicode.IsGraphic(r) {
@@ -201,8 +191,7 @@ func needsHeaderQuoting(s string) bool {
 	return false
 }
 
-// TruncateRunes marks the cut, and counts runes so a multi-byte character is
-// never split in half.
+// TruncateRunes marks the cut without splitting a multi-byte character.
 func TruncateRunes(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {
@@ -212,8 +201,7 @@ func TruncateRunes(s string, n int) string {
 	return string(runes[:n]) + "..."
 }
 
-// WriteRows writes the column header even with no rows, the shape that
-// distinguishes "captured and found nothing" from "could not be captured".
+// WriteRows writes the column header even with no rows: "found nothing", not "not captured".
 func WriteRows(w io.Writer, columns []string, rows [][]string) error {
 	cw := csv.NewWriter(w)
 
@@ -242,8 +230,7 @@ func SingleLineAll(cells []string) []string {
 	return flattened
 }
 
-// WriteKeyValueBody prepends the column header every block carries, so a block
-// is readable without the one before it.
+// WriteKeyValueBody writes the column header and one row per field.
 func WriteKeyValueBody(w io.Writer, fields []Field) error {
 	return WriteFields(w, append([]Field{{Key: "key", Value: "value"}}, fields...))
 }
@@ -265,9 +252,7 @@ func WriteFields(w io.Writer, fields []Field) error {
 
 var lineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
-// SingleLine collapses line breaks so one row is one line - not for the CSV
-// encoding (which would quote a newline fine) but for the artifact's claim that
-// it needs no record-aware parsing. The one place the agent mutates a captured value.
+// SingleLine collapses line breaks so one row is one line.
 func SingleLine(s string) string {
 	return lineBreaks.Replace(s)
 }
@@ -277,8 +262,7 @@ func Timestamp(t time.Time) string {
 	return t.UTC().Format(TimestampLayout)
 }
 
-// ClockRead renders a reading that may not have happened: zero is empty, not year
-// one, which would read as two thousand years of clock skew.
+// ClockRead renders a clock read; zero is empty, not year one.
 func ClockRead(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -287,8 +271,7 @@ func ClockRead(t time.Time) string {
 	return Timestamp(t)
 }
 
-// MillisText renders milliseconds - finer than the networks measured, coarse
-// enough to stay stable. An unmeasured duration is empty, like every unread value.
+// MillisText renders milliseconds; an unmeasured duration is empty.
 func MillisText(d time.Duration) string {
 	if d <= 0 {
 		return ""
@@ -297,9 +280,7 @@ func MillisText(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds()*1000, 'f', 1, 64)
 }
 
-// RedactError renders err for an artifact field on one line, with the password
-// replaced wherever it appears. Defence in depth: no statement or argument carries
-// the password.
+// RedactError renders err on one line with the password replaced.
 func RedactError(err error, password string) string {
 	if err == nil {
 		return ""
@@ -314,8 +295,7 @@ func RedactError(err error, password string) string {
 	return msg
 }
 
-// DeadlineStatus is a failed read's status when the engine has no statement timeout
-// of its own to recognise: TIMEOUT for an expired context, ERROR otherwise.
+// DeadlineStatus is TIMEOUT for an expired context, ERROR otherwise.
 func DeadlineStatus(err error) string {
 	switch {
 	case err == nil:
@@ -328,8 +308,7 @@ func DeadlineStatus(err error) string {
 	return StatusError
 }
 
-// Is the agent on the machine running the database? Never a false yes: that would
-// label another machine's CPU, memory and kernel readings as the database host's.
+// Is the agent on the database's machine? Never a false yes.
 const (
 	OnDBHostYes     = "yes"
 	OnDBHostNo      = "no"

@@ -23,10 +23,7 @@ func setupMockServer(t *testing.T) *httptest.Server {
 }
 
 // createTestScript creates a cross-platform test script
-// scriptRunTimeout bounds a test script that is expected to finish. The timeout is
-// not what those tests check - TestExtendedData_Run_ScriptTimeout does - and a
-// one-line script took over 3s to start once under a loaded full-suite run, so it
-// sits far above that.
+// scriptRunTimeout is generous: a one-line script once took over 3s to start under load.
 const scriptRunTimeout = 30 * time.Second
 
 func createTestScript(t *testing.T, outputFile string) string {

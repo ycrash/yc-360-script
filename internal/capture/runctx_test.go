@@ -13,8 +13,6 @@ import (
 	"yc-agent/internal/config"
 )
 
-// silentServer accepts connections and never answers, so a connect waits until its
-// context ends.
 func silentServer(t *testing.T) int {
 	t.Helper()
 
@@ -53,9 +51,6 @@ func silentServer(t *testing.T) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
-// assertTheRunStopsTheWindow runs a two-minute window against a server that never
-// answers, ends its run's context before Run or mid-window, and checks the window
-// ends at once and its files say so.
 func assertTheRunStopsTheWindow(t *testing.T, run func(context.Context) (Result, error), artifact string) {
 	for _, tt := range []struct {
 		name   string

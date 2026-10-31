@@ -14,81 +14,63 @@ import (
 	"yc-agent/internal/capture/dbcore"
 )
 
-// DefaultMaxText bounds one captured text value in runes - statement text, mostly,
-// whose server-side copies are cut at 1024 bytes by default. A value past it is cut
-// and counted on its block as text_cut=.
+// DefaultMaxText caps one text value, in runes; cuts are counted as text_cut=.
 const DefaultMaxText = 8192
 
-// Reasons a block was read and found nothing by design, the reason= of a status=OK
-// block with no rows.
+// reason= values of an empty status=OK block.
 const (
-	// reasonPermissionDenied: the role may not run the statement. The refusal is the
-	// same every sample, so it is asked once and remembered: each refusal counts
-	// once more against the server's own error statistics, which my_errors.txt
-	// reads.
+	// reasonPermissionDenied is asked once and remembered: each refusal would
+	// count in the error statistics my_errors.txt reads.
 	reasonPermissionDenied = "permission_denied"
 
-	// reasonPerformanceSchemaOff: the server runs with performance_schema=OFF, so
-	// the tables its instruments fill answer with no rows, and are not asked. Spec
-	// §7: not available because a required setting is off, not an error.
+	// reasonPerformanceSchemaOff: instrumented tables are not asked (spec §7).
 	reasonPerformanceSchemaOff = "performance_schema_off"
 )
 
 func kv(key, value string) dbcore.HeaderField { return dbcore.HeaderField{Key: key, Value: value} }
 
-// block is one statement and how its result is written: one block of a sample.
+// block is one statement of a sample and how its result is written.
 type block struct {
-	// source is the block's source=, what was read.
 	source string
 
-	// query is the statement, sent as written.
 	query string
 
-	// columns are the columns written when the read failed or was not made; a read
-	// that succeeded writes the statement's own.
+	// columns are written when the read failed or was skipped.
 	columns []string
 
-	// statementColumns are the columns holding SQL text, whose values are replaced
-	// and counted as redacted=.
+	// statementColumns hold SQL text, redacted and counted as redacted=.
 	statementColumns []string
 
-	// messageColumns are the columns holding a server's error message, which may
-	// quote a value or a statement; replaced and counted the same way.
+	// messageColumns hold server error messages, redacted the same way.
 	messageColumns []string
 
-	// maxRows bounds the rows written; the statement asks for one more, so a cut is
-	// known rather than guessed. Zero writes every row.
+	// maxRows bounds the rows written (one more is asked, to detect a cut); 0 is all.
 	maxRows int
 
-	// counted: the statement keeps the spec's LIMIT and adds rowsTotalSelect, its
-	// row count before the LIMIT, which is written as rows_total= and decides
-	// truncated=, and is not a column of the block.
+	// counted: the statement selects rowsTotalSelect, written as rows_total= rather
+	// than as a column.
 	counted bool
 
-	// scope is the artifact's when empty.
+	// scope defaults to the artifact's.
 	scope string
 
-	// fields are written on the block's header after the envelope's.
 	fields []dbcore.HeaderField
 
-	// uncapped reads values whole: a plan has a cap of its own.
+	// uncapped skips DefaultMaxText: a plan has its own cap.
 	uncapped bool
 
-	// instrumented: the statement reads a performance_schema table its instruments
-	// fill, empty with performance_schema off. Its settings and status tables are
-	// not: global_status, global_variables and variables_info answer either way.
+	// instrumented: reads an instrument-filled performance_schema table, empty when
+	// performance_schema is off (status and variables tables are not).
 	instrumented bool
 }
 
-// result is one read.
 type result struct {
 	columns []string
 	rows    [][]string
 
-	// truncated: there were more than maxRows rows, or fewer written than total.
+	// truncated: more than maxRows rows, or fewer written than total.
 	truncated bool
 
-	// total is a counted block's rows before its LIMIT.
 	total int64
 
 	// redacted counts replaced values, textCut values cut at DefaultMaxText.
@@ -98,8 +80,7 @@ type result struct {
 	reads dbcore.Span
 }
 
-// read runs b's statement under its own deadline and returns every value as text,
-// NULL as empty.
+// read runs b under a statement deadline; values are text, NULL as empty.
 func read(ctx context.Context, q Querier, s SampleContext, b block) (result, error) {
 	ctx, cancel := statementContext(ctx)
 	defer cancel()
@@ -200,7 +181,7 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 	return res, nil
 }
 
-// redactor is what replaces the values in column, nil for a column that holds none.
+// redactor is column's redaction, or nil.
 func (b block) redactor(column string) func(string) (string, int) {
 	named := func(c string) bool { return strings.EqualFold(c, column) }
 
@@ -215,9 +196,8 @@ func (b block) redactor(column string) func(string) (string, int) {
 	return nil
 }
 
-// cell caps a value, then, with a redactor, replaces its values, so a literal the
-// cap split is still found; the cap's "..." goes back on after, where no
-// replacement can swallow it.
+// cell caps then redacts a value, re-appending the cap's "..." after so no
+// replacement swallows it.
 func cell(value string, redact func(string) (string, int)) (string, bool, int) {
 	capped := dbcore.TruncateRunes(value, DefaultMaxText)
 	cut := capped != value
@@ -239,7 +219,7 @@ func cell(value string, redact func(string) (string, int)) (string, bool, int) {
 	return capped, cut, redacted
 }
 
-// blockState remembers, across samples, what a collector's blocks were refused.
+// blockState remembers refused sources across samples.
 type blockState struct {
 	refused map[string]bool
 }
@@ -254,24 +234,21 @@ func (st *blockState) refuse(source string) {
 	st.refused[source] = true
 }
 
-// blockOutcome is what writing one block found: whether its read failed, and how,
-// and how many rows it wrote.
+// blockOutcome is what writing one block found.
 type blockOutcome struct {
 	err  error
 	rows int
 
-	// written are the rows as written: values capped and replaced.
+	// written are the rows as written, capped and redacted.
 	written [][]string
 
-	// read: the statement ran and returned, refused neither now nor before.
+	// read: the statement ran and returned.
 	read bool
 }
 
-// writeBlock reads b and writes it as one sample block of artifact. A refusal for
-// want of a privilege is written as reason=permission_denied, and remembered in st
-// so the next sample does not ask again; any other failure is the block's
-// status=, with error=, and the column header alone. An instrumented block on a
-// server with performance_schema off is not read: its reason says why it is empty.
+// writeBlock reads b and writes one sample block. A privilege refusal is written
+// as reason=permission_denied and remembered in st; other failures as status= and
+// error=. Instrumented blocks are skipped with performance_schema off.
 func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, s SampleContext,
 	st *blockState, b block,
 ) (blockOutcome, error) {
@@ -330,8 +307,7 @@ func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, 
 	return blockOutcome{rows: len(res.rows), written: res.rows, read: true}, dbcore.WriteRows(w, res.columns, res.rows)
 }
 
-// writeReason writes a block that found nothing by design: status=OK, reason=, and
-// the column header alone.
+// writeReason writes an empty status=OK block with reason=.
 func writeReason(w io.Writer, artifact Artifact, s SampleContext, b block, reason string, reads dbcore.Span) error {
 	return writeColumns(w, artifact, s, b, reads, dbcore.StatusOK, append(slices.Clone(b.fields), kv("reason", reason)))
 }
@@ -350,8 +326,7 @@ func writeColumns(w io.Writer, artifact Artifact, s SampleContext, b block, read
 		return err
 	}
 
-	// A statement whose columns the agent does not declare - SHOW REPLICA STATUS's
-	// change between versions - has no header to write when it was not read.
+	// Undeclared columns (e.g. SHOW REPLICA STATUS) have no header to write.
 	if len(b.columns) == 0 {
 		return nil
 	}
@@ -359,10 +334,8 @@ func writeColumns(w io.Writer, artifact Artifact, s SampleContext, b block, read
 	return dbcore.WriteRows(w, b.columns, nil)
 }
 
-// writeBlocks writes a sample of several blocks in one write, so a failed write
-// cannot leave half a sample. A sample whose every block failed returns the first
-// failure and writes nothing, so the window records it as the sample's stub and the
-// artifact as partial; a refusal is not a failure.
+// writeBlocks writes a sample's blocks in one write. If every block failed it
+// writes nothing and returns the first failure; a refusal is not a failure.
 func writeBlocks(ctx context.Context, q Querier, w io.Writer, artifact Artifact, s SampleContext,
 	st *blockState, blocks []block,
 ) error {
@@ -396,11 +369,8 @@ func writeBlocks(ctx context.Context, q Querier, w io.Writer, artifact Artifact,
 	return err
 }
 
-// rowsTotalColumn and rowsTotalSelect are a counted block's total. A window
-// function is computed before the LIMIT: COUNT(*) OVER () is every row the
-// statement would return without it (measured on 8.0.46 and 8.4.13), the way
-// pg_slow_queries.txt counts its statements. An empty result has no row to carry
-// it, and is a total of zero.
+// rowsTotalSelect is the pre-LIMIT row count: COUNT(*) OVER () runs before LIMIT
+// (measured on 8.0.46 and 8.4.13). An empty result totals zero.
 const (
 	rowsTotalColumn = "rows_total"
 	rowsTotalSelect = "COUNT(*) OVER () AS " + rowsTotalColumn
@@ -411,8 +381,7 @@ func limitSQL(query string, n int) string {
 	return query + "\nLIMIT " + strconv.Itoa(n+1)
 }
 
-// queryCollector is an artifact whose every sample is a fixed list of blocks, each
-// a statement whose result is written as read.
+// queryCollector samples a fixed list of blocks.
 type queryCollector struct {
 	artifact Artifact
 	blocks   func(s SampleContext) []block
@@ -426,8 +395,7 @@ func (c *queryCollector) Sample(ctx context.Context, q Querier, w io.Writer, s S
 	return writeBlocks(ctx, q, w, c.artifact, s, &c.state, c.blocks(s))
 }
 
-// periodicArtifact is a sampled file on one connection. Every MySQL file is about
-// the instance: performance_schema and the status counters are server-wide.
+// periodicArtifact is a sampled, instance-scoped file on one connection.
 func periodicArtifact(name, connection string, interval time.Duration) Artifact {
 	return Artifact{
 		Name:       name,
@@ -438,7 +406,7 @@ func periodicArtifact(name, connection string, interval time.Duration) Artifact 
 	}
 }
 
-// scannedStrings is what a Scan into read's destinations left, as text.
+// scannedStrings is read's scanned destinations as text.
 func scannedStrings(dest []any) []string {
 	values := make([]string, len(dest))
 
@@ -451,10 +419,9 @@ func scannedStrings(dest []any) []string {
 	return values
 }
 
-// errNoRows is a single-row read that returned none.
 var errNoRows = errors.New("no rows")
 
-// readRow runs a statement expected to return one row, as text.
+// readRow reads a single row as text.
 func readRow(ctx context.Context, q Querier, s SampleContext, query string) ([]string, error) {
 	res, err := read(ctx, q, s, block{query: query})
 	if err != nil {

@@ -52,8 +52,8 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 	return runHostCollectors(ctx, p.Endpoint(), window)
 }
 
-// runHostCollectors starts the host collectors over the window, for a run that has
-// established this machine is the database's. The caller must drain what it returns.
+// runHostCollectors starts the host collectors over the window. The caller must
+// drain what it returns.
 func runHostCollectors(ctx context.Context, endpoint string, window time.Duration) []hostCollector {
 	span := hostSpan(window)
 	stop := ctx.Done()
