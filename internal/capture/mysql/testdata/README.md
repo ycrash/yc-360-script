@@ -466,6 +466,8 @@ re-recorded, so a golden's diff is the change alone:
   recording was edited, 160, not what it counted during the run.
 - `@@performance_schema` on each connection's identify statement: `1`, as
   `my84` answers.
+- The digest read's `query_sample_seen`, now `CAST(... AS CHAR)`: the same
+  text, read without the warning a zero datetime raised.
 - The two plans in a schema, from a `USE` and an `EXPLAIN` to one
   `EXPLAIN ... FOR SCHEMA`. The recorded digests still show what the `USE`
   did during the run: from the second sample, the agent's own statements are

@@ -334,6 +334,15 @@ prepared server-side and the agent never appears in its own
 `/* yCrash-DB-Agent */`, the opening `SET` included, which names its variables
 in the same order every time and so is one digest.
 
+Some of the agent's own reads count in the server's error statistics, which
+`my_errors.txt` and `my_timeouts.txt` read, like any other client's: a refused
+read once (see *Which role to use*); each plan once, as the note `EXPLAIN`
+raises, which the server counts under no error number (the row with an empty
+`error_number`); a plan that waits out its lock bound once more, as 1205; and
+each read of `information_schema.TABLES` by a role without access to the
+data dictionary six times as error 3554 - `my_metadata.txt` at the start and
+`my_storage.txt` at each expensive sample.
+
 ## A connection lost mid-capture
 
 As for `postgres:`, each connection is held for the whole window and never

@@ -97,7 +97,12 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 		unavailable = append(unavailable, "max_total_memory", "max_controlled_memory")
 	}
 
-	query := `SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,
+	// query_sample_seen is read as text. A digest with no sample holds the zero
+	// datetime there, and returning that as a datetime raises warning 1292 once per
+	// such row, on every sample, into the error statistics my_errors.txt reads. As
+	// text it is the same bytes, and raises nothing.
+	query := `SELECT schema_name, digest, digest_text, query_sample_text,
+       CAST(query_sample_seen AS CHAR) AS query_sample_seen,
        query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,
        ` + cpuTime + ` AS sum_cpu_time, sum_lock_time,
        ` + totalMemory + ` AS max_total_memory, ` + controlledMemory + ` AS max_controlled_memory,

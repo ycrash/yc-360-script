@@ -3,6 +3,7 @@ package mysql
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -188,6 +189,14 @@ func TestExplainWritesARunOutLockWaitAsTimeout(t *testing.T) {
 	assert.Contains(t, out.String(), "status=TIMEOUT")
 	assert.Contains(t, out.String(), `error="Error 1205: Lock wait timeout exceeded`)
 	assert.Equal(t, "ERROR", explainStatus(serverError(1146, "Table doesn't exist")), "any other failure is still an error")
+}
+
+func TestSlowQueriesReadsTheSampleTimeAsText(t *testing.T) {
+	q := slowQueriesServer()
+
+	require.NoError(t, (&SlowQueries{Interval: time.Minute}).Sample(context.Background(), q, io.Discard, testSample(1, 1)))
+	assert.Equal(t, 1, q.count("CAST(query_sample_seen AS CHAR) AS query_sample_seen"),
+		"a zero datetime returned as a datetime raises warning 1292 into the error statistics")
 }
 
 func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {

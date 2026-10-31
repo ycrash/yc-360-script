@@ -3985,7 +3985,7 @@
    ]
   },
   {
-   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
+   "query": "SELECT schema_name, digest, digest_text, query_sample_text,\n       CAST(query_sample_seen AS CHAR) AS query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
    "columns": [
     "schema_name",
     "digest",
@@ -8360,7 +8360,7 @@
    ]
   },
   {
-   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
+   "query": "SELECT schema_name, digest, digest_text, query_sample_text,\n       CAST(query_sample_seen AS CHAR) AS query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
    "columns": [
     "schema_name",
     "digest",
@@ -13201,7 +13201,7 @@
    ]
   },
   {
-   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
+   "query": "SELECT schema_name, digest, digest_text, query_sample_text,\n       CAST(query_sample_seen AS CHAR) AS query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       sum_cpu_time AS sum_cpu_time, sum_lock_time,\n       max_total_memory AS max_total_memory, max_controlled_memory AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
    "columns": [
     "schema_name",
     "digest",
