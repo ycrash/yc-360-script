@@ -476,7 +476,7 @@
    }
   },
   {
-   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       NULL AS sum_cpu_time, sum_lock_time,\n       NULL AS max_total_memory, NULL AS max_controlled_memory,\n       sum_created_tmp_disk_tables\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
+   "query": "SELECT schema_name, digest, digest_text, query_sample_text, query_sample_seen,\n       query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,\n       NULL AS sum_cpu_time, sum_lock_time,\n       NULL AS max_total_memory, NULL AS max_controlled_memory,\n       sum_created_tmp_disk_tables,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.events_statements_summary_by_digest\nORDER BY sum_timer_wait DESC\nLIMIT 100",
    "error": {
     "number": 1142,
     "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'events_statements_summary_by_digest'"
@@ -695,21 +695,22 @@
    ]
   },
   {
-   "query": "SELECT OBJECT_SCHEMA, OBJECT_NAME, INDEX_NAME, COUNT_READ, COUNT_FETCH\nFROM performance_schema.table_io_waits_summary_by_index_usage\nORDER BY COUNT_READ DESC\nLIMIT 100",
+   "query": "SELECT OBJECT_SCHEMA, OBJECT_NAME, INDEX_NAME, COUNT_READ, COUNT_FETCH,\n       COUNT(*) OVER () AS rows_total\nFROM performance_schema.table_io_waits_summary_by_index_usage\nORDER BY COUNT_READ DESC\nLIMIT 100",
    "error": {
     "number": 1142,
     "message": "SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'table_io_waits_summary_by_index_usage'"
    }
   },
   {
-   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE,\n       COUNT(*) OVER () AS rows_total\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
    "columns": [
     "TABLE_SCHEMA",
     "TABLE_NAME",
     "ENGINE",
     "DATA_LENGTH",
     "INDEX_LENGTH",
-    "DATA_FREE"
+    "DATA_FREE",
+    "rows_total"
    ]
   },
   {
@@ -975,14 +976,15 @@
    ]
   },
   {
-   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE,\n       COUNT(*) OVER () AS rows_total\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
    "columns": [
     "TABLE_SCHEMA",
     "TABLE_NAME",
     "ENGINE",
     "DATA_LENGTH",
     "INDEX_LENGTH",
-    "DATA_FREE"
+    "DATA_FREE",
+    "rows_total"
    ]
   },
   {
@@ -1380,14 +1382,15 @@
    ]
   },
   {
-   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
+   "query": "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE,\n       COUNT(*) OVER () AS rows_total\nFROM information_schema.TABLES\nWHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY DATA_LENGTH DESC\nLIMIT 100",
    "columns": [
     "TABLE_SCHEMA",
     "TABLE_NAME",
     "ENGINE",
     "DATA_LENGTH",
     "INDEX_LENGTH",
-    "DATA_FREE"
+    "DATA_FREE",
+    "rows_total"
    ]
   },
   {

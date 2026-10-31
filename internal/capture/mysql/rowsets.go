@@ -107,18 +107,21 @@ ORDER BY OWNER_THREAD_ID, STATEMENT_ID`, DefaultMaxPreparedStatements),
 }
 
 // NewTableStats is my_table_stats.txt: the 100 most-read index uses. An empty
-// INDEX_NAME is a read that used no index - a full scan.
+// INDEX_NAME is a read that used no index - a full scan. rows_total= is how many
+// there were, so a cut at 100 says so.
 func NewTableStats(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_table_stats", ConnectionExpensive, interval),
 		blocks: func(SampleContext) []block {
 			return []block{{
 				source: "table_io_waits_summary_by_index_usage",
-				query: `SELECT OBJECT_SCHEMA, OBJECT_NAME, INDEX_NAME, COUNT_READ, COUNT_FETCH
+				query: `SELECT OBJECT_SCHEMA, OBJECT_NAME, INDEX_NAME, COUNT_READ, COUNT_FETCH,
+       ` + rowsTotalSelect + `
 FROM performance_schema.table_io_waits_summary_by_index_usage
 ORDER BY COUNT_READ DESC
 LIMIT 100`,
 				columns: []string{"OBJECT_SCHEMA", "OBJECT_NAME", "INDEX_NAME", "COUNT_READ", "COUNT_FETCH"},
+				counted: true,
 			}}
 		},
 	}
@@ -129,19 +132,22 @@ LIMIT 100`,
 // a role with none on the application's schemas reads an empty list. The sizes are
 // the server's cached statistics, as old as information_schema_stats_expiry allows
 // (my_metadata.txt records it): asking for fresh ones would open every table, on a
-// database that may already be struggling.
+// database that may already be struggling. rows_total= is how many tables the role
+// can see, so a cut at 100 says so.
 func NewStorage(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_storage", ConnectionExpensive, interval),
 		blocks: func(SampleContext) []block {
 			return []block{{
 				source: "tables",
-				query: `SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE
+				query: `SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE,
+       ` + rowsTotalSelect + `
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
 ORDER BY DATA_LENGTH DESC
 LIMIT 100`,
 				columns: []string{"TABLE_SCHEMA", "TABLE_NAME", "ENGINE", "DATA_LENGTH", "INDEX_LENGTH", "DATA_FREE"},
+				counted: true,
 			}}
 		},
 	}

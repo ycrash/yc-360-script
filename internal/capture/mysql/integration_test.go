@@ -210,6 +210,11 @@ func TestMatrixWindow(t *testing.T) {
 					assert.Contains(t, files["my_sessions.txt"], "reason=permission_denied")
 				}
 
+				if role.user == "root" {
+					assert.Regexp(t, `source=tables .*rows=100 truncated=true scope=cluster rows_total=1[2-9][0-9] `,
+						files["my_storage.txt"], "yc_bulk's 120 tables are more than the 100 written")
+				}
+
 				if role.user == "root" && server.printAll {
 					assert.Regexp(t, `matched=[1-9]`, files["my_deadlocks.txt"], "the forced deadlock is read from the log")
 					assert.NotContains(t, files["my_deadlocks.txt"], "'dl'", "its values are replaced")

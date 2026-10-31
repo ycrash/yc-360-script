@@ -379,6 +379,12 @@ reached. `TestMariaDBIsNamedAndItsGapsRecorded` and
   run failed (the 3024 test's `SELECT SLEEP`).
 - **`schema_name` is empty** for statements run with no default database. The
   digest key is still `(schema_name, digest)`.
+- **A window function is counted before the `LIMIT`.** `COUNT(*) OVER ()` on
+  `my_storage.txt`'s statement with `LIMIT 2` returned 124, every table, on
+  8.0.46 and 8.4.13, and the same held for the digests and the index-usage
+  rows. The three top-100 reads keep the spec's `LIMIT 100` and take their
+  `rows_total=` that way, as `pg_slow_queries.txt` does; before, a cut at 100
+  read `truncated=false` with 124 tables there (`yc_bulk` alone is 120).
 - 8.0.46 logs a `[Warning] [MY-013360]` about `sha256_password`'s deprecation
   on every login by the image's own `mysql` client. Whether the agent's logins
   add the same line was not separated out.
@@ -404,6 +410,19 @@ order - and compares each file with its golden. No server is needed.
   replay of each.
 - `my_metadata_connect_failure.txt`, `my_sessions_connect_failure.txt` - a run
   refused a connection slot; every other file's failure is the same envelope.
+
+Statements whose text changed since were edited in place rather than
+re-recorded, so a golden's diff is the change alone:
+
+- The Galera check's `wsrep_provider_name`; `my84` answers no rows either way.
+- The per-sample check of the CPU consumers and memory instruments, which
+  replaced the consumer count, and the capabilities' memory count: the
+  check's answer takes the recorded run's own `memory_instruments_enabled`,
+  429.
+- `rows_total` on the three top-100 reads. The digests' totals are their row
+  counts, all under 100 and so exact; `my_storage.txt`'s is the recorded run's
+  `tables_visible`, 124; `my_table_stats.txt`'s is what `my84` counted when the
+  recording was edited, 160, not what it counted during the run.
 
 Two values in a recording are replaced as it is written, so a replay reads the
 same on every machine: the client address the server saw (`192.0.2.10`, a

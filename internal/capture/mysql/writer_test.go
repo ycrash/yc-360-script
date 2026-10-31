@@ -111,6 +111,41 @@ func TestARowCapIsKnownNotGuessed(t *testing.T) {
 	assert.Contains(t, q.sent[0], "LIMIT 5001", "one row past the cap is what says it was reached")
 }
 
+func TestATopHundredSaysHowManyThereWere(t *testing.T) {
+	columns := []string{"TABLE_SCHEMA", "TABLE_NAME", "ENGINE", "DATA_LENGTH", "INDEX_LENGTH", "DATA_FREE", "rows_total"}
+
+	tables := func(n, total int) [][]any {
+		rows := make([][]any, n)
+		for i := range rows {
+			rows[i] = []any{"yc_bulk", "t", "InnoDB", 16384, 0, 0, total}
+		}
+
+		return rows
+	}
+
+	sample := func(rows [][]any) string {
+		t.Helper()
+
+		q := (&fakeQuerier{}).on("information_schema.TABLES", fakeResult{columns: columns, rows: rows})
+
+		var out bytes.Buffer
+
+		require.NoError(t, NewStorage(time.Hour).Sample(context.Background(), q, &out, testSample(1, 2)))
+		assert.Contains(t, q.sent[0], "LIMIT 100", "the spec's LIMIT, kept")
+
+		return out.String()
+	}
+
+	cut := sample(tables(100, 124))
+	assert.Contains(t, cut, "rows=100 truncated=true scope=cluster rows_total=124 ")
+	assert.Contains(t, cut, "\nTABLE_SCHEMA,TABLE_NAME,ENGINE,DATA_LENGTH,INDEX_LENGTH,DATA_FREE\n",
+		"the total is the header's, not a column")
+	assert.Contains(t, cut, "\nyc_bulk,t,InnoDB,16384,0,0\n")
+
+	assert.Contains(t, sample(tables(100, 100)), "rows=100 truncated=false scope=cluster rows_total=100 ")
+	assert.Contains(t, sample(nil), "rows=0 truncated=false scope=cluster rows_total=0 ")
+}
+
 func TestATextValueIsCappedAndAStatementCutMidLiteralIsStillReplaced(t *testing.T) {
 	long := "SELECT '" + strings.Repeat("x", DefaultMaxText) + "'"
 

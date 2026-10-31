@@ -55,6 +55,11 @@ type block struct {
 	// known rather than guessed. Zero writes every row.
 	maxRows int
 
+	// counted: the statement keeps the spec's LIMIT and adds rowsTotalSelect, its
+	// row count before the LIMIT, which is written as rows_total= and decides
+	// truncated=, and is not a column of the block.
+	counted bool
+
 	// scope is the artifact's when empty.
 	scope string
 
@@ -70,8 +75,11 @@ type result struct {
 	columns []string
 	rows    [][]string
 
-	// truncated: there were more than maxRows rows.
+	// truncated: there were more than maxRows rows, or fewer written than total.
 	truncated bool
+
+	// total is a counted block's rows before its LIMIT.
+	total int64
 
 	// redacted counts replaced values, textCut values cut at DefaultMaxText.
 	redacted int
@@ -104,7 +112,15 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 		return res, err
 	}
 
-	res.columns = columns
+	totalAt := -1
+	if b.counted {
+		totalAt = slices.IndexFunc(columns, func(c string) bool { return strings.EqualFold(c, rowsTotalColumn) })
+	}
+
+	res.columns = slices.Clone(columns)
+	if totalAt >= 0 {
+		res.columns = slices.Delete(res.columns, totalAt, totalAt+1)
+	}
 
 	redactors := make([]func(string) (string, int), len(columns))
 	for i, column := range columns {
@@ -131,18 +147,24 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 			return res, err
 		}
 
-		row := make([]string, len(columns))
+		row := make([]string, 0, len(res.columns))
 
 		for i, value := range values {
-			if b.uncapped {
-				row[i] = value.String
+			switch {
+			case i == totalAt:
+				res.total, _ = strconv.ParseInt(value.String, 10, 64)
+
+				continue
+
+			case b.uncapped:
+				row = append(row, value.String)
 
 				continue
 			}
 
 			text, cut, redacted := cell(value.String, redactors[i])
 
-			row[i] = text
+			row = append(row, text)
 			res.redacted += redacted
 
 			if cut {
@@ -151,6 +173,10 @@ func read(ctx context.Context, q Querier, s SampleContext, b block) (result, err
 		}
 
 		res.rows = append(res.rows, row)
+	}
+
+	if totalAt >= 0 && int64(len(res.rows)) < res.total {
+		res.truncated = true
 	}
 
 	if err := rows.Err(); err != nil {
@@ -262,6 +288,10 @@ func writeBlock(ctx context.Context, q Querier, w io.Writer, artifact Artifact, 
 
 	fields := slices.Clone(b.fields)
 
+	if b.counted {
+		fields = append(fields, kv(rowsTotalColumn, strconv.FormatInt(res.total, 10)))
+	}
+
 	if len(b.statementColumns) > 0 || len(b.messageColumns) > 0 {
 		fields = append(fields, kv("redacted", strconv.Itoa(res.redacted)))
 	}
@@ -350,6 +380,16 @@ func writeBlocks(ctx context.Context, q Querier, w io.Writer, artifact Artifact,
 
 	return err
 }
+
+// rowsTotalColumn and rowsTotalSelect are a counted block's total. A window
+// function is computed before the LIMIT: COUNT(*) OVER () is every row the
+// statement would return without it (measured on 8.0.46 and 8.4.13), the way
+// pg_slow_queries.txt counts its statements. An empty result has no row to carry
+// it, and is a total of zero.
+const (
+	rowsTotalColumn = "rows_total"
+	rowsTotalSelect = "COUNT(*) OVER () AS " + rowsTotalColumn
+)
 
 // limitSQL appends LIMIT n+1 to a statement, so a cut at n is known.
 func limitSQL(query string, n int) string {

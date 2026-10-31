@@ -47,8 +47,8 @@ type explainCandidate struct {
 }
 
 // SlowQueries is my_slow_queries.txt: the 100 digests with the most cumulative time,
-// keyed by (schema_name, digest) - the table's own key, so two schemas running the
-// same statement never merge. query_sample_text is written with its values
+// of rows_total=, keyed by (schema_name, digest) - the table's own key, so two
+// schemas running the same statement never merge. query_sample_text is written with its values
 // replaced; the text as read is kept in memory for my_explain.txt, which reads this
 // collector's latest read rather than running the statement again.
 type SlowQueries struct {
@@ -100,7 +100,8 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
        query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,
        ` + cpuTime + ` AS sum_cpu_time, sum_lock_time,
        ` + totalMemory + ` AS max_total_memory, ` + controlledMemory + ` AS max_controlled_memory,
-       sum_created_tmp_disk_tables
+       sum_created_tmp_disk_tables,
+       ` + rowsTotalSelect + `
 FROM performance_schema.events_statements_summary_by_digest
 ORDER BY sum_timer_wait DESC
 LIMIT 100`
@@ -116,6 +117,7 @@ LIMIT 100`
 		columns:          slowQueryColumns,
 		statementColumns: []string{"query_sample_text"},
 		fields:           fields,
+		counted:          true,
 	}
 
 	// Read raw for my_explain.txt, then written through the same path as every

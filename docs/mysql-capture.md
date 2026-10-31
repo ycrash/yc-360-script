@@ -215,6 +215,9 @@ At the expensive speed:
 Every sample block of a periodic file carries the same two header lines as the
 `postgres:` files (`capture_id`, `target_id`, `engine=mysql`, `engine_version`,
 then the sample line), with `db=` the connection's default schema.
+The three top-100 reads - `my_slow_queries.txt`, `my_table_stats.txt` and
+`my_storage.txt` - also say how many rows there were before the 100, as
+`rows_total=`, and `truncated=true` where that is more than they wrote.
 `my_deadlocks.txt`, a log tail, keeps one header line per block, as
 `pg_deadlocks.txt` does.
 
