@@ -45,6 +45,40 @@ func TestSlowQueriesReadsWhatThisVersionHas(t *testing.T) {
 	assert.NotContains(t, out.String(), "unavailable=")
 }
 
+func TestSlowQueriesAsksARefusedConsumerCheckOnce(t *testing.T) {
+	consumersDenied := serverError(errTableAccess, "SELECT command denied to user 'yc'@'%' for table 'setup_consumers'")
+	digestsDenied := serverError(errTableAccess,
+		"SELECT command denied to user 'yc'@'%' for table 'events_statements_summary_by_digest'")
+
+	run := func(q *fakeQuerier) {
+		t.Helper()
+
+		sq := &SlowQueries{Interval: time.Minute}
+
+		for i := 1; i <= 3; i++ {
+			var out bytes.Buffer
+
+			require.NoError(t, sq.Sample(context.Background(), q, &out, testSample(i, 3)))
+		}
+	}
+
+	q := (&fakeQuerier{}).
+		on("performance_schema.setup_consumers", fakeResult{err: consumersDenied}).
+		on("events_statements_summary_by_digest", fakeResult{columns: slowQueryColumns})
+	run(q)
+
+	assert.Equal(t, 1, q.count("setup_consumers"), "each refusal counts once more in the server's error statistics")
+	assert.Equal(t, 3, q.count("events_statements_summary_by_digest"), "the digests are still read")
+
+	q = (&fakeQuerier{}).
+		on("performance_schema.setup_consumers", fakeResult{columns: []string{"n"}, rows: [][]any{{3}}}).
+		on("events_statements_summary_by_digest", fakeResult{err: digestsDenied})
+	run(q)
+
+	assert.Equal(t, 1, q.count("setup_consumers"), "nothing to describe once the digests are refused")
+	assert.Equal(t, 1, q.count("events_statements_summary_by_digest"))
+}
+
 func TestSlowQueriesWritesTheSampleRedactedAndKeepsItForExplain(t *testing.T) {
 	q := slowQueriesServer(digestRow("yc_app", "d1", "SELECT * FROM orders WHERE customer_id = 7"))
 

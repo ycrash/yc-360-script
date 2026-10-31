@@ -25,6 +25,14 @@ var slowQueryColumns = []string{
 const cpuConsumerSQL = `SELECT COUNT(*) FROM performance_schema.setup_consumers
 WHERE NAME IN ('events_statements_cpu', 'global_instrumentation', 'thread_instrumentation') AND ENABLED = 'YES'`
 
+// The reads the collector's blockState remembers a refusal of: the digest block,
+// and the consumer check, which is no block but counts against the server's error
+// statistics all the same.
+const (
+	digestSource   = "events_statements_summary_by_digest"
+	consumerSource = "setup_consumers"
+)
+
 // explainCandidate is a digest's sample statement as the server holds it, values
 // and all: what EXPLAIN is run against, and never written.
 type explainCandidate struct {
@@ -96,7 +104,7 @@ LIMIT 100`
 	}
 
 	b := block{
-		source:           "events_statements_summary_by_digest",
+		source:           digestSource,
 		query:            query,
 		columns:          slowQueryColumns,
 		statementColumns: []string{"query_sample_text"},
@@ -109,9 +117,18 @@ LIMIT 100`
 }
 
 // cpuCounted reports whether sum_cpu_time is being counted; a failed read counts as
-// not, so a zero is never written for it.
+// not, so a zero is never written for it. A refusal is asked once and remembered,
+// as a block's is, and nothing is asked once the digest read has been refused:
+// there is no row for the answer to describe.
 func (sq *SlowQueries) cpuCounted(ctx context.Context, q Querier, s SampleContext) bool {
+	if sq.state.isRefused(consumerSource) || sq.state.isRefused(digestSource) {
+		return false
+	}
+
 	row, err := readRow(ctx, q, s, cpuConsumerSQL)
+	if err != nil && permissionDenied(err) {
+		sq.state.refuse(consumerSource)
+	}
 
 	return err == nil && len(row) == 1 && row[0] == "3"
 }

@@ -145,8 +145,8 @@ ORDER BY i.VARIABLE_NAME`,
 }
 
 // NewErrors is my_errors.txt: the server's own error counts, aggregated across the
-// instance. A refusal the agent itself met is counted here too, once per artifact
-// that met it: a refused read is asked once and remembered.
+// instance. A refusal the agent itself met is counted here too, once per read that
+// met it: a refused read is asked once and remembered.
 func NewErrors(interval time.Duration) Collector {
 	return &queryCollector{
 		artifact: periodicArtifact("my_errors", ConnectionNormal, interval),
