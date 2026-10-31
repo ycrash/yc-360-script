@@ -68,6 +68,7 @@ func TestMetadataRecordsEveryFlagTheSpecAsksFor(t *testing.T) {
 	assert.Equal(t, "8.4.3", m.Version)
 	assert.Equal(t, VariantMySQL, m.MySQLVariant)
 	assert.Equal(t, "2026-10-27T09:00:00.123Z", m.ServerUTC)
+	assert.Equal(t, sessionVariableNames(VariantMySQL), m.AgentSessionVariables)
 	assert.Equal(t, "3600", m.UptimeSeconds)
 	assert.Equal(t, LogAccessDirect, m.LogAccess)
 	assert.Equal(t, "true", m.HasCPUTimeInstrumentEnabled)

@@ -110,6 +110,18 @@ var mariadbSessionVariables = func() map[string]string {
 	return variables
 }()
 
+// sessionVariableNames is the variables the agent's sessions were opened with on a
+// server of variant, sorted and comma-separated: MariaDB's names where Connect
+// logged in with them.
+func sessionVariableNames(variant string) string {
+	variables := sessionVariables
+	if variant == VariantMariaDB {
+		variables = mariadbSessionVariables
+	}
+
+	return strings.Join(slices.Sorted(maps.Keys(variables)), ",")
+}
+
 // MySQL error numbers the capture tells apart.
 const (
 	errConCount         = 1040 // max_connections

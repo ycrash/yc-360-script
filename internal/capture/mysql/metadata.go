@@ -87,9 +87,17 @@ type Metadata struct {
 	MySQLVariant   string
 	CurrentUser    string
 	ConnectionID   string
-	Database       string
-	ServerUTC      string
-	UptimeSeconds  string
+
+	// AgentSessionVariables names the variables the agent SETs on each of its
+	// sessions. performance_schema.variables_info marks a variable DYNAMIC, with the
+	// setting account as SET_USER, after a session-scope SET from any session, so
+	// these appear in my_nondefault_settings.txt with the global value unchanged.
+	// They are written rather than filtered (spec 1.3: the server excludes the
+	// agent's rows): a row naming one of them and set by current_user is the agent's.
+	AgentSessionVariables string
+	Database              string
+	ServerUTC             string
+	UptimeSeconds         string
 
 	// Settings, from SHOW GLOBAL VARIABLES; a name the server does not have is empty
 	// and listed in SettingsUnavailable.
@@ -207,6 +215,7 @@ func serverFields(m Metadata) []dbcore.Field {
 		{Key: "mysql_variant", Value: m.MySQLVariant},
 		{Key: "current_user", Value: m.CurrentUser},
 		{Key: "connection_id", Value: m.ConnectionID},
+		{Key: "agent_session_variables", Value: m.AgentSessionVariables},
 		{Key: "database", Value: m.Database},
 		{Key: "server_utc", Value: m.ServerUTC},
 		{Key: "uptime_seconds", Value: m.UptimeSeconds},
@@ -494,6 +503,7 @@ func collectServerFacts(ctx context.Context, q Querier, s SampleContext, m *Meta
 	m.MySQLVariant = variantOf(row[0], row[1])
 	m.CurrentUser = row[2]
 	m.ConnectionID = row[3]
+	m.AgentSessionVariables = sessionVariableNames(m.MySQLVariant)
 	m.Database = row[4]
 
 	// %f is six digits; the artifact's timestamps carry three.

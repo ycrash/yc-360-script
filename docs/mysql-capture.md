@@ -201,7 +201,9 @@ Read once, at the start:
   `version_comment` and `mysql_variant`; its uptime; the settings the other
   files depend on; `log_access` and `has_mysql_error_log_access`;
   `has_cpu_time_instrument_enabled` (with `cpu_time_reason` when false),
-  `has_statement_memory_tracking`, `has_memory_instruments_enabled`; the role's
+  `has_statement_memory_tracking`, `has_memory_instruments_enabled`;
+  `agent_session_variables`, the variables the agent sets on its own sessions
+  (see *What each connection is allowed to do*); the role's
   `has_process`, `has_replication_client` and `has_performance_schema_select`
   (direct grants; `enabled_roles` lists any active role, whose privileges are
   not listed); the base tables by engine (`innodb_tables_share`, among the
@@ -254,7 +256,12 @@ Every 10s, whatever `frequency` is, on the normal-speed connection:
 At the expensive speed:
 
 - `my_nondefault_settings.txt` — every variable whose source is not
-  `COMPILED`, with its current value.
+  `COMPILED`, with its current global value. MySQL marks a variable `DYNAMIC`,
+  with the account as `SET_USER`, after a session-scope `SET` from any session,
+  until the server restarts, so the agent's own session settings appear here
+  with their global values untouched. They are written, not dropped: a row
+  named in `my_metadata.txt`'s `agent_session_variables` with `SET_USER` the
+  agent's account is the agent's.
 - `my_table_stats.txt` — the 100 most-read index uses; an empty `INDEX_NAME` is
   a full scan.
 - `my_storage.txt` — the 100 largest tables outside the system schemas. The
@@ -332,7 +339,8 @@ longer than the longest window, and `time_zone='+00:00'`. Statements carry no ar
 prepared server-side and the agent never appears in its own
 `my_prepared_statements.txt`. Every statement starts with
 `/* yCrash-DB-Agent */`, the opening `SET` included, which names its variables
-in the same order every time and so is one digest.
+in the same order every time and so is one digest. The variables it sets are
+listed in `my_metadata.txt` as `agent_session_variables`.
 
 Some of the agent's own reads count in the server's error statistics, which
 `my_errors.txt` and `my_timeouts.txt` read, like any other client's: a refused

@@ -243,6 +243,14 @@ func TestARefusedSlotIsToldApart(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrTooManyConnections)
 }
 
+func TestTheSessionsVariablesAreNamedAsSet(t *testing.T) {
+	assert.Equal(t, "innodb_lock_wait_timeout,lock_wait_timeout,max_execution_time,time_zone,transaction_read_only,wait_timeout",
+		sessionVariableNames(VariantMySQL))
+	assert.Equal(t, sessionVariableNames(VariantMySQL), sessionVariableNames(VariantPercona))
+	assert.Equal(t, "innodb_lock_wait_timeout,lock_wait_timeout,max_statement_time,time_zone,tx_read_only,wait_timeout",
+		sessionVariableNames(VariantMariaDB))
+}
+
 func TestStatusAndRefusalClasses(t *testing.T) {
 	assert.Equal(t, "TIMEOUT", readStatus(serverError(errQueryTimeout, "maximum statement execution time exceeded")))
 	assert.Equal(t, "ERROR", readStatus(serverError(1146, "Table doesn't exist")))

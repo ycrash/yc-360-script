@@ -22,6 +22,7 @@ version_comment,MySQL Community Server - GPL
 mysql_variant,mysql
 current_user,yc_restricted@%
 connection_id,2877
+agent_session_variables,"innodb_lock_wait_timeout,lock_wait_timeout,max_execution_time,time_zone,transaction_read_only,wait_timeout"
 database,
 server_utc,2026-10-30T07:35:42.554Z
 uptime_seconds,5608
