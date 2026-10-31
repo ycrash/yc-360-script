@@ -468,6 +468,8 @@ re-recorded, so a golden's diff is the change alone:
   `my84` answers.
 - The digest read's `query_sample_seen`, now `CAST(... AS CHAR)`: the same
   text, read without the warning a zero datetime raised.
+- `log_error_verbosity` in the deadlock read's `SHOW GLOBAL VARIABLES`, with
+  `2` as its answer: what the same run's metadata read from `my84`.
 - The two plans in a schema, from a `USE` and an `EXPLAIN` to one
   `EXPLAIN ... FOR SCHEMA`. The recorded digests still show what the `USE`
   did during the run: from the second sample, the agent's own statements are

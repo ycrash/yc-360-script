@@ -220,7 +220,7 @@
    ]
   },
   {
-   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_error', 'datadir', 'innodb_print_all_deadlocks')",
+   "query": "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('log_error', 'datadir', 'innodb_print_all_deadlocks', 'log_error_verbosity')",
    "columns": [
     "Variable_name",
     "Value"
@@ -237,6 +237,10 @@
     [
      "log_error",
      "/yc-recording/logs/my84/error.log"
+    ],
+    [
+     "log_error_verbosity",
+     "2"
     ]
    ]
   },

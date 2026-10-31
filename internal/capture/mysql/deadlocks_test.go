@@ -47,7 +47,7 @@ func deadlockLog(t *testing.T) (string, *fakeQuerier) {
 
 	q := (&fakeQuerier{}).on("SHOW GLOBAL VARIABLES", fakeResult{
 		columns: []string{"Variable_name", "Value"},
-		rows:    [][]any{{"log_error", path}, {"datadir", "/var/lib/mysql/"}, {"innodb_print_all_deadlocks", "ON"}},
+		rows:    [][]any{{"log_error", path}, {"datadir", "/var/lib/mysql/"}, {"innodb_print_all_deadlocks", "ON"}, {"log_error_verbosity", "2"}},
 	})
 
 	return path, q
@@ -71,7 +71,7 @@ func TestDeadlocksReadsTheWindowsReportsInBothShapes(t *testing.T) {
 	var out bytes.Buffer
 
 	require.NoError(t, d.Sample(context.Background(), q, &out, testSample(1, 3)))
-	assert.Contains(t, out.String(), "innodb_print_all_deadlocks=ON log_path="+path+" log_access=direct "+
+	assert.Contains(t, out.String(), "innodb_print_all_deadlocks=ON log_error_verbosity=2 log_path="+path+" log_access=direct "+
 		"from_offset=106 to_offset=106 matched=0", "opened at its end: what was logged before the window is not read")
 
 	appendLog(t, path, verbosity2Report+unrelatedEntry)
@@ -120,7 +120,7 @@ func TestDeadlocksFollowsARotatedLog(t *testing.T) {
 func TestDeadlocksNamesTheFallbackWhereTheLogCannotBeRead(t *testing.T) {
 	q := (&fakeQuerier{}).on("SHOW GLOBAL VARIABLES", fakeResult{
 		columns: []string{"Variable_name", "Value"},
-		rows:    [][]any{{"log_error", "stderr"}, {"innodb_print_all_deadlocks", "OFF"}},
+		rows:    [][]any{{"log_error", "stderr"}, {"innodb_print_all_deadlocks", "OFF"}, {"log_error_verbosity", "2"}},
 	})
 
 	d := &Deadlocks{Interval: time.Minute}
@@ -128,7 +128,7 @@ func TestDeadlocksNamesTheFallbackWhereTheLogCannotBeRead(t *testing.T) {
 	var out bytes.Buffer
 
 	require.NoError(t, d.Sample(context.Background(), q, &out, testSample(1, 2)))
-	assert.Contains(t, out.String(), `innodb_print_all_deadlocks=OFF log_path= log_access=none reason=stderr `+
+	assert.Contains(t, out.String(), `innodb_print_all_deadlocks=OFF log_error_verbosity=2 log_path= log_access=none reason=stderr `+
 		`fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" bytes=0`)
 
 	out.Reset()
@@ -141,7 +141,7 @@ func TestDeadlocksNamesTheFallbackWhileTheServerLogsNoReports(t *testing.T) {
 
 	q := (&fakeQuerier{}).on("SHOW GLOBAL VARIABLES", fakeResult{
 		columns: []string{"Variable_name", "Value"},
-		rows:    [][]any{{"log_error", path}, {"datadir", "/var/lib/mysql/"}, {"innodb_print_all_deadlocks", "OFF"}},
+		rows:    [][]any{{"log_error", path}, {"datadir", "/var/lib/mysql/"}, {"innodb_print_all_deadlocks", "OFF"}, {"log_error_verbosity", "3"}},
 	})
 
 	d := &Deadlocks{Interval: time.Minute}
@@ -149,7 +149,7 @@ func TestDeadlocksNamesTheFallbackWhileTheServerLogsNoReports(t *testing.T) {
 	var out bytes.Buffer
 
 	require.NoError(t, d.Sample(context.Background(), q, &out, testSample(1, 2)))
-	assert.Contains(t, out.String(), `innodb_print_all_deadlocks=OFF fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" `+
+	assert.Contains(t, out.String(), `innodb_print_all_deadlocks=OFF log_error_verbosity=3 fallback="my_buffer_pool.txt:LATEST DETECTED DEADLOCK" `+
 		`log_path=`+path+` log_access=direct`)
 
 	appendLog(t, path, verbosity3Report)

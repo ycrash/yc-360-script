@@ -62,6 +62,7 @@ type Deadlocks struct {
 	path       string
 	reason     string
 	printAll   string
+	verbosity  string
 	file       *os.File
 	offset     int64
 	pending    []byte
@@ -114,7 +115,7 @@ func (d *Deadlocks) WriteClosing(w io.Writer, s SampleContext) error {
 // resolve finds the log the server writes and opens it at its end.
 func (d *Deadlocks) resolve(ctx context.Context, q Querier, s SampleContext) {
 	res, err := read(ctx, q, s, block{
-		query: showGlobal("VARIABLES", "log_error", "datadir", "innodb_print_all_deadlocks"),
+		query: showGlobal("VARIABLES", "log_error", "datadir", "innodb_print_all_deadlocks", "log_error_verbosity"),
 	})
 	if err != nil {
 		d.reason = deadlockReasonLogUnread
@@ -132,6 +133,7 @@ func (d *Deadlocks) resolve(ctx context.Context, q Querier, s SampleContext) {
 	}
 
 	d.printAll = values["innodb_print_all_deadlocks"]
+	d.verbosity = values["log_error_verbosity"]
 
 	path, reason := resolveErrorLog(values["log_error"], values["datadir"])
 	if path == "" {
@@ -397,7 +399,9 @@ func (d *Deadlocks) writeReason(w io.Writer, s SampleContext, drain bool) error 
 }
 
 // blockFields opens every block's header: where it was read through, which sample,
-// and the setting without which no report is written at all.
+// the setting without which no report is written at all, and the verbosity that
+// decides whether two reports can be told apart (below 3, back-to-back reports are
+// one stretch of text, and matched= counts stretches, not deadlocks).
 func (d *Deadlocks) blockFields(s SampleContext, drain bool) []dbcore.HeaderField {
 	fields := location(s)
 
@@ -407,5 +411,5 @@ func (d *Deadlocks) blockFields(s SampleContext, drain bool) []dbcore.HeaderFiel
 		fields = append(fields, kv("sample", strconv.Itoa(s.Index)))
 	}
 
-	return append(fields, kv("innodb_print_all_deadlocks", d.printAll))
+	return append(fields, kv("innodb_print_all_deadlocks", d.printAll), kv("log_error_verbosity", d.verbosity))
 }

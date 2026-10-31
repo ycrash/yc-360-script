@@ -294,10 +294,18 @@ a read. Two things must both hold for there to be any:
   owned by its own account, so an agent on the database host is refused it
   unless it runs in the server's group.
 
-Without them the only deadlock the server shows is its most recent, in `SHOW
-ENGINE INNODB STATUS`'s LATEST DETECTED DEADLOCK, which `my_buffer_pool.txt`
-already captures every sample; the deadlock file's blocks say so
-(`fallback=`), whichever of the two is missing. With the setting off and the
+Telling one report from the next takes a third, `log_error_verbosity=3`.
+InnoDB opens each report with a `[Note]`, and the default verbosity of 2 drops
+notes, leaving only the dump: two reports with nothing logged between them read
+as one, and nothing says which transaction was rolled back. Each block says
+`log_error_verbosity=`, and below 3 its `matched=` counts stretches of dump
+text, not deadlocks; the count of deadlocks is `ER_LOCK_DEADLOCK` (1213) in
+`my_errors.txt`.
+
+Without the first two the only deadlock the server shows is its most recent,
+in `SHOW ENGINE INNODB STATUS`'s LATEST DETECTED DEADLOCK, which
+`my_buffer_pool.txt` already captures every sample; the deadlock file's blocks
+say so (`fallback=`), whichever of the two is missing. With the setting off and the
 log readable, the log is still read, in case the setting is turned on during
 the window. On Amazon RDS and Aurora the log is not a file the agent can read.
 
