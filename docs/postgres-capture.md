@@ -34,6 +34,10 @@ or a list of two; to capture two databases, run the agent once for each.
 `captureDuration`, how long to capture, is required and has no default; it is
 capped at `2h`.
 
+A key the block does not take is refused at startup with its line, inside `tls:`
+too, rather than ignored: a misspelled `verifyServerCertificate: true`, dropped,
+would run with the certificate unchecked.
+
 ### The file must be readable by its owner alone
 
 On Linux and macOS the agent refuses to start when the `-c` file gives its
