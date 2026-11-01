@@ -110,14 +110,14 @@ func (ts Tablespaces) Artifact() Artifact {
 // errors and writes nothing; a tablespace the role may not read is an empty
 // cell in a written block.
 func (ts Tablespaces) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 
 	rows, err := readTablespaceSizes(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	unread := 0
 

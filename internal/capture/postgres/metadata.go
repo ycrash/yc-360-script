@@ -310,7 +310,7 @@ func (m *MetadataCollector) Artifact() Artifact {
 func (m *MetadataCollector) WriteOpening(w io.Writer, s SampleContext) error {
 	return writeMetadataBlock(w, "pg_metadata_target", []headerField{
 		{"db", s.Database},
-		{"dbid", s.DBID},
+		{"dbid", s.Engine.DBID},
 	}, targetFields(m.collected), s.At)
 }
 
@@ -335,7 +335,7 @@ func (m *MetadataCollector) Sample(ctx context.Context, q RowQuerier, w io.Write
 
 	header := []headerField{
 		{"db", s.Database},
-		{"dbid", s.DBID},
+		{"dbid", s.Engine.DBID},
 		{"sample", strconv.Itoa(s.Index)},
 	}
 

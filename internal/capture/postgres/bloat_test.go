@@ -300,7 +300,7 @@ func takeSample(t *testing.T, conn *fakeBloatConn, collector Bloat) string {
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -535,7 +535,7 @@ func TestBloatFailingStatsWritesNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := Bloat{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -559,7 +559,7 @@ func TestBloatWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, Bloat{}.Sample(context.Background(), conn, writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

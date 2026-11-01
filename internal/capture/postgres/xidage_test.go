@@ -113,7 +113,7 @@ func takeXIDAgeSample(t *testing.T, conn *fakeXIDAgeConn) string {
 
 	var buf bytes.Buffer
 	require.NoError(t, XIDAge{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -209,7 +209,7 @@ func TestXIDAgeFailingStatementWritesNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := XIDAge{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -220,7 +220,7 @@ func TestXIDAgeWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, XIDAge{}.Sample(context.Background(), newFakeXIDAgeConn(), writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

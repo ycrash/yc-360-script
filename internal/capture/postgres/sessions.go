@@ -194,16 +194,16 @@ func (s Sessions) Sample(ctx context.Context, q RowQuerier, w io.Writer, sc Samp
 }
 
 func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Writer, sc SampleContext) error {
-	start := sc.now()
+	start := sc.Now()
 	rows, total, err := s.readSessions(ctx, q)
-	reads := span{start, sc.now()}
+	reads := span{start, sc.Now()}
 
 	cells, queriesTruncated, redacted := sessionCells(rows)
 
 	var fields []headerField
 
 	if err != nil {
-		fields = append(fields, headerField{"error", sc.errorText(err)})
+		fields = append(fields, headerField{"error", sc.ErrorText(err)})
 	} else {
 		fields = append(fields,
 			headerField{"sessions_written", strconv.Itoa(len(rows))},
@@ -232,14 +232,14 @@ func (s Sessions) writeSessionsBlock(ctx context.Context, q RowQuerier, w io.Wri
 }
 
 func (s Sessions) writeLocksBlock(ctx context.Context, q RowQuerier, w io.Writer, sc SampleContext) error {
-	start := sc.now()
+	start := sc.Now()
 	rows, total, err := s.readLocks(ctx, q)
-	reads := span{start, sc.now()}
+	reads := span{start, sc.Now()}
 
 	var fields []headerField
 
 	if err != nil {
-		fields = append(fields, headerField{"error", sc.errorText(err)})
+		fields = append(fields, headerField{"error", sc.ErrorText(err)})
 	} else {
 		fields = append(fields,
 			headerField{"locks_written", strconv.Itoa(len(rows))},

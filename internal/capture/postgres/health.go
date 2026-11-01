@@ -100,7 +100,7 @@ func (h Health) Artifact() Artifact {
 // sessions_fatal arrived in PG14 (our floor), so the 42703 retry below is
 // currently unreachable but keeps pre-14 servers at ten of eleven columns instead of a stub block.
 func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 
 	rows, total, err := h.read(ctx, q, healthSQL, s)
 
@@ -118,7 +118,7 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 		}
 	}
 
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	fields := []headerField{
 		{"databases_written", strconv.Itoa(len(rows))},
@@ -128,7 +128,7 @@ func (h Health) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleC
 	if withoutSessionsFatal != nil {
 		fields = append(fields,
 			headerField{"sessions_fatal", "unavailable"},
-			headerField{"reason", s.errorText(withoutSessionsFatal)},
+			headerField{"reason", s.ErrorText(withoutSessionsFatal)},
 		)
 	}
 
@@ -178,7 +178,7 @@ func (h Health) read(ctx context.Context, q RowQuerier, sql string, s SampleCont
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
-	rows, err := q.Query(stmtCtx, sql, h.maxDatabases(), connectedOID(s.DBID))
+	rows, err := q.Query(stmtCtx, sql, h.maxDatabases(), connectedOID(s.Engine.DBID))
 	if err != nil {
 		return nil, 0, err
 	}

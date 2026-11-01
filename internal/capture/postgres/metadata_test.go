@@ -93,7 +93,7 @@ func TestMetadataArtifact(t *testing.T) {
 
 	assert.Equal(t, Once(), artifact.Schedule,
 		"a capability read is one reading, taken as the window opens")
-	assert.Equal(t, []time.Duration{0}, artifact.Schedule.offsets(120*time.Second))
+	assert.Equal(t, []time.Duration{0}, artifact.Schedule.Offsets(120*time.Second))
 }
 
 func TestMetadataGoldenFull(t *testing.T) {
@@ -243,7 +243,7 @@ func TestMetadataWritesEachBlockInOneWrite(t *testing.T) {
 
 	sample := &countingWriter{}
 	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), sample,
-		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"}}))
 
 	assert.Equal(t, 1, sample.writes,
 		"the server block and the tablespace block go in one write: a write failing "+
@@ -345,7 +345,7 @@ func TestMetadataCollectedIsWhatCollectReturned(t *testing.T) {
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf,
-		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"}}))
 
 	collected := collector.Collected()
 
@@ -381,7 +381,7 @@ func TestMetadataSampleCarriesNoPassword(t *testing.T) {
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), conn, &buf,
-		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"}}))
 
 	assert.NotContains(t, buf.String(), testPassword)
 	assert.Contains(t, buf.String(), "<redacted>")
@@ -814,7 +814,7 @@ func TestMetadataSampleRunsAfterCollectWithTheResolvedVerdict(t *testing.T) {
 
 	var buf bytes.Buffer
 	require.NoError(t, collector.Sample(context.Background(), newFakeMetadataConn(), &buf,
-		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", DBID: "16401"}))
+		SampleContext{At: testAgentNow, Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"}}))
 
 	require.Len(t, seen, 1, "the sample happens once, so the callback runs once")
 	assert.Equal(t, collector.Collected(), seen[0])

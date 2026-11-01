@@ -24,14 +24,16 @@ func withCleanGlobalConfig(t *testing.T) {
 // left it unset would carry that warning into every test that counts warnings.
 func validPostgres() *Postgres {
 	return &Postgres{
-		ID:              "orders-primary",
-		Host:            "db-prod-01.internal",
-		Port:            5432,
-		Database:        "orders_db",
-		Username:        "ycrash_monitor",
-		Password:        "s3cr3t",
-		CaptureDuration: newDuration(2 * time.Minute),
-		Frequency:       newDuration(30 * time.Second),
+		DBTarget: DBTarget{
+			ID:              "orders-primary",
+			Host:            "db-prod-01.internal",
+			Port:            5432,
+			Database:        "orders_db",
+			Username:        "ycrash_monitor",
+			Password:        "s3cr3t",
+			CaptureDuration: newDuration(2 * time.Minute),
+			Frequency:       newDuration(30 * time.Second),
+		},
 	}
 }
 
@@ -53,8 +55,11 @@ func TestPostgresValidateNilReceiver(t *testing.T) {
 
 func TestPostgresValidateDefaults(t *testing.T) {
 	t.Run("filled when omitted", func(t *testing.T) {
-		p := &Postgres{ID: "orders-primary", Host: "db-prod-01.internal", Username: "ycrash_monitor",
-			CaptureDuration: newDuration(2 * time.Minute)}
+		p := &Postgres{
+			DBTarget: DBTarget{ID: "orders-primary", Host: "db-prod-01.internal", Username: "ycrash_monitor",
+				CaptureDuration: newDuration(2 * time.Minute),
+			},
+		}
 
 		warnings, err := p.Validate()
 		require.NoError(t, err)
@@ -91,16 +96,18 @@ func TestPostgresValidateDefaults(t *testing.T) {
 
 func TestPostgresValidateNormalization(t *testing.T) {
 	p := &Postgres{
-		ID:              "  orders-primary  ",
-		Host:            "  db-prod-01.internal  ",
-		Database:        "  orders_db  ",
-		Username:        "  ycrash_monitor  ",
-		Password:        "  s3cr3t  ",
-		CaptureDuration: newDuration(2 * time.Minute),
-		TLS: &PostgresTLS{
-			VerifyServerCertificate: boolPtr(true),
-			CAFile:                  "  /etc/ycrash/ca.pem  ",
-			ServerName:              "  db-prod-01.internal  ",
+		DBTarget: DBTarget{
+			ID:              "  orders-primary  ",
+			Host:            "  db-prod-01.internal  ",
+			Database:        "  orders_db  ",
+			Username:        "  ycrash_monitor  ",
+			Password:        "  s3cr3t  ",
+			CaptureDuration: newDuration(2 * time.Minute),
+			TLS: &PostgresTLS{
+				VerifyServerCertificate: boolPtr(true),
+				CAFile:                  "  /etc/ycrash/ca.pem  ",
+				ServerName:              "  db-prod-01.internal  ",
+			},
 		},
 	}
 
@@ -133,13 +140,13 @@ func TestPostgresValidateEmptyBlock(t *testing.T) {
 	})
 
 	t.Run("whitespace-only values are empty", func(t *testing.T) {
-		_, err := (&Postgres{Host: "   ", Username: "  "}).Validate()
+		_, err := (&Postgres{DBTarget: DBTarget{Host: "   ", Username: "  "}}).Validate()
 		require.Error(t, err)
 		assert.Equal(t, wantMsg, err.Error())
 	})
 
 	t.Run("a single key is not an empty block", func(t *testing.T) {
-		_, err := (&Postgres{Port: 5432}).Validate()
+		_, err := (&Postgres{DBTarget: DBTarget{Port: 5432}}).Validate()
 		require.Error(t, err)
 		assert.NotContains(t, err.Error(), "empty or has no recognised keys")
 	})
@@ -490,31 +497,31 @@ func TestPostgresValidateRequiredFields(t *testing.T) {
 	}{
 		{
 			name:  "missing id",
-			block: &Postgres{Host: "db-prod-01.internal", Username: "ycrash_monitor"},
+			block: &Postgres{DBTarget: DBTarget{Host: "db-prod-01.internal", Username: "ycrash_monitor"}},
 			wantMsgs: []string{"postgres.id is required - a name for this target, for example orders-primary; " +
 				"every sample block carries it as target_id"},
 			notMsgs: []string{"postgres.host is required", "postgres.username is required"},
 		},
 		{
 			name:     "missing host",
-			block:    &Postgres{Username: "ycrash_monitor"},
+			block:    &Postgres{DBTarget: DBTarget{Username: "ycrash_monitor"}},
 			wantMsgs: []string{"postgres.host is required"},
 			notMsgs:  []string{"postgres.username is required"},
 		},
 		{
 			name:     "missing username",
-			block:    &Postgres{Host: "db-prod-01.internal"},
+			block:    &Postgres{DBTarget: DBTarget{Host: "db-prod-01.internal"}},
 			wantMsgs: []string{"postgres.username is required"},
 			notMsgs:  []string{"postgres.host is required"},
 		},
 		{
 			name:     "both missing",
-			block:    &Postgres{Port: 5432},
+			block:    &Postgres{DBTarget: DBTarget{Port: 5432}},
 			wantMsgs: []string{"postgres.host is required", "postgres.username is required"},
 		},
 		{
 			name:     "no cascade from defaulted keys",
-			block:    &Postgres{Host: "db-prod-01.internal"},
+			block:    &Postgres{DBTarget: DBTarget{Host: "db-prod-01.internal"}},
 			wantMsgs: []string{"postgres.username is required"},
 			notMsgs:  []string{"postgres.port", "postgres.tls"},
 		},
@@ -823,7 +830,7 @@ func TestPostgresExplainMode(t *testing.T) {
 	var absent *Postgres
 	assert.Equal(t, ExplainOff, absent.ExplainMode(), "nil block is a run with no plans")
 	assert.Equal(t, ExplainOff, (&Postgres{}).ExplainMode())
-	assert.Equal(t, ExplainAll, (&Postgres{Explain: ExplainAll}).ExplainMode())
+	assert.Equal(t, ExplainAll, (&Postgres{DBTarget: DBTarget{Explain: ExplainAll}}).ExplainMode())
 
 	assert.NotContains(t, postgresExplainModes, ExplainOff,
 		`"off" reports the omitted key; accepting it as input would be a second way to say one thing`)
@@ -987,7 +994,7 @@ func TestPostgresValidatePasswordExpansion(t *testing.T) {
 	t.Run("expansion errors surface alongside required-field errors", func(t *testing.T) {
 		requireUnsetEnv(t, "PG_YCRASH_PASSWORD")
 
-		p := &Postgres{Port: 5432, Password: "${PG_YCRASH_PASSWORD}"}
+		p := &Postgres{DBTarget: DBTarget{Port: 5432, Password: "${PG_YCRASH_PASSWORD}"}}
 
 		_, err := p.Validate()
 		require.Error(t, err)
@@ -999,7 +1006,7 @@ func TestPostgresValidatePasswordExpansion(t *testing.T) {
 	t.Run("a block whose only key is a broken password is not an empty block", func(t *testing.T) {
 		requireUnsetEnv(t, "PG_YCRASH_PASSWORD")
 
-		p := &Postgres{Password: "${PG_YCRASH_PASSWORD}"}
+		p := &Postgres{DBTarget: DBTarget{Password: "${PG_YCRASH_PASSWORD}"}}
 
 		_, err := p.Validate()
 		require.Error(t, err)
@@ -1316,13 +1323,15 @@ func TestPostgresInEffectiveFlags(t *testing.T) {
 		t.Setenv("PG_YCRASH_PASSWORD", "sup3r-s3cr3t")
 
 		GlobalConfig.Postgres = &Postgres{
-			ID:       "orders-primary",
-			Host:     "db-prod-01.internal",
-			Database: "orders_db",
-			Username: "ycrash_monitor",
-			Password: "${PG_YCRASH_PASSWORD}",
+			DBTarget: DBTarget{
+				ID:       "orders-primary",
+				Host:     "db-prod-01.internal",
+				Database: "orders_db",
+				Username: "ycrash_monitor",
+				Password: "${PG_YCRASH_PASSWORD}",
 
-			CaptureDuration: newDuration(2 * time.Minute),
+				CaptureDuration: newDuration(2 * time.Minute),
+			},
 		}
 		_, err := GlobalConfig.Postgres.Validate()
 		require.NoError(t, err)

@@ -331,9 +331,9 @@ func (sq *SlowQueries) Artifact() Artifact {
 // Info reads bracket the window (first on the opening sample, last on every later one) so the first and last stats_reset readings enclose everything between the endpoints.
 // Errors returned here are write failures; read errors are captured as error= header fields instead.
 func (sq *SlowQueries) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 	ext, extErr := readExtension(ctx, q)
-	ext.reads = span{start, s.now()}
+	ext.reads = span{start, s.Now()}
 
 	var sample bytes.Buffer
 
@@ -371,12 +371,12 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	s SampleContext, ext extensionFacts, extErr error,
 ) error {
 	if extErr != nil {
-		sq.retainReason(s, s.errorText(extErr))
+		sq.retainReason(s, s.ErrorText(extErr))
 
 		return sq.writeStatements(w, s, sampleHeader{
 			reads:  ext.reads,
 			status: readStatus(extErr),
-			fields: []headerField{{"error", s.errorText(extErr)}},
+			fields: []headerField{{"error", s.ErrorText(extErr)}},
 		}, nil)
 	}
 
@@ -400,16 +400,16 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 		}, nil)
 	}
 
-	start := s.now()
+	start := s.Now()
 	rows, total, err := sq.readStatements(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	cells, queriesTruncated, redacted := statementCells(rows)
 
 	if err == nil {
 		sq.retain(s, rows, int64(len(rows)) < total)
 	} else {
-		sq.retainReason(s, s.errorText(err))
+		sq.retainReason(s, s.ErrorText(err))
 	}
 
 	if ext.optionalColumns != nil {
@@ -420,7 +420,7 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 		return sq.writeStatements(w, s, sampleHeader{
 			reads:  reads,
 			status: readStatus(err),
-			fields: append(fields, headerField{"error", s.errorText(err)}),
+			fields: append(fields, headerField{"error", s.ErrorText(err)}),
 		}, nil)
 	}
 
@@ -464,7 +464,7 @@ func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wr
 		return sq.writeInfo(w, s, sampleHeader{
 			reads:  ext.reads,
 			status: readStatus(extErr),
-			fields: []headerField{{"error", s.errorText(extErr)}},
+			fields: []headerField{{"error", s.ErrorText(extErr)}},
 		}, nil)
 	}
 
@@ -483,15 +483,15 @@ func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wr
 		}, nil)
 	}
 
-	start := s.now()
+	start := s.Now()
 	row, err := readInfo(ctx, q)
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	if err != nil {
 		return sq.writeInfo(w, s, sampleHeader{
 			reads:  reads,
 			status: readStatus(err),
-			fields: append(fields, headerField{"error", s.errorText(err)}),
+			fields: append(fields, headerField{"error", s.ErrorText(err)}),
 		}, nil)
 	}
 

@@ -279,8 +279,8 @@ func explainContext(index, total int) SampleContext {
 		Index:    index,
 		Total:    total,
 		Database: "orders_db",
-		DBID:     "16401",
-		redact:   func(err error) string { return errorText(err, "") },
+		Engine:   Facts{DBID: "16401"},
+		Redact:   func(err error) string { return errorText(err, "") },
 	}
 }
 

@@ -23,6 +23,9 @@ func setupMockServer(t *testing.T) *httptest.Server {
 }
 
 // createTestScript creates a cross-platform test script
+// scriptRunTimeout is generous: a one-line script once took over 3s to start under load.
+const scriptRunTimeout = 30 * time.Second
+
 func createTestScript(t *testing.T, outputFile string) string {
 	scriptDir, err := os.MkdirTemp("", "extended-script-test-*")
 	if err != nil {
@@ -106,7 +109,7 @@ func TestExtendedData_Run_Success(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// set up mock http server
@@ -186,7 +189,7 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// set up mock http server
@@ -221,7 +224,7 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// set up mock http server
@@ -247,7 +250,7 @@ func TestExtendedData_Run_EmptyDataFolder(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// Step 3: Run the script
@@ -275,7 +278,7 @@ func TestExtendedData_Run_EmptyScript(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     "",
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// Step 3: Run the script
@@ -308,7 +311,7 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 	ed := &ExtendedData{
 		Script:     absScriptFile,
 		DataFolder: testDir,
-		Timeout:    3 * time.Second,
+		Timeout:    scriptRunTimeout,
 	}
 
 	// set up mock http server

@@ -77,11 +77,11 @@ func TestRun(t *testing.T) {
 			name    string
 			options config.Options
 		}{
-			{"with a PID", config.Options{Pid: "12345", Postgres: &config.Postgres{Host: "db"}}},
-			{"with a process token", config.Options{Pid: "buggyApp", Postgres: &config.Postgres{Host: "db"}}},
+			{"with a PID", config.Options{Pid: "12345", Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "db"}}}},
+			{"with a process token", config.Options{Pid: "buggyApp", Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "db"}}}},
 			{"with M3 and process tokens", config.Options{M3: true, ProcessTokens: config.ProcessTokens{"app"},
-				Postgres: &config.Postgres{Host: "db"}}},
-			{"with API mode", config.Options{Port: 8080, Postgres: &config.Postgres{Host: "db"}}},
+				Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "db"}}}},
+			{"with API mode", config.Options{Port: 8080, Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "db"}}}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				config.GlobalConfig = config.Config{Options: tt.options}
