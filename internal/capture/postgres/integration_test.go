@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -3529,6 +3530,8 @@ func matrixSlowQueriesBlocks(t *testing.T, target Target,
 		parseCapacityBlocks(t, artifact, "pg_stat_statements_info")
 }
 
+// matrixAnchor runs the statements the matrix finds again in the capture. The sleep makes
+// one of them the heaviest statement in a freshly reset view, so it leads every top.
 func matrixAnchor(t *testing.T, server matrixServer) {
 	t.Helper()
 
@@ -3536,7 +3539,7 @@ func matrixAnchor(t *testing.T, server matrixServer) {
 		"CREATE TABLE yc_360_matrix_anchor_tbl (n int)",
 		"INSERT INTO yc_360_matrix_anchor_tbl SELECT g AS "+matrixAnchorMarker+
 			" FROM generate_series(1, 11) g",
-		"SELECT count(*) AS "+matrixAnchorMarker+" FROM yc_360_matrix_anchor_tbl",
+		"SELECT count(*) AS "+matrixAnchorMarker+", pg_sleep(1) FROM yc_360_matrix_anchor_tbl",
 		"DROP TABLE yc_360_matrix_anchor_tbl",
 	)
 }
@@ -3546,6 +3549,8 @@ func TestMatrixSlowQueries(t *testing.T) {
 		t.Run(fmt.Sprintf("pg%d", server.major), func(t *testing.T) {
 			assertMatrixStatementViewColumns(t, server)
 
+			// An empty view puts every statement this test runs inside the top 100.
+			matrixDDL(t, server, "postgres", "SELECT pg_stat_statements_reset()")
 			matrixAnchor(t, server)
 
 			statements := map[string]capacityMatrixBlock{}
@@ -3581,6 +3586,10 @@ func TestMatrixSlowQueries(t *testing.T) {
 
 					assertMatrixInfoReadsAtTheFloor(t, infoBlocks)
 
+					for _, block := range statementBlocks {
+						assertMatrixStatementsRanked(t, block)
+					}
+
 					statements[role.user] = statementBlocks[0]
 					infos[role.user] = infoBlocks[0]
 					closing[role.user] = statementBlocks[1]
@@ -3603,8 +3612,8 @@ func TestMatrixSlowQueries(t *testing.T) {
 				assertMatrixCaptureIsInItsOwnArtifact(t, closing[matrixSuperuser(t).user])
 			})
 
-			t.Run("the cap keeps a prefix of the key space", func(t *testing.T) {
-				assertMatrixStatementCap(t, server)
+			t.Run("the top is the heaviest statements", func(t *testing.T) {
+				assertMatrixStatementTop(t, server)
 			})
 
 			t.Run("the settings hold at the privilege floor", func(t *testing.T) {
@@ -3752,13 +3761,21 @@ func assertMatrixStatementMasking(t *testing.T, blocks map[string]capacityMatrix
 
 	assert.NotZero(t, keyed, "the capture's own reads are the role's own statements")
 	assert.Less(t, keyed, len(restricted.rows), "and most of the block is not")
+}
 
-	for i, row := range restricted.rows {
-		if restricted.cell(t, row, "queryid") == "" {
-			assert.GreaterOrEqual(t, i, keyed,
-				"ASC sorts NULLs last, so a cap that binds at this privilege level sheds "+
-					"the unattributable rows first")
-		}
+// assertMatrixStatementsRanked checks a block is in total_exec_time order, highest first.
+func assertMatrixStatementsRanked(t *testing.T, block capacityMatrixBlock) {
+	t.Helper()
+
+	previous := math.Inf(1)
+
+	for i, row := range block.rows {
+		value, err := strconv.ParseFloat(block.cell(t, row, "total_exec_time"), 64)
+		require.NoError(t, err)
+
+		assert.LessOrEqual(t, value, previous, "row %d: ranked by total_exec_time, highest first", i)
+
+		previous = value
 	}
 }
 
@@ -3874,7 +3891,11 @@ func assertMatrixCaptureIsInItsOwnArtifact(t *testing.T, block capacityMatrixBlo
 	t.Helper()
 
 	for _, row := range block.rows {
-		if strings.HasPrefix(block.cell(t, row, "query"), "WITH m AS MATERIALIZED") {
+		// The view keeps the first text it saw for an entry, which carries the marker
+		// unless the entry predates it.
+		query := strings.TrimPrefix(block.cell(t, row, "query"), statementMarker)
+
+		if strings.HasPrefix(query, "WITH m AS MATERIALIZED") {
 			assert.NotEmpty(t, block.cell(t, row, "queryid"),
 				"a role always sees the statements it executed itself")
 
@@ -3886,46 +3907,30 @@ func assertMatrixCaptureIsInItsOwnArtifact(t *testing.T, block capacityMatrixBlo
 		"so the agent's own rows are identified by their statement text and the capture role's userid")
 }
 
-func assertMatrixStatementCap(t *testing.T, server matrixServer) {
+func assertMatrixStatementTop(t *testing.T, server matrixServer) {
 	t.Helper()
 
 	target := matrixTarget(server, matrixSuperuser(t))
 
-	blocks, _ := matrixSlowQueriesBlocks(t, target, &SlowQueries{MaxStatements: 5})
+	blocks, _ := matrixSlowQueriesBlocks(t, target, &SlowQueries{Top: 5})
 	block := blocks[0]
 
 	assert.Equal(t, "5", block.header["statements_written"])
-	assert.Equal(t, "true", block.header["truncated"])
+	assert.Equal(t, "false", block.header["truncated"],
+		"the top is the selection, not a cap: statements_total= says what it was chosen from")
 
 	total, err := strconv.ParseInt(block.header["statements_total"], 10, 64)
 	require.NoError(t, err)
 	assert.Greater(t, total, int64(5),
-		"count(*) OVER () is inside the CTE, so it is the uncapped total")
+		"count(*) OVER () is inside the CTE, so it counts the whole view")
 
 	require.Len(t, block.rows, 5)
+	assertMatrixStatementsRanked(t, block)
 
-	keys := make([]int64, 0, len(block.rows))
-
-	for _, row := range block.rows {
-		queryid := block.cell(t, row, "queryid")
-		require.NotEmpty(t, queryid, "the superuser reads every key")
-
-		key, err := strconv.ParseInt(queryid, 10, 64)
-		require.NoError(t, err)
-
-		keys = append(keys, key)
-	}
-
-	assert.True(t, slices.IsSorted(keys),
-		"ordered on identity and never on a statistic: a top-N taken independently at each "+
-			"endpoint selects two different sets and leaves a query with no baseline")
-
-	smallest := matrixQuery(t, target,
-		`SELECT min(queryid)::text FROM pg_stat_statements WHERE queryid IS NOT NULL`)
-	require.NotNil(t, smallest[0])
-
-	assert.Equal(t, *smallest[0], strconv.FormatInt(keys[0], 10),
-		"the prefix starts where the key space does")
+	lead := block.cell(t, block.rows[0], "query")
+	assert.Contains(t, lead, matrixAnchorMarker,
+		"the anchor's one-second sleep is the heaviest statement since the reset, so it leads")
+	assert.Contains(t, lead, "pg_sleep")
 }
 
 func assertMatrixStatementSettings(t *testing.T, server matrixServer) {

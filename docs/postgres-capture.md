@@ -165,17 +165,18 @@ how you say no**. There is no `explain: off`; delete or comment the line.
 | `logged` | plans `auto_explain` already wrote to the server log, copied out | nothing is sent to the database; needs the agent on the database host |
 | `all` | the above, plus plans the agent asks the server for | captured query text is prepared on your database and its plan asked for, on every supported version; with the server log readable and the prerequisites below met, the values your application bound are planned too — they go to the server, and the plan in the bundle has them replaced |
 
-Which queries get a plan is not a judgment the agent makes. Every distinct query
-shape in `pg_stat_statements` is attempted once, in the first sample it is seen
-in, and never again; the agent ranks nothing, and which shapes matter is the
-server's call. A shape is a query identifier in the connected database: the same
+Which queries get a plan follows `pg_slow_queries.txt`: each sample's 100
+statements with the highest total execution time, heaviest first. Every distinct
+query shape among them is attempted once, in the first sample it is seen in, and
+never again, and a shape that never reaches the 100 is never attempted. A shape
+is a query identifier in the connected database: the same
 statement recorded under two roles is attempted once. The agent's own statements
 are never attempted, whichever role ran them, and are counted as `excluded_self=`:
 every statement the agent sends opens with the comment `/* yCrash-DB-Agent */`,
 which `pg_stat_statements` keeps in its text, and a row recorded before that
 marker existed is recognised by a query identifier the capture's own role also ran. A sample attempts at most ten, and the rest wait for the next
-sample, so a database that walks in tracking thousands of shapes is explained as
-a drip across the window rather than a burst at its start. Each block records
+sample, so the shapes are explained as a drip across the window rather than a
+burst at its start. Each block records
 `first_seen=`, and each sample's summary says how many shapes still wait.
 
 Under `all`, the agent asks the server for at most **five plans in a capture**,
@@ -343,7 +344,13 @@ closing one:
   that statement past its 5s limit loses the sample.
 - `pg_tablespaces.txt` — each tablespace's size.
 - `pg_slow_queries.txt` — `pg_stat_statements`, including `stddev_exec_time`
-  and `max_exec_time`, with passwords in the statement text replaced.
+  and `max_exec_time`, with passwords in the statement text replaced. Each
+  sample holds the 100 statements with the highest `total_exec_time`, heaviest
+  first; `statements_total` is how many statements they were chosen from. The
+  ranking is by totals since the statistics were last reset, not by time spent
+  inside the window, so a statement that only became slow during the capture
+  can be below the 100, and a statement can be in one sample and not the
+  other.
 - `pg_explain.txt` — query plans, when `explain:` is set, their constants
   replaced.
 
@@ -537,7 +544,7 @@ queryid,userid,dbid,toplevel,...,calls,total_exec_time,...,query
 ```
 
 On a typical cluster that is most of the file. Measured on a matrix container:
-277 of 319 rows.
+277 of the view's 319 rows.
 
 The counters are real, so the artifact is not worthless — but `queryid` is the
 key, and without it those rows cannot be matched from one sample to the
@@ -547,8 +554,7 @@ not exist for them. And nothing in the file says so: no `error=`, the right row
 count, `status=complete`.
 
 The one thing that reads normally is the statements the capture role executed
-itself, which always keep their key — including the agent's own. Since NULLs sort
-last, those rows also come first in the block.
+itself, which always keep their key — including the agent's own.
 
 The flag to read for both of the last two artifacts is `has_pg_read_all_stats`,
 not `has_pg_monitor_role`: that is the gate the server actually applies, and a

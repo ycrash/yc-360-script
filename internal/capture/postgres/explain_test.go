@@ -210,7 +210,7 @@ func (c *fakeExplainConn) QueryRow(ctx context.Context, sql string, args ...any)
 		c.factsReads++
 
 		if rows, ok := c.ticks[c.factsReads]; ok {
-			c.sq.retain(SampleContext{Index: c.factsReads}, rows, false)
+			c.sq.retain(SampleContext{Index: c.factsReads}, rows)
 		}
 
 		return answerRow(&c.facts)
@@ -270,7 +270,7 @@ func feedWith(rows []statementRow) *SlowQueries {
 // its tick. The collector holds one read at a time, so a fixture that needs more
 // than one sample's read scripts them on the conn with offerOnTick instead.
 func feedAt(sq *SlowQueries, sample int, rows []statementRow) {
-	sq.retain(SampleContext{Index: sample}, rows, false)
+	sq.retain(SampleContext{Index: sample}, rows)
 }
 
 func explainContext(index, total int) SampleContext {

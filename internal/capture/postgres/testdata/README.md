@@ -351,7 +351,7 @@ The goldens:
 - `pg_slow_queries_full.txt` — a complete start-and-end capture against an
   extension-1.12 server. **Two blocks per sample and 38 columns**, the widest
   block in the feature, where the requirements document names eight. Read the
-  first and last rows of the two `pg_stat_statements` blocks together and the
+  `order_items` rows of the two `pg_stat_statements` blocks together and the
   artifact's whole purpose is on the page: `128740 − 128400 = 340` calls, and
   `(9891810.5 − 9820410.5) / 340 = 210.0` ms — the report's headline number,
   computed server-side from two blocks and nothing else. The agent joins
@@ -378,11 +378,13 @@ The goldens:
   1.11+ the per-row `stats_since` is the counter-signal; below 1.11 a targeted
   reset is undetectable, which is a documented limitation rather than a gap the
   agent can close.
-  **The row order is by `queryid` ascending and it is not the readable order.**
-  That is deliberate: the block is ordered on identity and never on a statistic,
-  because a top-N taken independently at each endpoint can select two different
-  sets and leave a query with no baseline to delta against. A fixture in a
-  friendlier order would depict something the statement cannot return.
+  **The rows are in `total_exec_time` order, highest first**, ties broken on
+  the key, because each sample is the 100 statements with the highest total.
+  This fixture's statements are all inside the 100, so both samples hold the
+  same ones apart from the agent's own read. On a real server a statement can
+  enter or leave the 100 between samples, and then has no row in the other
+  sample to delta against. A fixture in another order would depict something
+  the statement cannot return.
   **`stddev_exec_time` sits beside `max_exec_time`**, a column added without a
   `v` bump (see *Versioning*). Neither is a counter: both describe every call
   since the entry's statistics were reset (on 1.11 and later `max_exec_time`
@@ -428,11 +430,11 @@ The goldens:
   `pg_sessions.txt`'s `query_id`. In `pg_stat_activity` the identity survives
   masking and the detail is lost, so a least-privilege capture still shapes the
   blocking chain; here the detail survives and the identity does not.
-  **The one surviving row leads, and that is the sort key working.** A role
+  **The one surviving row is the last, because it is the lightest.** A role
   always sees the statements it executed itself, so the agent's own read keeps
-  its `queryid` — and `ORDER BY … ASC` puts NULLs last, so the attributable rows
-  sort first and a cap that binds at this privilege level sheds the
-  unattributable ones first. Nothing in this file says the capture was degraded.
+  its `queryid`. The ranking reads counters, which masking leaves exact, so a
+  least-privilege top holds the same statements a privileged one would, most of
+  them without a key. Nothing in this file says the capture was degraded.
   `pg_metadata.txt`'s `has_pg_read_all_stats` does, and the count of empty lead
   cells does; that is the whole of the discriminator.
 - `pg_slow_queries_query_text.txt` — this artifact's half of the parse contract,
@@ -449,7 +451,7 @@ The goldens:
   the thing a reviewer should check rather than assume.** In `pg_sessions.txt`
   the argument was that `pid` leads and is an integer on every row. Here the
   lead cell is `queryid`, which is *empty* on every masked row — so a data line
-  can begin with a comma, and the last row of this file does. A line beginning
+  can begin with a comma, and the second row of each sample does. A line beginning
   with `,` is not a line beginning with `#`, so the contract holds; but the
   sessions argument does not transfer unchanged, and the comment on
   `statementColumnSpecs` says so.

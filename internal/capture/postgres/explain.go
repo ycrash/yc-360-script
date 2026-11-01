@@ -956,9 +956,9 @@ type explainSelection struct {
 }
 
 // selectCandidates queues every shape the feed shows for the first time, in the feed's
-// own order, and attempts the first DefaultMaxExplains of what is waiting. No ranking:
-// which shapes matter is the server's judgment. The cap and the aggregate budget bound
-// each sample, and the summary says how many still wait.
+// own order, highest total_exec_time first, and attempts the first DefaultMaxExplains of
+// what is waiting. The cap and the aggregate budget bound each sample, and the summary
+// says how many still wait.
 func (e *Explain) selectCandidates(
 	s SampleContext, feed statementFeed, fed bool, facts explainFacts,
 ) explainSelection {

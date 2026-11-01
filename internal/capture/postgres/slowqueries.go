@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-// DefaultMaxStatements bounds one sample's statement rows;
-// matches pg_stat_statements.max's own default, so truncated=true only when an operator raised the GUC (Grand Unified Configuration).
-const DefaultMaxStatements = 5000
+// DefaultTopStatements is how many statements a sample holds, those with the highest total_exec_time.
+const DefaultTopStatements = 100
 
 // The ways a block can be empty without a read having failed; each writes a
 // header-only block with reason= (not error=).
@@ -102,7 +101,7 @@ func specNames(onlyOptional bool) []string {
 	return names
 }
 
-// statementKeyColumns is pg_stat_statements' real key (queryid alone is not unique) and the block's sort order.
+// statementKeyColumns is pg_stat_statements' real key (queryid alone is not unique) and breaks ties in the block's ranking.
 var statementKeyColumns = []string{"queryid", "userid", "dbid", "toplevel"}
 
 // specExpr panics at init if name isn't in statementColumnSpecs.
@@ -161,7 +160,7 @@ const extensionSQL = `SELECT COALESCE((SELECT n.nspname::text
 
 // statementsCTE is the statement's fixed half; its own column order is inert since the outer select list references columns by name.
 // to_jsonb(s) is computed once per row via MATERIALIZED: PostgreSQL doesn't CSE the eleven inline ->> extractions, so without this each is a separate to_jsonb build (measured ~7x slower on the 18 container's ~290-row view).
-// count(*) OVER () sits inside the CTE, evaluated before LIMIT, giving the uncapped total behind statements_total=/truncated=.
+// count(*) OVER () sits inside the CTE, evaluated before LIMIT, giving statements_total=, how many statements the top was chosen from.
 // left(s.query, $2) is the only bound on query text: pg_stat_statements ignores track_activity_query_size entirely (measured: an 8189-char query stored under a 1kB setting of that GUC).
 // 'query' is excluded from to_jsonb(s) (- 'query'): the MATERIALIZED CTE buffers rows in a tuplestore, and the untruncated query text there could exceed work_mem and spill to temp files, perturbing pg_health.txt's temp_files/temp_bytes counters.
 // wal_bytes is cast to text: numeric is unbounded and a fractional value (not guaranteed absent) would break an int64 scan; userid/dbid are oid, cast to text for the same scan-safety reason.
@@ -186,8 +185,7 @@ const statementsCTE = `WITH m AS MATERIALIZED (
 var statementsSQL = buildStatementsSQL()
 
 // buildStatementsSQL renders the outer select list and ORDER BY from statementColumnSpecs.
-// ORDER BY is on identity (queryid, userid, dbid, toplevel), never a statistic, so both endpoints of the window share a stable, mergeable ordering; a top-N by total_exec_time could select different sets at each endpoint and break the delta.
-// Masked rows (queryid NULL) tie on the remaining columns and sort last (NULLS LAST default), so a binding cap sheds unattributable rows first.
+// The block is the statements with the highest total_exec_time; the key breaks ties, so the same view always yields the same rows.
 func buildStatementsSQL() string {
 	var sql strings.Builder
 
@@ -208,13 +206,10 @@ func buildStatementsSQL() string {
 		}
 	}
 
-	sql.WriteString(",\n       statements_total\n  FROM m\n ORDER BY ")
+	sql.WriteString(",\n       statements_total\n  FROM m\n ORDER BY total_exec_time DESC")
 
-	for i, name := range statementKeyColumns {
-		if i > 0 {
-			sql.WriteString(", ")
-		}
-
+	for _, name := range statementKeyColumns {
+		sql.WriteString(", ")
 		sql.WriteString(specExpr(name))
 	}
 
@@ -223,14 +218,14 @@ func buildStatementsSQL() string {
 	return sql.String()
 }
 
-// SlowQueries captures pg_stat_statements every sample; the delta, ranking, and top-N are the server's, not the agent's.
+// SlowQueries captures the statements with the highest total_exec_time in pg_stat_statements every sample; the deltas are the server's.
 // The view needs no grant, but a role without pg_read_all_stats gets queryid NULL and query masked on rows it doesn't own while every counter stays exact (measured: 234/270 rows on 18, 124/152 on 14) - the inverse of pg_sessions.txt, where identity survives and detail doesn't. pg_metadata.txt's has_pg_read_all_stats is the bundle's only signal of this.
 type SlowQueries struct {
 	// Interval is the cadence, the run's normal speed (its frequency). Zero is the bookend alone.
 	Interval time.Duration
 
-	// MaxStatements bounds one sample's statement rows. Zero takes DefaultMaxStatements.
-	MaxStatements int
+	// Top is how many statements a sample holds. Zero takes DefaultTopStatements.
+	Top int
 
 	// pending is the latest sample's read, held until Explain takes it on the same
 	// tick. The next sample's read replaces it, so a read nobody takes - explain
@@ -259,10 +254,9 @@ type statementKey struct {
 // yielded nothing says why, so the explain summary can repeat the reason rather than
 // report an idle database.
 type statementFeed struct {
-	sample    int
-	rows      []statementRow
-	read      bool
-	truncated bool
+	sample int
+	rows   []statementRow
+	read   bool
 
 	// reason is why there are no rows: the extension's own reason, or the read's error
 	// text, redacted.
@@ -408,7 +402,7 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 	cells, queriesTruncated, redacted := statementCells(rows)
 
 	if err == nil {
-		sq.retain(s, rows, int64(len(rows)) < total)
+		sq.retain(s, rows)
 	} else {
 		sq.retainReason(s, s.errorText(err))
 	}
@@ -436,12 +430,12 @@ func (sq *SlowQueries) writeStatementsBlock(ctx context.Context, q RowQuerier, w
 
 	fields = append(fields, headerField{"redacted", strconv.Itoa(redacted)})
 
+	// Never truncated: the top is the selection, and statements_total= is what it was chosen from.
 	return sq.writeStatements(w, s, sampleHeader{
-		reads:     reads,
-		status:    statusOK,
-		rows:      len(rows),
-		truncated: int64(len(rows)) < total,
-		fields:    fields,
+		reads:  reads,
+		status: statusOK,
+		rows:   len(rows),
+		fields: fields,
 	}, cells)
 }
 
@@ -503,8 +497,8 @@ func (sq *SlowQueries) writeInfoBlock(ctx context.Context, q RowQuerier, w io.Wr
 
 // retain offers every sample's read to Explain, which walks it for shapes it has not
 // seen: with no delta to compute, a middle sample is as good a feed as an endpoint.
-func (sq *SlowQueries) retain(s SampleContext, rows []statementRow, truncated bool) {
-	sq.offer(statementFeed{sample: s.Index, rows: rows, read: true, truncated: truncated})
+func (sq *SlowQueries) retain(s SampleContext, rows []statementRow) {
+	sq.offer(statementFeed{sample: s.Index, rows: rows, read: true})
 }
 
 // retainReason offers the reason there were no rows, so Explain's summary can say
@@ -650,13 +644,13 @@ func (r *statementRow) dest() []any {
 	}
 }
 
-// readStatements returns the capped rows and the uncapped total.
+// readStatements returns the top rows and how many statements they were chosen from.
 func (sq *SlowQueries) readStatements(ctx context.Context, q RowQuerier) ([]statementRow, int64, error) {
 	stmtCtx, cancel := statementContext(ctx)
 	defer cancel()
 
 	// One rune past the cap: lets the render pass distinguish a cell the agent cut from one that arrived exactly at the limit.
-	rows, err := q.Query(stmtCtx, statementsSQL, sq.maxStatements(), DefaultMaxQueryText+1)
+	rows, err := q.Query(stmtCtx, statementsSQL, sq.top(), DefaultMaxQueryText+1)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -805,10 +799,10 @@ func readExtension(ctx context.Context, q RowQuerier) (extensionFacts, error) {
 	return facts, nil
 }
 
-func (sq *SlowQueries) maxStatements() int {
-	if sq.MaxStatements <= 0 {
-		return DefaultMaxStatements
+func (sq *SlowQueries) top() int {
+	if sq.Top <= 0 {
+		return DefaultTopStatements
 	}
 
-	return sq.MaxStatements
+	return sq.Top
 }
