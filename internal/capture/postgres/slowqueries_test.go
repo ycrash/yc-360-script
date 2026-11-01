@@ -413,16 +413,16 @@ func TestSlowQueriesStatementIsOneJsonbPerRow(t *testing.T) {
 			"pg_health.txt's temp_files as customer I/O")
 }
 
-func TestSlowQueriesStatementTakesNoRanking(t *testing.T) {
+func TestSlowQueriesStatementRanksByTotalExecTime(t *testing.T) {
 	_, orderBy, found := strings.Cut(statementsSQL, "ORDER BY")
 	require.True(t, found)
 
-	assert.NotContains(t, orderBy, "total_exec_time")
-	assert.NotContains(t, orderBy, "calls")
-	assert.NotContains(t, orderBy, "DESC")
+	assert.True(t, strings.HasPrefix(orderBy, " total_exec_time DESC, "),
+		"the block is the statements with the highest cumulative execution time: %s", orderBy)
+	assert.Contains(t, orderBy, "LIMIT $1")
 
 	for _, key := range statementKeyColumns {
-		assert.Contains(t, orderBy, key, "the sort key is the view's own identity")
+		assert.Contains(t, orderBy, specExpr(key), "the key breaks ties, so the same view always yields the same rows")
 	}
 }
 
@@ -431,7 +431,7 @@ func TestSlowQueriesStatementBoundsWhatItReads(t *testing.T) {
 	require.True(t, found)
 
 	assert.Contains(t, cte, "count(*) OVER ()",
-		"inside the CTE, so it is evaluated before the LIMIT and is the uncapped total")
+		"inside the CTE, so it is evaluated before the LIMIT and counts what the top was chosen from")
 	assert.NotContains(t, outer, "count(*) OVER ()")
 
 	assert.Contains(t, cte, "left(s.query, $2)",
@@ -482,7 +482,7 @@ func TestSlowQueriesCaps(t *testing.T) {
 		pg18Statement(ordersInventoryStart),
 	}
 
-	t.Run("under the cap", func(t *testing.T) {
+	t.Run("fewer statements than the top", func(t *testing.T) {
 		conn := newFakeSlowQueriesConn(healthyExtension())
 		conn.statements = repeat(rowsResult(statementValues(rows, 3)))
 
@@ -492,17 +492,18 @@ func TestSlowQueriesCaps(t *testing.T) {
 		assert.NotContains(t, headers[1], "queries_truncated=")
 	})
 
-	t.Run("cap binds", func(t *testing.T) {
+	t.Run("the top binds", func(t *testing.T) {
 		conn := newFakeSlowQueriesConn(healthyExtension())
 		conn.statements = repeat(rowsResult(statementValues(rows[:2], 9412)))
 
 		var buf bytes.Buffer
-		capped := &SlowQueries{MaxStatements: 2}
-		require.NoError(t, capped.Sample(context.Background(), conn, &buf,
+		top := &SlowQueries{Top: 2}
+		require.NoError(t, top.Sample(context.Background(), conn, &buf,
 			slowQueriesSampleContext()))
 
 		headers, _ := splitBlocks(buf.String())
-		assert.Contains(t, headers[1], " rows=2 truncated=true ")
+		assert.Contains(t, headers[1], " rows=2 truncated=false ",
+			"the top is the selection, not a cap: statements_total= says what it was chosen from")
 		assert.Contains(t, headers[1], " statements_written=2 statements_total=9412 ")
 		assert.Equal(t, []any{2, DefaultMaxQueryText + 1}, conn.statementsArgs[0])
 	})
@@ -793,7 +794,7 @@ func TestSlowQueriesPreflightPassesTheOptionalColumnList(t *testing.T) {
 	assert.Equal(t, []any{optionalStatementColumns}, conn.extensionArgs[0])
 
 	require.Len(t, conn.statementsArgs, 1)
-	assert.Equal(t, []any{DefaultMaxStatements, DefaultMaxQueryText + 1}, conn.statementsArgs[0],
+	assert.Equal(t, []any{DefaultTopStatements, DefaultMaxQueryText + 1}, conn.statementsArgs[0],
 		"$2 is one rune past the cap, so the render pass can still tell a cell the agent cut "+
 			"from one that arrived exactly at the limit")
 
@@ -874,15 +875,15 @@ func TestSlowQueriesGoldenFull(t *testing.T) {
 	conn := newFakeSlowQueriesConn(healthyExtension())
 	conn.statements = queue(
 		rowsResult(statementValues([]statementRow{
+			pg18Statement(ordersInventoryStart),
 			pg18Statement(ordersUpdateStart),
 			pg18Statement(ordersItemsStart),
-			pg18Statement(ordersInventoryStart),
 		}, 3)),
 		rowsResult(statementValues([]statementRow{
+			pg18Statement(ordersInventoryEnd),
 			pg18Statement(ordersUpdateEnd),
 			pg18Statement(ordersItemsEnd),
 			pg18Statement(agentRead),
-			pg18Statement(ordersInventoryEnd),
 		}, 4)),
 	)
 
@@ -900,14 +901,14 @@ func TestSlowQueriesGoldenPre17(t *testing.T) {
 	conn := newFakeSlowQueriesConn(facts)
 	conn.statements = queue(
 		rowsResult(statementValues([]statementRow{
+			pre17Statement(ordersInventoryStart),
 			pre17Statement(ordersUpdateStart),
 			pre17Statement(ordersItemsStart),
-			pre17Statement(ordersInventoryStart),
 		}, 3)),
 		rowsResult(statementValues([]statementRow{
+			pre17Statement(ordersInventoryEnd),
 			pre17Statement(ordersUpdateEnd),
 			pre17Statement(ordersItemsEnd),
-			pre17Statement(ordersInventoryEnd),
 		}, 3)),
 	)
 
@@ -921,15 +922,15 @@ func TestSlowQueriesGoldenLeastPrivilege(t *testing.T) {
 	conn := newFakeSlowQueriesConn(healthyExtension())
 	conn.statements = queue(
 		rowsResult(statementValues([]statementRow{
+			maskedStatement(ordersInventoryStart),
 			maskedStatement(ordersUpdateStart),
 			maskedStatement(ordersItemsStart),
-			maskedStatement(ordersInventoryStart),
 		}, 3)),
 		rowsResult(statementValues([]statementRow{
-			pg18Statement(agentRead),
+			maskedStatement(ordersInventoryEnd),
 			maskedStatement(ordersUpdateEnd),
 			maskedStatement(ordersItemsEnd),
-			maskedStatement(ordersInventoryEnd),
+			pg18Statement(agentRead),
 		}, 4)),
 	)
 
@@ -971,13 +972,13 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 	}
 
 	rows := []statementRow{
+		pg18Statement(quoted),
+		maskedStatement(ordersUpdateEnd),
 		pg18Statement(multiline),
 		pg18Statement(hashLine),
-		pg18Statement(multibyte),
 		lost,
-		pg18Statement(quoted),
+		pg18Statement(multibyte),
 		pg18Statement(roleChange),
-		maskedStatement(ordersUpdateEnd),
 	}
 
 	conn := newFakeSlowQueriesConn(healthyExtension())
@@ -1003,7 +1004,7 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 	}
 }
 
-// --- endpoint retention, which pg_explain.txt ranks (never written here) -----
+// --- the feed pg_explain.txt walks (never written here) -----
 
 func TestSlowQueriesOffersEverySampleToExplainOnce(t *testing.T) {
 	conn := newFakeSlowQueriesConn(healthyExtension())
@@ -1030,7 +1031,6 @@ func TestSlowQueriesOffersEverySampleToExplainOnce(t *testing.T) {
 		require.True(t, ok, "sample %d is offered to the tick that read it", index)
 		assert.Equal(t, index, feed.sample)
 		assert.True(t, feed.read)
-		assert.False(t, feed.truncated)
 		require.Len(t, feed.rows, 1)
 		assert.NotNil(t, feed.rows[0].query,
 			"the feed keeps its text: it is the only place the generic mode's normalized "+
@@ -1058,7 +1058,7 @@ func TestSlowQueriesOffersEverySampleToExplainOnce(t *testing.T) {
 
 func TestSlowQueriesFeedIsOfferedToItsOwnSampleOnly(t *testing.T) {
 	sq := NewSlowQueries()
-	sq.retain(SampleContext{Index: 2}, []statementRow{pg18Statement(ordersItemsEnd)}, false)
+	sq.retain(SampleContext{Index: 2}, []statementRow{pg18Statement(ordersItemsEnd)})
 
 	_, ok := sq.feed(SampleContext{Index: 1})
 	assert.False(t, ok, "another sample's read is not this sample's")
@@ -1143,7 +1143,7 @@ func TestSlowQueriesHoldsOnlyTheLatestUntakenFeed(t *testing.T) {
 	sq := NewSlowQueries()
 
 	for index := 1; index <= 3; index++ {
-		sq.retain(SampleContext{Index: index}, []statementRow{pg18Statement(ordersItemsEnd)}, false)
+		sq.retain(SampleContext{Index: index}, []statementRow{pg18Statement(ordersItemsEnd)})
 	}
 
 	_, ok := sq.feed(SampleContext{Index: 1})
