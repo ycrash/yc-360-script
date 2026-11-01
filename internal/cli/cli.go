@@ -60,7 +60,7 @@ func runToCompletionOrSigterm(f func() error) error {
 	osSigChan := make(chan os.Signal, 1)
 	signal.Notify(osSigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
-	completed := make(chan error)
+	completed := make(chan error, 1)
 	var err error
 
 	go func(completed chan error) {
@@ -71,11 +71,23 @@ func runToCompletionOrSigterm(f func() error) error {
 	// Wait for either completion or sigterm signals
 	select {
 	case s := <-osSigChan:
-		logger.Log("Received OS signal: %s", s)
+		logger.Log("Received OS signal: %s. Stopping: a database window in flight ends early "+
+			"and uploads what it has; other captures finish first. Signal again to exit at once.", s)
+
+		go exitOnSignal(osSigChan)
 	case err = <-completed:
 	}
 
 	return err
+}
+
+// exitOnSignal exits on the next signal; Notify disables the default exit, so a
+// hung stop could otherwise be ended only by SIGKILL.
+func exitOnSignal(osSigChan <-chan os.Signal) {
+	s := <-osSigChan
+	logger.Log("Received OS signal: %s again. Exiting at once: the capture's remaining "+
+		"uploads are abandoned, and its directory is left in place.", s)
+	os.Exit(1)
 }
 
 func logCLIArguments() {

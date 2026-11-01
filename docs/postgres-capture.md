@@ -38,6 +38,11 @@ A key the block does not take is refused at startup with its line, inside `tls:`
 too, rather than ignored: a misspelled `verifyServerCertificate: true`, dropped,
 would run with the certificate unchecked.
 
+Ctrl-C or `SIGTERM` ends the window early: each file closes with
+`status=cancelled` and is uploaded as a full window's would be, and the agent
+exits once the upload is done. A second signal exits at once, abandoning what
+has not been uploaded and leaving the capture directory in place.
+
 ### The file must be readable by its owner alone
 
 On Linux and macOS the agent refuses to start when the `-c` file gives its
