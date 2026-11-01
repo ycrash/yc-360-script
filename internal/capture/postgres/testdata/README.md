@@ -349,7 +349,7 @@ The goldens:
   make: its password is written `'<redacted>'` and every activity block says
   `redacted=1`.
 - `pg_slow_queries_full.txt` — a complete start-and-end capture against an
-  extension-1.12 server. **Two blocks per sample and 37 columns**, the widest
+  extension-1.12 server. **Two blocks per sample and 38 columns**, the widest
   block in the feature, where the requirements document names eight. Read the
   first and last rows of the two `pg_stat_statements` blocks together and the
   artifact's whole purpose is on the page: `128740 − 128400 = 340` calls, and
@@ -365,7 +365,7 @@ The goldens:
   the counters. `dealloc` is `0`; had it risen, entries were evicted because
   `pg_stat_statements.max` was exceeded, and eviction plus re-insertion restarts
   a `queryid`'s counters from zero, so its delta reads as a query that got
-  dramatically faster. Neither is detectable from the 37 columns beside them.
+  dramatically faster. Neither is detectable from the 38 columns beside them.
   **The block leads sample 1 and closes sample 2**, and that is a decision rather
   than a layout: with a fixed statements-then-info order at both ends, a full
   reset landing between the opening statements read and its info read would
@@ -383,6 +383,11 @@ The goldens:
   because a top-N taken independently at each endpoint can select two different
   sets and leave a query with no baseline to delta against. A fixture in a
   friendlier order would depict something the statement cannot return.
+  **`stddev_exec_time` sits beside `max_exec_time`**, a column added without a
+  `v` bump (see *Versioning*). Neither is a counter: both describe every call
+  since the entry's statistics were reset (on 1.11 and later `max_exec_time`
+  since `minmax_stats_since`), so the delta arithmetic above does not apply to
+  them.
   **`blk_read_time` and `blk_write_time` are empty while `shared_blk_read_time`
   and `shared_blk_write_time` are `0`, in the same row.** Extension 1.11 renamed
   that pair *and re-scoped it* — before 1.11 it counted shared and local block

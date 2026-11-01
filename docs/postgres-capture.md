@@ -342,8 +342,8 @@ closing one:
   in the same statement as the scan counts, so a filesystem slow enough to run
   that statement past its 5s limit loses the sample.
 - `pg_tablespaces.txt` — each tablespace's size.
-- `pg_slow_queries.txt` — `pg_stat_statements`, with passwords in the statement
-  text replaced.
+- `pg_slow_queries.txt` — `pg_stat_statements`, including `stddev_exec_time`
+  and `max_exec_time`, with passwords in the statement text replaced.
 - `pg_explain.txt` — query plans, when `explain:` is set, their constants
   replaced.
 
