@@ -624,6 +624,23 @@ func TestPostgresValidateSSLModeIsRefused(t *testing.T) {
 		assert.Contains(t, err.Error(), "postgres.sslmode is no longer accepted")
 		assert.NotContains(t, err.Error(), "empty or has no recognised keys")
 	})
+
+	t.Run("decoded from a file, it gets its own message, not an unknown key's", func(t *testing.T) {
+		p := decodePostgresBlock(t, "id: a\nhost: db\nusername: u\ncaptureDuration: 2m\nsslmode: require")
+
+		_, err := p.Validate()
+		assert.ErrorContains(t, err, "postgres.sslmode is no longer accepted")
+	})
+}
+
+func TestPostgresRefusesAKeyItDoesNotTake(t *testing.T) {
+	p := decodePostgresBlock(t, "id: a\nhost: db\nusername: u\ncaptureDuration: 2m\n"+
+		"tls:\n  enabled: true\n  verifyservercertificate: true")
+
+	_, err := p.Validate()
+	require.Error(t, err, "a dropped verifyServerCertificate: true would run unverified, without a word")
+	assert.ErrorContains(t, err, "postgres.tls.verifyservercertificate (line 8) is not a key tls: takes - "+
+		"its keys are enabled, verifyServerCertificate, caFile, serverName")
 }
 
 func TestPostgresValidateTLS(t *testing.T) {
