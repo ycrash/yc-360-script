@@ -219,3 +219,42 @@ func configFileWithMode(t *testing.T, mode os.FileMode) string {
 
 	return path
 }
+
+func TestValidateRefusesTwoDatabaseTargets(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	logger.Init("", 0, 0, "info")
+
+	cfg := postgresValidateFixture(&config.Postgres{DBTarget: config.DBTarget{
+		ID: "a", Host: "db", Username: "u", CaptureDuration: twoMinutes(),
+	}})
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{ID: "b", Host: "db", Username: "u", CaptureDuration: twoMinutes()}}
+	config.GlobalConfig = cfg
+
+	assert.ErrorIs(t, validate(), ErrInvalidArgumentCantContinue)
+}
+
+func TestValidateMySQL(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	logger.Init("", 0, 0, "info")
+
+	cfg := postgresValidateFixture(nil)
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{
+		ID: "orders-primary", Host: " db ", Username: "u", CaptureDuration: twoMinutes(),
+	}}
+	config.GlobalConfig = cfg
+
+	require.NoError(t, validate())
+	assert.Equal(t, "db", config.GlobalConfig.MySQL.Host)
+	assert.Equal(t, config.DefaultMySQLPort, config.GlobalConfig.MySQL.Port)
+
+	cfg = postgresValidateFixture(nil)
+	cfg.MySQL = &config.MySQL{DBTarget: config.DBTarget{ID: "x", Host: "db", Username: "u",
+		CaptureDuration: twoMinutes(), Explain: "logged"}}
+	config.GlobalConfig = cfg
+
+	assert.ErrorIs(t, validate(), ErrInvalidArgumentCantContinue)
+}

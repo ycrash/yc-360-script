@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -393,4 +394,26 @@ func (t *DBTarget) expandPassword(key string) []error {
 func newDuration(d time.Duration) *Duration {
 	wrapped := Duration(d)
 	return &wrapped
+}
+
+// ErrBothDatabaseTargets refuses a file naming two engines: a run takes one target.
+var ErrBothDatabaseTargets = errors.New("postgres: and mysql: are both configured - a run captures " +
+	"one database target; keep one block, and run the agent once for each database")
+
+// DBTargetConfigured reports whether a database block is configured.
+func (o *Options) DBTargetConfigured() bool {
+	return o.Postgres.IsConfigured() || o.MySQL.IsConfigured()
+}
+
+// DBTargetKey is the configured block's key, empty when there is none.
+func (o *Options) DBTargetKey() string {
+	switch {
+	case o.Postgres.IsConfigured():
+		return "postgres"
+
+	case o.MySQL.IsConfigured():
+		return "mysql"
+	}
+
+	return ""
 }
