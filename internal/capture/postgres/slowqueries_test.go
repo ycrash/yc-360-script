@@ -102,6 +102,7 @@ type statementFixture struct {
 	execTime float64
 	minExec  float64
 	maxExec  float64
+	stddev   float64
 	rows     int64
 	hit      int64
 	read     int64
@@ -122,11 +123,12 @@ func pg18Statement(f statementFixture) statementRow {
 		minPlanTime:   ptr(0.0),
 		maxPlanTime:   ptr(0.0),
 
-		calls:         ptr(f.calls),
-		totalExecTime: ptr(f.execTime),
-		minExecTime:   ptr(f.minExec),
-		maxExecTime:   ptr(f.maxExec),
-		rows:          ptr(f.rows),
+		calls:          ptr(f.calls),
+		totalExecTime:  ptr(f.execTime),
+		minExecTime:    ptr(f.minExec),
+		maxExecTime:    ptr(f.maxExec),
+		stddevExecTime: ptr(f.stddev),
+		rows:           ptr(f.rows),
 
 		sharedBlksHit:     ptr(f.hit),
 		sharedBlksRead:    ptr(f.read),
@@ -181,14 +183,14 @@ var (
 	ordersUpdateStart = statementFixture{
 		queryid: -7710234988821003345, userid: "10",
 		query: "UPDATE orders SET status = $1 WHERE id = $2",
-		calls: 55201, execTime: 18820045.2, minExec: 1.204, maxExec: 9902.1,
+		calls: 55201, execTime: 18820045.2, minExec: 1.204, maxExec: 9902.1, stddev: 61.32,
 		rows: 55201, hit: 1204884, read: 8821,
 		walRecs: 55201, walFPI: 412, walBytes: "4980112",
 	}
 	ordersUpdateEnd = statementFixture{
 		queryid: -7710234988821003345, userid: "10",
 		query: "UPDATE orders SET status = $1 WHERE id = $2",
-		calls: 55263, execTime: 18859725.2, minExec: 1.204, maxExec: 9902.1,
+		calls: 55263, execTime: 18859725.2, minExec: 1.204, maxExec: 9902.1, stddev: 61.29,
 		rows: 55263, hit: 1205140, read: 8829,
 		walRecs: 55263, walFPI: 415, walBytes: "4985340",
 	}
@@ -196,13 +198,13 @@ var (
 	ordersItemsStart = statementFixture{
 		queryid: -4821096637582910234, userid: "10",
 		query: "SELECT * FROM order_items WHERE order_id = $1",
-		calls: 128400, execTime: 9820410.5, minExec: 0.812, maxExec: 4120.4,
+		calls: 128400, execTime: 9820410.5, minExec: 0.812, maxExec: 4120.4, stddev: 22.84,
 		rows: 128412, hit: 4021884, read: 398210, walBytes: "0",
 	}
 	ordersItemsEnd = statementFixture{
 		queryid: -4821096637582910234, userid: "10",
 		query: "SELECT * FROM order_items WHERE order_id = $1",
-		calls: 128740, execTime: 9891810.5, minExec: 0.812, maxExec: 4120.4,
+		calls: 128740, execTime: 9891810.5, minExec: 0.812, maxExec: 4120.4, stddev: 22.81,
 		rows: 128752, hit: 4025901, read: 398340, walBytes: "0",
 	}
 
@@ -217,13 +219,13 @@ var (
 	ordersInventoryStart = statementFixture{
 		queryid: 5548219003471002234, userid: "10",
 		query: "SELECT * FROM inventory WHERE sku = $1",
-		calls: 884210, execTime: 42011200.8, minExec: 0.019, maxExec: 88.2,
+		calls: 884210, execTime: 42011200.8, minExec: 0.019, maxExec: 88.2, stddev: 0.41,
 		rows: 884210, hit: 8821040, read: 12048, walBytes: "0",
 	}
 	ordersInventoryEnd = statementFixture{
 		queryid: 5548219003471002234, userid: "10",
 		query: "SELECT * FROM inventory WHERE sku = $1",
-		calls: 884328, execTime: 42021226.8, minExec: 0.019, maxExec: 88.2,
+		calls: 884328, execTime: 42021226.8, minExec: 0.019, maxExec: 88.2, stddev: 0.41,
 		rows: 884328, hit: 8821994, read: 12053, walBytes: "0",
 	}
 )
@@ -374,7 +376,7 @@ func TestSlowQueriesColumnSpecsDriveTheDerivedLists(t *testing.T) {
 		}
 	}
 
-	assert.Len(t, statementColumnSpecs, 37, "the widest block in the feature, where only eight were asked for")
+	assert.Len(t, statementColumnSpecs, 38, "the widest block in the feature, where only eight were asked for")
 	assert.Equal(t, 11, optional, "the columns pg_stat_statements gained or lost after extension 1.8")
 
 	names := make([]string, len(statementColumnSpecs))
@@ -391,10 +393,10 @@ func TestSlowQueriesColumnSpecsDriveTheDerivedLists(t *testing.T) {
 
 	cells, _, _ := statementCells([]statementRow{pg18Statement(ordersItemsStart)})
 	require.Len(t, cells, 1)
-	assert.Len(t, cells[0], 37, "the render pass agrees with the header it is written under")
+	assert.Len(t, cells[0], 38, "the render pass agrees with the header it is written under")
 
 	var row statementRow
-	assert.Len(t, row.dest(), 37, "and so does the scan")
+	assert.Len(t, row.dest(), 38, "and so does the scan")
 }
 
 func TestSlowQueriesStatementIsOneJsonbPerRow(t *testing.T) {
@@ -955,7 +957,7 @@ func TestSlowQueriesGoldenQueryText(t *testing.T) {
 
 	discarded := statementFixture{
 		queryid: 3304882300112034551, userid: "10",
-		calls: 4, execTime: 12.5, minExec: 2.1, maxExec: 4.9, rows: 4, hit: 88, walBytes: "0",
+		calls: 4, execTime: 12.5, minExec: 2.1, maxExec: 4.9, stddev: 1.05, rows: 4, hit: 88, walBytes: "0",
 	}
 
 	lost := pg18Statement(discarded)

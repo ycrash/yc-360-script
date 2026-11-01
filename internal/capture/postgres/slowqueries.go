@@ -39,7 +39,7 @@ const (
 // statementColumnSpecs drives the select list, CSV header, preflight probe list and scan order together so they cannot drift apart.
 var statementColumnSpecs = []struct {
 	name     string
-	expr     string // select-list expression; bare CTE column name for the 26 stable columns
+	expr     string // select-list expression; bare CTE column name for the 27 stable columns
 	optional bool   // present only on some extension versions (1.8-1.12); read via to_jsonb(s) so a missing column yields NULL, not 42703
 }{
 	{"queryid", "queryid", false},
@@ -54,6 +54,7 @@ var statementColumnSpecs = []struct {
 	{"total_exec_time", "total_exec_time", false},
 	{"min_exec_time", "min_exec_time", false},
 	{"max_exec_time", "max_exec_time", false},
+	{"stddev_exec_time", "stddev_exec_time", false},
 	{"rows", "rows", false},
 	{"shared_blks_hit", "shared_blks_hit", false},
 	{"shared_blks_read", "shared_blks_read", false},
@@ -169,7 +170,7 @@ const statementsCTE = `WITH m AS MATERIALIZED (
            s.userid::text AS userid,
            s.dbid::text   AS dbid,
            s.plans, s.total_plan_time, s.min_plan_time, s.max_plan_time,
-           s.calls, s.total_exec_time, s.min_exec_time, s.max_exec_time, s.rows,
+           s.calls, s.total_exec_time, s.min_exec_time, s.max_exec_time, s.stddev_exec_time, s.rows,
            s.shared_blks_hit, s.shared_blks_read, s.shared_blks_dirtied, s.shared_blks_written,
            s.local_blks_hit, s.local_blks_read, s.local_blks_dirtied, s.local_blks_written,
            s.temp_blks_read, s.temp_blks_written,
@@ -567,11 +568,12 @@ type statementRow struct {
 	minPlanTime   *float64
 	maxPlanTime   *float64
 
-	calls         *int64
-	totalExecTime *float64
-	minExecTime   *float64
-	maxExecTime   *float64
-	rows          *int64
+	calls          *int64
+	totalExecTime  *float64
+	minExecTime    *float64
+	maxExecTime    *float64
+	stddevExecTime *float64
+	rows           *int64
 
 	sharedBlksHit     *int64
 	sharedBlksRead    *int64
@@ -619,6 +621,7 @@ func (r *statementRow) dest() []any {
 		&r.totalExecTime,
 		&r.minExecTime,
 		&r.maxExecTime,
+		&r.stddevExecTime,
 		&r.rows,
 		&r.sharedBlksHit,
 		&r.sharedBlksRead,
@@ -708,6 +711,7 @@ func statementCells(rows []statementRow) ([][]string, int, int) {
 			float64Text(row.totalExecTime),
 			float64Text(row.minExecTime),
 			float64Text(row.maxExecTime),
+			float64Text(row.stddevExecTime),
 			int64Text(row.rows),
 			int64Text(row.sharedBlksHit),
 			int64Text(row.sharedBlksRead),

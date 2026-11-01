@@ -3571,7 +3571,7 @@ func TestMatrixSlowQueries(t *testing.T) {
 					}
 
 					assert.Equal(t, statementColumns, statementBlocks[0].columns,
-						"the same 37 columns on every extension version, which is what one "+
+						"the same 38 columns on every extension version, which is what one "+
 							"statement covering 1.8 through 1.12 buys")
 					assert.Equal(t, infoColumns, infoBlocks[0].columns)
 
