@@ -165,3 +165,12 @@ func TestResolvePidsFromToken(t *testing.T) {
 		assert.Empty(t, pids, "expected empty pids slice for nonexistent token")
 	})
 }
+
+func TestMySQLDoesNotRunUnderM3(t *testing.T) {
+	logger.Init("", 0, 0, "info")
+
+	assert.ErrorIs(t, checkM3DatabaseTarget(true, true), ErrMySQLM3,
+		"M3 polls PostgreSQL only; a run that captured nothing would look like a healthy database")
+	assert.NoError(t, checkM3DatabaseTarget(false, true), "a one-shot MySQL capture")
+	assert.NoError(t, checkM3DatabaseTarget(true, false))
+}

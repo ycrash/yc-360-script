@@ -77,10 +77,9 @@ func (m3 *M3App) RunSingle() error {
 	now, timezone := common.GetAgentCurrentTime()
 	timestamp := now.Format("2006-01-02T15-04-05")
 
-	// Database monitoring is an M3 run whose target is the postgres: block. It has
-	// no application target, so finding no process is the expected outcome, not a
-	// misconfiguration to warn about.
-	dbMonitoring := config.GlobalConfig.Postgres.IsConfigured()
+	// Database monitoring: no application target, so no process found is expected.
+	// Only postgres: is polled; mysql: with -m3 is refused before the loop.
+	dbMonitoring := config.GlobalConfig.DBTargetConfigured()
 
 	pids, err := capture.GetProcessIds(config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
 	logger.Debug().Msgf("M3App.RunSingle: got process IDs: %v", pids)
@@ -150,8 +149,11 @@ func (m3 *M3App) RunSingle() error {
 		// host-scoped capture below runs at all, and where it does not, the poll
 		// already carries the runner-health rows that stand in for it.
 		hostAllowed := true
-		if dbMonitoring {
-			hostAllowed = uploadPostgresM3(endpoint, config.GlobalConfig.Postgres)
+		if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
+			hostAllowed = uploadPostgresM3(endpoint, pg)
+		} else if dbMonitoring {
+			// Not established as the database's host.
+			hostAllowed = false
 		}
 
 		m3.captureAndTransmit(pids, endpoint, hostAllowed)

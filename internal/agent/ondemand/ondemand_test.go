@@ -180,32 +180,34 @@ func TestWriteMetaInfo(t *testing.T) {
 
 func TestComputeSystemTags(t *testing.T) {
 	tests := []struct {
-		name               string
-		appRuntime         string
-		nodejsCaptureMode  string
-		postgresConfigured bool
-		expected           string
+		name              string
+		appRuntime        string
+		nodejsCaptureMode string
+		databaseTag       string
+		expected          string
 	}{
-		{"dotnet", "dotnet", "", false, ".net"},
-		{"dotnet ignores capture mode", "dotnet", "signal", false, ".net"},
-		{"nodejs default hook mode (empty config)", "nodejs", "", false, "nodejs,hook-mode"},
-		{"nodejs explicit hook mode", "nodejs", "hook", false, "nodejs,hook-mode"},
-		{"nodejs signal mode", "nodejs", "signal", false, "nodejs,signal-mode"},
-		{"nodejs signal mode is case/whitespace insensitive", "nodejs", "  SIGNAL  ", false, "nodejs,signal-mode"},
-		{"nodejs unrecognized capture mode falls back to hook", "nodejs", "bogus", false, "nodejs,hook-mode"},
-		{"java default runtime", "java", "", false, ""},
-		{"unknown/empty appRuntime", "", "", false, ""},
+		{"dotnet", "dotnet", "", "", ".net"},
+		{"dotnet ignores capture mode", "dotnet", "signal", "", ".net"},
+		{"nodejs default hook mode (empty config)", "nodejs", "", "", "nodejs,hook-mode"},
+		{"nodejs explicit hook mode", "nodejs", "hook", "", "nodejs,hook-mode"},
+		{"nodejs signal mode", "nodejs", "signal", "", "nodejs,signal-mode"},
+		{"nodejs signal mode is case/whitespace insensitive", "nodejs", "  SIGNAL  ", "", "nodejs,signal-mode"},
+		{"nodejs unrecognized capture mode falls back to hook", "nodejs", "bogus", "", "nodejs,hook-mode"},
+		{"java default runtime", "java", "", "", ""},
+		{"unknown/empty appRuntime", "", "", "", ""},
 
-		{"database-only run", "java", "", true, "postgres"},
-		{"database-only run, unknown runtime", "", "", true, "postgres"},
+		{"database-only run", "java", "", "postgres", "postgres"},
+		{"database-only run, unknown runtime", "", "", "postgres", "postgres"},
 
-		{"postgres alongside a nodejs capture merges", "nodejs", "signal", true, "nodejs,signal-mode,postgres"},
-		{"postgres alongside a dotnet capture merges", "dotnet", "", true, ".net,postgres"},
+		{"postgres alongside a nodejs capture merges", "nodejs", "signal", "postgres", "nodejs,signal-mode,postgres"},
+		{"postgres alongside a dotnet capture merges", "dotnet", "", "postgres", ".net,postgres"},
+
+		{"mysql database-only run", "", "", "mysql", "mysql"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, computeSystemTags(tt.appRuntime, tt.nodejsCaptureMode, tt.postgresConfigured))
+			assert.Equal(t, tt.expected, computeSystemTags(tt.appRuntime, tt.nodejsCaptureMode, tt.databaseTag))
 		})
 	}
 }

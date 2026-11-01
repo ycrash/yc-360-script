@@ -129,6 +129,9 @@ type Options struct {
 	NodejsDiagnosticWindow   Duration `yaml:"nodejsDiagnosticWindow" usage:"Node.js hook-mode Diagnostic Report capture window (1s-300s, default 30s)."`
 
 	Postgres *Postgres `yaml:"postgres"`
+
+	// MySQL is the mysql: block. A file may hold it or postgres:, never both.
+	MySQL *MySQL `yaml:"mysql"`
 }
 
 const (
@@ -497,6 +500,9 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 		case *Postgres:
 			// Ignore this due to nested structure, we don't support this via CLI for now.
 			continue
+		case *MySQL:
+			// Nested, like postgres:.
+			continue
 		}
 		switch fieldType.Type.Kind() {
 		case reflect.Uint:
@@ -571,6 +577,10 @@ func EffectiveFlags() string {
 		case HealthChecks, []Command:
 			continue
 		case *Postgres:
+			if v == nil {
+				continue
+			}
+		case *MySQL:
 			if v == nil {
 				continue
 			}
