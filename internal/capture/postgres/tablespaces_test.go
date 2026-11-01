@@ -123,7 +123,7 @@ func takeTablespaceSample(t *testing.T, conn *fakeTablespacesConn) string {
 
 	var buf bytes.Buffer
 	require.NoError(t, Tablespaces{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	return buf.String()
@@ -242,7 +242,7 @@ func TestTablespacesFailingStatementWritesNothing(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := Tablespaces{}.Sample(context.Background(), conn, &buf, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	})
 
 	require.Error(t, err)
@@ -253,7 +253,7 @@ func TestTablespacesWritesTheBlockInOneWrite(t *testing.T) {
 	writer := &countingWriter{}
 
 	require.NoError(t, Tablespaces{}.Sample(context.Background(), newFakeTablespacesConn(), writer, SampleContext{
-		At: at(32, 5, 112), Index: 1, Database: "orders_db", DBID: "16401",
+		At: at(32, 5, 112), Index: 1, Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}))
 
 	assert.Equal(t, 1, writer.writes,

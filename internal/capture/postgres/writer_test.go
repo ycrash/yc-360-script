@@ -146,7 +146,7 @@ func writeArtifact(t *testing.T, m Metadata) string {
 	target := SampleContext{At: m.AgentTS, Database: m.TargetDatabase}
 	require.NoError(t, writeMetadataBlock(&buf, "pg_metadata_target", []headerField{
 		{"db", target.Database},
-		{"dbid", target.DBID},
+		{"dbid", target.Engine.DBID},
 	}, targetFields(m), target.At))
 
 	server := []headerField{
@@ -734,7 +734,7 @@ func TestSampleHeaderIsTheCaptureLineThenTheSampleLine(t *testing.T) {
 	var buf bytes.Buffer
 
 	require.NoError(t, writeSampleHeader(&buf, Health{}.Artifact(), SampleContext{
-		At: testAgentNow, Index: 3, Database: "orders_db", DBID: "16401",
+		At: testAgentNow, Index: 3, Database: "orders_db", Engine: Facts{DBID: "16401"},
 		CaptureID: testCaptureID, TargetID: "orders-primary", EngineVersion: "170004",
 	}, sampleHeader{
 		source:    "pg_stat_database",

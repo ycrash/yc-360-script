@@ -137,7 +137,7 @@ func TestGetM3FinEndpointNamesTheDatabaseTarget(t *testing.T) {
 
 	t.Run("a configured target is named", func(t *testing.T) {
 		config.GlobalConfig = config.Config{Options: config.Options{
-			Postgres: &config.Postgres{Host: "db-prod-01", Port: 5432, Database: "orders"},
+			Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "db-prod-01", Port: 5432, Database: "orders"}},
 		}}
 
 		endpoint := GetM3FinEndpoint("2026-08-27T09-12-00", "UTC", nil)
@@ -151,7 +151,7 @@ func TestGetM3FinEndpointNamesTheDatabaseTarget(t *testing.T) {
 	// the value early, taking the parameters after it with them.
 	t.Run("a socket path is escaped", func(t *testing.T) {
 		config.GlobalConfig = config.Config{Options: config.Options{
-			Postgres: &config.Postgres{Host: "/var/run/postgresql", Port: 5432, Database: "a b&c"},
+			Postgres: &config.Postgres{DBTarget: config.DBTarget{Host: "/var/run/postgresql", Port: 5432, Database: "a b&c"}},
 		}}
 
 		endpoint := GetM3FinEndpoint("2026-08-27T09-12-00", "UTC", nil)

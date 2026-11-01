@@ -401,7 +401,7 @@ func runSessionsWindow(t *testing.T, clock *scriptedClock,
 func sessionsSampleContext() SampleContext {
 	return SampleContext{
 		At: at(32, 5, 61), Index: 1, Total: 3,
-		Database: "orders_db", DBID: "16401",
+		Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}
 }
 
@@ -436,7 +436,7 @@ func TestSessionsArtifact(t *testing.T) {
 			"than about - pg_health.txt's reading, and the one the capture direction confirms")
 
 	assert.Equal(t, Periodic(0), artifact.Schedule)
-	assert.Equal(t, []time.Duration{0, 6 * time.Second}, artifact.Schedule.offsets(6*time.Second),
+	assert.Equal(t, []time.Duration{0, 6 * time.Second}, artifact.Schedule.Offsets(6*time.Second),
 		"a run with no cadence still bookends: two samples, never one. A blocking chain is a "+
 			"thing that develops, so the first reading always has a second to be read against")
 

@@ -37,12 +37,14 @@ func unreachablePostgres(t *testing.T) *config.Postgres {
 	require.NoError(t, listener.Close())
 
 	return &config.Postgres{
-		ID:       "orders-primary",
-		Host:     "127.0.0.1",
-		Port:     port,
-		Database: "orders_db",
-		Username: "ycrash_monitor",
-		Password: pgTestPassword,
+		DBTarget: config.DBTarget{
+			ID:       "orders-primary",
+			Host:     "127.0.0.1",
+			Port:     port,
+			Database: "orders_db",
+			Username: "ycrash_monitor",
+			Password: pgTestPassword,
+		},
 	}
 }
 

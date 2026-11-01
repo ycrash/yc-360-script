@@ -1102,7 +1102,7 @@ func matrixSampleTop(t *testing.T, target Target, collector Collector) string {
 
 	var buf strings.Builder
 	require.NoError(t, collector.Sample(ctx, conn, &buf, SampleContext{
-		At: time.Now(), Index: 1, Database: "postgres", DBID: "0",
+		At: time.Now(), Index: 1, Database: "postgres", Engine: Facts{DBID: "0"},
 	}))
 
 	return buf.String()
@@ -1951,7 +1951,7 @@ func assertMatrixHealthCapKeepsTheProtectedRows(t *testing.T, target Target) {
 
 	var buf strings.Builder
 	require.NoError(t, Health{MaxDatabases: capped}.Sample(ctx, conn, &buf, SampleContext{
-		At: time.Now(), Index: 1, Database: database, DBID: *dbid,
+		At: time.Now(), Index: 1, Database: database, Engine: Facts{DBID: *dbid},
 	}))
 
 	blocks := parseHealthBlocks(t, buf.String())
@@ -4161,7 +4161,7 @@ func (m *matrixTail) sample() textBlock {
 		Index:    m.index,
 		Total:    12,
 		Database: "postgres",
-		redact:   func(err error) string { return errorText(err, "") },
+		Redact:   func(err error) string { return errorText(err, "") },
 	}))
 
 	blocks := parseTextArtifact(m.t, buf.String())
@@ -5260,7 +5260,7 @@ func matrixExplainTailAtEnd(t *testing.T, server matrixServer) *logTail {
 
 	require.True(t, tail.openAtEnd(ctx, conn, SampleContext{
 		At: time.Now(), Index: 1, Total: 2, Database: "postgres",
-		redact: func(err error) string { return errorText(err, "") },
+		Redact: func(err error) string { return errorText(err, "") },
 	}), "reason=%s log_access=%s", tail.source.reason, tail.source.logAccess())
 
 	t.Cleanup(tail.closeFile)
@@ -6134,7 +6134,7 @@ func TestMatrixSampleHeader(t *testing.T) {
 					text := matrixArtifactText(t, result)
 					blocks := matrixSampleHeaderBlocks(t, text)
 
-					if !result.Artifact.periodic() {
+					if !result.Artifact.Periodic() {
 						assert.Empty(t, blocks, "%s keeps its one header line", name)
 						assert.Contains(t, text, "\ntarget_id,"+target.ID+"\n",
 							"%s names the same target in its target block", name)

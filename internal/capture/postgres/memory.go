@@ -76,14 +76,14 @@ func (m Memory) Artifact() Artifact {
 // with no rows, since it recurs every sample for this role; any other failure
 // errors and writes nothing, and the window writes the stub.
 func (m Memory) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 
 	rows, denied, err := readMemory(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	var fields []headerField
 

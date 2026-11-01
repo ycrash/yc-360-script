@@ -226,7 +226,7 @@ func runReplicationWindow(t *testing.T, clock *scriptedClock,
 func replicationSampleContext() SampleContext {
 	return SampleContext{
 		At: at(32, 5, 61), Index: 1, Total: 3,
-		Database: "orders_db", DBID: "16401",
+		Database: "orders_db", Engine: Facts{DBID: "16401"},
 	}
 }
 

@@ -100,7 +100,7 @@ func (b Bloat) Artifact() Artifact {
 // errors and writes nothing; a failed S2 leaves sizes empty but still writes
 // the sample.
 func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleContext) error {
-	start := s.now()
+	start := s.Now()
 
 	rows, total, err := b.readStats(ctx, q)
 	if err != nil {
@@ -109,7 +109,7 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 
 	sizesErr := readBloatSizes(ctx, q, rows)
 
-	reads := span{start, s.now()}
+	reads := span{start, s.Now()}
 
 	fields := []headerField{
 		{"tables_written", strconv.Itoa(len(rows))},
@@ -119,7 +119,7 @@ func (b Bloat) Sample(ctx context.Context, q RowQuerier, w io.Writer, s SampleCo
 	if sizesErr != nil {
 		fields = append(fields,
 			headerField{"sizes", "unavailable"},
-			headerField{"reason", s.errorText(sizesErr)},
+			headerField{"reason", s.ErrorText(sizesErr)},
 		)
 	}
 
