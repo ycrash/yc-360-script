@@ -1,6 +1,7 @@
 package ondemand
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -340,4 +341,34 @@ func TestAllPossibleGCPath(t *testing.T) {
 	cmdLine = "ProcessId java  -Xlog:gc*=debug:stdout -Xlog:gc*=info:file=/tmp/gc.log:noforcetty -Xms2g -Xmx4g -Xss40m -Duser.language=en -Duser.country=en_US -DhprofStrictnessWarning=true -DlogDir=\"D:\tier1appdevelopment\" -DuploadDir=\"D:\tier1appdevelopment\" -DonlyTroubleshootingReport=true -Dapp=yc -jar webapp-runner.jar -AconnectionTimeout=3600000 --secure-error-report-valve --port 8080 yc.war  11232"
 	logFile = ExtractGCLogPathFromCmdline(cmdLine)
 	assert.Equal(t, expected, logFile)
+}
+
+func TestFullCaptureDoesNotStartOnceStopped(t *testing.T) {
+	t.Cleanup(func() { stopping, stop = context.WithCancel(context.Background()) })
+
+	dir := t.TempDir()
+	previous, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { os.Chdir(previous) })
+
+	Stop()
+
+	assert.Empty(t, FullCapture(0, "", false, "", ""))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "no capture directory: the capture never began")
+
+	waited := make(chan struct{})
+	go func() {
+		Wg.Wait()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a capture that did not start is still counted, and Shutdown would wait on it forever")
+	}
 }

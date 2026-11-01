@@ -71,7 +71,11 @@ func Run() error {
 	return nil
 }
 
+// Shutdown stops the run and waits: a database window ends early and uploads what
+// it has; other captures finish first.
 func Shutdown() {
+	ondemand.Stop()
+
 	m3AppMu.Lock()
 	if runningM3App != nil {
 		runningM3App.Shutdown()
