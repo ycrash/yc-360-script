@@ -1,0 +1,26 @@
+# engine=mysql source=my_sessions v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=4s samples_expected=4 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=threads start_ts=2026-10-30T09:00:00.002Z end_ts=2026-10-30T09:00:00.003Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster reason=permission_denied error="Error 1142: SELECT command denied to user 'yc_restricted'@'192.0.2.10' for table 'threads'" ts=2026-10-30T09:00:00.000Z
+THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,PROCESSLIST_TIME,PROCESSLIST_STATE,PROCESSLIST_INFO,program_name
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=innodb_trx start_ts=2026-10-30T09:00:00.004Z end_ts=2026-10-30T09:00:00.005Z duration_ms=1 status=OK rows=0 truncated=false scope=cluster reason=permission_denied error="Error 1227: Access denied; you need (at least one of) the PROCESS privilege(s) for this operation" ts=2026-10-30T09:00:00.000Z
+trx_id,trx_state,trx_started,trx_mysql_thread_id
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=threads start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:04.000Z
+THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,PROCESSLIST_TIME,PROCESSLIST_STATE,PROCESSLIST_INFO,program_name
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=innodb_trx start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:04.000Z
+trx_id,trx_state,trx_started,trx_mysql_thread_id
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=threads start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:08.000Z
+THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,PROCESSLIST_TIME,PROCESSLIST_STATE,PROCESSLIST_INFO,program_name
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=innodb_trx start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:08.000Z
+trx_id,trx_state,trx_started,trx_mysql_thread_id
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=4 source=threads start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:12.000Z
+THREAD_ID,PROCESSLIST_ID,PROCESSLIST_USER,PROCESSLIST_HOST,PROCESSLIST_DB,PROCESSLIST_COMMAND,PROCESSLIST_TIME,PROCESSLIST_STATE,PROCESSLIST_INFO,program_name
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=4 source=innodb_trx start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=permission_denied ts=2026-10-30T09:00:12.000Z
+trx_id,trx_state,trx_started,trx_mysql_thread_id
+# engine=mysql source=my_sessions v=1 format=csv scope=cluster db= status=complete samples_expected=4 samples_written=4 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

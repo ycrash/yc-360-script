@@ -1,0 +1,18 @@
+# engine=mysql source=my_metadata v=1 format=csv scope=cluster db= status=started window=12s schedule=once interval= samples_expected=1 ts=2026-10-30T09:00:00.000Z
+# engine=mysql source=my_metadata_target v=1 format=csv scope=cluster db= ts=2026-10-30T09:00:00.000Z
+key,value
+agent_ts,2026-10-30T09:00:00.000Z
+yc360_version,golden
+target_id,my84
+target_host,127.0.0.1
+target_port,13384
+target_database,
+target_username,root
+target_tls_mode,skip-verify
+target_tls_enabled,true
+target_tls_verify,false
+target_tls_ca_file,
+target_tls_server_name,
+explain_mode,all
+explain_literals,redacted
+# engine=mysql source=my_metadata v=1 format=csv scope=cluster db= status=connect_failed samples_expected=1 samples_written=0 samples_skipped=0 connect_error=too_many_connections ts=2026-10-30T09:00:00.000Z
