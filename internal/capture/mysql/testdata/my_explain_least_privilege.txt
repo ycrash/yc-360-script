@@ -1,0 +1,8 @@
+# engine=mysql source=my_explain v=1 format=text scope=cluster db= status=started window=12s schedule=periodic interval=6s samples_expected=3 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=1 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=slow_queries_unread plans=0 bytes=0 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=2 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=slow_queries_unread plans=0 bytes=0 ts=2026-10-30T09:00:06.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=text db=
+# sample_id=3 source=explain start_ts= end_ts= duration_ms= status=OK rows=0 truncated=false scope=cluster reason=slow_queries_unread plans=0 bytes=0 ts=2026-10-30T09:00:12.000Z
+# engine=mysql source=my_explain v=1 format=text scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z

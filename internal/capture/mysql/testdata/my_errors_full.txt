@@ -1,0 +1,25 @@
+# engine=mysql source=my_errors v=1 format=csv scope=cluster db= status=started window=12s schedule=periodic interval=6s samples_expected=3 ts=2026-10-30T09:00:00.000Z
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=1 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:00.002Z end_ts=2026-10-30T09:00:00.003Z duration_ms=1 status=OK rows=2 truncated=false scope=cluster ts=2026-10-30T09:00:00.000Z
+error_number,error_name,sql_state,sum_error_raised,sum_error_handled,first_seen,last_seen
+1287,ER_WARN_DEPRECATED_SYNTAX,HY000,34,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+3778,ER_WARN_DEPRECATED_UTF8MB3_COLLATION,HY000,73,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=2 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:06.002Z end_ts=2026-10-30T09:00:06.003Z duration_ms=1 status=OK rows=5 truncated=false scope=cluster ts=2026-10-30T09:00:06.000Z
+error_number,error_name,sql_state,sum_error_raised,sum_error_handled,first_seen,last_seen
+,,,2,0,2026-10-31 10:09:55,2026-10-31 10:09:55
+1287,ER_WARN_DEPRECATED_SYNTAX,HY000,34,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+3024,ER_QUERY_TIMEOUT,HY000,1,0,2026-10-31 10:09:57,2026-10-31 10:09:57
+3554,ER_NO_SYSTEM_TABLE_ACCESS,HY000,12,0,2026-10-31 10:09:55,2026-10-31 10:09:55
+3778,ER_WARN_DEPRECATED_UTF8MB3_COLLATION,HY000,73,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+# capture_id=golden-capture target_id=my84 engine=mysql engine_version=8.4.13 v=1 format=csv db=
+# sample_id=3 source=events_errors_summary_global_by_error start_ts=2026-10-30T09:00:12.002Z end_ts=2026-10-30T09:00:12.003Z duration_ms=1 status=OK rows=7 truncated=false scope=cluster ts=2026-10-30T09:00:12.000Z
+error_number,error_name,sql_state,sum_error_raised,sum_error_handled,first_seen,last_seen
+,,,3,0,2026-10-31 10:09:55,2026-10-31 10:10:02
+1205,ER_LOCK_WAIT_TIMEOUT,HY000,2,0,2026-10-31 10:10:02,2026-10-31 10:10:02
+1213,ER_LOCK_DEADLOCK,40001,1,0,2026-10-31 10:10:03,2026-10-31 10:10:03
+1287,ER_WARN_DEPRECATED_SYNTAX,HY000,34,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+3024,ER_QUERY_TIMEOUT,HY000,1,0,2026-10-31 10:09:57,2026-10-31 10:09:57
+3554,ER_NO_SYSTEM_TABLE_ACCESS,HY000,18,0,2026-10-31 10:09:55,2026-10-31 10:10:01
+3778,ER_WARN_DEPRECATED_UTF8MB3_COLLATION,HY000,73,0,2026-10-31 10:09:41,2026-10-31 10:09:41
+# engine=mysql source=my_errors v=1 format=csv scope=cluster db= status=complete samples_expected=3 samples_written=3 samples_skipped=0 ts=2026-10-30T09:00:12.000Z
