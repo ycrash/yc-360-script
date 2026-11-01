@@ -1,0 +1,4 @@
+# Files the steps in README.md create while you run them
+*.class
+ready
+Idle.java
