@@ -230,11 +230,21 @@ int jattach(int argc, char** argv) {
 
     int pid = atoi(argv[0]);
 
+    // GetTickCount() alone has ~15ms resolution, so concurrent captures (thread dump,
+    // GC, JFR) started together could pick the same pipe name. Add this process's id
+    // and a per-process counter so every attach gets a unique pipe.
+    static volatile LONG pipeCounter = 0;
     char pipeName[MAX_PATH];
-    sprintf(pipeName, "\\\\.\\pipe\\javatool%d", GetTickCount());
-    HANDLE hPipe = CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+    // Fixed-width, digits-only suffix: unambiguous, and keeps the name in the same
+    // shape the JVM's attach listener expects after the "\\.\pipe\javatool" prefix.
+    sprintf(pipeName, "\\\\.\\pipe\\javatool%010lu%010lu%05ld",
+        (unsigned long)GetCurrentProcessId(), (unsigned long)GetTickCount(),
+        (long)InterlockedIncrement(&pipeCounter));
+    HANDLE hPipe = CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
         1, 4096, 8192, NMPWAIT_USE_DEFAULT_WAIT, NULL);
-    if (hPipe == NULL) {
+    // CreateNamedPipe returns INVALID_HANDLE_VALUE (not NULL) on failure.
+    if (hPipe == INVALID_HANDLE_VALUE) {
         print_error("Could not create pipe", GetLastError());
         return 1;
     }
