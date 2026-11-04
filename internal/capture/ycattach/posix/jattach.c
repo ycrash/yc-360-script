@@ -74,6 +74,12 @@ int jattach2(int pid, int argc, char** argv) {
     }
 }
 
+// Reports whether the target (set up by jattach1) is an OpenJ9 JVM.
+// Returns 0 if jattach1 failed, since tmp_path/nspid are not valid then.
+int jattach_is_openj9(void) {
+    return code == 0 && is_openj9_process(nspid);
+}
+
 //int main(int argc, char** argv) {
 //    if (argc < 3) {
 //        printf("jattach " JATTACH_VERSION " built on " __DATE__ "\n"
