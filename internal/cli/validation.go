@@ -29,6 +29,17 @@ func validateNodejsSignal(flagName, value string) error {
 }
 
 func validate() error {
+	// Checked first: if Windows merged the following arguments into -j, then
+	// -p, -s, -k etc. are missing and every later check would report the wrong cause.
+	// Only the path part is logged: the merged text may include the -k API key.
+	if pathPart, swallowed := javaHomeSwallowedArgs(config.GlobalConfig.JavaHomePath); swallowed {
+		logger.Error().Msgf(`The -j argument -j "%s\" ends in a backslash. On Windows that turns the closing quote into a literal one, so every argument after it was merged into -j and lost. Remove the trailing backslash (for example -j "%s") and run again.`, pathPart, pathPart)
+		// The usage text printed after this error shows current values as flag
+		// defaults; keep the merged arguments (and any -k key) out of it.
+		config.GlobalConfig.JavaHomePath = pathPart
+		return ErrInvalidArgumentCantContinue
+	}
+
 	appRuntime := config.GetConfiguredAppRuntime()
 	if !config.IsValidAppRuntime(appRuntime) {
 		// Log the raw (un-normalized) value so the user sees exactly what they typed.
@@ -58,8 +69,23 @@ func validate() error {
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			config.GlobalConfig.JavaHomePath = os.Getenv("JAVA_HOME")
 		}
+		// Tools are resolved as <javaHome>/bin/<tool>, so drop a "bin" the
+		// user already included (e.g. -j D:\jdk\bin) instead of looking in bin\bin.
+		// This runs before the empty check: a value that was only a stray quote
+		// cleans up to "" and must then get the "not set" warning.
+		if len(config.GlobalConfig.JavaHomePath) > 0 {
+			cleaned, changed := normalizeJavaHome(config.GlobalConfig.JavaHomePath)
+			// Captures chdir into the capture folder, so a relative path must be resolved now.
+			abs, madeAbs := absJavaHome(cleaned)
+			if changed || madeAbs {
+				logger.Log("Java home path %q adjusted to %q (JDK tools are looked up under <java home>/bin)", config.GlobalConfig.JavaHomePath, abs)
+				config.GlobalConfig.JavaHomePath = abs
+			}
+		}
 		if len(config.GlobalConfig.JavaHomePath) < 1 {
 			logger.Warn().Msg("JAVA_HOME not set - Java process captures will fail")
+		} else if !javaExecutableExists(config.GlobalConfig.JavaHomePath) {
+			logger.Warn().Msgf("Java home path %q has no bin/java - check the -j argument or JAVA_HOME. Captures that need JDK tools (jstat, jcmd, jstack) will fall back to jattach or be skipped", config.GlobalConfig.JavaHomePath)
 		}
 	}
 
