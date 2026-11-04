@@ -320,6 +320,14 @@ func Copy2TempPath() (name string, err error) {
 	tmpPathMtx.Lock()
 	defer tmpPathMtx.Unlock()
 
+	// Re-check under the write lock: concurrent fallbacks (thread dump, GC, heap)
+	// may race here, and each extra copy would be left behind in the temp dir
+	// because RemoveFromTempPath only removes the one stored in tmpPath.
+	if len(tmpPath) > 0 {
+		name = tmpPath
+		return
+	}
+
 	path := Executable()
 	if len(path) < 1 {
 		err = errors.New("failed to Copy2TempPath: invalid path")
@@ -329,6 +337,9 @@ func Copy2TempPath() (name string, err error) {
 	if err != nil {
 		return
 	}
+	defer func() {
+		_ = in.Close()
+	}()
 	// Windows only executes files with an executable extension, so the
 	// temp copy must end in .exe there.
 	pattern := "yc"
@@ -356,9 +367,12 @@ func Copy2TempPath() (name string, err error) {
 }
 
 func RemoveFromTempPath() {
-	tmpPathMtx.RLock()
+	tmpPathMtx.Lock()
 	name := tmpPath
-	tmpPathMtx.RUnlock()
+	// Forget the path so a later Copy2TempPath makes a fresh copy instead of
+	// returning the file deleted here.
+	tmpPath = ""
+	tmpPathMtx.Unlock()
 
 	if len(name) > 0 {
 		os.Remove(name)
