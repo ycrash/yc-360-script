@@ -67,12 +67,14 @@ func (t *GC) Run() (result Result, err error) {
 			var tempPath string
 			tempPath, err = executils.Copy2TempPath()
 			if err != nil {
-				return
-			}
-			gcFile, err = executils.CommandCombinedOutputToFile(fileName,
-				executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-			if err != nil {
-				logger.Log("tmp jattach failed cause %s", err.Error())
+				// Don't return early: still post (empty) gc data so the server gets a result.
+				logger.Log("Failed to Copy2TempPath with err %v", err)
+			} else {
+				gcFile, err = executils.CommandCombinedOutputToFile(fileName,
+					executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-gcCaptureMode"}, executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
+				if err != nil {
+					logger.Log("tmp jattach failed cause %s", err.Error())
+				}
 			}
 		}
 
