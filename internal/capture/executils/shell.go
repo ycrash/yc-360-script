@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -328,7 +329,13 @@ func Copy2TempPath() (name string, err error) {
 	if err != nil {
 		return
 	}
-	file, err := os.CreateTemp("", "yc")
+	// Windows only executes files with an executable extension, so the
+	// temp copy must end in .exe there.
+	pattern := "yc"
+	if runtime.GOOS == "windows" {
+		pattern = "yc*.exe"
+	}
+	file, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return
 	}
