@@ -79,5 +79,7 @@ func runToCompletionOrSigterm(f func() error) error {
 }
 
 func logCLIArguments() {
-	logger.Log("CLI Arguments: %v", os.Args)
+	// Redact secrets such as the -k API key: this line goes to the console,
+	// the log file, and (in on-demand mode) the uploaded yc360Logs.
+	logger.Log("CLI Arguments: %v", config.RedactArgs(os.Args))
 }

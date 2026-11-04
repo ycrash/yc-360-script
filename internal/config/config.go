@@ -530,6 +530,16 @@ func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
 			panic(fmt.Sprintf("not supported type %s of field %s", fieldType.Type.Kind().String(), fieldType.Name))
 		}
 	}
+
+	// Flags are registered with current values as defaults (that is how YAML
+	// values survive the second CLI pass), so the help text - printed by
+	// ShowUsage or by the flag package itself on a bad flag - would show
+	// secrets such as the -k API key. Redact them just before printing.
+	flagSet.Usage = func() {
+		RedactUsageDefaults(flagSet)
+		fmt.Fprintf(flagSet.Output(), "Usage of %s:\n", flagSet.Name())
+		flagSet.PrintDefaults()
+	}
 	return flagSet, result
 }
 
