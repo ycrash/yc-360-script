@@ -40,13 +40,12 @@ func CaptureHeapDump(pid int, out string) (ret int) {
 	return capture(strconv.Itoa(pid), "dumpheap", out)
 }
 
-// CaptureGCLog captures GC statistics via jcmd. GC.class_stats was removed in
-// JDK 15 (and needs -XX:+UnlockDiagnosticVMOptions on JDK 8), so fall back to
-// GC.class_histogram, which every HotSpot JVM supports.
+// CaptureGCLog captures GC statistics via jcmd GC.class_stats.
+//
+// There is deliberately no fallback when the JVM rejects it (JDK 15+ removed
+// it): the other jcmd candidates either aren't GC data the server can parse
+// (GC.class_histogram is a heap histogram) or force a GC in the target
+// (GC.run, plain GC.class_histogram). The capture is reported as failed instead.
 func CaptureGCLog(pid int) (ret int) {
-	ret = capture(strconv.Itoa(pid), "jcmd", "GC.class_stats")
-	if ret == 0 {
-		return
-	}
-	return capture(strconv.Itoa(pid), "jcmd", "GC.class_histogram")
+	return capture(strconv.Itoa(pid), "jcmd", "GC.class_stats")
 }
