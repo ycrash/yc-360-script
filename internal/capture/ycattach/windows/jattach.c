@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <Windows.h>
 
+#define ARG_MAX_LEN 1024
+
 typedef HMODULE (WINAPI *GetModuleHandle_t)(LPCTSTR lpModuleName);
 typedef FARPROC (WINAPI *GetProcAddress_t)(HMODULE hModule, LPCSTR lpProcName);
 typedef int (__stdcall *JVM_EnqueueOperation_t)(char* cmd, char* arg0, char* arg1, char* arg2, char* pipename);
@@ -28,7 +30,8 @@ typedef struct {
     char strJvm[32];
     char strEnqueue[32];
     char pipeName[MAX_PATH];
-    char args[4][MAX_PATH];
+    // HotSpot's Windows attach listener accepts arguments up to 1024 bytes.
+    char args[4][ARG_MAX_LEN];
 } CallData;
 
 
@@ -247,6 +250,17 @@ int jattach(int argc, char** argv) {
     if (hPipe == INVALID_HANDLE_VALUE) {
         print_error("Could not create pipe", GetLastError());
         return 1;
+    }
+
+    // allocate_data() strcpy's each argument into a fixed ARG_MAX_LEN buffer;
+    // reject anything longer instead of overflowing it.
+    int i;
+    for (i = 1; i < argc && i <= 4; i++) {
+        if (strlen(argv[i]) >= ARG_MAX_LEN) {
+            printf("Argument %d is too long (%u bytes, max %d)\n", i, (unsigned)strlen(argv[i]), ARG_MAX_LEN - 1);
+            CloseHandle(hPipe);
+            return 1;
+        }
     }
 
     if (!inject_thread(pid, pipeName, argc - 1, argv + 1)) {
