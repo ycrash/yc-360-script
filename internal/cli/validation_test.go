@@ -32,8 +32,13 @@ func TestValidate(t *testing.T) {
 			},
 		}
 
+		invalidArgReason = ""
 		err := validate()
 		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
+		// The reason is kept so Run can repeat it after the usage text.
+		assert.Contains(t, invalidArgReason, "(-s) is required")
+		assert.Contains(t, invalidArgReason, "-onlyCapture")
+		assert.Contains(t, invalidArgReason, ".zst file")
 	})
 
 	t.Run("missing API key when not onlyCapture", func(t *testing.T) {
@@ -46,8 +51,11 @@ func TestValidate(t *testing.T) {
 			},
 		}
 
+		invalidArgReason = ""
 		err := validate()
 		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
+		assert.Contains(t, invalidArgReason, "(-k) is required")
+		assert.Contains(t, invalidArgReason, ".zst file")
 	})
 
 	t.Run("onlyCapture mode ignores server and API key", func(t *testing.T) {

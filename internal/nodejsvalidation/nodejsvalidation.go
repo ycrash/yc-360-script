@@ -3,16 +3,27 @@ package nodejsvalidation
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 
 	"yc-agent/internal/capture"
 	"yc-agent/internal/config"
-	"yc-agent/internal/logger"
 )
 
 // ErrInvalid indicates a Node.js flag/config value that must stop startup.
 var ErrInvalid = errors.New("nodejs validation: invalid argument")
+
+// invalidError is an ErrInvalid that carries the user-facing reason, so the
+// caller can log it (and show it again after the usage text).
+type invalidError struct{ msg string }
+
+func (e *invalidError) Error() string        { return e.msg }
+func (e *invalidError) Is(target error) bool { return target == ErrInvalid }
+
+func invalid(format string, args ...interface{}) error {
+	return &invalidError{msg: fmt.Sprintf(format, args...)}
+}
 
 // Validate validates Node.js capture-mode and signal-related flags.
 func Validate(appRuntime string) error {
@@ -30,8 +41,7 @@ func Validate(appRuntime string) error {
 	case "signal":
 		// Signal mode is POSIX-only.
 		if runtime.GOOS == "windows" {
-			logger.Log("-nodejsCaptureMode=signal is not supported on Windows. Use hook mode instead.")
-			return ErrInvalid
+			return invalid("-nodejsCaptureMode=signal is not supported on Windows. Use hook mode instead.")
 		}
 		// The report signal must be a valid, non-SIGUSR1 signal.
 		if err := ValidateSignal("-nodejsReportSignal", config.GlobalConfig.NodejsReportSignal); err != nil {
@@ -43,8 +53,7 @@ func Validate(appRuntime string) error {
 			}
 		}
 	default:
-		logger.Log("invalid -nodejsCaptureMode %q. Expected one of: hook, signal", config.GlobalConfig.NodejsCaptureMode)
-		return ErrInvalid
+		return invalid("invalid -nodejsCaptureMode %q. Expected one of: hook, signal", config.GlobalConfig.NodejsCaptureMode)
 	}
 
 	return nil
@@ -54,8 +63,7 @@ func Validate(appRuntime string) error {
 // inspector — a security exposure) and rejects clearly malformed signal names.
 func ValidateSignal(flagName, value string) error {
 	if err := capture.ValidateNodeSignalName(value); err != nil {
-		logger.Log("%s has invalid value %q: %s", flagName, value, err)
-		return ErrInvalid
+		return invalid("%s has invalid value %q: %s", flagName, value, err)
 	}
 	return nil
 }

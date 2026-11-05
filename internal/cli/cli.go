@@ -17,7 +17,7 @@ import (
 // Finally, it runs the primary feature: yc-agent and wait for completion or abort on a sigterm signal.
 func Run() {
 	if len(os.Args) < 2 {
-		logger.Log("No arguments are passed.")
+		logger.Error().Msg("No arguments were passed. See the options below.")
 		config.ShowUsage()
 		os.Exit(1)
 	}
@@ -39,6 +39,10 @@ func Run() {
 	err := validate()
 	if err == ErrInvalidArgumentCantContinue {
 		config.ShowUsage()
+		// The usage text is long; repeat why yc stopped so it is the last line shown.
+		if invalidArgReason != "" {
+			logger.Error().Msg(invalidArgReason)
+		}
 		os.Exit(1)
 	}
 

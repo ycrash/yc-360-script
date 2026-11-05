@@ -3,6 +3,7 @@ package cli
 import "C"
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,16 +15,32 @@ import (
 
 var ErrInvalidArgumentCantContinue = errors.New("cli: invalid argument")
 
+// invalidArgReason is the message of the last fatal argument error. Run
+// prints it again after the usage text, which is long enough to scroll the
+// first copy off the screen.
+var invalidArgReason string
+
+// invalidArg logs a fatal argument error at error level, remembers it for
+// Run, and returns ErrInvalidArgumentCantContinue.
+func invalidArg(format string, args ...interface{}) error {
+	invalidArgReason = fmt.Sprintf(format, args...)
+	logger.Error().Msg(invalidArgReason)
+	return ErrInvalidArgumentCantContinue
+}
+
+// onlyCaptureHint is appended to the messages for a missing -s or -k.
+const onlyCaptureHint = "or add -onlyCapture to save the captured data to a local .zst file instead of uploading it."
+
 func validateNodejs(appRuntime string) error {
 	if err := nodejsvalidation.Validate(appRuntime); err != nil {
-		return ErrInvalidArgumentCantContinue
+		return invalidArg("%s", err)
 	}
 	return nil
 }
 
 func validateNodejsSignal(flagName, value string) error {
 	if err := nodejsvalidation.ValidateSignal(flagName, value); err != nil {
-		return ErrInvalidArgumentCantContinue
+		return invalidArg("%s", err)
 	}
 	return nil
 }
@@ -33,18 +50,16 @@ func validate() error {
 	// -p, -s, -k etc. are missing and every later check would report the wrong cause.
 	// Only the path part is logged: the merged text may include the -k API key.
 	if pathPart, swallowed := javaHomeSwallowedArgs(config.GlobalConfig.JavaHomePath); swallowed {
-		logger.Error().Msgf(`The -j argument -j "%s\" ends in a backslash. On Windows that turns the closing quote into a literal one, so every argument after it was merged into -j and lost. Remove the trailing backslash (for example -j "%s") and run again.`, pathPart, pathPart)
 		// The usage text printed after this error shows current values as flag
 		// defaults; keep the merged arguments (and any -k key) out of it.
 		config.GlobalConfig.JavaHomePath = pathPart
-		return ErrInvalidArgumentCantContinue
+		return invalidArg(`The -j argument -j "%s\" ends in a backslash. On Windows that turns the closing quote into a literal one, so every argument after it was merged into -j and lost. Remove the trailing backslash (for example -j "%s") and run again.`, pathPart, pathPart)
 	}
 
 	appRuntime := config.GetConfiguredAppRuntime()
 	if !config.IsValidAppRuntime(appRuntime) {
 		// Log the raw (un-normalized) value so the user sees exactly what they typed.
-		logger.Log("invalid appRuntime %q. Expected one of: java, dotnet, nodejs", config.GlobalConfig.AppRuntime)
-		return ErrInvalidArgumentCantContinue
+		return invalidArg("invalid appRuntime %q. Expected one of: java, dotnet, nodejs", config.GlobalConfig.AppRuntime)
 	}
 
 	// Node.js capture-mode / signal validation.
@@ -55,12 +70,10 @@ func validate() error {
 	// Server URL and API Key
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
-			logger.Log("'-s' yCrash server URL argument not passed.")
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("The yCrash server URL (-s) is required. Pass it with -s, for example -s https://ycrash.example.com, " + onlyCaptureHint)
 		}
 		if len(config.GlobalConfig.ApiKey) < 1 {
-			logger.Log("'-k' yCrash API Key argument not passed.")
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("The yCrash API key (-k) is required. Pass it with -k, for example -k <your-api-key>, " + onlyCaptureHint)
 		}
 	}
 
@@ -93,14 +106,12 @@ func validate() error {
 	if runtime.GOOS == "windows" && appRuntime == "dotnet" {
 		if config.GlobalConfig.DotnetToolPath != "" {
 			if err := config.ValidateDotnetToolOverride(); err != nil {
-				logger.Error().Msgf("%v", err)
-				return ErrInvalidArgumentCantContinue
+				return invalidArg("%v", err)
 			}
 		} else {
 			warnings, err := config.ValidateDotnetToolInstall()
 			if err != nil {
-				logger.Error().Msgf("%v", err)
-				return ErrInvalidArgumentCantContinue
+				return invalidArg("%v", err)
 			}
 			for _, w := range warnings {
 				logger.Warn().Msg(w)
@@ -120,35 +131,28 @@ func validate() error {
 
 	// AppLog
 	if config.GlobalConfig.AppLogLineCount < -1 {
-		logger.Log("%d is not a valid value for 'appLogLineCount' argument. It should be -1 (all lines), 0 (no logs), or a positive number.", config.GlobalConfig.AppLogLineCount)
-		return ErrInvalidArgumentCantContinue
+		return invalidArg("%d is not a valid value for 'appLogLineCount' argument. It should be -1 (all lines), 0 (no logs), or a positive number.", config.GlobalConfig.AppLogLineCount)
 	}
 
 	// Validate edDataFolder is not the current working directory
 	if config.GlobalConfig.EdDataFolder != "" {
 		currentDir, err := os.Getwd()
 		if err != nil {
-			logger.Log("Failed to get current working directory: %v", err)
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("Failed to get current working directory: %v", err)
 		}
 
 		edDataFolderAbs, err := filepath.Abs(config.GlobalConfig.EdDataFolder)
 		if err != nil {
-			logger.Log("Failed to resolve edDataFolder path '%s': %v", config.GlobalConfig.EdDataFolder, err)
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("Failed to resolve edDataFolder path '%s': %v", config.GlobalConfig.EdDataFolder, err)
 		}
 
 		currentDirAbs, err := filepath.Abs(currentDir)
 		if err != nil {
-			logger.Log("Failed to resolve current directory path: %v", err)
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("Failed to resolve current directory path: %v", err)
 		}
 
 		if edDataFolderAbs == currentDirAbs {
-			logger.Log("ERROR: edDataFolder cannot be the current working directory")
-			logger.Log("Current directory: %s", currentDirAbs)
-			logger.Log("edDataFolder: %s", edDataFolderAbs)
-			return ErrInvalidArgumentCantContinue
+			return invalidArg("edDataFolder cannot be the current working directory (%s). Point -edDataFolder at a different folder.", currentDirAbs)
 		}
 	}
 
