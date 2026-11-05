@@ -15,7 +15,7 @@ import (
 	"yc-agent/internal/logger"
 )
 
-var ErrNothingCanBeDone = errors.New("nothing can be done")
+var ErrNothingCanBeDone = errors.New("no capture mode selected: pass -p, -m3 or -port")
 var ErrConflictingMode = errors.New("conflicting mode")
 
 var m3AppMu sync.Mutex
@@ -30,7 +30,7 @@ func Run() error {
 
 	// Validation: if no mode is specified (neither M3, OnDemand, nor API Mode), abort here
 	if !onDemandMode && !apiMode && !m3Mode {
-		logger.Warn().Msg("M3 mode is not enabled. API mode is not enabled. The yc-360 script is about to run OnDemand mode but no PID is specified.")
+		logger.Error().Msg(`No target process given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`)
 
 		return ErrNothingCanBeDone
 	}
