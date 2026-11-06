@@ -59,7 +59,7 @@ func validate() error {
 	appRuntime := config.GetConfiguredAppRuntime()
 	if !config.IsValidAppRuntime(appRuntime) {
 		// Log the raw (un-normalized) value so the user sees exactly what they typed.
-		return invalidArg("invalid appRuntime %q. Expected one of: java, dotnet, nodejs", config.GlobalConfig.AppRuntime)
+		return invalidArg("The -appRuntime value %q is not supported. Use -appRuntime java, -appRuntime dotnet or -appRuntime nodejs, or remove -appRuntime and the yc-360 script will detect the runtime automatically.", config.GlobalConfig.AppRuntime)
 	}
 
 	// Node.js capture-mode / signal validation.
