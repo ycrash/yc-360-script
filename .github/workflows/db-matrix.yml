@@ -1,0 +1,117 @@
+name: Database matrix
+
+# The PostgreSQL and MySQL capture suites behind the pgintegration and
+# mysqlintegration build tags. Each needs Docker and five database servers, so
+# neither is part of `go test ./...`, and each runs as its own job on a plain
+# runner: a job that runs inside a container has no Docker socket. A suite
+# takes about a quarter of an hour, so they run only when the database code or
+# its servers change, and on request.
+#
+# No -race here: the unit tests already run every package under the race
+# detector, and the suites' timing checks are tighter than a shared runner
+# with the detector on can keep.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'internal/capture/postgres/**'
+      - 'internal/capture/mysql/**'
+      - 'internal/capture/dbcore/**'
+      - 'compose.pg.yaml'
+      - 'compose.mysql.yaml'
+      - 'scripts/mysql-matrix-setup.sh'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/db-matrix.yml'
+  pull_request:
+    branches: ['**']
+    paths:
+      - 'internal/capture/postgres/**'
+      - 'internal/capture/mysql/**'
+      - 'internal/capture/dbcore/**'
+      - 'compose.pg.yaml'
+      - 'compose.mysql.yaml'
+      - 'scripts/mysql-matrix-setup.sh'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/db-matrix.yml'
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes a run still in progress.
+concurrency:
+  group: db-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    name: PostgreSQL 14-18
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      # Each server bind-mounts its log directory at the same absolute path on
+      # both sides, so the agent can open the path pg_current_logfile() returns.
+      - name: Prepare log directories
+        run: |
+          mkdir -p /tmp/yc-pglogs/pg{14,15,16,17,18}
+          chmod 777 /tmp/yc-pglogs/pg*
+
+      - name: Start servers
+        run: docker compose -f compose.pg.yaml up -d --wait
+
+      # The suite expects exact server state (its own three sessions, the
+      # fixture's table count), which fresh containers give it.
+      - name: Run the matrix
+        run: go test -tags pgintegration -timeout 30m -buildvcs=false -count=1 ./internal/capture/postgres/...
+
+      - name: Server logs on failure
+        if: failure()
+        run: docker compose -f compose.pg.yaml logs --tail 200
+
+      - name: Stop servers
+        if: always()
+        run: docker compose -f compose.pg.yaml down -v
+
+  mysql:
+    name: MySQL 8.0-9 and Percona 8.4
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      # One error-log directory per server, and the throwaway CA and
+      # certificate the verified-TLS server presents.
+      - name: Prepare log directories and the test certificate
+        run: scripts/mysql-matrix-setup.sh
+
+      # The default services only. The replica, mariadb, galera, pxc and perms
+      # profiles are opt-in, and their tests skip when their servers are down.
+      - name: Start servers
+        run: docker compose -f compose.mysql.yaml up -d --wait
+
+      - name: Run the matrix
+        run: go test -tags mysqlintegration -timeout 30m -buildvcs=false -count=1 ./internal/capture/mysql/...
+
+      - name: Server logs on failure
+        if: failure()
+        run: docker compose -f compose.mysql.yaml logs --tail 200
+
+      - name: Stop servers
+        if: always()
+        run: docker compose -f compose.mysql.yaml down -v
