@@ -254,3 +254,18 @@ func TestJFRRemoveUnstartedRecording(t *testing.T) {
 		removeUnstartedRecording(os.Getpid(), filepath.Join(dir, "missing.jfr"))
 	})
 }
+
+func TestJcmdFailure(t *testing.T) {
+	// A command error already carries the output; it isn't repeated.
+	err := fmt.Errorf("exit status 1 because 308856:\nAttachNotSupportedException: The VM does not support the attach mechanism\n")
+	if got := jcmdFailure(err, "308856:\nAttachNotSupportedException: ..."); got != err.Error() {
+		t.Errorf("jcmdFailure(err) = %q, want %q", got, err.Error())
+	}
+
+	// The command succeeded but the JVM rejected it: show the output, without frames.
+	out := "Could not start recording\r\njava.lang.IllegalStateException: busy\r\n\tat jdk.jfr/jdk.jfr.Foo.bar(Foo.java:1)\r\n"
+	want := "JVM rejected the command: Could not start recording\r\njava.lang.IllegalStateException: busy"
+	if got := jcmdFailure(nil, out); got != want {
+		t.Errorf("jcmdFailure(nil) = %q, want %q", got, want)
+	}
+}

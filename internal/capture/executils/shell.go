@@ -163,7 +163,7 @@ func CommandCombinedOutputToWriterNoTimeout(writer io.Writer, cmd Command, hooke
 	output, err := c.CombinedOutput()
 	if err != nil {
 		if len(output) > 1 {
-			err = fmt.Errorf("%w because %s", err, output)
+			err = fmt.Errorf("%w because %s", err, TrimJavaStackTrace(string(output)))
 		}
 		if _, e := writer.Write(output); e != nil {
 			err = fmt.Errorf("%w and %s", err, e.Error())
@@ -257,7 +257,7 @@ func CommandCombinedOutputToWriter(writer io.Writer, cmd Command, hookers ...Hoo
 
 	if err != nil {
 		if output.Len() > 1 {
-			err = fmt.Errorf("%w because %s", err, output.Bytes())
+			err = fmt.Errorf("%w because %s", err, TrimJavaStackTrace(output.String()))
 		}
 		if _, e := writer.Write(output.Bytes()); e != nil {
 			err = fmt.Errorf("%w and %s", err, e.Error())

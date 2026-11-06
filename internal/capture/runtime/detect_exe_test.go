@@ -9,13 +9,13 @@ import (
 
 func TestRuntimeForExecutableName(t *testing.T) {
 	cases := map[string]RuntimeType{
-		"java":        RuntimeJava,
-		"JAVA.EXE":    RuntimeJava,
-		"javaw.exe":   RuntimeJava,
-		"node":        RuntimeNodeJS,
-		"node.exe":    RuntimeNodeJS,
-		"dotnet":      RuntimeDotNet,
-		" dotnet.exe": RuntimeDotNet,
+		"java":       RuntimeJava,
+		"JAVA.EXE":   RuntimeJava,
+		"javaw.exe":  RuntimeJava,
+		"node":       RuntimeNodeJS,
+		"node.exe":   RuntimeNodeJS,
+		"dotnet":     RuntimeDotNet,
+		"dotnet.exe": RuntimeDotNet,
 		// Custom launchers and embedded runtimes are never guessed.
 		"tomcat9.exe": RuntimeUnknown,
 		"electron":    RuntimeUnknown,
@@ -24,6 +24,9 @@ func TestRuntimeForExecutableName(t *testing.T) {
 	for name, want := range cases {
 		assert.Equal(t, want, RuntimeForExecutableName(name), name)
 	}
+
+	// Surrounding spaces are ignored.
+	assert.Equal(t, RuntimeDotNet, RuntimeForExecutableName(" dotnet.exe "))
 }
 
 func TestDetectProcessRuntimeUnknownForTestBinary(t *testing.T) {

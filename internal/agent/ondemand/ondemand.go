@@ -408,6 +408,18 @@ Ignored errors: %v
 		//   				Java runtime captures (default)
 		// ------------------------------------------------------------------------------
 
+		// One clear warning up front if the JVM disabled attach, since every
+		// attach-based capture below will then fail.
+		if pid > 0 {
+			warnIfAttachDisabled(pid, attachCaptureOptions{
+				tdPath:       tdPath,
+				hdPath:       hdPath,
+				heapDump:     hd,
+				jfr:          config.GlobalConfig.JFREnabled,
+				minimalTouch: config.GlobalConfig.MinimalTouch,
+			})
+		}
+
 		// Capture a JFR (Java Flight Recorder) recording. It's started now with
 		// duration=jfrCaptureDuration, so the JVM stops it and writes it out on
 		// its own; its result is read last so the recording window overlaps the

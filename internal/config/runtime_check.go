@@ -36,6 +36,7 @@ func CheckAppRuntimeMatches(pid int) error {
 	if exe != "" {
 		process += fmt.Sprintf(" (%s)", exe)
 	}
-	return fmt.Errorf("PID %d is a %s, but -appRuntime %s was passed. Pass -appRuntime %s, or remove -appRuntime and the yc-360 script will detect the runtime automatically.",
+	// Logged as-is as a user-facing ERR line, so it is written as full sentences.
+	return fmt.Errorf("PID %d is a %s, but -appRuntime %s was passed. Pass -appRuntime %s, or remove -appRuntime and the yc-360 script will detect the runtime automatically.", //nolint:staticcheck // ST1005: a user-facing message, logged as full sentences
 		pid, process, configured, actual)
 }
