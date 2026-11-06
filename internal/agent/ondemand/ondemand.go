@@ -50,7 +50,23 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 
 	pids = removeDuplicate(pids)
 
+	// API and M3 mode keep running, so a PID that doesn't match -appRuntime
+	// is skipped rather than stopping the script. The reasons are returned so
+	// the API caller gets an error response instead of an empty success.
+	var skipped []error
+	defer func() {
+		if err == nil && len(skipped) > 0 {
+			err = errors.Join(skipped...)
+		}
+	}()
+
 	for i, pid := range pids {
+		if mismatch := config.CheckAppRuntimeMatches(pid); mismatch != nil {
+			logger.Error().Msgf("Skipping PID %d: %s", pid, mismatch)
+			skipped = append(skipped, mismatch)
+			continue
+		}
+
 		name := config.GlobalConfig.AppName
 		if len(pid2Name) > 0 {
 			if n, ok := pid2Name[pid]; ok {

@@ -34,6 +34,9 @@ type M3App struct {
 	AsyncDotNetGCCapture *capture.DotnetGCAsync
 	dotnetGCReadySeen    map[int]bool
 	nodeGCTracker        *capture.NodeGCTracker
+	// runtimeMismatchLogged holds the PIDs already reported as not matching
+	// -appRuntime, so the error is logged once per PID rather than every cycle.
+	runtimeMismatchLogged map[int]bool
 }
 
 func NewM3App() *M3App {
@@ -244,13 +247,25 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 		runtimeByPid := make(map[int]string)
 		// Classify each discovered PID by runtime once, and build a .NET-only PID subset.
 		// `runtimeByPid` is reused later to avoid calling runtime detection repeatedly.
+		// Rebuilt every cycle, so a PID that exits (or starts matching) is
+		// forgotten and reported again if it mismatches later.
+		mismatchLogged := make(map[int]bool)
 		for pid, appName := range pids {
+			// A PID that doesn't match -appRuntime is skipped; M3 keeps running.
+			if mismatch := config.CheckAppRuntimeMatches(pid); mismatch != nil {
+				if !m3.runtimeMismatchLogged[pid] {
+					logger.Error().Msgf("Skipping PID %d: %s", pid, mismatch)
+				}
+				mismatchLogged[pid] = true
+				continue
+			}
 			appRuntime := config.GetAppRuntime(pid)
 			runtimeByPid[pid] = appRuntime
 			if appRuntime == "dotnet" {
 				dotnetPIDs[pid] = appName
 			}
 		}
+		m3.runtimeMismatchLogged = mismatchLogged
 
 		if m3.AsyncDotNetGCCapture != nil {
 			// Reconcile creates/updates async GC capture sessions for current .NET PIDs.
@@ -261,7 +276,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 
 		for pid, appName := range pids {
 			var gcPath string
-			appRuntime := runtimeByPid[pid]
+			appRuntime, ok := runtimeByPid[pid]
+			if !ok {
+				continue // skipped above: doesn't match -appRuntime
+			}
 
 			switch appRuntime {
 			case "dotnet":

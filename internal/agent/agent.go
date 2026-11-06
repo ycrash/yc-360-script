@@ -17,6 +17,7 @@ import (
 
 var ErrNothingCanBeDone = errors.New("no capture mode selected: pass -p, -m3 or -port")
 var ErrConflictingMode = errors.New("conflicting mode")
+var ErrAppRuntimeMismatch = errors.New("-appRuntime doesn't match the target process")
 
 var m3AppMu sync.Mutex
 var runningM3App *m3.M3App
@@ -53,7 +54,9 @@ func Run() error {
 	}
 
 	if onDemandMode {
-		runOnDemandMode()
+		if err := runOnDemandMode(); err != nil {
+			return err
+		}
 	} else {
 		if m3Mode {
 			go runM3Mode()
@@ -125,7 +128,7 @@ func runM3Mode() {
 	m3App.RunLoop()
 }
 
-func runOnDemandMode() {
+func runOnDemandMode() error {
 	pidStr := config.GlobalConfig.Pid
 	if config.GlobalConfig.OnlyCapture {
 		// OnlyCapture mode is technically the same code path as on demand,
@@ -147,9 +150,24 @@ func runOnDemandMode() {
 		pids = append(pids, resolvedPids...)
 	}
 
+	// Check every PID first, so a wrong -appRuntime stops the run before
+	// anything is captured or uploaded.
+	matching := make([]int, 0, len(pids))
 	for _, pid := range pids {
+		if err := config.CheckAppRuntimeMatches(pid); err != nil {
+			logger.Error().Msg(err.Error())
+			continue
+		}
+		matching = append(matching, pid)
+	}
+	if len(pids) > 0 && len(matching) == 0 {
+		return ErrAppRuntimeMismatch
+	}
+
+	for _, pid := range matching {
 		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "")
 	}
+	return nil
 }
 
 func resolvePidsFromToken(pidToken string) []int {

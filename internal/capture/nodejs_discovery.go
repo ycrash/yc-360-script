@@ -42,7 +42,7 @@ func ResolveNodeCapture(pid int) *NodeCaptureContext {
 	if mode == NodeCaptureModeSignal {
 		if IsWindows() {
 			ctx.HookErr = fmt.Errorf("signal mode is not supported on Windows")
-			logger.Log("WARNING: node signal mode requested for pid %d but is unsupported on Windows", pid)
+			logger.Warn().Msgf("Node signal mode requested for pid %d but is unsupported on Windows", pid)
 		}
 		return ctx
 	}
@@ -60,7 +60,7 @@ func ResolveNodeCapture(pid int) *NodeCaptureContext {
 	if err != nil {
 		// Stale registration from a crashed/killed process, or PID reuse.
 		ctx.HookErr = fmt.Errorf("hook registration present but not responsive: %w", err)
-		logger.Log("WARNING: node hook registration for pid %d exists but the socket is unresponsive (treating as no hook): %s", pid, err)
+		logger.Warn().Msgf("Node hook registration for pid %d exists but the socket is unresponsive (treating as no hook): %s", pid, err)
 		return ctx
 	}
 
@@ -85,7 +85,7 @@ func logNodeHookUnavailable(pid int, runtimeDir string, err error) {
 	if hookPath == "" {
 		hookPath = "/path/to/yc360-node-hook.js"
 	}
-	logger.Log("WARNING: no responsive yc-360 Node.js hook found for pid %d in %s (%s).", pid, runtimeDir, err)
+	logger.Warn().Msgf("No responsive yc-360 Node.js hook found for pid %d in %s (%s). Node.js-specific data will be skipped; host data is still captured.", pid, runtimeDir, err)
 	logger.Log(`To enable Node.js diagnostics capture for pid %d, choose ONE:
   1. Hook mode (recommended, all platforms): start the process with
        NODE_OPTIONS="--require=%s"

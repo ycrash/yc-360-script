@@ -92,6 +92,7 @@ func DetectRuntime(pid int) (*RuntimeInfo, error) {
 	var dotNetRuntimeDLL string
 	var javaRuntimeDLL string
 	var isDotNetCore bool
+	var foundJava, foundDotNet bool
 
 	// Check each module for runtime indicators
 	for _, modulePath := range modules {
@@ -100,6 +101,7 @@ func DetectRuntime(pid int) (*RuntimeInfo, error) {
 		// Check for Java runtime DLLs
 		if desc, found := javaModules[moduleName]; found {
 			info.Runtime = RuntimeJava
+			foundJava = true
 			if info.Details == "" {
 				info.Details = desc
 			} else {
@@ -114,6 +116,7 @@ func DetectRuntime(pid int) (*RuntimeInfo, error) {
 		// Check for .NET Framework runtime DLLs
 		if desc, found := dotNetFrameworkModules[moduleName]; found {
 			info.Runtime = RuntimeDotNet
+			foundDotNet = true
 			if info.Details == "" {
 				info.Details = desc
 			} else if !strings.Contains(info.Details, desc) {
@@ -129,6 +132,7 @@ func DetectRuntime(pid int) (*RuntimeInfo, error) {
 		// Check for .NET Core/5+ runtime DLLs
 		if desc, found := dotNetCoreModules[moduleName]; found {
 			info.Runtime = RuntimeDotNet
+			foundDotNet = true
 			if info.Details == "" {
 				info.Details = desc
 			} else if !strings.Contains(info.Details, desc) {
@@ -158,6 +162,10 @@ func DetectRuntime(pid int) (*RuntimeInfo, error) {
 			info.Version = extractVersionFromPath(javaRuntimeDLL, false)
 		}
 	}
+
+	// A process can host both (e.g. a .NET app bridging to a JVM over JNI).
+	// Runtime then reflects only the last module seen, so flag it.
+	info.Ambiguous = foundJava && foundDotNet
 
 	return info, nil
 }
