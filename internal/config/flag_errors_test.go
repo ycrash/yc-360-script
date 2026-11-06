@@ -50,6 +50,16 @@ func TestParseFlagsArgumentErrors(t *testing.T) {
 			[]string{`"true" is not an argument`, "would ignore: -p 123.", "Write -onlyCapture=true instead of -onlyCapture true."}},
 		{"separate false value would turn the argument on", []string{"-p", "123", "-onlyCapture", "false"},
 			[]string{"-onlyCapture false turns -onlyCapture on, because a true/false argument doesn't take a separate value. Write -onlyCapture=false instead of -onlyCapture false."}},
+		{"argument without its leading dash", []string{"-p", "123", "-appLogLineCount", "-1", "cmdTimeout", "1s"},
+			[]string{`"cmdTimeout" is missing its leading "-", so the yc-360 script would ignore it. Write -cmdTimeout 1s.`, "About -cmdTimeout:"}},
+		{"true/false argument without its leading dash", []string{"-p", "123", "onlyCapture"},
+			[]string{`"onlyCapture" is missing its leading "-"`, "Write -onlyCapture."}},
+		{"dashless name=value in the wrong case", []string{"-onlyCapture", "cmdtimeout=1s"},
+			[]string{`"cmdtimeout=1s" is missing its leading "-"`, "Write -cmdTimeout=1s."}},
+		{"dashless argument before other arguments", []string{"cmdTimeout", "1s", "-p", "123"},
+			[]string{`"cmdTimeout" is missing its leading "-"`, "Write -cmdTimeout 1s."}},
+		{"dashless argument with no value after it", []string{"-p", "123", "cmdTimeout"},
+			[]string{"Write -cmdTimeout <value>."}},
 		{"wrong case", []string{"-appruntime", "java"},
 			[]string{"-appruntime is not a yc-360 script argument. Did you mean -appRuntime? Argument names are case-sensitive."}},
 		{"unknown", []string{"-bogus"},
@@ -95,6 +105,13 @@ func TestParseFlagsStrayWordsOnlyWarn(t *testing.T) {
 			`Ignored "App": it is not an argument or the value of one. If it is part of the -a value, wrap the whole value in double quotes, for example -a "First App".`},
 		{[]string{"-p", "123", "-onlyCapture", "true"},
 			`Ignored "true": it is not an argument or the value of one. Write -onlyCapture=true instead of -onlyCapture true.`},
+		// A number can't contain spaces, so there is no quoting hint after one.
+		{[]string{"-p", "123", "-appLogLineCount", "-1", "extra"},
+			`Ignored "extra": it is not an argument or the value of one. Remove it, or wrap a value that contains spaces in double quotes.`},
+		// After a text value, a word that is also an argument name is more
+		// likely part of an unquoted value than a missing dash.
+		{[]string{"-p", "123", "-a", "Web", "port"},
+			`Ignored "port": it is not an argument or the value of one. If it is part of the -a value, wrap the whole value in double quotes, for example -a "Web port".`},
 	}
 	for _, c := range cases {
 		GlobalConfig = defaultConfig()

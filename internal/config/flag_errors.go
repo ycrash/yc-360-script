@@ -102,6 +102,10 @@ func checkLeftoverArgs(flagSet *flag.FlagSet, args []string) error {
 		stray = append(stray, a)
 	}
 
+	if err := checkMissingDash(flagSet, args, start, stray); err != nil {
+		return err
+	}
+
 	hint := leftoverHint(flagSet, args, start, stray)
 	strayText := strings.Join(stray, " ")
 
@@ -117,6 +121,50 @@ func checkLeftoverArgs(flagSet *flag.FlagSet, args []string) error {
 	}
 	ArgWarnings = append(ArgWarnings, fmt.Sprintf("Ignored %q: it is not an argument or the value of one. %s", strayText, hint))
 	return nil
+}
+
+// checkMissingDash catches an argument written without its leading "-",
+// e.g. "cmdTimeout 1s" in "-appLogLineCount -1 cmdTimeout 1s". The argument
+// would be silently ignored, so it is an error. Right after a text value,
+// only a camelCase name (cmdTimeout, onlyCapture) counts: a plain word such
+// as "port" in "-a My port app" is more likely part of an unquoted app name.
+func checkMissingDash(flagSet *flag.FlagSet, args []string, start int, stray []string) error {
+	_, _, afterText := precedingValue(flagSet, args, start)
+	for i, word := range stray {
+		name, rest := word, ""
+		if eq := strings.IndexByte(word, '='); eq > 0 {
+			name, rest = word[:eq], word[eq:]
+		}
+		f := flagSet.Lookup(name)
+		if f != nil && afterText && !isCamelCase(name) {
+			f = nil
+		}
+		if f == nil && !afterText {
+			if match := caseInsensitiveLookup(flagSet, name); match != "" {
+				f = flagSet.Lookup(match)
+			}
+		}
+		if f == nil {
+			continue
+		}
+		fix := "-" + f.Name + rest
+		if rest == "" && !isBoolFlag(f) {
+			if i+1 < len(stray) {
+				fix += " " + stray[i+1]
+			} else {
+				fix += " <value>"
+			}
+		}
+		return &ArgError{Msg: fmt.Sprintf("%q is missing its leading \"-\", so the yc-360 script would ignore it. Write %s.%s",
+			word, fix, aboutFlag(f))}
+	}
+	return nil
+}
+
+// isCamelCase reports whether name mixes lower and upper case, like
+// cmdTimeout: such a word is an argument name, never ordinary text.
+func isCamelCase(name string) bool {
+	return strings.ToLower(name) != name && strings.ToUpper(name) != name
 }
 
 // leftoverHint says how to fix stray words that start at args[start].
@@ -151,19 +199,20 @@ func precedingBoolFlag(flagSet *flag.FlagSet, args []string, start int) (string,
 	return name, f != nil && isBoolFlag(f)
 }
 
-// precedingValue returns the argument and value read just before args[start],
-// e.g. "a" and "First" in "-a First App".
+// precedingValue returns the text argument and value read just before
+// args[start], e.g. "a" and "First" in "-a First App". Numbers, durations and
+// true/false values never contain spaces, so they don't count.
 func precedingValue(flagSet *flag.FlagSet, args []string, start int) (name, value string, ok bool) {
 	if start >= 1 {
 		if n, hasValue, isFlag := flagName(args[start-1]); isFlag && hasValue {
-			if f := flagSet.Lookup(n); f != nil && !isBoolFlag(f) {
+			if f := flagSet.Lookup(n); f != nil && isTextFlag(f) {
 				return n, args[start-1][strings.IndexByte(args[start-1], '=')+1:], true
 			}
 		}
 	}
 	if start >= 2 {
 		if n, hasValue, isFlag := flagName(args[start-2]); isFlag && !hasValue {
-			if f := flagSet.Lookup(n); f != nil && !isBoolFlag(f) {
+			if f := flagSet.Lookup(n); f != nil && isTextFlag(f) {
 				return n, args[start-1], true
 			}
 		}
@@ -215,6 +264,22 @@ func flagName(arg string) (name string, hasValue, ok bool) {
 		return name[:i], true, true
 	}
 	return name, false, true
+}
+
+// isTextFlag reports whether f takes free text (a name, path or token) that
+// may contain spaces, as opposed to a number, duration or true/false.
+func isTextFlag(f *flag.Flag) bool {
+	if isBoolFlag(f) {
+		return false
+	}
+	if _, ok := f.Value.(*Duration); ok {
+		return false
+	}
+	if g, ok := f.Value.(flag.Getter); ok {
+		_, isString := g.Get().(string)
+		return isString
+	}
+	return true // the list types (-appLogs, -accessLog, ...) hold paths and tokens
 }
 
 func isBoolFlag(f *flag.Flag) bool {
