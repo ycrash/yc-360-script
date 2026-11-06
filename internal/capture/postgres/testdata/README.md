@@ -92,13 +92,18 @@ The goldens:
   table's two `idx_scan` counts sum to the table's there on both samples, and
   each table's two sizes sum to its `index_size_bytes`. `orders_status_idx` is
   the finding the artifact exists for — `idx_scan` stays `0` across the window,
-  and `0` is a reading where an empty cell would mean not read. The spec's seven
+  and `0` is a reading where an empty cell would mean not read. The spec's nine
   columns exactly and no schema or table name: `relid` is the join key into
-  `pg_bloat.txt`, where those live. A sample is the union of the 50 least-used
-  indexes, largest first among ties, and the 50 most-used, so all four are
-  written. The least-used list ranks on size, so the size is read in the same
-  statement as the scan counts and this file has no `sizes=` key: a failed size
-  read fails the sample.
+  `pg_bloat.txt`, where those live. The last two, `indisprimary` and
+  `indisunique`, come from `pg_index` and are `true` on both `_pkey` rows and
+  `false` on the other two; they arrived as additive columns, so the file
+  stays `v=2`. A sample is the union of the 50 least-used indexes, largest
+  first among ties, and the 50 most-used, so all four are written: the two
+  primary keys by the most-used list alone, because the least-used list leaves
+  out primary key and unique indexes, which cannot be dropped as unused. The
+  least-used list ranks on size, so the size is read in the same statement as
+  the scan counts and this file has no `sizes=` key: a failed size read fails
+  the sample.
 - `pg_index_usage_connect_failure.txt`, `pg_index_usage_sample_error.txt` and
   `pg_index_usage_empty_db.txt` — the three regimes above, on the same clock as
   their `pg_bloat_*` counterparts.

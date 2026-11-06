@@ -12,7 +12,8 @@ import (
 const DefaultTopIndexes = 50
 
 // indexrelid leads: it's the join key across samples. relid is the table's, the
-// key into pg_bloat.txt, which is where the schema and table names live.
+// key into pg_bloat.txt, which is where the schema and table names live. The two
+// booleans say whether the index backs a constraint, which no scan count shows.
 var indexUsageColumns = []string{
 	"indexrelid",
 	"relid",
@@ -21,32 +22,44 @@ var indexUsageColumns = []string{
 	"idx_tup_read",
 	"idx_tup_fetch",
 	"index_size_bytes",
+	"indisprimary",
+	"indisunique",
 }
 
 // The $1 least-used indexes, largest first among ties, and the $1 most-used,
 // ranked from one read so an index in both is one row. Sized here because the
-// ranking needs it. indexrelid settles ties alike every sample; NULLS LAST keeps
-// an index dropped mid-statement from ranking as the largest.
+// ranking needs it. The least-used list leaves out primary key and unique
+// indexes: they enforce a constraint and cannot be dropped as unused, and they
+// sit at idx_scan=0 on a table written to but never looked up by its key, so they
+// would otherwise fill the list. The most-used list takes every kind, and the
+// booleans on every row tell them apart. indexrelid settles ties alike every
+// sample; NULLS LAST keeps an index dropped mid-statement from ranking as the
+// largest.
 const indexUsageStatsSQL = `WITH indexes AS MATERIALIZED (
-    SELECT indexrelid,
-           relid,
-           indexrelname::text AS indexrelname,
-           idx_scan,
-           idx_tup_read,
-           idx_tup_fetch,
-           pg_relation_size(indexrelid) AS index_size_bytes,
+    SELECT s.indexrelid,
+           s.relid,
+           s.indexrelname::text AS indexrelname,
+           s.idx_scan,
+           s.idx_tup_read,
+           s.idx_tup_fetch,
+           pg_relation_size(s.indexrelid) AS index_size_bytes,
+           i.indisprimary,
+           i.indisunique,
            count(*) OVER () AS indexes_total
-    FROM pg_catalog.pg_stat_user_indexes
+    FROM pg_catalog.pg_stat_user_indexes s
+    JOIN pg_catalog.pg_index i ON i.indexrelid = s.indexrelid
 )
-(SELECT * FROM indexes ORDER BY idx_scan, index_size_bytes DESC NULLS LAST, indexrelid LIMIT $1)
+(SELECT * FROM indexes WHERE NOT indisprimary AND NOT indisunique
+ ORDER BY idx_scan, index_size_bytes DESC NULLS LAST, indexrelid LIMIT $1)
 UNION
 (SELECT * FROM indexes ORDER BY idx_scan DESC, indexrelid LIMIT $1)
 ORDER BY indexrelid`
 
 // IndexUsage captures the pg_stat_user_indexes rows the two ranked lists choose,
 // every sample. Each sample ranks afresh, so two samples can hold different
-// indexes. An index whose idx_scan never moves across the window is the finding
-// this artifact exists for.
+// indexes. idx_scan counts since the statistics were last reset, so an index
+// still at 0 has not been scanned since then; the window only adds whether it
+// was scanned during the capture.
 type IndexUsage struct {
 	// Interval is the cadence, the run's expensive speed. Zero is the bookend alone.
 	Interval time.Duration
@@ -115,7 +128,8 @@ func (u IndexUsage) Sample(ctx context.Context, q RowQuerier, w io.Writer, s Sam
 // here: the pg_stat_get_* functions behind it report 0 for an index with no
 // statistics entry yet, and 0 is the reading. An index never scanned must
 // survive as 0. A NULL size is an index dropped mid-statement, which
-// pg_relation_size reports as NULL where no storage is 0.
+// pg_relation_size reports as NULL where no storage is 0. The two booleans are
+// pg_index columns that are never NULL.
 type indexUsageRow struct {
 	indexrelid   uint32
 	relid        uint32
@@ -124,6 +138,8 @@ type indexUsageRow struct {
 	idxTupRead   *int64
 	idxTupFetch  *int64
 	indexSize    *int64
+	isPrimary    bool
+	isUnique     bool
 }
 
 // readStats returns the ranked lists' rows and how many indexes they were chosen from.
@@ -158,6 +174,8 @@ func (u IndexUsage) readStats(ctx context.Context, q RowQuerier) ([]indexUsageRo
 			&row.idxTupRead,
 			&row.idxTupFetch,
 			&row.indexSize,
+			&row.isPrimary,
+			&row.isUnique,
 			&total,
 		); err != nil {
 			return nil, 0, err
@@ -185,6 +203,8 @@ func indexUsageCells(rows []indexUsageRow) [][]string {
 			int64Text(row.idxTupRead),
 			int64Text(row.idxTupFetch),
 			int64Text(row.indexSize),
+			strconv.FormatBool(row.isPrimary),
+			strconv.FormatBool(row.isUnique),
 		}
 	}
 

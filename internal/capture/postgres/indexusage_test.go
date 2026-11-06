@@ -23,10 +23,12 @@ const (
 	colIndexTupRead
 	colIndexTupFetch
 	colIndexSizeBytes
+	colIndexIsPrimary
+	colIndexIsUnique
 )
 
-func indexRow(indexrelid, relid uint32, name string, scan, read, fetch, size *int64, total int64) []any {
-	return []any{indexrelid, relid, name, scan, read, fetch, size, total}
+func indexRow(indexrelid, relid uint32, name string, scan, read, fetch, size *int64, primary, unique bool, total int64) []any {
+	return []any{indexrelid, relid, name, scan, read, fetch, size, primary, unique, total}
 }
 
 func counted(v int64) *int64 { return ptr(v) }
@@ -35,22 +37,23 @@ func counted(v int64) *int64 { return ptr(v) }
 // with it: relid 16390 is orders and 16482 is orders_line_items; each table's
 // two idx_scan counts sum to the table's in that fixture, on both samples, and
 // each table's two sizes sum to its index_size_bytes there. orders_status_idx is
-// the finding the artifact exists for - an index nothing scans.
+// the finding the artifact exists for - an index nothing scans - and the only
+// kind the least-used list holds; the two primary keys are in the most-used.
 func ordersIndexesStart() [][]any {
 	return [][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(4021884), counted(4102330), counted(4021884), counted(402653184), 4),
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), 4),
-		indexRow(16487, 16482, "orders_line_items_pkey", counted(88104), counted(88104), counted(88104), counted(99999744), 4),
-		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1112336), counted(2401103), counted(2400880), counted(92512256), 4),
+		indexRow(16396, 16390, "orders_pkey", counted(4021884), counted(4102330), counted(4021884), counted(402653184), true, true, 4),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), false, false, 4),
+		indexRow(16487, 16482, "orders_line_items_pkey", counted(88104), counted(88104), counted(88104), counted(99999744), true, true, 4),
+		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1112336), counted(2401103), counted(2400880), counted(92512256), false, false, 4),
 	}
 }
 
 func ordersIndexesEnd() [][]any {
 	return [][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(4025901), counted(4106402), counted(4025901), counted(402653184), 4),
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), 4),
-		indexRow(16487, 16482, "orders_line_items_pkey", counted(88110), counted(88110), counted(88110), counted(99999744), 4),
-		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1113870), counted(2404210), counted(2403987), counted(92512256), 4),
+		indexRow(16396, 16390, "orders_pkey", counted(4025901), counted(4106402), counted(4025901), counted(402653184), true, true, 4),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(207618048), false, false, 4),
+		indexRow(16487, 16482, "orders_line_items_pkey", counted(88110), counted(88110), counted(88110), counted(99999744), true, true, 4),
+		indexRow(16488, 16482, "orders_line_items_order_id_idx", counted(1113870), counted(2404210), counted(2403987), counted(92512256), false, false, 4),
 	}
 }
 
@@ -151,6 +154,8 @@ func TestIndexUsageColumnOrder(t *testing.T) {
 		"idx_tup_read",
 		"idx_tup_fetch",
 		"index_size_bytes",
+		"indisprimary",
+		"indisunique",
 	}, indexUsageColumns, "the column list, in this order")
 
 	assert.Equal(t, "indexrelid", indexUsageColumns[colIndexrelid], "the join key leads")
@@ -159,13 +164,17 @@ func TestIndexUsageColumnOrder(t *testing.T) {
 func TestIndexUsageRanksTwoListsInOneStatement(t *testing.T) {
 	assert.Contains(t, indexUsageStatsSQL, "WITH indexes AS MATERIALIZED (",
 		"both lists rank the same read, so an index in both is one identical row")
-	assert.Contains(t, indexUsageStatsSQL, "pg_relation_size(indexrelid) AS index_size_bytes",
+	assert.Contains(t, indexUsageStatsSQL, "pg_relation_size(s.indexrelid) AS index_size_bytes",
 		"the least-used list ranks on size, so the size is read in the ranking statement")
 	assert.Contains(t, indexUsageStatsSQL,
-		"(SELECT * FROM indexes ORDER BY idx_scan, index_size_bytes DESC NULLS LAST, indexrelid LIMIT $1)\nUNION\n",
-		"the least-used indexes, largest first among ties")
+		"JOIN pg_catalog.pg_index i ON i.indexrelid = s.indexrelid",
+		"the constraint flags come from pg_index, one row per index")
+	assert.Contains(t, indexUsageStatsSQL,
+		"(SELECT * FROM indexes WHERE NOT indisprimary AND NOT indisunique\n"+
+			" ORDER BY idx_scan, index_size_bytes DESC NULLS LAST, indexrelid LIMIT $1)\nUNION\n",
+		"the least-used indexes, largest first among ties, constraint indexes left out")
 	assert.Contains(t, indexUsageStatsSQL, "(SELECT * FROM indexes ORDER BY idx_scan DESC, indexrelid LIMIT $1)",
-		"the most-used indexes")
+		"the most-used indexes, of every kind")
 	assert.NotContains(t, indexUsageStatsSQL, "UNION ALL", "an index in both lists is written once")
 	assert.True(t, strings.HasSuffix(indexUsageStatsSQL, "\nORDER BY indexrelid"),
 		"rows are written in indexrelid order")
@@ -231,8 +240,8 @@ func TestIndexUsageGoldenEmptyDatabase(t *testing.T) {
 func TestIndexUsageNeverScannedIsZeroNotEmpty(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(8192), 2),
-		indexRow(16398, 16390, "no_statistics_row", nil, nil, nil, counted(0), 2),
+		indexRow(16397, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(8192), false, false, 2),
+		indexRow(16398, 16390, "no_statistics_row", nil, nil, nil, counted(0), false, false, 2),
 	}))
 
 	rows := indexUsageRows(t, takeIndexSample(t, conn, IndexUsage{}))
@@ -253,11 +262,30 @@ func TestIndexUsageNeverScannedIsZeroNotEmpty(t *testing.T) {
 		"no storage is 0; empty stays reserved for an index that vanished")
 }
 
+func TestIndexUsageConstraintFlagsAreWritten(t *testing.T) {
+	conn := newFakeIndexUsageConn()
+	conn.stats = repeat(rowsResult([][]any{
+		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), true, true, 3),
+		indexRow(16397, 16390, "orders_ref_key", counted(0), counted(0), counted(0), counted(8192), false, true, 3),
+		indexRow(16398, 16390, "orders_status_idx", counted(0), counted(0), counted(0), counted(8192), false, false, 3),
+	}))
+
+	rows := indexUsageRows(t, takeIndexSample(t, conn, IndexUsage{}))
+	require.Len(t, rows, 3)
+
+	assert.Equal(t, []string{"true", "true"}, rows[0][colIndexIsPrimary:colIndexIsUnique+1],
+		"a primary key index is unique too")
+	assert.Equal(t, []string{"false", "true"}, rows[1][colIndexIsPrimary:colIndexIsUnique+1],
+		"a unique constraint's index")
+	assert.Equal(t, []string{"false", "false"}, rows[2][colIndexIsPrimary:colIndexIsUnique+1],
+		"an index that could be dropped")
+}
+
 func TestIndexUsageDroppedIndexHasAnEmptySize(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), 2),
-		indexRow(16397, 16390, "dropped_mid_sample", counted(1), counted(1), counted(1), nil, 2),
+		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), true, true, 2),
+		indexRow(16397, 16390, "dropped_mid_sample", counted(1), counted(1), counted(1), nil, false, false, 2),
 	}))
 
 	rows := indexUsageRows(t, takeIndexSample(t, conn, IndexUsage{}))
@@ -309,7 +337,7 @@ func TestIndexUsageWritesTheBlockInOneWrite(t *testing.T) {
 func TestIndexUsageSelectionIsNeverTruncated(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), 41220),
+		indexRow(16396, 16390, "orders_pkey", counted(1), counted(1), counted(1), counted(8192), true, true, 41220),
 	}))
 
 	assert.Contains(t, takeIndexSample(t, conn, IndexUsage{Top: 1}),
@@ -342,7 +370,7 @@ func TestIndexUsageEmptyDatabaseWritesTheColumnHeaderAlone(t *testing.T) {
 func TestIndexUsageIdentifiersWithSeparatorsRoundTrip(t *testing.T) {
 	conn := newFakeIndexUsageConn()
 	conn.stats = repeat(rowsResult([][]any{
-		indexRow(16396, 16390, "line\nbreak,\"quoted\"", counted(1), counted(2), counted(3), counted(4), 1),
+		indexRow(16396, 16390, "line\nbreak,\"quoted\"", counted(1), counted(2), counted(3), counted(4), false, false, 1),
 	}))
 
 	block := takeIndexSample(t, conn, IndexUsage{})

@@ -1032,8 +1032,10 @@ var (
 	}
 
 	matrixIndexRankings = []string{
-		`SELECT indexrelid FROM pg_catalog.pg_stat_user_indexes
-		 ORDER BY idx_scan, pg_relation_size(indexrelid) DESC NULLS LAST, indexrelid LIMIT $1`,
+		`SELECT s.indexrelid FROM pg_catalog.pg_stat_user_indexes s
+		 JOIN pg_catalog.pg_index i ON i.indexrelid = s.indexrelid
+		 WHERE NOT i.indisprimary AND NOT i.indisunique
+		 ORDER BY s.idx_scan, pg_relation_size(s.indexrelid) DESC NULLS LAST, s.indexrelid LIMIT $1`,
 		`SELECT indexrelid FROM pg_catalog.pg_stat_user_indexes ORDER BY idx_scan DESC, indexrelid LIMIT $1`,
 	}
 )
@@ -1129,9 +1131,14 @@ func assertMatrixTopBoundsTheLists(t *testing.T, target Target) {
 // matrixUnusedIndex is created by TestMatrixIndexUsage and dropped after it: an
 // index nothing scans, which is the finding pg_index_usage.txt exists for, and a
 // second index beside the fixture's yc_bloat_orders_pkey so the ranked lists
-// have two indexes to order. Test-time rather than in pg_matrix_init.sql, which only
-// runs when a container is first created.
-const matrixUnusedIndex = "yc_bloat_orders_status_idx"
+// have two indexes to order. matrixUniqueIndex is a third: unique, unscanned
+// too, and larger than the first (500 distinct keys against one deduplicated
+// value), which the least-used list must still pass over. Test-time rather
+// than in pg_matrix_init.sql, which only runs when a container is first created.
+const (
+	matrixUnusedIndex = "yc_bloat_orders_status_idx"
+	matrixUniqueIndex = "yc_bloat_orders_id_status_key"
+)
 
 func parseIndexUsageBlocks(t *testing.T, artifact string) []sampleBlock {
 	t.Helper()
@@ -1178,9 +1185,12 @@ func TestMatrixIndexUsage(t *testing.T) {
 				target := matrixTarget(server, role)
 
 				matrixDDL(t, server, target.Database,
-					"CREATE INDEX IF NOT EXISTS "+matrixUnusedIndex+" ON yc_bloat_orders (status)")
+					"CREATE INDEX IF NOT EXISTS "+matrixUnusedIndex+" ON yc_bloat_orders (status)",
+					"CREATE UNIQUE INDEX IF NOT EXISTS "+matrixUniqueIndex+" ON yc_bloat_orders (id, status)")
 				t.Cleanup(func() {
-					matrixDDL(t, server, target.Database, "DROP INDEX IF EXISTS "+matrixUnusedIndex)
+					matrixDDL(t, server, target.Database,
+						"DROP INDEX IF EXISTS "+matrixUnusedIndex,
+						"DROP INDEX IF EXISTS "+matrixUniqueIndex)
 				})
 
 				results := runMatrixIndexUsageWindow(t, target)
@@ -1230,10 +1240,19 @@ func assertMatrixKnownIndexes(t *testing.T, block, tables sampleBlock) {
 
 	pkey := block.indexrelidOf(t, "yc_bloat_orders_pkey")
 	unused := block.indexrelidOf(t, matrixUnusedIndex)
+	unique := block.indexrelidOf(t, matrixUniqueIndex)
 
 	assert.Equal(t, orders, block.cell(t, pkey, "relid"),
 		"relid is the table's OID, the join key into pg_bloat.txt")
 	assert.Equal(t, orders, block.cell(t, unused, "relid"))
+	assert.Equal(t, orders, block.cell(t, unique, "relid"))
+
+	assert.Equal(t, "true", block.cell(t, pkey, "indisprimary"), "a primary key index")
+	assert.Equal(t, "true", block.cell(t, pkey, "indisunique"), "which is unique by nature")
+	assert.Equal(t, "false", block.cell(t, unique, "indisprimary"))
+	assert.Equal(t, "true", block.cell(t, unique, "indisunique"), "a unique index that is no primary key")
+	assert.Equal(t, "false", block.cell(t, unused, "indisprimary"))
+	assert.Equal(t, "false", block.cell(t, unused, "indisunique"), "an index that could be dropped")
 
 	_, err := strconv.Atoi(block.cell(t, pkey, "idx_scan"))
 	assert.NoError(t, err, "idx_scan is a number on every index, 0 included")
@@ -1243,15 +1262,16 @@ func assertMatrixKnownIndexes(t *testing.T, block, tables sampleBlock) {
 	assert.Equal(t, "0", block.cell(t, unused, "idx_tup_read"))
 	assert.Equal(t, "0", block.cell(t, unused, "idx_tup_fetch"))
 
-	for _, indexrelid := range []string{pkey, unused} {
+	for _, indexrelid := range []string{pkey, unused, unique} {
 		size, err := strconv.Atoi(block.cell(t, indexrelid, "index_size_bytes"))
 		require.NoError(t, err, "index_size_bytes must be a number")
 		assert.Positive(t, size, "an index on 500 rows has at least a metapage and a root page")
 	}
 }
 
-// With one index per list, the least-used list's pick turns on the size
-// tie-break whenever the primary key is unscanned too.
+// With one index per list, the least-used pick is the plain index however the
+// scan counts tie: the primary key and the unique index are left out of that
+// list, and the unique index is the larger of the two unscanned ones.
 func assertMatrixIndexTopRanks(t *testing.T, target Target) {
 	t.Helper()
 
@@ -1263,12 +1283,16 @@ func assertMatrixIndexTopRanks(t *testing.T, target Target) {
 	assert.Equal(t, matrixRankedKeys(t, target, 1, matrixIndexRankings...), rowKeys(block),
 		"each list holds Top indexes")
 
+	unused := block.indexrelidOf(t, matrixUnusedIndex)
+	assert.Equal(t, "false", block.cell(t, unused, "indisunique"),
+		"the one least-used slot goes to the index that could be dropped, past the larger unique index")
+
 	assert.Equal(t, strconv.Itoa(len(block.rows)), block.header["indexes_written"])
 
 	total, err := strconv.Atoi(block.header["indexes_total"])
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, total, 2,
-		"the fixture's primary key and the test's own index, however short the lists are")
+	assert.GreaterOrEqual(t, total, 3,
+		"the fixture's primary key and the test's two indexes, however short the lists are")
 	assert.Equal(t, "false", block.header["truncated"])
 }
 

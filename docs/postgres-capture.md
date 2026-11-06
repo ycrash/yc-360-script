@@ -345,12 +345,17 @@ closing one:
   read the most rows, a table in both written once, so 50 to 100 rows;
   `tables_total` is how many tables they were chosen from. Each sample ranks
   afresh, so a table can be in one sample and not the other.
-- `pg_index_usage.txt` — `pg_stat_user_indexes` with each index's size. Each
-  sample holds the 50 least-used indexes, the largest first where the scan
-  counts tie, and the 50 most-used, an index in both written once;
-  `indexes_total` is how many indexes they were chosen from. The sizes are read
-  in the same statement as the scan counts, so a filesystem slow enough to run
-  that statement past its 5s limit loses the sample.
+- `pg_index_usage.txt` — `pg_stat_user_indexes` with each index's size, and
+  from `pg_index` whether it is a primary key (`indisprimary`) or unique
+  (`indisunique`). Each sample holds the 50 least-used indexes, the largest
+  first where the scan counts tie, and the 50 most-used, an index in both
+  written once; `indexes_total` is how many indexes they were chosen from. The
+  least-used list leaves out primary key and unique indexes: they enforce a
+  constraint and cannot be dropped as unused, and they sit at zero scans on a
+  table that is written to but never looked up by its key. The most-used list
+  holds every kind. The sizes are read in the same statement as the scan
+  counts, so a filesystem slow enough to run that statement past its 5s limit
+  loses the sample.
 - `pg_tablespaces.txt` — each tablespace's size.
 - `pg_slow_queries.txt` — `pg_stat_statements`, including `stddev_exec_time`
   and `max_exec_time`, with passwords in the statement text replaced. Each
