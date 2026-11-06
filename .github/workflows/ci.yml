@@ -110,4 +110,33 @@ jobs:
           echo "=== Total Coverage ==="
           go tool cover -func=coverage.out | grep total
 
+  # The same suite on the other platform the binary is built on. The runner
+  # ships clang for the cgo parts and needs no Docker: the database matrices
+  # stay on Linux, in db-matrix.yml.
+  test-macos:
+    name: Test (macOS)
+    runs-on: macos-latest
 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: go test -race -timeout 30m -buildvcs=false ./...
