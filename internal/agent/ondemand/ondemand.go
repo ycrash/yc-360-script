@@ -186,7 +186,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 					if config.GlobalConfig.OnlyCapture {
 						name, err := CompressFolder(captureDir)
 						if err != nil {
-							logger.Log("WARNING: Can not zip folder: %s", err)
+							logger.Log("WARNING: Can not compress the folder into a zst file: %s", err)
 							return
 						}
 						logger.StdLog("All dumps can be found in %s", name)

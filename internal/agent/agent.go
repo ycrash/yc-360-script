@@ -31,7 +31,7 @@ func Run() error {
 
 	// Validation: if no mode is specified (neither M3, OnDemand, nor API Mode), abort here
 	if !onDemandMode && !apiMode && !m3Mode {
-		logger.Error().Msg(`No target process given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`)
+		logger.Error().Msg(config.WithArgumentsHelpHint(`No target process given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`))
 
 		return ErrNothingCanBeDone
 	}

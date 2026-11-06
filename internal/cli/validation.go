@@ -23,7 +23,7 @@ var invalidArgReason string
 // invalidArg logs a fatal argument error at error level, remembers it for
 // Run, and returns ErrInvalidArgumentCantContinue.
 func invalidArg(format string, args ...interface{}) error {
-	invalidArgReason = fmt.Sprintf(format, args...)
+	invalidArgReason = config.WithArgumentsHelpHint(fmt.Sprintf(format, args...))
 	logger.Error().Msg(invalidArgReason)
 	return ErrInvalidArgumentCantContinue
 }

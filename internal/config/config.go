@@ -61,7 +61,7 @@ type Options struct {
 	TDCaptureCmd string `yaml:"tdCaptureCmd" usage:"Thread dump capture command line to be executed"`
 	HDCaptureCmd string `yaml:"hdCaptureCmd" usage:"Heap dump capture command line to be executed"`
 
-	OnlyCapture  bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zip file, default is false"`
+	OnlyCapture  bool `yaml:"onlyCapture" usage:"Only capture all the artifacts and generate a zst file, default is false"`
 	MinimalTouch bool `yaml:"minimalTouch" usage:"Enable minimal-touch mode: skip CPU-intensive operations"`
 
 	JFREnabled         bool     `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
@@ -356,7 +356,9 @@ func ParseFlags(args []string) error {
 		return nil
 	}
 	flagSet, result := registerFlags(args[0])
-	flagSet.Parse(args[1:])
+	if err := parseArgs(flagSet, args[1:]); err != nil {
+		return err
+	}
 
 	defer func() {
 		if len(GlobalConfig.Server) > 2 && strings.HasSuffix(GlobalConfig.Server, "/") {
@@ -375,8 +377,7 @@ func ParseFlags(args []string) error {
 
 	file, err := os.Open(GlobalConfig.ConfigPath)
 	if err != nil {
-		dir, _ := os.Getwd()
-		return fmt.Errorf("workdir %s read config file path %s failed: %w", dir, GlobalConfig.ConfigPath, err)
+		return configFileError(GlobalConfig.ConfigPath, err)
 	}
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
@@ -398,7 +399,8 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) (err error) {
 		}
 		if x, ok := s.(*CommandsFlagSetPair); ok {
 			if len(x.UrlParamsSlice) != len(x.CmdSlice) {
-				panic("num of urlParams should be same as num of cmd")
+				return &ArgError{Msg: fmt.Sprintf("-urlParams and -cmd must be passed in pairs, but %d -urlParams and %d -cmd were passed. Both options are deprecated and no longer used, so remove them.",
+					len(x.UrlParamsSlice), len(x.CmdSlice))}
 			}
 			cmds := make([]Command, len(x.UrlParamsSlice))
 			for i, params := range x.UrlParamsSlice {
@@ -420,7 +422,7 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) (err error) {
 			bs := *(s).(*string)
 			b, err := strconv.ParseBool(strings.ToLower(bs))
 			if err != nil {
-				return fmt.Errorf("-verifySSL should be true or false, not %s", bs)
+				return &ArgError{Msg: fmt.Sprintf("The -verifySSL value %q is not valid: it must be true or false, for example -verifySSL false.", bs)}
 			}
 			x = reflect.ValueOf(b)
 		} else if fieldType.Type == reflect.TypeOf(Duration(0)) {
@@ -439,7 +441,9 @@ func copyFlagsValue(dst interface{}, src map[int]interface{}) (err error) {
 }
 
 func registerFlags(flagSetName string) (*flag.FlagSet, map[int]interface{}) {
-	flagSet := flag.NewFlagSet(flagSetName, flag.ExitOnError)
+	// ContinueOnError: ParseFlags turns parse errors into clear messages
+	// (see parseArgs) instead of the flag package printing and exiting.
+	flagSet := flag.NewFlagSet(flagSetName, flag.ContinueOnError)
 
 	result := make(map[int]interface{})
 	value := reflect.ValueOf(&GlobalConfig.Options).Elem()
