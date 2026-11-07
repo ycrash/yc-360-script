@@ -3,6 +3,7 @@ vendor
 .idea
 scripts/bak.*
 yc-*
+!/cmd/yc-fake-server/
 yc
 .claude
 .codesight
