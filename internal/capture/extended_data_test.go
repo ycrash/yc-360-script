@@ -2,24 +2,28 @@ package capture
 
 import (
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"yc-agent/internal/fakeserver"
+
+	"github.com/stretchr/testify/assert"
 )
 
-// setupMockServer creates a mock HTTP server for testing
-func setupMockServer(t *testing.T) *httptest.Server {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}))
-	t.Cleanup(server.Close)
-	return server
+// edReceiver starts the fake server for one test's uploads; the test fails if an
+// upload breaks the server's checks.
+func edReceiver(t *testing.T) *fakeserver.Server {
+	t.Helper()
+
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
+	t.Cleanup(func() { assert.Empty(t, srv.Violations()) })
+
+	return srv
 }
 
 // createTestScript creates a cross-platform test script
@@ -114,9 +118,8 @@ func TestExtendedData_Run_Success(t *testing.T) {
 		Timeout:    scriptRunTimeout,
 	}
 
-	// set up mock http server
-	server := setupMockServer(t)
-	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+	srv := edReceiver(t)
+	ed.SetEndpoint(srv.URLFor(fakeserver.Receiver))
 
 	// Step 5: Run the script
 	result, err := ed.Run()
@@ -134,6 +137,20 @@ func TestExtendedData_Run_Success(t *testing.T) {
 	// Step 6: Check if output file was created
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Errorf("Expected output file not created: %v", err)
+	}
+
+	// Step 7: Check the server received it under dt=ed
+	var uploaded []byte
+	for _, r := range srv.Requests() {
+		if r.DT == "ed" && r.Query.Get("fileName") == "ed-output.log" {
+			uploaded, err = r.Body()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if !strings.HasPrefix(string(uploaded), "test-data") {
+		t.Errorf("ed-output.log uploaded as %q, want the script's output", uploaded)
 	}
 }
 
@@ -196,9 +213,8 @@ func TestExtendedData_Run_FolderDeleting(t *testing.T) {
 		Timeout:    scriptRunTimeout,
 	}
 
-	// set up mock http server
-	server := setupMockServer(t)
-	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+	srv := edReceiver(t)
+	ed.SetEndpoint(srv.URLFor(fakeserver.Receiver))
 
 	// Step 5: Run the script
 	ed.Run()
@@ -233,9 +249,8 @@ func TestExtendedData_Run_ScriptFolderSameAsDataFolder(t *testing.T) {
 		Timeout:    scriptRunTimeout,
 	}
 
-	// set up mock http server
-	server := setupMockServer(t)
-	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+	srv := edReceiver(t)
+	ed.SetEndpoint(srv.URLFor(fakeserver.Receiver))
 
 	// Step 5: Run the script
 	result, _ := ed.Run()
@@ -322,9 +337,8 @@ func TestExtendedData_Run_RelativePath(t *testing.T) {
 		Timeout:    scriptRunTimeout,
 	}
 
-	// set up mock http server
-	server := setupMockServer(t)
-	ed.SetEndpoint(server.URL + "/ycrash-receiver?de=localhost")
+	srv := edReceiver(t)
+	ed.SetEndpoint(srv.URLFor(fakeserver.Receiver))
 
 	// Step 5: Run the script
 	result, err := ed.Run()

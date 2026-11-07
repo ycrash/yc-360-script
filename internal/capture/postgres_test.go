@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,6 +19,7 @@ import (
 
 	"yc-agent/internal/capture/postgres"
 	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 	"yc-agent/internal/logger"
 )
 
@@ -109,11 +107,6 @@ func captureLogOutput(t *testing.T) *bytes.Buffer {
 	logger.SetLogger(&redirected)
 
 	return &buf
-}
-
-type recordedPostgresUpload struct {
-	dt   string
-	body string
 }
 
 func TestPostgresDataTypeConstant(t *testing.T) {
@@ -742,44 +735,24 @@ func TestPostgresCaptureOpensOneConnectionPerRun(t *testing.T) {
 func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 	chdirToCaptureDir(t)
 
-	previous := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	t.Cleanup(func() { config.GlobalConfig.OnlyCapture = previous })
-
-	var (
-		mu      sync.Mutex
-		uploads []recordedPostgresUpload
-	)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-
-		mu.Lock()
-		uploads = append(uploads, recordedPostgresUpload{
-			dt:   r.URL.Query().Get("dt"),
-			body: string(body),
-		})
-		mu.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "OK")
-	}))
-	t.Cleanup(server.Close)
+	srv := fakeserver.Start(t, fakeserver.Options{Secrets: []string{pgTestPassword}})
+	useFakeServer(t, srv)
 
 	task := &PostgresCapture{Target: withWindow(t, time.Second)}
-	task.SetEndpoint(server.URL + "?de=test")
+	task.SetEndpoint(srv.URLFor(fakeserver.Receiver))
 
 	result, err := task.Run()
 	require.NoError(t, err)
 
-	mu.Lock()
-	defer mu.Unlock()
-
+	uploads := srv.Requests()
 	require.Len(t, uploads, len(postgresArtifactFiles)-len(postgresArtifactsAwaitingDT),
 		"every artifact with a dt is uploaded")
 
 	byDT := map[string]string{}
 	for _, upload := range uploads {
-		byDT[upload.dt] = upload.body
+		body, err := upload.Body()
+		require.NoError(t, err)
+		byDT[upload.DT] = string(body)
 	}
 
 	require.Contains(t, byDT, pgDTMetadata, "pg_metadata.txt uploaded under the wrong dt")
@@ -846,6 +819,7 @@ func TestPostgresCaptureUploadsUnderAssignedDT(t *testing.T) {
 
 	assert.True(t, result.Ok,
 		"the run's Ok is spent only on an artifact held back or refused, and there is none")
+	assert.Empty(t, srv.Violations(), "every upload is as the server expects, and none carries the password")
 }
 
 func TestPostgresCaptureMetadataLineKeepsItsProbeClauses(t *testing.T) {

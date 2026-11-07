@@ -3,14 +3,13 @@ package capture
 import (
 	"bytes"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -18,38 +17,12 @@ import (
 // TestUploadCapturedFileStreamsZstd verifies that UploadCapturedFile sends the
 // heap dump zstd-compressed on the fly
 func TestUploadCapturedFileStreamsZstd(t *testing.T) {
-	prevOnlyCapture := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	defer func() { config.GlobalConfig.OnlyCapture = prevOnlyCapture }()
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
 
 	// Compressible-but-non-trivial payload, larger than the pipe/zstd buffers so
 	// the streaming path actually exercises multiple read/write cycles.
 	raw := bytes.Repeat([]byte("heap dump payload \x00\x01\x02\xfe\xff "), 200_000)
-
-	var (
-		gotEncoding string
-		gotBody     []byte
-		decodeErr   error
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotEncoding = r.URL.Query().Get("Content-Encoding")
-
-		dec, err := zstd.NewReader(r.Body)
-		if err != nil {
-			decodeErr = err
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer dec.Close()
-
-		gotBody, decodeErr = io.ReadAll(dec)
-		if decodeErr != nil {
-			http.Error(w, decodeErr.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
 
 	// The raw heap dump file that UploadCapturedFile streams from.
 	f, err := os.CreateTemp(t.TempDir(), "heap_dump.out")
@@ -63,37 +36,50 @@ func TestUploadCapturedFileStreamsZstd(t *testing.T) {
 
 	hd := NewHeapDump("", 0, "", false)
 	// Endpoint already carries a query string; PostData appends "&dt=...".
-	hd.SetEndpoint(srv.URL + "?k=test")
+	hd.SetEndpoint(srv.URLFor(fakeserver.HeapReceiver))
 
 	res := hd.UploadCapturedFile(f)
 
 	if !res.Ok {
 		t.Fatalf("upload not ok: %s", res.Msg)
 	}
-	if decodeErr != nil {
-		t.Fatalf("server failed to zstd-decode body: %v", decodeErr)
+
+	requests := srv.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("server received %d requests, want 1", len(requests))
 	}
-	if gotEncoding != "zst" {
-		t.Errorf("Content-Encoding = %q, want %q", gotEncoding, "zst")
+	if got := requests[0].Query.Get("Content-Encoding"); got != "zst" {
+		t.Errorf("Content-Encoding = %q, want %q", got, "zst")
+	}
+
+	compressed, err := requests[0].Body()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := zstd.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatalf("server failed to zstd-decode body: %v", err)
+	}
+	defer dec.Close()
+
+	gotBody, err := io.ReadAll(dec)
+	if err != nil {
+		t.Fatalf("server failed to zstd-decode body: %v", err)
 	}
 	if !bytes.Equal(gotBody, raw) {
 		t.Errorf("decoded body mismatch: got %d bytes, want %d", len(gotBody), len(raw))
+	}
+	if v := srv.Violations(); len(v) > 0 {
+		t.Errorf("the upload broke the server's checks: %v", v)
 	}
 }
 
 // TestUploadCapturedFileSkipsInOnlyCapture verifies no upload is attempted in
 // only-capture mode (and therefore no compression work is done).
 func TestUploadCapturedFileSkipsInOnlyCapture(t *testing.T) {
-	prevOnlyCapture := config.GlobalConfig.OnlyCapture
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
 	config.GlobalConfig.OnlyCapture = true
-	defer func() { config.GlobalConfig.OnlyCapture = prevOnlyCapture }()
-
-	hit := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
 
 	f, err := os.CreateTemp(t.TempDir(), "heap_dump.out")
 	if err != nil {
@@ -105,29 +91,21 @@ func TestUploadCapturedFileSkipsInOnlyCapture(t *testing.T) {
 	}
 
 	hd := NewHeapDump("", 0, "", false)
-	hd.SetEndpoint(srv.URL + "?k=test")
+	hd.SetEndpoint(srv.URLFor(fakeserver.HeapReceiver))
 
 	res := hd.UploadCapturedFile(f)
 
 	if res.Ok {
 		t.Errorf("expected not-ok result in only-capture mode, got ok: %s", res.Msg)
 	}
-	if hit {
+	if len(srv.Requests()) > 0 {
 		t.Errorf("server was contacted in only-capture mode; expected no upload")
 	}
 }
 
 func TestUploadCapturedFileSkipsEmptyFile(t *testing.T) {
-	prevOnlyCapture := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	defer func() { config.GlobalConfig.OnlyCapture = prevOnlyCapture }()
-
-	hit := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
 
 	f, err := os.CreateTemp(t.TempDir(), "heap_dump.out")
 	if err != nil {
@@ -136,7 +114,7 @@ func TestUploadCapturedFileSkipsEmptyFile(t *testing.T) {
 	defer f.Close()
 
 	hd := NewHeapDump("", 0, "", false)
-	hd.SetEndpoint(srv.URL + "?k=test")
+	hd.SetEndpoint(srv.URLFor(fakeserver.HeapReceiver))
 
 	res := hd.UploadCapturedFile(f)
 
@@ -146,16 +124,12 @@ func TestUploadCapturedFileSkipsEmptyFile(t *testing.T) {
 	if !strings.Contains(res.Msg, "skipped empty file") {
 		t.Errorf("result message = %q, want skipped empty file", res.Msg)
 	}
-	if hit {
+	if len(srv.Requests()) > 0 {
 		t.Errorf("server was contacted for empty file; expected no upload")
 	}
 }
 
 func TestHeapDumpRunPassesThroughZstdExtensions(t *testing.T) {
-	prevOnlyCapture := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	defer func() { config.GlobalConfig.OnlyCapture = prevOnlyCapture }()
-
 	raw := []byte("already compressed heap dump source payload")
 	var compressed bytes.Buffer
 	enc, err := newZstdEncoder(&compressed)
@@ -207,24 +181,11 @@ func TestHeapDumpRunPassesThroughZstdExtensions(t *testing.T) {
 				}
 			}()
 
-			var (
-				gotEncoding string
-				gotBody     []byte
-			)
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotEncoding = r.URL.Query().Get("Content-Encoding")
-				var readErr error
-				gotBody, readErr = io.ReadAll(r.Body)
-				if readErr != nil {
-					http.Error(w, readErr.Error(), http.StatusInternalServerError)
-					return
-				}
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer srv.Close()
+			srv := fakeserver.Start(t, fakeserver.Options{})
+			useFakeServer(t, srv)
 
 			hd := NewHeapDump("", 0, srcPath, false)
-			hd.SetEndpoint(srv.URL + "?k=test")
+			hd.SetEndpoint(srv.URLFor(fakeserver.HeapReceiver))
 
 			res, err := hd.Run()
 			if err != nil {
@@ -233,11 +194,23 @@ func TestHeapDumpRunPassesThroughZstdExtensions(t *testing.T) {
 			if !res.Ok {
 				t.Fatalf("upload not ok: %s", res.Msg)
 			}
-			if gotEncoding != "zst" {
-				t.Errorf("Content-Encoding = %q, want %q", gotEncoding, "zst")
+
+			requests := srv.Requests()
+			if len(requests) != 1 {
+				t.Fatalf("server received %d requests, want 1", len(requests))
+			}
+			if got := requests[0].Query.Get("Content-Encoding"); got != "zst" {
+				t.Errorf("Content-Encoding = %q, want %q", got, "zst")
+			}
+			gotBody, err := requests[0].Body()
+			if err != nil {
+				t.Fatal(err)
 			}
 			if !bytes.Equal(gotBody, compressedBody) {
 				t.Errorf("uploaded body mismatch: got %d bytes, want %d", len(gotBody), len(compressedBody))
+			}
+			if v := srv.Violations(); len(v) > 0 {
+				t.Errorf("the upload broke the server's checks: %v", v)
 			}
 			copiedPath := filepath.Join(captureDir, "heap_dump"+tt.ext)
 			copiedBody, err := os.ReadFile(copiedPath)

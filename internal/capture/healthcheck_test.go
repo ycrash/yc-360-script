@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 )
 
 func TestHealthCheck_Run(t *testing.T) {
@@ -94,6 +95,34 @@ func TestHealthCheck_Run(t *testing.T) {
 		// The Run() method captures the response regardless of status code
 		assert.NoError(t, err)
 	})
+}
+
+func TestHealthCheckUploadsItsResult(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	t.Cleanup(app.Close)
+	t.Chdir(t.TempDir())
+
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
+
+	h := &HealthCheck{AppName: "TestApp", Cfg: config.HealthCheck{Endpoint: app.URL, TimeoutSecs: 2}}
+	h.SetEndpoint(srv.URLFor(fakeserver.Receiver))
+
+	result, err := h.Run()
+	require.NoError(t, err)
+	assert.True(t, result.Ok, result.Msg)
+
+	requests := srv.Requests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "healthCheckEndpoint", requests[0].DT)
+	assert.Equal(t, "healthCheckEndpoint.TestApp.out", requests[0].Query.Get("fileName"))
+
+	body, err := requests[0].Body()
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `{"status":"ok"}`, "the application's reply")
+	assert.Empty(t, srv.Violations())
 }
 
 func TestSanitizeAppNameForFileName(t *testing.T) {

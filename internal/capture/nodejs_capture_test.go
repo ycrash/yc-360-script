@@ -5,59 +5,44 @@ package capture
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 )
 
-type recordedUpload struct {
-	dt      string
-	rawURL  string
-	bodyLen int
-}
-
+// fakeReceiver is the fake server, pointed at by the upload helpers for one test,
+// which also fails the test on a request the server would not expect.
 type fakeReceiver struct {
-	*httptest.Server
-	mu      sync.Mutex
-	uploads []recordedUpload
+	*fakeserver.Server
 }
 
 func newFakeReceiver(t *testing.T) *fakeReceiver {
 	t.Helper()
-	fr := &fakeReceiver{}
-	fr.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		fr.mu.Lock()
-		fr.uploads = append(fr.uploads, recordedUpload{
-			dt:      r.URL.Query().Get("dt"),
-			rawURL:  r.URL.String(),
-			bodyLen: len(body),
-		})
-		fr.mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "OK")
-	}))
-	t.Cleanup(fr.Close)
+
+	fr := &fakeReceiver{fakeserver.Start(t, fakeserver.Options{})}
+	useFakeServer(t, fr.Server)
+	t.Cleanup(func() {
+		if v := fr.Violations(); len(v) > 0 {
+			t.Errorf("uploads broke the server's checks: %v", v)
+		}
+	})
+
 	return fr
 }
 
-func (fr *fakeReceiver) endpoint() string { return fr.URL + "?de=test" }
+func (fr *fakeReceiver) endpoint() string { return fr.URLFor(fakeserver.Receiver) }
 
 func (fr *fakeReceiver) dtCodes() []string {
-	fr.mu.Lock()
-	defer fr.mu.Unlock()
-	out := make([]string, len(fr.uploads))
-	for i, u := range fr.uploads {
-		out[i] = u.dt
+	requests := fr.Requests()
+	out := make([]string, len(requests))
+	for i, r := range requests {
+		out[i] = r.DT
 	}
 	return out
 }

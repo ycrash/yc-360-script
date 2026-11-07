@@ -1,15 +1,11 @@
 package capture
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 
-	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,44 +116,24 @@ func TestPostgresM3HeaderIdentifiesRunnerAndTarget(t *testing.T) {
 func TestPostgresM3UploadsUnderItsOwnDT(t *testing.T) {
 	chdirToCaptureDir(t)
 
-	previous := config.GlobalConfig.OnlyCapture
-	config.GlobalConfig.OnlyCapture = false
-	t.Cleanup(func() { config.GlobalConfig.OnlyCapture = previous })
-
-	var (
-		mu      sync.Mutex
-		uploads []recordedPostgresUpload
-	)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-
-		mu.Lock()
-		uploads = append(uploads, recordedPostgresUpload{
-			dt:   r.URL.Query().Get("dt"),
-			body: string(body),
-		})
-		mu.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "OK")
-	}))
-	t.Cleanup(server.Close)
+	srv := fakeserver.Start(t, fakeserver.Options{Secrets: []string{pgTestPassword}})
+	useFakeServer(t, srv)
 
 	task := &PostgresM3{Target: unreachablePostgres(t)}
-	task.SetEndpoint(server.URL + "?de=test")
+	task.SetEndpoint(srv.URLFor(fakeserver.M3Receiver))
 
 	result, err := task.Run()
 	require.NoError(t, err)
 	assert.True(t, result.Ok)
 
-	mu.Lock()
-	defer mu.Unlock()
-
+	uploads := srv.Requests()
 	require.Len(t, uploads, 1, "one reading, one upload")
-	assert.Equal(t, "pgM3", uploads[0].dt)
-	assert.Contains(t, uploads[0].body, "source=pg_m3", "the receiver is handed the payload, not an empty body")
-	assert.NotContains(t, uploads[0].body, pgTestPassword)
+	assert.Equal(t, "pgM3", uploads[0].DT)
+
+	body, err := uploads[0].Body()
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "source=pg_m3", "the receiver is handed the payload, not an empty body")
+	assert.Empty(t, srv.Violations(), "the upload is as the server expects, and does not carry the password")
 }
 
 func TestRunnerName(t *testing.T) {

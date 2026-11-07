@@ -2,24 +2,16 @@ package ondemand
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"sync"
 	"testing"
 	"time"
 	"yc-agent/internal/capture"
 	"yc-agent/internal/capture/executils"
+	"yc-agent/internal/config"
+	"yc-agent/internal/fakeserver"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-)
-
-const (
-	api  = "tier1app@12312-12233-1442134-112"
-	host = "https://test.gceasy.io"
 )
 
 func TestFindGCLog(t *testing.T) {
@@ -89,41 +81,8 @@ func TestFindGCLog(t *testing.T) {
 }
 
 func TestPostData(t *testing.T) {
-	// Track received requests for assertions
-	var mu sync.Mutex
-	receivedRequests := make(map[string]struct {
-		method   string
-		bodySize int
-	})
-
-	// Create mock HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Read body to get size
-		body, _ := io.ReadAll(r.Body)
-		defer r.Body.Close()
-
-		// Extract dt parameter
-		dt := r.URL.Query().Get("dt")
-
-		mu.Lock()
-		receivedRequests[dt] = struct {
-			method   string
-			bodySize int
-		}{
-			method:   r.Method,
-			bodySize: len(body),
-		}
-		mu.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
-	}))
-	defer server.Close()
-
-	// Build endpoint using mock server URL
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", server.URL, api, parameters)
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
 
 	// Test data files - path relative to ondemand package
 	testFiles := []struct {
@@ -145,38 +104,58 @@ func TestPostData(t *testing.T) {
 			require.NoError(t, err, "Failed to open test file: %s", tf.path)
 			defer file.Close()
 
-			msg, ok := capture.PostData(endpoint, tf.dtType, file)
+			msg, ok := capture.PostData(srv.URLFor(fakeserver.Receiver), tf.dtType, file)
 			assert.True(t, ok, "PostData failed for %s: %s", tf.dtType, msg)
 		})
 	}
 
-	// Verify all requests were received correctly
-	mu.Lock()
-	defer mu.Unlock()
+	received := map[string]fakeserver.Request{}
+	for _, r := range srv.Requests() {
+		received[r.DT] = r
+	}
 
 	for _, tf := range testFiles {
-		req, exists := receivedRequests[tf.dtType]
+		req, exists := received[tf.dtType]
 		assert.True(t, exists, "Request for dt=%s was not received", tf.dtType)
 		if exists {
-			assert.Equal(t, "POST", req.method, "Expected POST method for dt=%s", tf.dtType)
-			assert.Greater(t, req.bodySize, 0, "Expected non-empty body for dt=%s", tf.dtType)
+			assert.Equal(t, "POST", req.Method, "Expected POST method for dt=%s", tf.dtType)
+			assert.Greater(t, req.Bytes, int64(0), "Expected non-empty body for dt=%s", tf.dtType)
 		}
 	}
+
+	assert.Empty(t, srv.Violations())
 }
 
 func TestWriteMetaInfo(t *testing.T) {
-	// Skip: Test makes external HTTP calls to test.gceasy.io which is flaky in CI.
-	// This is an integration test that should be run manually or in a dedicated integration test suite.
-	t.Skip("Skipping: test makes external HTTP calls to test.gceasy.io")
-
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	parameters := fmt.Sprintf("de=%s&ts=%s", capture.GetOutboundIP().String(), timestamp)
-	endpoint := fmt.Sprintf("%s/ycrash-receiver?apiKey=%s&%s", host, api, parameters)
-	msg, ok, err := writeMetaInfo(11111, "test", endpoint, "tag1")
-	if err != nil || !ok {
-		t.Fatal(err, msg)
+	javaHome := os.Getenv("JAVA_HOME")
+	if javaHome == "" {
+		t.Skip("needs a JDK: JAVA_HOME is unset")
 	}
-	t.Log(msg, ok)
+
+	srv := fakeserver.Start(t, fakeserver.Options{})
+	useFakeServer(t, srv)
+	config.GlobalConfig.JavaHomePath = javaHome
+
+	// meta-info.txt is written to the working directory.
+	previous, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(t.TempDir()))
+	t.Cleanup(func() { os.Chdir(previous) })
+
+	msg, ok, err := writeMetaInfo(11111, "test", srv.URLFor(fakeserver.Receiver), "tag1")
+	require.NoError(t, err)
+	require.True(t, ok, msg)
+
+	requests := srv.Requests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "meta", requests[0].DT)
+
+	body, err := requests[0].Body()
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "processId=11111\nappName=test\n")
+	assert.Regexp(t, `(?m)^javaVersion=\S`, string(body))
+	assert.Regexp(t, `(?m)^tags=.*tag1`, string(body))
+	assert.Empty(t, srv.Violations())
 }
 
 func TestComputeSystemTags(t *testing.T) {
