@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -134,17 +135,105 @@ func TestValidate(t *testing.T) {
 	t.Run("m3 mode disables onlyCapture", func(t *testing.T) {
 		config.GlobalConfig = config.Config{
 			Options: config.Options{
-				M3:           true,
-				OnlyCapture:  true,
-				Server:       "https://ycrash.example.com",
-				ApiKey:       "test-api-key",
-				JavaHomePath: "/usr/lib/jvm/java-11",
+				M3:            true,
+				OnlyCapture:   true,
+				ProcessTokens: config.ProcessTokens{"java"},
+				M3Frequency:   config.Duration(3 * time.Minute),
+				Server:        "https://ycrash.example.com",
+				ApiKey:        "test-api-key",
+				JavaHomePath:  "/usr/lib/jvm/java-11",
 			},
 		}
 
 		err := validate()
 		assert.NoError(t, err)
 		assert.False(t, config.GlobalConfig.OnlyCapture, "expected onlyCapture to be disabled in m3 mode")
+	})
+
+	t.Run("m3 mode with onlyCapture still needs server URL", func(t *testing.T) {
+		config.GlobalConfig = config.Config{
+			Options: config.Options{
+				M3:            true,
+				OnlyCapture:   true,
+				ProcessTokens: config.ProcessTokens{"java"},
+				M3Frequency:   config.Duration(3 * time.Minute),
+				ApiKey:        "test-api-key",
+				JavaHomePath:  "/usr/lib/jvm/java-11",
+			},
+		}
+
+		invalidArgReason = ""
+		err := validate()
+		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
+		assert.Contains(t, invalidArgReason, "(-s) is required")
+	})
+
+	t.Run("m3 mode without processTokens", func(t *testing.T) {
+		config.GlobalConfig = config.Config{
+			Options: config.Options{
+				M3:           true,
+				Server:       "https://ycrash.example.com",
+				ApiKey:       "test-api-key",
+				JavaHomePath: "/usr/lib/jvm/java-11",
+			},
+		}
+
+		invalidArgReason = ""
+		err := validate()
+		assert.Equal(t, ErrInvalidArgumentCantContinue, err)
+		assert.Contains(t, invalidArgReason, "M3 mode needs at least one process token")
+		assert.Contains(t, invalidArgReason, "-processTokens")
+	})
+
+	t.Run("m3 mode rejects blank tokens and frequency", func(t *testing.T) {
+		base := func() config.Config {
+			return config.Config{Options: config.Options{
+				M3:            true,
+				ProcessTokens: config.ProcessTokens{"buggyApp.jar$myApp"},
+				M3Frequency:   config.Duration(3 * time.Minute),
+				Server:        "https://ycrash.example.com",
+				ApiKey:        "test-api-key",
+				JavaHomePath:  "/usr/lib/jvm/java-11",
+			}}
+		}
+
+		config.GlobalConfig = base()
+		assert.NoError(t, validate(), "a valid M3 configuration")
+
+		cases := []struct {
+			name, want string
+			edit       func(*config.Options)
+		}{
+			{"empty token", "would match every process", func(o *config.Options) { o.ProcessTokens = config.ProcessTokens{"java", ""} }},
+			{"spaces-only token", "would match every process", func(o *config.Options) { o.ProcessTokens = config.ProcessTokens{"  "} }},
+			{"app name only", "would match every process", func(o *config.Options) { o.ProcessTokens = config.ProcessTokens{"$myApp"} }},
+			{"empty exclude token", "would exclude every process", func(o *config.Options) { o.ExcludeProcessTokens = config.ProcessTokens{""} }},
+			{"zero frequency", "not a valid m3Frequency", func(o *config.Options) { o.M3Frequency = 0 }},
+			{"negative frequency", "not a valid m3Frequency", func(o *config.Options) { o.M3Frequency = config.Duration(-time.Minute) }},
+		}
+		for _, c := range cases {
+			config.GlobalConfig = base()
+			c.edit(&config.GlobalConfig.Options)
+			invalidArgReason = ""
+			assert.Equal(t, ErrInvalidArgumentCantContinue, validate(), c.name)
+			assert.Contains(t, invalidArgReason, c.want, c.name)
+		}
+	})
+
+	t.Run("m3 mode with -p leaves the error to the mode check", func(t *testing.T) {
+		// agent.Run reports "OnDemand and M3 mode can not run together", which
+		// is the real problem; the processTokens error would hide it.
+		config.GlobalConfig = config.Config{
+			Options: config.Options{
+				M3:           true,
+				Pid:          "1234",
+				OnlyCapture:  true,
+				JavaHomePath: "/usr/lib/jvm/java-11",
+			},
+		}
+
+		err := validate()
+		assert.NoError(t, err)
 	})
 
 	t.Run("warning for processTokens without m3 mode", func(t *testing.T) {

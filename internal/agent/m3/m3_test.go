@@ -4,6 +4,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"yc-agent/internal/config"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -83,4 +86,11 @@ func TestParseJsonResp(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, []int{}, ids)
+}
+
+func TestNoMatchingProcessMessage(t *testing.T) {
+	assert.Equal(t, `No running process matches processTokens ["java"]. Checking again in 3m0s.`,
+		noMatchingProcessMessage(config.ProcessTokens{"java"}, nil, 3*time.Minute))
+	assert.Equal(t, `No running process matches processTokens ["my app.jar$myApp" "tomcat"] (excluding excludeTokens ["jstat"]). Checking again in 1m0s.`,
+		noMatchingProcessMessage(config.ProcessTokens{"my app.jar$myApp", "tomcat"}, config.ProcessTokens{"jstat"}, time.Minute))
 }

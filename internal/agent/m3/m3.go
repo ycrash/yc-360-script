@@ -83,10 +83,11 @@ func (m3 *M3App) RunSingle() error {
 	logger.Debug().Msgf("M3App.RunSingle: got process IDs: %v", pids)
 
 	if err != nil {
-		logger.Log("WARNING: failed to get PID cause %v", err)
+		logger.Warn().Msgf("Couldn't list the running processes to match processTokens: %v. Checking again in %s.",
+			err, config.GlobalConfig.M3Frequency.Duration())
 	} else if len(pids) == 0 {
-		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
-			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+		logger.Warn().Msg(noMatchingProcessMessage(config.GlobalConfig.ProcessTokens,
+			config.GlobalConfig.ExcludeProcessTokens, config.GlobalConfig.M3Frequency.Duration()))
 	}
 
 	// Init directory
@@ -973,4 +974,15 @@ Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+}
+
+// noMatchingProcessMessage explains an M3 cycle that found no process to
+// monitor. The application may not have started yet, so M3 keeps checking.
+func noMatchingProcessMessage(tokens, excludes config.ProcessTokens, every time.Duration) string {
+	// %q keeps a token that contains spaces readable, e.g. ["my app.jar" "java"].
+	msg := fmt.Sprintf("No running process matches processTokens %q", tokens)
+	if len(excludes) > 0 {
+		msg += fmt.Sprintf(" (excluding excludeTokens %q)", excludes)
+	}
+	return msg + fmt.Sprintf(". Checking again in %s.", every)
 }

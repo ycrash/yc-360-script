@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
@@ -67,6 +68,20 @@ func validate() error {
 		return err
 	}
 
+	// M3 mode always uploads, so -onlyCapture is dropped before the -s/-k
+	// checks below, which would otherwise be skipped. With -p as well, agent.Run
+	// stops with the "OnDemand and M3 mode can not run together" error, which is
+	// the real problem, so these checks are left out.
+	if config.GlobalConfig.M3 && len(config.GlobalConfig.Pid) == 0 {
+		if config.GlobalConfig.OnlyCapture {
+			logger.Warn().Msg("-onlyCapture can't be used with -m3, because M3 mode always uploads to the yCrash server. Continuing without -onlyCapture.")
+			config.GlobalConfig.OnlyCapture = false
+		}
+		if err := validateM3(); err != nil {
+			return err
+		}
+	}
+
 	// Server URL and API Key
 	if !config.GlobalConfig.OnlyCapture {
 		if len(config.GlobalConfig.Server) < 1 {
@@ -119,12 +134,6 @@ func validate() error {
 		}
 	}
 
-	// M3
-	if config.GlobalConfig.M3 && config.GlobalConfig.OnlyCapture {
-		logger.Warn().Msg("-onlyCapture will be ignored in m3 mode.")
-		config.GlobalConfig.OnlyCapture = false
-	}
-
 	if len(config.GlobalConfig.ProcessTokens) > 0 && !config.GlobalConfig.M3 {
 		logger.Warn().Msg("ProcessTokens is passed without M3 mode. See https://docs.ycrash.io/yc-360/launch-modes/m3-mode.html")
 	}
@@ -157,4 +166,42 @@ func validate() error {
 	}
 
 	return nil
+}
+
+const m3DocsHint = "See https://docs.ycrash.io/yc-360/launch-modes/m3-mode.html"
+
+// validateM3 checks the settings M3 mode reads only once, at startup. A
+// mistake in them can't be fixed while M3 runs, so it stops yc instead of
+// leaving a service that never captures anything, or captures every process.
+func validateM3() error {
+	// The yCrash server only acts on the PIDs these tokens match, so without
+	// them M3 would upload host data forever and never capture an application.
+	if len(config.GlobalConfig.ProcessTokens) == 0 {
+		return invalidArg("M3 mode needs at least one process token to know which application to monitor. Add -processTokens (for example -processTokens java) or processTokens: in the YAML config file. %s", m3DocsHint)
+	}
+	// A token matches when its text appears in a process's command line, so a
+	// blank token (including "$myApp", which has no text before the $) matches
+	// every process on the host, and a blank exclude token excludes them all.
+	if blankProcessToken(config.GlobalConfig.ProcessTokens) {
+		return invalidArg("A process token is empty, which would match every process on this machine. Give each processTokens entry the text that identifies your application, for example buggyApp.jar or buggyApp.jar$myApp. %s", m3DocsHint)
+	}
+	if blankProcessToken(config.GlobalConfig.ExcludeProcessTokens) {
+		return invalidArg("An excludeTokens entry is empty, which would exclude every process on this machine. Remove it, or give it the text that identifies the processes to skip. %s", m3DocsHint)
+	}
+	if config.GlobalConfig.M3Frequency.Duration() <= 0 {
+		return invalidArg("%s is not a valid m3Frequency. It must be greater than zero, for example -m3Frequency 3m (the default).", config.GlobalConfig.M3Frequency.Duration())
+	}
+	return nil
+}
+
+// blankProcessToken reports whether any token has no text to match: empty,
+// only spaces, or only an app name after "$".
+func blankProcessToken(tokens config.ProcessTokens) bool {
+	for _, t := range tokens {
+		match, _, _ := strings.Cut(string(t), "$")
+		if strings.TrimSpace(match) == "" {
+			return true
+		}
+	}
+	return false
 }
