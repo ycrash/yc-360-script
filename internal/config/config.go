@@ -379,6 +379,9 @@ func ParseFlags(args []string) error {
 	if err != nil {
 		return configFileError(GlobalConfig.ConfigPath, err)
 	}
+	// Closed once read: M3 and API mode run for days, and on Windows an open
+	// handle stops the file from being deleted or replaced meanwhile.
+	defer file.Close()
 	decoder := yaml.NewDecoder(file)
 	err = decoder.Decode(&GlobalConfig)
 	if err != nil {
