@@ -243,6 +243,8 @@ func TestRun_InvalidGlob(t *testing.T) {
 	}
 
 	result, err := appLog.Run()
-	require.Error(t, err, "should return error for invalid glob pattern")
+	// A path that matches nothing is reported in the result, not as an error.
+	require.NoError(t, err)
 	assert.False(t, result.Ok, "result should indicate failure")
+	assert.Contains(t, result.Msg, "doesn't exist", "zglob looks up \"[\" as a single file")
 }

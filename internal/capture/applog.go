@@ -1,7 +1,6 @@
 package capture
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,13 +40,15 @@ func (al *AppLog) Run() (Result, error) {
 	}
 
 	// Expand all paths (files, directories, globs) to individual files
-	expandedPaths, expansionErr := expandPaths(pathStrings)
+	expandedPaths, pathProblems := expandPaths(pathStrings)
 
 	var results []Result
 	var errs []error
 
-	if expansionErr != nil {
-		logger.Warn().Err(expansionErr).Msg("AppLog: path expansion error")
+	// One warning per path, as a plain sentence: a missing log is a
+	// configuration mistake the user can fix, not a capture failure.
+	for _, problem := range pathProblems {
+		logger.Warn().Msg(problem.Error())
 	}
 
 	// Process each expanded file path
@@ -205,15 +206,16 @@ func summarizeResults(results []Result, errs []error) (Result, error) {
 }
 
 // expandPaths takes a slice of paths and expands directories to individual files
-// while preserving existing file and glob pattern functionality
-func expandPaths(paths []string) ([]string, error) {
+// while preserving existing file and glob pattern functionality. It returns
+// one error per path that can't be captured, worded for the user.
+func expandPaths(paths []string) ([]string, []error) {
 	var expandedPaths []string
 	var errors []error
 
 	for _, path := range paths {
 		matches, err := zglob.Glob(path)
-		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid glob pattern %s: %w", path, err))
+		if problem := logPathProblem(appLogLabel, path, err); problem != nil {
+			errors = append(errors, problem)
 			continue
 		}
 
@@ -221,14 +223,14 @@ func expandPaths(paths []string) ([]string, error) {
 		for _, match := range matches {
 			fileInfo, err := os.Stat(match)
 			if err != nil {
-				errors = append(errors, fmt.Errorf("cannot access %s: %w", match, err))
+				errors = append(errors, logPathProblem(appLogLabel, match, err))
 				continue
 			}
 
 			if fileInfo.IsDir() {
 				dirFiles, err := expandDirectory(match)
 				if err != nil {
-					errors = append(errors, err)
+					errors = append(errors, logPathProblem(appLogLabel, match, err))
 					continue
 				}
 				expandedPaths = append(expandedPaths, dirFiles...)
@@ -238,7 +240,7 @@ func expandPaths(paths []string) ([]string, error) {
 		}
 	}
 
-	return expandedPaths, combineErrors(errors)
+	return expandedPaths, errors
 }
 
 // expandDirectory reads a directory and returns all regular files within it
@@ -262,22 +264,3 @@ func expandDirectory(dirPath string) ([]string, error) {
 	return files, nil
 }
 
-// combineErrors combines multiple errors into a single error
-func combineErrors(errs []error) error {
-	if len(errs) == 0 {
-		return nil
-	}
-
-	var errorMessages []string
-	for _, err := range errs {
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
-		}
-	}
-
-	if len(errorMessages) == 0 {
-		return nil
-	}
-
-	return errors.New(strings.Join(errorMessages, "; "))
-}
