@@ -204,8 +204,65 @@ func TestValidatePostgres(t *testing.T) {
 	})
 }
 
+func TestValidateDatabaseWindowCeiling(t *testing.T) {
+	saved := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = saved })
+
+	logger.Init("", 0, 0, "info")
+
+	sixteenHours := func() *config.DBTarget {
+		return &config.DBTarget{
+			ID:       "orders-primary",
+			Host:     "db-prod-01.internal",
+			Username: "ycrash_monitor",
+
+			CaptureDuration: hours(16),
+		}
+	}
+
+	t.Run("-onlyCapture keeps a postgres window past two hours", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{DBTarget: *sixteenHours()})
+
+		require.NoError(t, validate())
+		assert.Equal(t, 16*time.Hour, config.GlobalConfig.Postgres.CaptureDuration.Duration())
+	})
+
+	t.Run("-onlyCapture keeps a mysql window past two hours", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(nil)
+		config.GlobalConfig.MySQL = &config.MySQL{DBTarget: *sixteenHours()}
+
+		require.NoError(t, validate())
+		assert.Equal(t, 16*time.Hour, config.GlobalConfig.MySQL.CaptureDuration.Duration())
+	})
+
+	t.Run("-m3 drops -onlyCapture, so the window is clamped to two hours", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{DBTarget: *sixteenHours()})
+		config.GlobalConfig.M3 = true
+
+		require.NoError(t, validate())
+		assert.False(t, config.GlobalConfig.OnlyCapture)
+		assert.Equal(t, config.MaxCaptureDuration, config.GlobalConfig.Postgres.CaptureDuration.Duration())
+	})
+
+	t.Run("an uploading run is clamped to two hours", func(t *testing.T) {
+		config.GlobalConfig = postgresValidateFixture(&config.Postgres{DBTarget: *sixteenHours()})
+		config.GlobalConfig.OnlyCapture = false
+		config.GlobalConfig.Server = "http://127.0.0.1:18099"
+		config.GlobalConfig.ApiKey = "test@00000000-0000-0000-0000-000000000000"
+
+		require.NoError(t, validate())
+		assert.Equal(t, config.MaxCaptureDuration, config.GlobalConfig.Postgres.CaptureDuration.Duration())
+	})
+}
+
 func twoMinutes() *config.Duration {
 	window := config.Duration(2 * time.Minute)
+
+	return &window
+}
+
+func hours(n int) *config.Duration {
+	window := config.Duration(time.Duration(n) * time.Hour)
 
 	return &window
 }

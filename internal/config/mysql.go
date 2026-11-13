@@ -79,8 +79,14 @@ func checkCAFile(path string) (string, error) {
 	return abs, nil
 }
 
-// Validate normalizes the block in place; not idempotent (destructive defaults, one-shot warnings).
+// Validate is ValidateFor a run that uploads.
 func (m *MySQL) Validate() (warnings []string, err error) {
+	return m.ValidateFor(false)
+}
+
+// ValidateFor normalizes the block in place; onlyCapture raises the captureDuration
+// ceiling to MaxOnlyCaptureDuration. Not idempotent (destructive defaults, one-shot warnings).
+func (m *MySQL) ValidateFor(onlyCapture bool) (warnings []string, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -103,7 +109,7 @@ func (m *MySQL) Validate() (warnings []string, err error) {
 		m.Port = DefaultMySQLPort
 	}
 
-	windowWarnings, windowErrs := m.validateWindow(mysqlKey, "my_sessions.txt, my_lock_waits.txt")
+	windowWarnings, windowErrs := m.validateWindow(mysqlKey, "my_sessions.txt, my_lock_waits.txt", onlyCapture)
 	warnings = append(warnings, windowWarnings...)
 	errs = append(errs, windowErrs...)
 

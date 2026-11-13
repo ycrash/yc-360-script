@@ -41,6 +41,25 @@ func TestMySQLDefaultsThePortAndLeavesTheDatabaseOptional(t *testing.T) {
 	assert.False(t, m.TLSVerified())
 }
 
+func TestMySQLWindowCeilingFollowsOnlyCapture(t *testing.T) {
+	m := validMySQL()
+	m.CaptureDuration = newDuration(16 * time.Hour)
+
+	warnings, err := m.Validate()
+	require.NoError(t, err)
+	assert.Equal(t, MaxCaptureDuration, m.CaptureDuration.Duration(), "an uploading run keeps the shorter ceiling")
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "mysql.captureDuration 16h0m0s exceeds the 2h0m0s maximum")
+
+	m = validMySQL()
+	m.CaptureDuration = newDuration(16 * time.Hour)
+
+	warnings, err = m.ValidateFor(true)
+	require.NoError(t, err)
+	assert.Equal(t, 16*time.Hour, m.CaptureDuration.Duration(), "-onlyCapture allows up to a day")
+	assert.Empty(t, warnings)
+}
+
 func TestMySQLExplainTakesOnlyAll(t *testing.T) {
 	m := validMySQL()
 	m.Explain = "logged"

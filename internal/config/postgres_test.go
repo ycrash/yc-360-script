@@ -254,6 +254,8 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 		require.Len(t, warnings, 1)
 		assert.Contains(t, warnings[0], "3h0m0s", "the warning must name what was asked for")
 		assert.Contains(t, warnings[0], "2h0m0s", "the warning must name what was done")
+		assert.Contains(t, warnings[0], "A run with -onlyCapture, outside M3 mode, may capture for up to 24h0m0s.",
+			"the warning must say how to get the longer window")
 	})
 
 	t.Run("the ceiling is two hours", func(t *testing.T) {
@@ -269,6 +271,55 @@ func TestPostgresValidateCaptureDuration(t *testing.T) {
 
 		assert.Equal(t, MaxPostgresCaptureDuration, p.CaptureDuration.Duration())
 		assert.Empty(t, warnings, "the boundary is allowed, so it does not warn")
+	})
+
+	t.Run("-onlyCapture's ceiling is a day", func(t *testing.T) {
+		assert.Equal(t, 24*time.Hour, MaxOnlyCaptureDuration)
+	})
+
+	t.Run("-onlyCapture keeps a window past two hours", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 16h")
+
+		warnings, err := p.ValidateFor(true)
+		require.NoError(t, err)
+
+		assert.Equal(t, 16*time.Hour, p.CaptureDuration.Duration())
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("-onlyCapture's ceiling itself is not clamped", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 24h")
+
+		warnings, err := p.ValidateFor(true)
+		require.NoError(t, err)
+
+		assert.Equal(t, MaxOnlyCaptureDuration, p.CaptureDuration.Duration())
+		assert.Empty(t, warnings, "the boundary is allowed, so it does not warn")
+	})
+
+	t.Run("-onlyCapture clamps past a day", func(t *testing.T) {
+		p := withTarget(t, "captureDuration: 25h")
+
+		warnings, err := p.ValidateFor(true)
+		require.NoError(t, err, "an over-large window is honoured in part, not rejected")
+
+		assert.Equal(t, MaxOnlyCaptureDuration, p.CaptureDuration.Duration())
+
+		require.Len(t, warnings, 1)
+		assert.Equal(t, "postgres.captureDuration 25h0m0s exceeds the 24h0m0s maximum for -onlyCapture - "+
+			"capturing for 24h0m0s instead. The window is a load commitment against a shared database.",
+			warnings[0])
+	})
+
+	t.Run("refusals name the ceiling in force", func(t *testing.T) {
+		_, err := withTarget(t, "").Validate()
+		assert.ErrorContains(t, err, "for example 2m (at most 2h0m0s, or 24h0m0s with -onlyCapture)")
+
+		_, err = withTarget(t, "").ValidateFor(true)
+		assert.ErrorContains(t, err, "for example 2m (at most 24h0m0s with -onlyCapture)")
+
+		_, err = withTarget(t, "captureDuration: 0s").ValidateFor(true)
+		assert.ErrorContains(t, err, "postgres.captureDuration is 0s - it must be positive (at most 24h0m0s with -onlyCapture)")
 	})
 
 	t.Run("non-positive values are rejected", func(t *testing.T) {

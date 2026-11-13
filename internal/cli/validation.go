@@ -132,8 +132,11 @@ func validate() error {
 		}
 	}
 
+	// -m3 clears -onlyCapture later in validate(), so pass the value it ends with: an M3 run keeps the 2h cap.
+	localOnly := config.GlobalConfig.OnlyCapture && !config.GlobalConfig.M3
+
 	if pg := config.GlobalConfig.Postgres; pg.IsConfigured() {
-		warnings, err := pg.Validate()
+		warnings, err := pg.ValidateFor(localOnly)
 
 		for _, w := range warnings {
 			logger.Warn().Msg(w)
@@ -146,7 +149,7 @@ func validate() error {
 	}
 
 	if my := config.GlobalConfig.MySQL; my.IsConfigured() {
-		warnings, err := my.Validate()
+		warnings, err := my.ValidateFor(localOnly)
 
 		for _, w := range warnings {
 			logger.Warn().Msg(w)

@@ -31,8 +31,17 @@ or a list of two; to capture two databases, run the agent once for each.
 
 `port`, `database` and `tls` may be omitted; they default to `5432`,
 `postgres` and an encrypted connection whose certificate is not checked.
-`captureDuration`, how long to capture, is required and has no default; it is
-capped at `2h`.
+`captureDuration`, how long to capture, is required and has no default. It is
+capped at `2h`, or at `24h` on a run with `-onlyCapture`, which saves the
+capture locally and uploads nothing. A longer value is cut to the cap, with a
+warning that says so. `-m3` ignores `-onlyCapture`, so a monitoring run, and any
+capture its server starts, keeps the `2h` cap.
+
+A long `-onlyCapture` window needs disk space on the machine running the agent.
+The files grow with every sample until the window closes, and most with the
+number of sessions: `pg_sessions.txt` is sampled every `15s` at most and holds
+up to 1,000 sessions and 5,000 locks each time. Each log-tail file still stops
+at 32 MB for the whole window.
 
 A key the block does not take is refused at startup with its line, inside `tls:`
 too, rather than ignored: a misspelled `verifyServerCertificate: true`, dropped,
@@ -285,8 +294,8 @@ waits for it to finish.
 Two limits to know:
 
 - **`-onlyCapture` is ignored, as it is for every `-m3` run.** It is cleared at
-  startup, with a warning that says so, and each cycle's reading uploads like the
-  rest of the M3 stream. A database capture that has to stay local is the one-shot
+  startup, with a warning that says so, `captureDuration` keeps the `2h` cap, and
+  each cycle's reading uploads like the rest of the M3 stream. A database capture that has to stay local is the one-shot
   run: `./yc-360 -c db.yaml -onlyCapture` uploads nothing.
 - **One runner, not N.** See [One sampler per cluster](#one-sampler-per-cluster);
   under `-m3` that rule is now the deployment model rather than a side effect of
@@ -954,8 +963,9 @@ uploads a foreign machine's process list and connection table under the
 database's name. And on a database host, `netstat` and `ps` stretch their
 readings across `captureDuration` — `netstat` at both edges, `ps` spread evenly
 over three — so a connection table or process list that changes during the
-window leaves a trace. That holds for the longest window too: on a two-hour
-capture `netstat`'s two readings are two hours apart and `ps`'s an hour. The other four are unchanged: `top` and `vmstat` take
+window leaves a trace. That holds for the longest windows too: on a two-hour
+capture `netstat`'s two readings are two hours apart and `ps`'s an hour, and on
+a 24-hour `-onlyCapture` run a day and twelve hours. The other four are unchanged: `top` and `vmstat` take
 their own fixed ~20 s burst at the opening edge, and `df`, `dmesg` and `kernel`
 take one reading, exactly as an application capture takes them. Every one of
 these files uploads under the same identifier whichever kind of capture wrote

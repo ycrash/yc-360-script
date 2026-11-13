@@ -86,8 +86,14 @@ func (p Postgres) GoString() string {
 	return "config.Postgres{" + p.String() + "}"
 }
 
-// Validate normalizes the block in place; not idempotent (destructive defaults, one-shot warnings).
+// Validate is ValidateFor a run that uploads.
 func (p *Postgres) Validate() (warnings []string, err error) {
+	return p.ValidateFor(false)
+}
+
+// ValidateFor normalizes the block in place; onlyCapture raises the captureDuration
+// ceiling to MaxOnlyCaptureDuration. Not idempotent (destructive defaults, one-shot warnings).
+func (p *Postgres) ValidateFor(onlyCapture bool) (warnings []string, err error) {
 	if p == nil {
 		return nil, nil
 	}
@@ -121,7 +127,7 @@ func (p *Postgres) Validate() (warnings []string, err error) {
 		))
 	}
 
-	windowWarnings, windowErrs := p.validateWindow(postgresKey, "pg_sessions.txt")
+	windowWarnings, windowErrs := p.validateWindow(postgresKey, "pg_sessions.txt", onlyCapture)
 	warnings = append(warnings, windowWarnings...)
 	errs = append(errs, windowErrs...)
 

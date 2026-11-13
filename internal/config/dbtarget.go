@@ -68,6 +68,10 @@ const (
 	// MaxCaptureDuration caps captureDuration.
 	MaxCaptureDuration = 2 * time.Hour
 
+	// MaxOnlyCaptureDuration caps captureDuration under -onlyCapture outside M3: the
+	// run saves locally and no server trigger starts it, so a long test capture fits.
+	MaxOnlyCaptureDuration = 24 * time.Hour
+
 	// DefaultFrequency is 5m.
 	DefaultFrequency = 5 * time.Minute
 
@@ -330,27 +334,56 @@ func emptyBlockError(key string) error {
 		"frequency, explain, agentOnDbHost)", key)
 }
 
-// validateWindow checks and clamps captureDuration and frequency.
-func (t *DBTarget) validateWindow(key, fastFiles string) (warnings []string, errs []error) {
+// captureDurationCeiling is the longest window the run's mode allows.
+func captureDurationCeiling(onlyCapture bool) time.Duration {
+	if onlyCapture {
+		return MaxOnlyCaptureDuration
+	}
+
+	return MaxCaptureDuration
+}
+
+// captureDurationLimit states the ceiling in a refusal, naming the longer one when it is not in force.
+func captureDurationLimit(onlyCapture bool) string {
+	if onlyCapture {
+		return fmt.Sprintf("at most %s with -onlyCapture", MaxOnlyCaptureDuration)
+	}
+
+	return fmt.Sprintf("at most %s, or %s with -onlyCapture", MaxCaptureDuration, MaxOnlyCaptureDuration)
+}
+
+// validateWindow checks and clamps captureDuration and frequency; onlyCapture raises the ceiling.
+func (t *DBTarget) validateWindow(key, fastFiles string, onlyCapture bool) (warnings []string, errs []error) {
+	ceiling := captureDurationCeiling(onlyCapture)
+
 	// Over-ceiling clamps and warns (partial intent); missing or non-positive is rejected outright.
 	switch {
 	case t.CaptureDuration == nil:
 		errs = append(errs, fmt.Errorf(
-			"%s.captureDuration is required - how long to capture, for example 2m (at most %s)",
-			key, MaxCaptureDuration))
+			"%s.captureDuration is required - how long to capture, for example 2m (%s)",
+			key, captureDurationLimit(onlyCapture)))
 
 	case t.CaptureDuration.Duration() <= 0:
 		errs = append(errs, fmt.Errorf(
-			"%s.captureDuration is %s - it must be positive (at most %s)",
-			key, t.CaptureDuration, MaxCaptureDuration))
+			"%s.captureDuration is %s - it must be positive (%s)",
+			key, t.CaptureDuration, captureDurationLimit(onlyCapture)))
 
-	case t.CaptureDuration.Duration() > MaxCaptureDuration:
+	case t.CaptureDuration.Duration() > ceiling && onlyCapture:
+		warnings = append(warnings, fmt.Sprintf(
+			"%s.captureDuration %s exceeds the %s maximum for -onlyCapture - capturing for %s instead. "+
+				"The window is a load commitment against a shared database.",
+			key, t.CaptureDuration, ceiling, ceiling))
+
+		t.CaptureDuration = newDuration(ceiling)
+
+	case t.CaptureDuration.Duration() > ceiling:
 		warnings = append(warnings, fmt.Sprintf(
 			"%s.captureDuration %s exceeds the %s maximum - capturing for %s instead. "+
-				"The window is a load commitment against a shared database.",
-			key, t.CaptureDuration, MaxCaptureDuration, MaxCaptureDuration))
+				"The window is a load commitment against a shared database. "+
+				"A run with -onlyCapture, outside M3 mode, may capture for up to %s.",
+			key, t.CaptureDuration, ceiling, ceiling, MaxOnlyCaptureDuration))
 
-		t.CaptureDuration = newDuration(MaxCaptureDuration)
+		t.CaptureDuration = newDuration(ceiling)
 	}
 
 	// Under-floor clamps and warns, as the ceiling does above; non-positive is rejected.

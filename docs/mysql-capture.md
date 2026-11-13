@@ -32,9 +32,10 @@ server's: version checks take MariaDB's numbers for MySQL's.
 both: a run captures one database.
 
 `port` defaults to `3306` and `tls` to an encrypted connection whose
-certificate is not checked. `captureDuration` is required and capped at `2h`;
-`frequency` defaults to `5m`, is floored at `5s`, and gives the three speeds
-the same way (fast at most 15s, expensive at least 5m).
+certificate is not checked. `captureDuration` is required and capped at `2h`,
+or at `24h` with `-onlyCapture`; `frequency` defaults to `5m`, is floored at
+`5s`, and gives the three speeds the same way (fast at most 15s, expensive at
+least 5m).
 
 A key the block does not take is refused at startup with its line, inside `tls:`
 too, as for `postgres:`. Ctrl-C or `SIGTERM` ends the window early as it does
