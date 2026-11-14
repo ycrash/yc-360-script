@@ -197,6 +197,18 @@ func TestSlowQueriesReadsTheSampleTimeAsText(t *testing.T) {
 	assert.Equal(t, 1, q.count("quantile_95, quantile_99, max_timer_wait, sum_errors"), "spec 5.28's columns")
 }
 
+func TestSlowQueriesRanksByTotalTimeThenByKey(t *testing.T) {
+	q := slowQueriesServer()
+
+	require.NoError(t, (&SlowQueries{Interval: time.Minute}).Sample(context.Background(), q, io.Discard, testSample(1, 1)))
+
+	_, orderBy, found := strings.Cut(q.sent[len(q.sent)-1], "ORDER BY")
+	require.True(t, found)
+
+	assert.Equal(t, " sum_timer_wait DESC, schema_name, digest\nLIMIT 100", orderBy,
+		"the table's key breaks ties between equal times")
+}
+
 func TestExplainWithoutForSchemaLeavesThePlansSchema(t *testing.T) {
 	for _, c := range []struct {
 		name     string

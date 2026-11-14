@@ -85,7 +85,8 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
 	}
 
 	// query_sample_seen as text: a zero datetime would raise warning 1292 per row,
-	// polluting my_errors.txt.
+	// polluting my_errors.txt. schema_name and digest are the table's key, and break
+	// ties between equal times.
 	query := `SELECT schema_name, digest, digest_text, query_sample_text,
        CAST(query_sample_seen AS CHAR) AS query_sample_seen,
        query_sample_timer_wait, count_star, sum_timer_wait, sum_rows_examined, sum_rows_sent,
@@ -95,7 +96,7 @@ func (sq *SlowQueries) Sample(ctx context.Context, q Querier, w io.Writer, s Sam
        sum_created_tmp_disk_tables,
        ` + rowsTotalSelect + `
 FROM performance_schema.events_statements_summary_by_digest
-ORDER BY sum_timer_wait DESC
+ORDER BY sum_timer_wait DESC, schema_name, digest
 LIMIT 100`
 
 	var fields []dbcore.HeaderField
