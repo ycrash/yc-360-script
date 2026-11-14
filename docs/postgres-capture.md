@@ -95,6 +95,9 @@ not checked. Each account that runs the agent needs a copy of its own.
   address, or by a name its certificate does not carry.
 - **Nothing falls back.** A server that refuses TLS is a failed connection,
   never a plaintext one.
+- **What is checked comes from this block alone.** A `root.crt` in `~/.postgresql`
+  of the account that runs the agent, which `psql` and other libpq clients take
+  as a request to check the chain, is not read, and neither is `PGSSLROOTCERT`.
 - **Refused at startup:** `verifyServerCertificate: true` with `enabled: false`,
   and `caFile` or `serverName` with `enabled: false`.
 

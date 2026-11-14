@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,7 +154,7 @@ func TestBuildConfigTLS(t *testing.T) {
 	t.Run("encrypted and unverified, with no plaintext fallback", func(t *testing.T) {
 		target := withTLS(TLS{})
 		assert.Contains(t, dsn(target), "sslmode='require'")
-		assert.NotContains(t, dsn(target), "sslrootcert")
+		assert.Contains(t, dsn(target), "sslrootcert=''", "named and empty, so none is looked for elsewhere")
 
 		cfg, err := buildConfig(target)
 		require.NoError(t, err)
@@ -167,6 +168,7 @@ func TestBuildConfigTLS(t *testing.T) {
 	t.Run("disabled is plaintext", func(t *testing.T) {
 		target := withTLS(TLS{Disabled: true})
 		assert.Contains(t, dsn(target), "sslmode='disable'")
+		assert.Contains(t, dsn(target), "sslrootcert=''")
 
 		cfg, err := buildConfig(target)
 		require.NoError(t, err)
@@ -178,7 +180,7 @@ func TestBuildConfigTLS(t *testing.T) {
 	t.Run("verified against the system's trust store", func(t *testing.T) {
 		target := withTLS(TLS{Verify: true})
 		assert.Contains(t, dsn(target), "sslmode='verify-full'")
-		assert.NotContains(t, dsn(target), "sslrootcert", "no file: Go's own roots")
+		assert.Contains(t, dsn(target), "sslrootcert=''", "no file: Go's own roots")
 
 		cfg, err := buildConfig(target)
 		require.NoError(t, err)
@@ -228,12 +230,57 @@ func TestBuildConfigTLS(t *testing.T) {
 
 	t.Run("a CA file is used only when verifying", func(t *testing.T) {
 		target := withTLS(TLS{CAFile: writeTestCA(t)})
-		assert.NotContains(t, dsn(target), "sslrootcert",
+		assert.Contains(t, dsn(target), "sslrootcert=''",
 			"beside sslmode=require a root certificate would switch on verify-ca")
 
 		cfg, err := buildConfig(target)
 		require.NoError(t, err)
 		assert.Nil(t, cfg.TLSConfig.VerifyPeerCertificate)
+	})
+}
+
+// pgx takes a root certificate from ~/.postgresql/root.crt, and from PGSSLROOTCERT,
+// only where the DSN names none. The variable stands in for the file: both rank
+// below the DSN.
+func TestDSNLeavesNoRootCertificateToDefaults(t *testing.T) {
+	withTLS := func(settings TLS) Target {
+		target := testTarget()
+		target.Host = "10.0.4.12"
+		target.TLS = settings
+
+		return target
+	}
+
+	t.Run("unverified stays unverified", func(t *testing.T) {
+		t.Setenv("PGSSLROOTCERT", writeTestCA(t))
+
+		cfg, err := pgx.ParseConfig(dsn(withTLS(TLS{})))
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.True(t, cfg.TLSConfig.InsecureSkipVerify)
+		assert.Nil(t, cfg.TLSConfig.VerifyPeerCertificate, "a root certificate found elsewhere would check the chain")
+		assert.Nil(t, cfg.TLSConfig.RootCAs)
+	})
+
+	t.Run("verified without a CA file stays on the system's trust store", func(t *testing.T) {
+		t.Setenv("PGSSLROOTCERT", writeTestCA(t))
+
+		cfg, err := pgx.ParseConfig(dsn(withTLS(TLS{Verify: true})))
+		require.NoError(t, err)
+
+		require.NotNil(t, cfg.TLSConfig)
+		assert.False(t, cfg.TLSConfig.InsecureSkipVerify)
+		assert.Nil(t, cfg.TLSConfig.RootCAs, "nil is the system's trust store")
+	})
+
+	t.Run("one that cannot be read fails no plaintext connection", func(t *testing.T) {
+		t.Setenv("PGSSLROOTCERT", filepath.Join(t.TempDir(), "missing.pem"))
+
+		cfg, err := pgx.ParseConfig(dsn(withTLS(TLS{Disabled: true})))
+		require.NoError(t, err)
+
+		assert.Nil(t, cfg.TLSConfig)
 	})
 }
 

@@ -415,11 +415,15 @@ func dsn(t Target) string {
 		{"application_name", ApplicationName},
 	}
 
-	// Only when verifying: beside sslmode=require, libpq and pgx read a root
-	// certificate as a request to check the chain.
-	if t.TLS.SSLMode() == "verify-full" && t.TLS.CAFile != "" {
-		pairs = append(pairs, [2]string{"sslrootcert", t.TLS.CAFile})
+	// Always named, and empty unless verifying against a file. Left out, pgx reads
+	// ~/.postgresql/root.crt, and beside sslmode=require a root certificate is a
+	// request to check the chain.
+	rootCert := ""
+	if t.TLS.SSLMode() == "verify-full" {
+		rootCert = t.TLS.CAFile
 	}
+
+	pairs = append(pairs, [2]string{"sslrootcert", rootCert})
 
 	parts := make([]string, 0, len(pairs))
 	for _, pair := range pairs {
