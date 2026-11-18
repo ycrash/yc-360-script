@@ -243,6 +243,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string) {
 	lpM3Chan := capture.GoCapture(endpoint, capture.WrapRun(capLPM3))
 	logger.Log("Collection of lp data started.")
 
+	logger.Log("Starting collection of disk data...")
+	diskChan := capture.GoCapture(endpoint, capture.WrapRun(&capture.Disk{}))
+	logger.Log("Collection of disk data started.")
+
 	if len(pids) > 0 {
 		dotnetPIDs := make(map[int]string)
 		runtimeByPid := make(map[int]string)
@@ -354,6 +358,15 @@ Resp: %s
 
 --------------------------------
 `, lpM3Result.Ok, lpM3Result.Msg)
+
+	diskResult := <-diskChan
+	logger.Log(
+		`DISK USAGE DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, diskResult.Ok, diskResult.Msg)
 }
 
 func uploadGCLogM3(endpoint string, pid int) string {
