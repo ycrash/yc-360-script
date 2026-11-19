@@ -2,10 +2,13 @@ package config
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Placeholder key shape required by .gitleaks.toml for fixtures.
@@ -39,6 +42,25 @@ func TestRedactArgs(t *testing.T) {
 			assert.Equal(t, in, c.in, "input must not be modified")
 		})
 	}
+}
+
+func TestEffectiveConfigMessageShowsLoadedTokens(t *testing.T) {
+	original := GlobalConfig
+	t.Cleanup(func() { GlobalConfig = original })
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yamlText := "version: '1'\noptions:\n  k: " + testKey + "\n  s: http://localhost:8085\n  processTokens:\n    - launcher.jar$myApp\n"
+	require.NoError(t, os.WriteFile(path, []byte(yamlText), 0o600))
+
+	GlobalConfig = defaultConfig()
+	require.NoError(t, ParseFlags([]string{"yc", "-c", path, "-m3"}))
+
+	msg := EffectiveConfigMessage()
+	assert.True(t, strings.HasPrefix(msg, "Effective configuration ((default)=matches built-in default, (set)=differs from default):\n"))
+	assert.Contains(t, msg, "processTokens: [launcher.jar$myApp] (set)")
+	assert.Contains(t, msg, "m3: true (set)")
+	assert.Contains(t, msg, "k: "+redactedValue+" (set)")
+	assert.NotContains(t, msg, "00000000-0000", "API key must not appear in the log")
 }
 
 func TestUsageDoesNotPrintSensitiveDefaults(t *testing.T) {

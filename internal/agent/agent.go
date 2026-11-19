@@ -44,6 +44,11 @@ func Run() error {
 		return ErrConflictingMode
 	}
 
+	// On-demand logs it per capture.
+	if !onDemandMode {
+		logger.Log("%s", config.EffectiveConfigMessage())
+	}
+
 	// TODO: This is for backward compatibility: API mode can run along with on demand and M3.
 	// Nobody of us knows whether there's any customer using this (on demand + API mode)
 	// I think we should clean it up eventually.

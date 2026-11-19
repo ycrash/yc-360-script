@@ -594,6 +594,11 @@ func EffectiveFlags() string {
 	return strings.Join(entries, ", ")
 }
 
+// EffectiveConfigMessage is the log message listing every flag's effective value.
+func EffectiveConfigMessage() string {
+	return "Effective configuration ((default)=matches built-in default, (set)=differs from default):\n" + EffectiveFlags()
+}
+
 func formatFlagValue(name string, field reflect.Value) string {
 	if sensitiveFlags[name] {
 		if field.Kind() == reflect.String && field.String() == "" {
