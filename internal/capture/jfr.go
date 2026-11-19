@@ -513,7 +513,7 @@ func (t *JFR) runJcmd(command string) (string, error) {
 		logger.Log("jcmd %s: %s", command, out.String())
 		return out.String(), nil
 	}
-	logger.Log("jcmd failed (err=%v): %s. Falling back to jattach for: %s", err, out.String(), command)
+	logger.Log("jcmd failed: %s. Falling back to jattach for: %s", jcmdFailure(err, out.String()), command)
 	out.Reset()
 
 	err = executils.CommandCombinedOutputToWriter(&out,
@@ -523,26 +523,37 @@ func (t *JFR) runJcmd(command string) (string, error) {
 		logger.Log("jattach %s: %s", command, out.String())
 		return out.String(), nil
 	}
-	logger.Log("jattach failed (err=%v): %s. Falling back to tmp jattach for: %s", err, out.String(), command)
-	firstAttemptOutput := out.String()
+	logger.Log("jattach failed: %s. Falling back to tmp jattach for: %s", jcmdFailure(err, out.String()), command)
+	firstAttemptFailure := jcmdFailure(err, out.String())
 	out.Reset()
 
 	tempPath, tmpErr := executils.Copy2TempPath()
 	if tmpErr != nil {
-		return "", fmt.Errorf("failed to run %q: %s (tmp jattach fallback failed: %v)", command, firstAttemptOutput, tmpErr)
+		return "", fmt.Errorf("failed to run %q: %s (tmp jattach fallback failed: %v)", command, firstAttemptFailure, tmpErr)
 	}
 
 	err = executils.CommandCombinedOutputToWriter(&out,
 		executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
 		executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
 	if err != nil {
-		return "", fmt.Errorf("failed to run %q: %w, output: %s", command, err, out.String())
+		return "", fmt.Errorf("failed to run %q: %w", command, err) // err already holds the output
 	}
 	if !jcmdSucceeded(out.String()) {
-		return "", fmt.Errorf("failed to run %q: JVM rejected the command: %s", command, out.String())
+		return "", fmt.Errorf("failed to run %q: %s", command, jcmdFailure(nil, out.String()))
 	}
 	logger.Log("tmp jattach %s: %s", command, out.String())
 	return out.String(), nil
+}
+
+// jcmdFailure describes a failed jcmd/jattach attempt for a log or error
+// message. A command error already includes the output, so the output is
+// only added when the command itself succeeded but the JVM rejected it.
+// Java stack trace frames are left out.
+func jcmdFailure(err error, output string) string {
+	if err != nil {
+		return err.Error()
+	}
+	return "JVM rejected the command: " + strings.TrimSpace(executils.TrimJavaStackTrace(output))
 }
 
 // jcmdSucceeded reports whether a jcmd/jattach response indicates the JVM

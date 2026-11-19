@@ -80,12 +80,16 @@ func (a *AccessLogM3) Run() (Result, error) {
 
 			matches, err := zglob.Glob(p)
 
-			if err != nil {
+			// A missing file is reported in words the user can act on instead
+			// of as a glob error. It is a configuration mistake, not a capture
+			// failure, so it goes in the result message only: returned as an
+			// error, WrapRun would log a dump of this whole task every M3 cycle.
+			if problem := logPathProblem(accessLogLabel, p, err); problem != nil {
 				results = append(results, Result{
-					Msg: fmt.Sprintf("invalid glob pattern %q", path),
+					Msg: problem.Error(),
 					Ok:  false,
 				})
-				errs = append(errs, err)
+				errs = append(errs, nil)
 
 				continue
 			}

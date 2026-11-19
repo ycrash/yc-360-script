@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"yc-agent/internal/config"
 
@@ -165,4 +166,11 @@ func TestGetM3FinEndpointNamesTheDatabaseTarget(t *testing.T) {
 		assert.Equal(t, "/var/run/postgresql", parsed.Query().Get("target_host"))
 		assert.Equal(t, "a b&c", parsed.Query().Get("target_database"))
 	})
+}
+
+func TestNoMatchingProcessMessage(t *testing.T) {
+	assert.Equal(t, `No running process matches processTokens ["java"]. Checking again in 3m0s.`,
+		noMatchingProcessMessage(config.ProcessTokens{"java"}, nil, 3*time.Minute))
+	assert.Equal(t, `No running process matches processTokens ["my app.jar$myApp" "tomcat"] (excluding excludeTokens ["jstat"]). Checking again in 1m0s.`,
+		noMatchingProcessMessage(config.ProcessTokens{"my app.jar$myApp", "tomcat"}, config.ProcessTokens{"jstat"}, time.Minute))
 }

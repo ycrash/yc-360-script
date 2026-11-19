@@ -17,6 +17,7 @@ import (
 
 var ErrNothingCanBeDone = errors.New("no capture mode selected: pass -p, -m3 or -port, or configure a postgres: or mysql: block")
 var ErrConflictingMode = errors.New("conflicting mode")
+var ErrAppRuntimeMismatch = errors.New("-appRuntime doesn't match the target process")
 
 var m3AppMu sync.Mutex
 var runningM3App *m3.M3App
@@ -53,7 +54,9 @@ func Run() error {
 	// Without -m3 it is the one-shot deep dive, which shares the on-demand path.
 	// checkRunTargets already excludes an app target from either.
 	if (onDemandMode || dbTargetMode) && !m3Mode {
-		runOnDemandMode()
+		if err := runOnDemandMode(); err != nil {
+			return err
+		}
 	} else {
 		if m3Mode {
 			go runM3Mode()
@@ -152,7 +155,7 @@ func checkM3DatabaseTarget(m3Mode, mysqlConfigured bool) error {
 func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode bool) error {
 	// Validation: abort if no mode is specified (M3, OnDemand, API, or a database target).
 	if !onDemandMode && !apiMode && !m3Mode && !dbTargetMode {
-		logger.Error().Msg(`No target given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode, or configure a postgres: or mysql: block for a database capture. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`)
+		logger.Error().Msg(config.WithArgumentsHelpHint(`No target given, so there is nothing to capture. Pass -p <pid or process token> for on-demand mode, -m3 for M3 mode, or -port <n> for API mode, or configure a postgres: or mysql: block for a database capture. If you did pass -p, check that every value containing spaces is quoted (for example -a "My App"): yc stops reading options at the second word of an unquoted value, so every option after it is ignored.`))
 
 		return ErrNothingCanBeDone
 	}
@@ -184,7 +187,7 @@ func checkRunTargets(onDemandMode, m3Mode, apiMode, dbTargetMode, appTokensMode 
 	return nil
 }
 
-func runOnDemandMode() {
+func runOnDemandMode() error {
 	pidStr := config.GlobalConfig.Pid
 
 	switch {
@@ -201,7 +204,25 @@ func runOnDemandMode() {
 		logger.Log("Running OnDemand mode with PID: %s", pidStr)
 	}
 
-	for i, pid := range resolveCapturePids(pidStr) {
+	pids := resolveCapturePids(pidStr)
+
+	// Check every PID first, so a wrong -appRuntime stops the run before
+	// anything is captured or uploaded. Pid 0 is no process, so there is nothing to check.
+	matching := make([]int, 0, len(pids))
+	for _, pid := range pids {
+		if pid > 0 {
+			if err := config.CheckAppRuntimeMatches(pid); err != nil {
+				logger.Error().Msg(err.Error())
+				continue
+			}
+		}
+		matching = append(matching, pid)
+	}
+	if len(pids) > 0 && len(matching) == 0 {
+		return ErrAppRuntimeMismatch
+	}
+
+	for i, pid := range matching {
 		// One database capture per run, not per pid.
 		var opts []ondemand.CaptureOptions
 		if i > 0 {
@@ -210,6 +231,7 @@ func runOnDemandMode() {
 
 		ondemand.FullCapture(pid, config.GlobalConfig.AppName, config.GlobalConfig.HeapDump, config.GlobalConfig.Tags, "", opts...)
 	}
+	return nil
 }
 
 // resolveCapturePids turns the -p value into pids to capture.

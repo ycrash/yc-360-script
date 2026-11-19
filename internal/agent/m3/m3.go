@@ -35,6 +35,9 @@ type M3App struct {
 	AsyncDotNetGCCapture *capture.DotnetGCAsync
 	dotnetGCReadySeen    map[int]bool
 	nodeGCTracker        *capture.NodeGCTracker
+	// runtimeMismatchLogged holds the PIDs already reported as not matching
+	// -appRuntime, so the error is logged once per PID rather than every cycle.
+	runtimeMismatchLogged map[int]bool
 }
 
 func NewM3App() *M3App {
@@ -85,10 +88,11 @@ func (m3 *M3App) RunSingle() error {
 	logger.Debug().Msgf("M3App.RunSingle: got process IDs: %v", pids)
 
 	if err != nil {
-		logger.Log("WARNING: failed to get PID cause %v", err)
+		logger.Warn().Msgf("Couldn't list the running processes to match processTokens: %v. Checking again in %s.",
+			err, config.GlobalConfig.M3Frequency.Duration())
 	} else if len(pids) == 0 && !dbMonitoring {
-		logger.Log("WARNING: No PID includes ProcessTokens(%v) without ExcludeTokens(%v)",
-			config.GlobalConfig.ProcessTokens, config.GlobalConfig.ExcludeProcessTokens)
+		logger.Warn().Msg(noMatchingProcessMessage(config.GlobalConfig.ProcessTokens,
+			config.GlobalConfig.ExcludeProcessTokens, config.GlobalConfig.M3Frequency.Duration()))
 	}
 
 	// Init directory
@@ -302,18 +306,41 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string, hostAl
 		logger.Log("Collection of lp data started.")
 	}
 
+	// df describes the runner's disks too, so it follows the same rule as top.
+	var diskChan chan capture.Result
+
+	if hostAllowed {
+		logger.Log("Starting collection of disk data...")
+		diskChan = capture.GoCapture(endpoint, capture.WrapRun(&capture.Disk{}))
+		logger.Log("Collection of disk data started.")
+	} else {
+		logger.Log("Skipping collection of disk data: this machine is not confirmed to run the database.")
+	}
+
 	if len(pids) > 0 {
 		dotnetPIDs := make(map[int]string)
 		runtimeByPid := make(map[int]string)
 		// Classify each discovered PID by runtime once, and build a .NET-only PID subset.
 		// `runtimeByPid` is reused later to avoid calling runtime detection repeatedly.
+		// Rebuilt every cycle, so a PID that exits (or starts matching) is
+		// forgotten and reported again if it mismatches later.
+		mismatchLogged := make(map[int]bool)
 		for pid, appName := range pids {
+			// A PID that doesn't match -appRuntime is skipped; M3 keeps running.
+			if mismatch := config.CheckAppRuntimeMatches(pid); mismatch != nil {
+				if !m3.runtimeMismatchLogged[pid] {
+					logger.Error().Msgf("Skipping PID %d: %s", pid, mismatch)
+				}
+				mismatchLogged[pid] = true
+				continue
+			}
 			appRuntime := config.GetAppRuntime(pid)
 			runtimeByPid[pid] = appRuntime
 			if appRuntime == "dotnet" {
 				dotnetPIDs[pid] = appName
 			}
 		}
+		m3.runtimeMismatchLogged = mismatchLogged
 
 		if m3.AsyncDotNetGCCapture != nil {
 			// Reconcile creates/updates async GC capture sessions for current .NET PIDs.
@@ -324,7 +351,10 @@ func (m3 *M3App) captureAndTransmit(pids map[int]string, endpoint string, hostAl
 
 		for pid, appName := range pids {
 			var gcPath string
-			appRuntime := runtimeByPid[pid]
+			appRuntime, ok := runtimeByPid[pid]
+			if !ok {
+				continue // skipped above: doesn't match -appRuntime
+			}
 
 			switch appRuntime {
 			case "dotnet":
@@ -401,6 +431,17 @@ Resp: %s
 
 --------------------------------
 `, lpM3Result.Ok, lpM3Result.Msg)
+	}
+
+	if diskChan != nil {
+		diskResult := <-diskChan
+		logger.Log(
+			`DISK USAGE DATA
+Is transmission completed: %t
+Resp: %s
+
+--------------------------------
+`, diskResult.Ok, diskResult.Msg)
 	}
 }
 
@@ -1041,4 +1082,15 @@ Resp: %s
 
 --------------------------------
 `, result.Ok, result.Msg)
+}
+
+// noMatchingProcessMessage explains an M3 cycle that found no process to
+// monitor. The application may not have started yet, so M3 keeps checking.
+func noMatchingProcessMessage(tokens, excludes config.ProcessTokens, every time.Duration) string {
+	// %q keeps a token that contains spaces readable, e.g. ["my app.jar" "java"].
+	msg := fmt.Sprintf("No running process matches processTokens %q", tokens)
+	if len(excludes) > 0 {
+		msg += fmt.Sprintf(" (excluding excludeTokens %q)", excludes)
+	}
+	return msg + fmt.Sprintf(". Checking again in %s.", every)
 }

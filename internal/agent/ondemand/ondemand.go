@@ -98,7 +98,23 @@ func ProcessPids(pids []int, pid2Name map[int]string, hd bool, tags string, time
 
 	pids = removeDuplicate(pids)
 
+	// API and M3 mode keep running, so a PID that doesn't match -appRuntime
+	// is skipped rather than stopping the script. The reasons are returned so
+	// the API caller gets an error response instead of an empty success.
+	var skipped []error
+	defer func() {
+		if err == nil && len(skipped) > 0 {
+			err = errors.Join(skipped...)
+		}
+	}()
+
 	for i, pid := range pids {
+		if mismatch := config.CheckAppRuntimeMatches(pid); mismatch != nil {
+			logger.Error().Msgf("Skipping PID %d: %s", pid, mismatch)
+			skipped = append(skipped, mismatch)
+			continue
+		}
+
 		name := config.GlobalConfig.AppName
 		if len(pid2Name) > 0 {
 			if n, ok := pid2Name[pid]; ok {
@@ -242,7 +258,7 @@ func FullCapture(pid int, appName string, hd bool, tags string, tsParam string, 
 					if config.GlobalConfig.OnlyCapture {
 						name, err := CompressFolder(captureDir)
 						if err != nil {
-							logger.Log("WARNING: Can not zip folder: %s", err)
+							logger.Log("WARNING: Can not compress the folder into a zst file: %s", err)
 							return
 						}
 						logger.StdLog("All dumps can be found in %s", name)
@@ -472,6 +488,16 @@ Ignored errors: %v
 			// ------------------------------------------------------------------------------
 			//   				Java runtime captures (default)
 			// ------------------------------------------------------------------------------
+
+			// One clear warning up front if the JVM disabled attach, since every
+			// attach-based capture below will then fail.
+			warnIfAttachDisabled(pid, attachCaptureOptions{
+				tdPath:       tdPath,
+				hdPath:       hdPath,
+				heapDump:     hd,
+				jfr:          config.GlobalConfig.JFREnabled,
+				minimalTouch: config.GlobalConfig.MinimalTouch,
+			})
 
 			// Capture a JFR (Java Flight Recorder) recording. It's started now with
 			// duration=jfrCaptureDuration, so the JVM stops it and writes it out on
