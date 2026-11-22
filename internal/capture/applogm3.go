@@ -28,14 +28,18 @@ type AppLogM3 struct {
 type appLogM3ReadStat struct {
 	filePath string
 
-	// fileSize captures the last known size of the file
-	// This is compared against current file size to detect log rotation
-	// When current size < fileSize, we assume the file was rotated
+	// identity is the file's stat at the previous run, compared with os.SameFile to spot rotation.
+	identity os.FileInfo
+
+	// fileSize is the size at the previous run: smaller now means truncated, the same means idle.
 	fileSize int64
 
-	// readPosition marks where we left off in previous read
+	// readPosition is where the next upload starts; it stays before an unfinished last line.
 	readPosition int64
 }
+
+// appLogM3MaxHeldBack caps how much of an unfinished last line waits for the next run.
+const appLogM3MaxHeldBack = 1 << 20
 
 func NewAppLogM3() *AppLogM3 {
 	return &AppLogM3{
@@ -90,30 +94,35 @@ func (a *AppLogM3) Run() (Result, error) {
 	return summarizeResults(results, errs)
 }
 
-// captureSingleAppLog processes a single log file: it opens the file,
-// seeks to the last-read position (or initializes it on the first run),
-// copies new content to a uniquely named destination file, and posts it.
+// CaptureSingleAppLog processes a single log file: it opens the file,
+// reads from the last-read position (or initializes it on the first run),
+// copies the new complete lines to a uniquely named destination file, and posts it.
 func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (Result, error) {
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return Result{}, fmt.Errorf("failed to stat applog %q: %w", filePath, err)
-	}
-
 	src, err := os.Open(filePath)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to open applog %q: %w", filePath, err)
 	}
 	defer src.Close()
 
+	// Stat the open file, so the size and identity are of the file being read.
+	fileInfo, err := src.Stat()
+	if err != nil {
+		return Result{}, fmt.Errorf("failed to stat applog %q: %w", filePath, err)
+	}
+
+	size := fileInfo.Size()
 	readStat, statExist := a.readStats[filePath]
 	readStat.filePath = filePath
 
 	if !statExist {
-		// On first encounter, skip initial content to avoid processing potentially large historical logs.
-		// Instead, set the read position to the current end of file and just return,
-		// so that the next run will read from there.
-		readStat.fileSize = fileInfo.Size()
-		readStat.readPosition = fileInfo.Size()
+		// On first encounter, skip the existing content up to its last complete line.
+		start, err := appLogM3UploadEnd(src, 0, size, true)
+		if err != nil {
+			return Result{}, fmt.Errorf("failed to scan applog %q: %w", filePath, err)
+		}
+		readStat.identity = fileInfo
+		readStat.fileSize = size
+		readStat.readPosition = start
 		a.readStats[filePath] = readStat
 
 		return Result{
@@ -122,27 +131,28 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (Result, error)
 		}, nil
 	}
 
-	// Detect log rotation by checking if file size decreased
-	// This avoids missing logs after rotation while preventing
-	// duplicate processing of log entries
-	if fileInfo.Size() < readStat.fileSize {
+	// A different file at the path means rotation; the same file getting smaller means copytruncate.
+	replaced := !os.SameFile(readStat.identity, fileInfo)
+	switch {
+	case replaced:
+		logger.Log("applogm3: file %q was replaced, reading the new file from the start", filePath)
+		readStat.readPosition = 0
+	case size < readStat.fileSize:
 		logger.Log("applogm3: file %q truncated, resetting read position", filePath)
 		readStat.readPosition = 0
-	} else {
-		// Seek to last read position for incremental processing
-		if _, err := src.Seek(readStat.readPosition, io.SeekStart); err != nil {
-			// If seek fails, fall back to processing from start to ensure
-			// no log entries are missed, even if some may be duplicated
-			logger.Log("applogm3: failed to seek %q to pos %d: %v, resetting to start",
-				filePath, readStat.readPosition, err)
-			if _, err = src.Seek(0, io.SeekStart); err != nil {
-				return Result{}, fmt.Errorf("failed to seek applog %q: %w", filePath, err)
-			}
-			readStat.readPosition = 0
-		}
 	}
 
-	logger.Log("applogm3: reading %q from pos %d", filePath, readStat.readPosition)
+	// An unfinished last line waits for the next run, unless the file has stopped growing.
+	start := readStat.readPosition
+	end, err := appLogM3UploadEnd(src, start, size, replaced || size != readStat.fileSize)
+	if err != nil {
+		return Result{}, fmt.Errorf("failed to scan applog %q: %w", filePath, err)
+	}
+
+	logger.Log("applogm3: reading %q from pos %d to %d", filePath, start, end)
+	if end < size {
+		logger.Log("applogm3: holding back %d bytes of an unfinished line in %q until the next run", size-end, filePath)
+	}
 
 	// Generate a unique destination filename to prevent conflicting file names.
 	dstPath := generateUniqueLogPath(filepath.Base(filePath))
@@ -152,15 +162,22 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (Result, error)
 	}
 	defer dst.Close()
 
-	// Copy new content from the source log.
-	bytesCopied, err := io.Copy(dst, src)
+	// Copy the new complete lines; a LimitReader over the file keeps Linux's in-kernel copy.
+	if _, err := src.Seek(start, io.SeekStart); err != nil {
+		return Result{}, fmt.Errorf("failed to seek applog %q: %w", filePath, err)
+	}
+	bytesCopied, err := io.Copy(dst, io.LimitReader(src, end-start))
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to copy content from %q: %w", filePath, err)
 	}
 
+	// Close before the upload, so the app can rotate the log meanwhile.
+	src.Close()
+
 	// Update readStats for next run
-	readStat.readPosition += bytesCopied
-	readStat.fileSize = fileInfo.Size()
+	readStat.identity = fileInfo
+	readStat.readPosition = start + bytesCopied
+	readStat.fileSize = size
 	a.readStats[filePath] = readStat
 
 	// Ensure all writes are flushed to disk.
@@ -173,4 +190,45 @@ func (a *AppLogM3) CaptureSingleAppLog(filePath string, pid int) (Result, error)
 	msg, ok := PostData(a.Endpoint(), dt, dst)
 
 	return Result{Msg: msg, Ok: ok}, nil
+}
+
+// appLogM3UploadEnd returns where an upload of f's [start, size) stops so it ends with a complete line.
+func appLogM3UploadEnd(f io.ReaderAt, start, size int64, holdBack bool) (int64, error) {
+	if !holdBack {
+		return size, nil
+	}
+
+	nl := detectNewline(f)
+
+	// A newline from here on leaves at most appLogM3MaxHeldBack bytes after it.
+	from := max(start, size-appLogM3MaxHeldBack-nl.unit)
+	end, err := findLastNewlineEnd(f, from, size, nl)
+	if err != nil {
+		return 0, err
+	}
+	if end > from {
+		return end, nil
+	}
+
+	// No complete line: hold it all back, unless it's past the limit.
+	if size-start > appLogM3MaxHeldBack {
+		return size, nil
+	}
+	return start, nil
+}
+
+// detectNewline picks the newline encoding from the file's byte order mark.
+func detectNewline(f io.ReaderAt) newline {
+	var bom [2]byte
+	if n, _ := f.ReadAt(bom[:], 0); n < len(bom) {
+		return byteNewline
+	}
+
+	switch bom {
+	case [2]byte{0xFF, 0xFE}:
+		return utf16LENewline
+	case [2]byte{0xFE, 0xFF}:
+		return utf16BENewline
+	}
+	return byteNewline
 }

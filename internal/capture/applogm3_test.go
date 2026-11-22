@@ -1,8 +1,12 @@
 package capture
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
+	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"yc-agent/internal/config"
 
@@ -187,7 +191,7 @@ func TestCaptureSingleAppLog_FileNotFound(t *testing.T) {
 	nonExistent := "nonexistent.log"
 	result, err := appLog.CaptureSingleAppLog(nonExistent, 123)
 	require.Error(t, err, "should return an error when file does not exist")
-	assert.Contains(t, err.Error(), "failed to stat applog", "error should mention stat failure")
+	assert.Contains(t, err.Error(), "failed to open applog", "error should mention open failure")
 
 	// In error case, the returned result is empty.
 	assert.Empty(t, result.Msg)
@@ -247,4 +251,138 @@ func TestRun_InvalidGlob(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Ok, "result should indicate failure")
 	assert.Contains(t, result.Msg, "doesn't exist", "zglob looks up \"[\" as a single file")
+}
+
+// TestAppLogM3_CaptureSingleAppLog_HoldsBackUnfinishedLine checks that an unfinished line goes up whole in the next run.
+func TestAppLogM3_CaptureSingleAppLog_HoldsBackUnfinishedLine(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filename := "test.log"
+	require.NoError(t, os.WriteFile(filename, []byte("Inserted 1000 Records to map!\n"), 0644))
+
+	appLog := NewAppLogM3()
+	_, err := appLog.CaptureSingleAppLog(filename, 123)
+	require.NoError(t, err)
+
+	appendToFile(t, filename, "java.lang.OutOfMemoryError: Java heap space\nApplication is s")
+	assert.Equal(t, "java.lang.OutOfMemoryError: Java heap space\n", captureAppLogM3Upload(t, appLog, filename))
+
+	appendToFile(t, filename, "till running :-)\n")
+	assert.Equal(t, "Application is still running :-)\n", captureAppLogM3Upload(t, appLog, filename))
+}
+
+// TestAppLogM3_CaptureSingleAppLog_SendsUnfinishedLineWhenIdle checks that an unfinished line goes up once the file stops growing.
+func TestAppLogM3_CaptureSingleAppLog_SendsUnfinishedLineWhenIdle(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filename := "test.log"
+	require.NoError(t, os.WriteFile(filename, []byte("line1\n"), 0644))
+
+	appLog := NewAppLogM3()
+	_, err := appLog.CaptureSingleAppLog(filename, 123)
+	require.NoError(t, err)
+
+	appendToFile(t, filename, "unfinished")
+	assert.Empty(t, captureAppLogM3Upload(t, appLog, filename), "the unfinished line waits while the file grows")
+	assert.Equal(t, "unfinished", captureAppLogM3Upload(t, appLog, filename), "the unfinished line goes up when the file is idle")
+}
+
+// TestAppLogM3_CaptureSingleAppLog_InitializesBeforeUnfinishedLine checks that the first upload starts with a whole line.
+func TestAppLogM3_CaptureSingleAppLog_InitializesBeforeUnfinishedLine(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filename := "test.log"
+	require.NoError(t, os.WriteFile(filename, []byte("line1\npart"), 0644))
+
+	appLog := NewAppLogM3()
+	_, err := appLog.CaptureSingleAppLog(filename, 123)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len("line1\n")), appLog.readStats[filename].readPosition)
+
+	appendToFile(t, filename, "ial\n")
+	assert.Equal(t, "partial\n", captureAppLogM3Upload(t, appLog, filename))
+}
+
+// TestAppLogM3_CaptureSingleAppLog_DetectsReplacedFile checks that a rotated-in file is read from the start, even when it is larger.
+func TestAppLogM3_CaptureSingleAppLog_DetectsReplacedFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filename := "test.log"
+	require.NoError(t, os.WriteFile(filename, []byte("old\n"), 0644))
+
+	appLog := NewAppLogM3()
+	_, err := appLog.CaptureSingleAppLog(filename, 123)
+	require.NoError(t, err)
+
+	// Rename keeps the old file around, so the new one can't reuse its inode.
+	require.NoError(t, os.Rename(filename, filename+".1"))
+	require.NoError(t, os.WriteFile(filename, []byte("new line 1\nnew line 2\n"), 0644))
+
+	assert.Equal(t, "new line 1\nnew line 2\n", captureAppLogM3Upload(t, appLog, filename))
+}
+
+// TestAppLogM3UploadEnd checks where an upload stops so that it ends with a complete line.
+func TestAppLogM3UploadEnd(t *testing.T) {
+	long := strings.Repeat("x", appLogM3MaxHeldBack)
+	le := func(s string) []byte { return utf16Bytes(binary.LittleEndian, "\uFEFF"+s) }
+	be := func(s string) []byte { return utf16Bytes(binary.BigEndian, "\uFEFF"+s) }
+
+	tests := []struct {
+		name     string
+		data     []byte
+		start    int64
+		holdBack bool
+		want     int64
+	}{
+		{"ends with a complete line", []byte("a\nb\n"), 0, true, 4},
+		{"holds back an unfinished line", []byte("a\nApplication is s"), 0, true, 2},
+		{"holds back everything without a newline", []byte("a\nunfinished"), 2, true, 2},
+		{"sends the unfinished line when idle", []byte("a\nunfinished"), 2, false, 12},
+		{"keeps CRLF together", []byte("a\r\nb\r\nc"), 0, true, 6},
+		{"finds a newline several scan chunks back", []byte("a\n" + strings.Repeat("x", 200_000)), 0, true, 2},
+		{"holds back up to the size limit", []byte("a\n" + long), 0, true, 2},
+		{"sends a line past the size limit", []byte("a\n" + long + "x"), 0, true, int64(len(long)) + 3},
+		{"UTF-16LE", le("a\r\nb"), 0, true, int64(len(le("a\r\n")))},
+		{"UTF-16LE skips a newline byte inside another character", le("a\nੁ一"), 0, true, int64(len(le("a\n")))},
+		{"UTF-16BE", be("a\nb"), 0, true, int64(len(be("a\n")))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := appLogM3UploadEnd(bytes.NewReader(tt.data), tt.start, int64(len(tt.data)), tt.holdBack)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// captureAppLogM3Upload runs one capture of filename and returns the content it uploaded.
+func captureAppLogM3Upload(t *testing.T, appLog *AppLogM3, filename string) string {
+	t.Helper()
+	before, err := os.ReadDir(".")
+	require.NoError(t, err)
+
+	_, err = appLog.CaptureSingleAppLog(filename, 123)
+	require.NoError(t, err)
+
+	after, err := os.ReadDir(".")
+	require.NoError(t, err)
+
+	seen := make(map[string]bool, len(before))
+	for _, e := range before {
+		seen[e.Name()] = true
+	}
+	for _, e := range after {
+		if !seen[e.Name()] {
+			data, err := os.ReadFile(e.Name())
+			require.NoError(t, err)
+			return string(data)
+		}
+	}
+	require.Fail(t, "capture wrote no upload file")
+	return ""
+}
+
+// utf16Bytes encodes s as UTF-16 in the given byte order.
+func utf16Bytes(order binary.AppendByteOrder, s string) []byte {
+	var b []byte
+	for _, u := range utf16.Encode([]rune(s)) {
+		b = order.AppendUint16(b, u)
+	}
+	return b
 }

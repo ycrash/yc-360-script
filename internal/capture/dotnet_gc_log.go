@@ -244,30 +244,58 @@ func copyFromOffset(w io.Writer, f *os.File, startOffset, fileSize int64) error 
 // newline in [startOffset, fileSize). If no newline exists in that range, there
 // is no complete line to copy and startOffset is returned.
 func findLastCompleteLineEnd(f *os.File, startOffset, fileSize int64) (int64, error) {
-	if startOffset >= fileSize {
+	return findLastNewlineEnd(f, startOffset, fileSize, byteNewline)
+}
+
+// newline is how a line ends in a file's text encoding.
+type newline struct {
+	unit    int64  // bytes per code unit
+	pattern []byte // the newline code unit
+}
+
+var (
+	byteNewline    = newline{unit: 1, pattern: []byte{'\n'}}
+	utf16LENewline = newline{unit: 2, pattern: []byte{'\n', 0}}
+	utf16BENewline = newline{unit: 2, pattern: []byte{0, '\n'}}
+)
+
+// findLastNewlineEnd is findLastCompleteLineEnd for a newline in the given encoding.
+func findLastNewlineEnd(f io.ReaderAt, startOffset, fileSize int64, nl newline) (int64, error) {
+	// Only whole code units count.
+	from := (startOffset + nl.unit - 1) / nl.unit * nl.unit
+	to := fileSize / nl.unit * nl.unit
+	if from >= to {
 		return startOffset, nil
 	}
 
 	const chunkSize int64 = 64 * 1024
 	buf := make([]byte, chunkSize)
 
-	for chunkEnd := fileSize; chunkEnd > startOffset; {
-		chunkStart := chunkEnd - chunkSize
-		if chunkStart < startOffset {
-			chunkStart = startOffset
-		}
+	for chunkEnd := to; chunkEnd > from; {
+		chunkStart := max(chunkEnd-chunkSize, from)
 
 		size := int(chunkEnd - chunkStart)
 		n, err := f.ReadAt(buf[:size], chunkStart)
 		if err != nil && err != io.EOF {
 			return 0, err
 		}
-		if idx := bytes.LastIndexByte(buf[:n], '\n'); idx >= 0 {
-			return chunkStart + int64(idx) + 1, nil
+		if idx := lastAlignedIndex(buf[:n], nl); idx >= 0 {
+			return chunkStart + int64(idx) + nl.unit, nil
 		}
 
 		chunkEnd = chunkStart
 	}
 
 	return startOffset, nil
+}
+
+// lastAlignedIndex returns the index of the last nl.pattern in b that starts on a code unit, or -1.
+func lastAlignedIndex(b []byte, nl newline) int {
+	for i := len(b); ; {
+		i = bytes.LastIndex(b[:i], nl.pattern)
+		if i < 0 || int64(i)%nl.unit == 0 {
+			return i
+		}
+		i += len(nl.pattern) - 1
+	}
 }
