@@ -32,12 +32,11 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 		return true
 	})
 
-	// Exactly the lightweight M3 steady-cycle tasks — no more, no fewer.
-	// Process overview is deliberately omitted: not analyzed from M3 samples
-	// on the yCrash side, and getReport() is relatively expensive.
+	// M3 steady-cycle Node tasks: GC delta, process overview (M3 gates), heap summary.
 	want := map[string]bool{
-		"NodeGC":          true,
-		"NodeHeapSummary": true,
+		"NodeGC":                true,
+		"NodeProcessOverview":   true,
+		"NodeHeapSummary":       true,
 	}
 	for name := range want {
 		if _, ok := constructed[name]; !ok {
@@ -45,7 +44,6 @@ func TestCaptureNodeM3TaskSet(t *testing.T) {
 		}
 	}
 	forbidden := []string{
-		"NodeProcessOverview", // skipped in M3 steady cycle (not analyzed; costly getReport)
 		"NodeCPUProfile", "NodeWorkerCPUProfiles", "NodeEventLoopLag", "NodeUnhandledRejections",
 		"NodeModuleInventory", "NodeHandleGrowth", "NodePendingPromises", "NodeGCStats",
 	}
