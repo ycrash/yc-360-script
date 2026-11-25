@@ -2,7 +2,7 @@
 
 ## What this is
 
-yc-360 script: a single Go binary (`yc`, module name `yc-agent`) that captures diagnostic artifacts from a target Java, .NET or Node.js process and its host. It collects GC logs, thread dumps, heap dumps or heap substitutes, JFR, top, ps, netstat, vmstat, dmesg, disk, ping, kernel params, app/access logs and extended data. It then uploads them to a yCrash server, or with `-onlyCapture` zips them locally as `yc-<timestamp>.zip`.
+yc-360 script: a single Go binary (`yc`, module name `yc-agent`) that captures diagnostic artifacts from a target Java, .NET or Node.js process and its host. It collects GC logs, thread dumps, heap dumps or heap substitutes, JFR, top, ps, netstat, vmstat, dmesg, disk, ping, kernel params, app/access logs and extended data. It then uploads them to a yCrash server, or with `-onlyCapture` packs them locally into `yc-<timestamp>.zst`, a zstd-compressed tar file.
 
 ## Commands
 
@@ -67,7 +67,7 @@ OnDemand and M3 conflict with each other. M3 and API block forever.
 
 ### The capture pipeline
 
-- `FullCapture` creates `yc-<timestamp>/` and **`os.Chdir`s into it**. Every capture task writes its artifact by a relative file name in the current working directory. When the capture finishes, the deferred code changes back to the original directory and zips the folder in `-onlyCapture` mode. M3 skips the directory and chdir steps.
+- `FullCapture` creates `yc-<timestamp>/` and **`os.Chdir`s into it**. Every capture task writes its artifact by a relative file name in the current working directory. When the capture finishes, the deferred code changes back to the original directory and in `-onlyCapture` mode packs the folder into `yc-<timestamp>.zst`. M3 skips the directory and chdir steps.
 - Each artifact type is a struct in `internal/capture` that embeds `capture.Capture` and implements `Task` (`Run() (Result, error)`). The orchestrator starts each one as `goCapture(endpoint, capture.WrapRun(task), waitFor...)`, which runs it in a goroutine and returns a result channel. Any `waitFor` tasks must finish before this one starts, for example dmesg waits for vmstat.
 - Each task uploads its own output inside `Run()` through `PostData`/`PostCustomData*`, sent to the yc server endpoint with a `dt=<type>` query param and the `ApiKey` header. In `-onlyCapture` mode these functions return early without sending anything.
 - `config.GetAppRuntime(pid)` selects the runtime-specific captures. It uses `-appRuntime` if set; otherwise it auto-detects .NET (Windows module inspection), then Node.js, and falls back to Java. Host-level captures run for every runtime.

@@ -65,7 +65,7 @@ unzip yc-360-latest.zip
 
 <strong>5. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
-When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
+When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be packed into a zstd-compressed tar file and stored in the directory where the above command was executed. The file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zst'. **Example**: 'yc-2024-09-23T14-02-42.zst'. To extract it, run `tar -xf yc-2024-09-23T14-02-42.zst` (this needs the `zstd` package).
 
 <strong>For Java applications:</strong>
 
@@ -134,7 +134,7 @@ unzip yc-360-latest.zip
 
 <strong>5. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
-When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be compressed into a zip file and stored in the directory where the above command was executed. The zip file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zip'. **Example**: 'yc-2024-09-23T14-02-42.zip'.
+When you execute the below command, the yc-360 script will capture all the artifacts/logs from the target JVM & host for analysis. Captured artifacts will be packed into a zstd-compressed tar file and stored in the directory where the above command was executed. The file will have the name in the format: 'yc-YYYY-MM-DDTHH-mm-ss.zst'. **Example**: 'yc-2024-09-23T14-02-42.zst'. To extract it, run `tar -xf yc-2024-09-23T14-02-42.zst`.
 
 <strong>For Java applications:</strong>
 
@@ -193,7 +193,7 @@ cd windows
 
 <strong>3. Execute yc-360 Script:</strong> Run the script with your target application's process ID:
 
-When the command is executed, the yc-360 script captures all artifacts from the target application and host. The collected artifacts are compressed into a ZIP file and saved in the directory where the command was executed. The ZIP file is named in the format: **`yc-YYYY-MM-DDTHH-mm-ss.zip`**. For example: **`yc-2024-09-23T14-02-42.zip`**.
+When the command is executed, the yc-360 script captures all artifacts from the target application and host. The collected artifacts are packed into a zstd-compressed tar file and saved in the directory where the command was executed. The file is named in the format: **`yc-YYYY-MM-DDTHH-mm-ss.zst`**. For example: **`yc-2024-09-23T14-02-42.zst`**.
 
 **For Java applications:**
 
