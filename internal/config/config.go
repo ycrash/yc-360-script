@@ -66,6 +66,9 @@ type Options struct {
 
 	JFREnabled         bool     `yaml:"jfrEnabled" usage:"Capture a JFR (Java Flight Recorder) recording alongside other artifacts, default is true"`
 	JFRCaptureDuration Duration `yaml:"jfrCaptureDuration" usage:"Total duration to capture the JFR recording (e.g., 60s, 2m). Default is 60 seconds."`
+	JFRSettings        string   `yaml:"jfrSettings" usage:"JFR settings for the recording: default, profile, or the path to a .jfc file. Default is the JDK's default settings. A file that can't be used is logged as an error and the JDK's default settings are used instead"`
+
+	ExcludeSensitiveData bool `yaml:"excludeSensitiveData" usage:"Keep the target's environment variables and system properties out of the JFR recording by turning off the jdk.InitialEnvironmentVariable and jdk.InitialSystemProperty events when the recording starts. Only these two JFR events are affected. Default is false"`
 
 	PingHost string `yaml:"pingHost" usage:"Ping to host three times"`
 	Tags     string `yaml:"tags" usage:"Comma delimited strings as tags to transmit to server"`

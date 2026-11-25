@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"yc-agent/internal/capture"
 	"yc-agent/internal/config"
 	"yc-agent/internal/logger"
 	"yc-agent/internal/nodejsvalidation"
@@ -136,6 +137,15 @@ func validate() error {
 
 	if len(config.GlobalConfig.ProcessTokens) > 0 && !config.GlobalConfig.M3 {
 		logger.Warn().Msg("ProcessTokens is passed without M3 mode. See https://docs.ycrash.io/yc-360/launch-modes/m3-mode.html")
+	}
+
+	// A -jfrSettings file is read at capture time, after the capture has
+	// changed into its own folder, so a relative path must be resolved now.
+	if s := strings.TrimSpace(config.GlobalConfig.JFRSettings); s != "" && !capture.IsJFRTemplate(s) {
+		if abs, err := filepath.Abs(s); err == nil && abs != config.GlobalConfig.JFRSettings {
+			logger.Log("JFR settings path %q adjusted to %q", config.GlobalConfig.JFRSettings, abs)
+			config.GlobalConfig.JFRSettings = abs
+		}
 	}
 
 	// AppLog

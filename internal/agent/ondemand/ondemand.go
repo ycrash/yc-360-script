@@ -426,9 +426,11 @@ Ignored errors: %v
 		// rest of the capture instead of adding to it.
 		if config.GlobalConfig.JFREnabled {
 			jfr = goCapture(endpoint, capture.WrapRun(&capture.JFR{
-				Pid:      pid,
-				JavaHome: config.GlobalConfig.JavaHomePath,
-				Duration: config.GlobalConfig.JFRCaptureDuration.Duration(),
+				Pid:                  pid,
+				JavaHome:             config.GlobalConfig.JavaHomePath,
+				Duration:             config.GlobalConfig.JFRCaptureDuration.Duration(),
+				Settings:             config.GlobalConfig.JFRSettings,
+				ExcludeSensitiveData: config.GlobalConfig.ExcludeSensitiveData,
 			}))
 		}
 

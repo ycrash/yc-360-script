@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
 
+	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/logger"
 )
 
@@ -267,5 +270,48 @@ func TestJcmdFailure(t *testing.T) {
 	want := "JVM rejected the command: Could not start recording\r\njava.lang.IllegalStateException: busy"
 	if got := jcmdFailure(nil, out); got != want {
 		t.Errorf("jcmdFailure(nil) = %q, want %q", got, want)
+	}
+}
+
+// Real JDK 11 replies with yc as root and the JVM as another user: jcmd
+// fails after its 10.5s attach timeout every time, and jattach works.
+func TestJFRRunJcmdKeepsWorkingFallback(t *testing.T) {
+	const jcmdRefused = "70:\ncom.sun.tools.attach.AttachNotSupportedException: Unable to open socket file /proc/70/root/tmp/.java_pid70: target process 70 doesn't respond within 10500ms or HotSpot VM not loaded\n"
+	const jattachReply = "Connected to remote JVM\nJVM response code = 0\nNo available recordings.\n\nUse jcmd 70 JFR.start to start a recording.\n"
+
+	run := func(jcmdWorks bool, sent *[]string) func(io.Writer, executils.Command, ...executils.Hooker) error {
+		return func(w io.Writer, cmd executils.Command, _ ...executils.Hooker) error {
+			if strings.HasSuffix(cmd[0], "bin/jcmd") {
+				*sent = append(*sent, "jcmd")
+				if !jcmdWorks {
+					return fmt.Errorf("exit status 1 because %s", jcmdRefused)
+				}
+				_, err := io.WriteString(w, "70:\nNo available recordings.\n")
+				return err
+			}
+			*sent = append(*sent, "jattach")
+			_, err := io.WriteString(w, jattachReply)
+			return err
+		}
+	}
+
+	for name, tt := range map[string]struct {
+		jcmdWorks bool
+		want      []string
+	}{
+		"jcmd fails: the second command goes straight to jattach": {false, []string{"jcmd", "jattach", "jattach"}},
+		"jcmd works: it stays first":                              {true, []string{"jcmd", "jcmd"}},
+	} {
+		var sent []string
+		j := &JFR{Pid: 70, JavaHome: "/opt/java/openjdk"}
+		j.runCmd = run(tt.jcmdWorks, &sent)
+		for range 2 {
+			if _, err := j.runJcmd("JFR.check"); err != nil {
+				t.Fatalf("%s: runJcmd() = %v", name, err)
+			}
+		}
+		if !slices.Equal(sent, tt.want) {
+			t.Errorf("%s: sent through %q, want %q", name, sent, tt.want)
+		}
 	}
 }

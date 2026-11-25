@@ -1,0 +1,739 @@
+71:
+Recording 17: name=customer maxsize=250.0MB (running)
+
+ Flight Recording (jdk.ActiveRecording)
+   [enabled=true]
+ Recording Setting (jdk.ActiveSetting)
+   [enabled=true]
+ Allocation Requiring GC (jdk.AllocationRequiringGC)
+   [stackTrace=true,enabled=false]
+ Boolean Flag (jdk.BooleanFlag)
+   [period=beginChunk,enabled=true]
+ Boolean Flag Changed (jdk.BooleanFlagChanged)
+   [enabled=true]
+ CPU Information (jdk.CPUInformation)
+   [period=beginChunk,enabled=true]
+ CPU Load (jdk.CPULoad)
+   [period=1000 ms,enabled=true]
+ CPU Time Stamp Counter (jdk.CPUTimeStampCounter)
+   [period=beginChunk,enabled=true]
+ Class Define (jdk.ClassDefine)
+   [stackTrace=true,enabled=false]
+ Class Load (jdk.ClassLoad)
+   [threshold=0 ms,stackTrace=true,enabled=false]
+ Class Loader Statistics (jdk.ClassLoaderStatistics)
+   [period=everyChunk,enabled=true]
+ Class Loading Statistics (jdk.ClassLoadingStatistics)
+   [period=1000 ms,enabled=true]
+ Class Redefinition (jdk.ClassRedefinition)
+   [enabled=true]
+ Class Unload (jdk.ClassUnload)
+   [enabled=false]
+ Code Cache Configuration (jdk.CodeCacheConfiguration)
+   [period=beginChunk,enabled=true]
+ Code Cache Full (jdk.CodeCacheFull)
+   [enabled=true]
+ Code Cache Statistics (jdk.CodeCacheStatistics)
+   [period=everyChunk,enabled=true]
+ Compilation (jdk.Compilation)
+   [threshold=1000 ms,enabled=true]
+ Compilation Failure (jdk.CompilationFailure)
+   [enabled=false]
+ Compiler Configuration (jdk.CompilerConfiguration)
+   [period=beginChunk,enabled=true]
+ Method Inlining (jdk.CompilerInlining)
+   [enabled=false]
+ Compiler Phase (jdk.CompilerPhase)
+   [threshold=60 s,enabled=true]
+ Compiler Statistics (jdk.CompilerStatistics)
+   [period=1000 ms,enabled=true]
+ Concurrent Mode Failure (jdk.ConcurrentModeFailure)
+   [enabled=true]
+ CPU Throttling (jdk.ContainerCPUThrottling)
+   [period=30 s,enabled=true]
+ CPU Usage (jdk.ContainerCPUUsage)
+   [period=30 s,enabled=true]
+ Container Configuration (jdk.ContainerConfiguration)
+   [period=beginChunk,enabled=true]
+ Container IO Usage (jdk.ContainerIOUsage)
+   [period=30 s,enabled=true]
+ Container Memory Usage (jdk.ContainerMemoryUsage)
+   [period=30 s,enabled=true]
+ Continuation Yield (jdk.ContinuationFreeze)
+   [threshold=0 ms,stackTrace=false,enabled=false]
+ Continuation Freeze Fast (jdk.ContinuationFreezeFast)
+   [enabled=false]
+ Continuation Freeze Slow (jdk.ContinuationFreezeSlow)
+   [enabled=false]
+ Continuation Continue (jdk.ContinuationThaw)
+   [threshold=0 ms,stackTrace=false,enabled=false]
+ Continuation Thaw Fast (jdk.ContinuationThawFast)
+   [enabled=false]
+ Continuation Thaw Slow (jdk.ContinuationThawSlow)
+   [enabled=false]
+ Data Loss (jdk.DataLoss)
+   [enabled=true]
+ Deoptimization (jdk.Deoptimization)
+   [stackTrace=false,enabled=true]
+ Deserialization (jdk.Deserialization)
+   [stackTrace=true,enabled=false]
+ Direct Buffer Statistics (jdk.DirectBufferStatistics)
+   [period=5 s,enabled=true]
+ Double Flag (jdk.DoubleFlag)
+   [period=beginChunk,enabled=true]
+ Double Flag Changed (jdk.DoubleFlagChanged)
+   [enabled=true]
+ Recording Reason (jdk.DumpReason)
+   [enabled=true]
+ Evacuation Failed (jdk.EvacuationFailed)
+   [enabled=true]
+ Evacuation Information (jdk.EvacuationInformation)
+   [enabled=true]
+ Exception Statistics (jdk.ExceptionStatistics)
+   [period=1000 ms,enabled=true]
+ VM Operation (jdk.ExecuteVMOperation)
+   [threshold=10 ms,enabled=true]
+ Method Profiling Sample (jdk.ExecutionSample)
+   [period=20 ms,enabled=true]
+ File Force (jdk.FileForce)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ File Read (jdk.FileRead)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ File Write (jdk.FileWrite)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Finalizer Statistics (jdk.FinalizerStatistics)
+   [period=endChunk,enabled=true]
+ Flush (jdk.Flush)
+   [threshold=0 ns,enabled=false]
+ G1 Adaptive IHOP Statistics (jdk.G1AdaptiveIHOP)
+   [enabled=true]
+ G1 Basic IHOP Statistics (jdk.G1BasicIHOP)
+   [enabled=true]
+ G1 Evacuation Memory Statistics for Old (jdk.G1EvacuationOldStatistics)
+   [enabled=true]
+ G1 Evacuation Statistics for Young (jdk.G1EvacuationYoungStatistics)
+   [enabled=true]
+ G1 Young Garbage Collection (jdk.G1GarbageCollection)
+   [threshold=0 ms,enabled=true]
+ G1 Heap Region Information (jdk.G1HeapRegionInformation)
+   [period=everyChunk,enabled=false]
+ G1 Heap Region Type Change (jdk.G1HeapRegionTypeChange)
+   [enabled=false]
+ G1 Heap Summary (jdk.G1HeapSummary)
+   [enabled=true]
+ G1 MMU Information (jdk.G1MMU)
+   [enabled=true]
+ GC CPU Time (jdk.GCCPUTime)
+   [enabled=true]
+ GC Configuration (jdk.GCConfiguration)
+   [period=everyChunk,enabled=true]
+ GC Heap Configuration (jdk.GCHeapConfiguration)
+   [period=beginChunk,enabled=true]
+ GC Heap Memory Pool Usage (jdk.GCHeapMemoryPoolUsage)
+   [period=everyChunk,enabled=true]
+ GC Heap Memory Usage (jdk.GCHeapMemoryUsage)
+   [period=everyChunk,enabled=true]
+ Heap Summary (jdk.GCHeapSummary)
+   [enabled=true]
+ GC Locker (jdk.GCLocker)
+   [threshold=1 s,stackTrace=true,enabled=true]
+ GC Phase Concurrent (jdk.GCPhaseConcurrent)
+   [threshold=0 ms,enabled=true]
+ GC Phase Concurrent Level 1 (jdk.GCPhaseConcurrentLevel1)
+   [threshold=0 ms,enabled=true]
+ GC Phase Concurrent Level 2 (jdk.GCPhaseConcurrentLevel2)
+   [threshold=0 ms,enabled=true]
+ GC Phase Parallel (jdk.GCPhaseParallel)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause (jdk.GCPhasePause)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 1 (jdk.GCPhasePauseLevel1)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 2 (jdk.GCPhasePauseLevel2)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 3 (jdk.GCPhasePauseLevel3)
+   [threshold=0 ms,enabled=false]
+ GC Phase Pause Level 4 (jdk.GCPhasePauseLevel4)
+   [threshold=0 ms,enabled=false]
+ GC Reference Statistics (jdk.GCReferenceStatistics)
+   [enabled=true]
+ GC Survivor Configuration (jdk.GCSurvivorConfiguration)
+   [period=beginChunk,enabled=true]
+ TLAB Configuration (jdk.GCTLABConfiguration)
+   [period=beginChunk,enabled=true]
+ Garbage Collection (jdk.GarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Heap Dump (jdk.HeapDump)
+   [threshold=0 ns,stackTrace=true,enabled=true]
+ Initial Environment Variable (jdk.InitialEnvironmentVariable)
+   [period=beginChunk,enabled=true]
+ Initial Security Property (jdk.InitialSecurityProperty)
+   [period=beginChunk,enabled=true]
+ Initial System Property (jdk.InitialSystemProperty)
+   [period=beginChunk,enabled=true]
+ Int Flag (jdk.IntFlag)
+   [period=beginChunk,enabled=true]
+ Int Flag Changed (jdk.IntFlagChanged)
+   [enabled=true]
+ JIT Restart (jdk.JITRestart)
+   [enabled=true]
+ JVM Information (jdk.JVMInformation)
+   [period=beginChunk,enabled=true]
+ Java Agent (jdk.JavaAgent)
+   [period=endChunk,enabled=true]
+ Java Error (jdk.JavaErrorThrow)
+   [stackTrace=true,enabled=true]
+ Java Exception (jdk.JavaExceptionThrow)
+   [stackTrace=true,enabled=false]
+ Java Monitor Blocked (jdk.JavaMonitorEnter)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Monitor Inflated (jdk.JavaMonitorInflate)
+   [threshold=20 ms,stackTrace=true,enabled=false]
+ Java Monitor Wait (jdk.JavaMonitorWait)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Statistics (jdk.JavaThreadStatistics)
+   [period=1000 ms,enabled=true]
+ Long Flag (jdk.LongFlag)
+   [period=beginChunk,enabled=true]
+ Long Flag Changed (jdk.LongFlagChanged)
+   [enabled=true]
+ Metaspace Allocation Failure (jdk.MetaspaceAllocationFailure)
+   [stackTrace=true,enabled=true]
+ Metaspace Chunk Free List Summary (jdk.MetaspaceChunkFreeListSummary)
+   [enabled=true]
+ Metaspace GC Threshold (jdk.MetaspaceGCThreshold)
+   [enabled=true]
+ Metaspace Out of Memory (jdk.MetaspaceOOM)
+   [stackTrace=true,enabled=true]
+ Metaspace Summary (jdk.MetaspaceSummary)
+   [enabled=true]
+ Module Export (jdk.ModuleExport)
+   [period=endChunk,enabled=false]
+ Module Require (jdk.ModuleRequire)
+   [period=endChunk,enabled=true]
+ Native Agent (jdk.NativeAgent)
+   [period=endChunk,enabled=true]
+ Native Library (jdk.NativeLibrary)
+   [period=everyChunk,enabled=true]
+ Native Memory Usage Per Type (jdk.NativeMemoryUsage)
+   [period=1000 ms,enabled=true]
+ Total Native Memory Usage (jdk.NativeMemoryUsageTotal)
+   [period=1000 ms,enabled=true]
+ Method Profiling Sample Native (jdk.NativeMethodSample)
+   [period=20 ms,enabled=true]
+ Network Utilization (jdk.NetworkUtilization)
+   [period=5 s,enabled=true]
+ OS Information (jdk.OSInformation)
+   [period=beginChunk,enabled=true]
+ Allocation in new TLAB (jdk.ObjectAllocationInNewTLAB)
+   [stackTrace=true,enabled=false]
+ Allocation outside TLAB (jdk.ObjectAllocationOutsideTLAB)
+   [stackTrace=true,enabled=false]
+ Object Allocation Sample (jdk.ObjectAllocationSample)
+   [stackTrace=true,throttle=150/s,enabled=true]
+ Object Count (jdk.ObjectCount)
+   [period=everyChunk,enabled=false]
+ Object Count after GC (jdk.ObjectCountAfterGC)
+   [enabled=false]
+ Old Garbage Collection (jdk.OldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Old Object Sample (jdk.OldObjectSample)
+   [stackTrace=false,cutoff=0 ns,enabled=true]
+ Parallel Scavenge Heap Summary (jdk.PSHeapSummary)
+   [enabled=true]
+ Parallel Old Garbage Collection (jdk.ParallelOldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Physical Memory (jdk.PhysicalMemory)
+   [period=everyChunk,enabled=true]
+ Process Start (jdk.ProcessStart)
+   [stackTrace=true,enabled=true]
+ Promotion in new PLAB (jdk.PromoteObjectInNewPLAB)
+   [enabled=false]
+ Promotion outside PLAB (jdk.PromoteObjectOutsidePLAB)
+   [enabled=false]
+ Promotion Failed (jdk.PromotionFailed)
+   [enabled=true]
+ Redefine Classes (jdk.RedefineClasses)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ Reserved Stack Activation (jdk.ReservedStackActivation)
+   [stackTrace=true,enabled=true]
+ Resident Set Size (jdk.ResidentSetSize)
+   [period=1000 ms,enabled=true]
+ Retransform Classes (jdk.RetransformClasses)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ Safepoint Begin (jdk.SafepointBegin)
+   [threshold=10 ms,enabled=true]
+ Safepoint Cleanup (jdk.SafepointCleanup)
+   [threshold=10 ms,enabled=false]
+ Safepoint Cleanup Task (jdk.SafepointCleanupTask)
+   [threshold=10 ms,enabled=false]
+ Safepoint End (jdk.SafepointEnd)
+   [threshold=10 ms,enabled=false]
+ Safepoint State Synchronization (jdk.SafepointStateSynchronization)
+   [threshold=10 ms,enabled=false]
+ Security Property Modification (jdk.SecurityPropertyModification)
+   [stackTrace=true,enabled=false]
+ Security Provider Instance Request (jdk.SecurityProviderService)
+   [stackTrace=true,enabled=false]
+ Shenandoah Heap Region Information (jdk.ShenandoahHeapRegionInformation)
+   [period=everyChunk,enabled=false]
+ Shenandoah Heap Region State Change (jdk.ShenandoahHeapRegionStateChange)
+   [enabled=false]
+ JVM Shutdown (jdk.Shutdown)
+   [stackTrace=true,enabled=true]
+ Socket Read (jdk.SocketRead)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Socket Write (jdk.SocketWrite)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ String Flag (jdk.StringFlag)
+   [period=beginChunk,enabled=true]
+ String Flag Changed (jdk.StringFlagChanged)
+   [enabled=true]
+ String Table Statistics (jdk.StringTableStatistics)
+   [period=10 s,enabled=false]
+ Symbol Table Statistics (jdk.SymbolTableStatistics)
+   [period=10 s,enabled=false]
+ Value Based Class Synchronization (jdk.SyncOnValueBasedClass)
+   [stackTrace=true,enabled=true]
+ System GC (jdk.SystemGC)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ System Process (jdk.SystemProcess)
+   [period=endChunk,enabled=true]
+ TLS Handshake (jdk.TLSHandshake)
+   [stackTrace=true,enabled=false]
+ Tenuring Distribution (jdk.TenuringDistribution)
+   [enabled=true]
+ Thread Allocation Statistics (jdk.ThreadAllocationStatistics)
+   [period=everyChunk,enabled=true]
+ Thread CPU Load (jdk.ThreadCPULoad)
+   [period=10 s,enabled=true]
+ Thread Context Switch Rate (jdk.ThreadContextSwitchRate)
+   [period=10 s,enabled=true]
+ Thread Dump (jdk.ThreadDump)
+   [period=everyChunk,enabled=true]
+ Java Thread End (jdk.ThreadEnd)
+   [enabled=true]
+ Java Thread Park (jdk.ThreadPark)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Sleep (jdk.ThreadSleep)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Start (jdk.ThreadStart)
+   [stackTrace=true,enabled=true]
+ Unsigned Int Flag (jdk.UnsignedIntFlag)
+   [period=beginChunk,enabled=true]
+ Unsigned Int Flag Changed (jdk.UnsignedIntFlagChanged)
+   [enabled=true]
+ Unsigned Long Flag (jdk.UnsignedLongFlag)
+   [period=beginChunk,enabled=true]
+ Unsigned Long Flag Changed (jdk.UnsignedLongFlagChanged)
+   [enabled=true]
+ Virtual Thread End (jdk.VirtualThreadEnd)
+   [enabled=false]
+ Virtual Thread Pinned (jdk.VirtualThreadPinned)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Virtual Thread Start (jdk.VirtualThreadStart)
+   [stackTrace=true,enabled=false]
+ Virtual Thread Submit Failed (jdk.VirtualThreadSubmitFailed)
+   [stackTrace=true,enabled=true]
+ Virtualization Information (jdk.VirtualizationInformation)
+   [period=beginChunk,enabled=true]
+ X509 Certificate (jdk.X509Certificate)
+   [stackTrace=true,enabled=false]
+ X509 Validation (jdk.X509Validation)
+   [stackTrace=true,enabled=false]
+ Young Garbage Collection (jdk.YoungGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Young Generation Configuration (jdk.YoungGenerationConfiguration)
+   [period=beginChunk,enabled=true]
+ ZGC Allocation Stall (jdk.ZAllocationStall)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ ZGC Old Garbage Collection (jdk.ZOldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ ZGC Page Allocation (jdk.ZPageAllocation)
+   [threshold=1 ms,stackTrace=true,enabled=true]
+ ZGC Relocation Set (jdk.ZRelocationSet)
+   [threshold=0 ms,enabled=true]
+ ZGC Relocation Set Group (jdk.ZRelocationSetGroup)
+   [threshold=0 ms,enabled=true]
+ ZGC Statistics Counter (jdk.ZStatisticsCounter)
+   [threshold=0 ms,enabled=false]
+ ZGC Statistics Sampler (jdk.ZStatisticsSampler)
+   [threshold=0 ms,enabled=false]
+ ZGC Thread Phase (jdk.ZThreadPhase)
+   [threshold=0 ms,enabled=false]
+ ZGC Uncommit (jdk.ZUncommit)
+   [threshold=0 ms,enabled=true]
+ ZGC Unmap (jdk.ZUnmap)
+   [threshold=0 ms,enabled=true]
+ ZGC Young Garbage Collection (jdk.ZYoungGarbageCollection)
+   [threshold=0 ms,enabled=true]
+
+
+Recording 18: name=leak_repeat duration=4s (running)
+
+ Flight Recording (jdk.ActiveRecording)
+   [enabled=true]
+ Recording Setting (jdk.ActiveSetting)
+   [enabled=true]
+ Allocation Requiring GC (jdk.AllocationRequiringGC)
+   [stackTrace=true,enabled=false]
+ Boolean Flag (jdk.BooleanFlag)
+   [period=beginChunk,enabled=true]
+ Boolean Flag Changed (jdk.BooleanFlagChanged)
+   [enabled=true]
+ CPU Information (jdk.CPUInformation)
+   [period=beginChunk,enabled=true]
+ CPU Load (jdk.CPULoad)
+   [period=1000 ms,enabled=true]
+ CPU Time Stamp Counter (jdk.CPUTimeStampCounter)
+   [period=beginChunk,enabled=true]
+ Class Define (jdk.ClassDefine)
+   [stackTrace=true,enabled=false]
+ Class Load (jdk.ClassLoad)
+   [threshold=0 ms,stackTrace=true,enabled=false]
+ Class Loader Statistics (jdk.ClassLoaderStatistics)
+   [period=everyChunk,enabled=true]
+ Class Loading Statistics (jdk.ClassLoadingStatistics)
+   [period=1000 ms,enabled=true]
+ Class Redefinition (jdk.ClassRedefinition)
+   [enabled=true]
+ Class Unload (jdk.ClassUnload)
+   [enabled=false]
+ Code Cache Configuration (jdk.CodeCacheConfiguration)
+   [period=beginChunk,enabled=true]
+ Code Cache Full (jdk.CodeCacheFull)
+   [enabled=true]
+ Code Cache Statistics (jdk.CodeCacheStatistics)
+   [period=everyChunk,enabled=true]
+ Compilation (jdk.Compilation)
+   [threshold=1000 ms,enabled=true]
+ Compilation Failure (jdk.CompilationFailure)
+   [enabled=false]
+ Compiler Configuration (jdk.CompilerConfiguration)
+   [period=beginChunk,enabled=true]
+ Method Inlining (jdk.CompilerInlining)
+   [enabled=false]
+ Compiler Phase (jdk.CompilerPhase)
+   [threshold=60 s,enabled=true]
+ Compiler Statistics (jdk.CompilerStatistics)
+   [period=1000 ms,enabled=true]
+ Concurrent Mode Failure (jdk.ConcurrentModeFailure)
+   [enabled=true]
+ CPU Throttling (jdk.ContainerCPUThrottling)
+   [period=30 s,enabled=true]
+ CPU Usage (jdk.ContainerCPUUsage)
+   [period=30 s,enabled=true]
+ Container Configuration (jdk.ContainerConfiguration)
+   [period=beginChunk,enabled=true]
+ Container IO Usage (jdk.ContainerIOUsage)
+   [period=30 s,enabled=true]
+ Container Memory Usage (jdk.ContainerMemoryUsage)
+   [period=30 s,enabled=true]
+ Continuation Yield (jdk.ContinuationFreeze)
+   [threshold=0 ms,stackTrace=false,enabled=false]
+ Continuation Freeze Fast (jdk.ContinuationFreezeFast)
+   [enabled=false]
+ Continuation Freeze Slow (jdk.ContinuationFreezeSlow)
+   [enabled=false]
+ Continuation Continue (jdk.ContinuationThaw)
+   [threshold=0 ms,stackTrace=false,enabled=false]
+ Continuation Thaw Fast (jdk.ContinuationThawFast)
+   [enabled=false]
+ Continuation Thaw Slow (jdk.ContinuationThawSlow)
+   [enabled=false]
+ Data Loss (jdk.DataLoss)
+   [enabled=true]
+ Deoptimization (jdk.Deoptimization)
+   [stackTrace=false,enabled=true]
+ Deserialization (jdk.Deserialization)
+   [stackTrace=true,enabled=false]
+ Direct Buffer Statistics (jdk.DirectBufferStatistics)
+   [period=5 s,enabled=true]
+ Double Flag (jdk.DoubleFlag)
+   [period=beginChunk,enabled=true]
+ Double Flag Changed (jdk.DoubleFlagChanged)
+   [enabled=true]
+ Recording Reason (jdk.DumpReason)
+   [enabled=true]
+ Evacuation Failed (jdk.EvacuationFailed)
+   [enabled=true]
+ Evacuation Information (jdk.EvacuationInformation)
+   [enabled=true]
+ Exception Statistics (jdk.ExceptionStatistics)
+   [period=1000 ms,enabled=true]
+ VM Operation (jdk.ExecuteVMOperation)
+   [threshold=10 ms,enabled=true]
+ Method Profiling Sample (jdk.ExecutionSample)
+   [period=20 ms,enabled=true]
+ File Force (jdk.FileForce)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ File Read (jdk.FileRead)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ File Write (jdk.FileWrite)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Finalizer Statistics (jdk.FinalizerStatistics)
+   [period=endChunk,enabled=true]
+ Flush (jdk.Flush)
+   [threshold=0 ns,enabled=false]
+ G1 Adaptive IHOP Statistics (jdk.G1AdaptiveIHOP)
+   [enabled=true]
+ G1 Basic IHOP Statistics (jdk.G1BasicIHOP)
+   [enabled=true]
+ G1 Evacuation Memory Statistics for Old (jdk.G1EvacuationOldStatistics)
+   [enabled=true]
+ G1 Evacuation Statistics for Young (jdk.G1EvacuationYoungStatistics)
+   [enabled=true]
+ G1 Young Garbage Collection (jdk.G1GarbageCollection)
+   [threshold=0 ms,enabled=true]
+ G1 Heap Region Information (jdk.G1HeapRegionInformation)
+   [period=everyChunk,enabled=false]
+ G1 Heap Region Type Change (jdk.G1HeapRegionTypeChange)
+   [enabled=false]
+ G1 Heap Summary (jdk.G1HeapSummary)
+   [enabled=true]
+ G1 MMU Information (jdk.G1MMU)
+   [enabled=true]
+ GC CPU Time (jdk.GCCPUTime)
+   [enabled=true]
+ GC Configuration (jdk.GCConfiguration)
+   [period=everyChunk,enabled=true]
+ GC Heap Configuration (jdk.GCHeapConfiguration)
+   [period=beginChunk,enabled=true]
+ GC Heap Memory Pool Usage (jdk.GCHeapMemoryPoolUsage)
+   [period=everyChunk,enabled=true]
+ GC Heap Memory Usage (jdk.GCHeapMemoryUsage)
+   [period=everyChunk,enabled=true]
+ Heap Summary (jdk.GCHeapSummary)
+   [enabled=true]
+ GC Locker (jdk.GCLocker)
+   [threshold=1 s,stackTrace=true,enabled=true]
+ GC Phase Concurrent (jdk.GCPhaseConcurrent)
+   [threshold=0 ms,enabled=true]
+ GC Phase Concurrent Level 1 (jdk.GCPhaseConcurrentLevel1)
+   [threshold=0 ms,enabled=true]
+ GC Phase Concurrent Level 2 (jdk.GCPhaseConcurrentLevel2)
+   [threshold=0 ms,enabled=true]
+ GC Phase Parallel (jdk.GCPhaseParallel)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause (jdk.GCPhasePause)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 1 (jdk.GCPhasePauseLevel1)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 2 (jdk.GCPhasePauseLevel2)
+   [threshold=0 ms,enabled=true]
+ GC Phase Pause Level 3 (jdk.GCPhasePauseLevel3)
+   [threshold=0 ms,enabled=false]
+ GC Phase Pause Level 4 (jdk.GCPhasePauseLevel4)
+   [threshold=0 ms,enabled=false]
+ GC Reference Statistics (jdk.GCReferenceStatistics)
+   [enabled=true]
+ GC Survivor Configuration (jdk.GCSurvivorConfiguration)
+   [period=beginChunk,enabled=true]
+ TLAB Configuration (jdk.GCTLABConfiguration)
+   [period=beginChunk,enabled=true]
+ Garbage Collection (jdk.GarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Heap Dump (jdk.HeapDump)
+   [threshold=0 ns,stackTrace=true,enabled=true]
+ Initial Environment Variable (jdk.InitialEnvironmentVariable)
+   [period=beginChunk,enabled=false]
+ Initial Security Property (jdk.InitialSecurityProperty)
+   [period=beginChunk,enabled=true]
+ Initial System Property (jdk.InitialSystemProperty)
+   [period=beginChunk,enabled=false]
+ Int Flag (jdk.IntFlag)
+   [period=beginChunk,enabled=true]
+ Int Flag Changed (jdk.IntFlagChanged)
+   [enabled=true]
+ JIT Restart (jdk.JITRestart)
+   [enabled=true]
+ JVM Information (jdk.JVMInformation)
+   [period=beginChunk,enabled=true]
+ Java Agent (jdk.JavaAgent)
+   [period=endChunk,enabled=true]
+ Java Error (jdk.JavaErrorThrow)
+   [stackTrace=true,enabled=true]
+ Java Exception (jdk.JavaExceptionThrow)
+   [stackTrace=true,enabled=false]
+ Java Monitor Blocked (jdk.JavaMonitorEnter)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Monitor Inflated (jdk.JavaMonitorInflate)
+   [threshold=20 ms,stackTrace=true,enabled=false]
+ Java Monitor Wait (jdk.JavaMonitorWait)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Statistics (jdk.JavaThreadStatistics)
+   [period=1000 ms,enabled=true]
+ Long Flag (jdk.LongFlag)
+   [period=beginChunk,enabled=true]
+ Long Flag Changed (jdk.LongFlagChanged)
+   [enabled=true]
+ Metaspace Allocation Failure (jdk.MetaspaceAllocationFailure)
+   [stackTrace=true,enabled=true]
+ Metaspace Chunk Free List Summary (jdk.MetaspaceChunkFreeListSummary)
+   [enabled=true]
+ Metaspace GC Threshold (jdk.MetaspaceGCThreshold)
+   [enabled=true]
+ Metaspace Out of Memory (jdk.MetaspaceOOM)
+   [stackTrace=true,enabled=true]
+ Metaspace Summary (jdk.MetaspaceSummary)
+   [enabled=true]
+ Module Export (jdk.ModuleExport)
+   [period=endChunk,enabled=false]
+ Module Require (jdk.ModuleRequire)
+   [period=endChunk,enabled=true]
+ Native Agent (jdk.NativeAgent)
+   [period=endChunk,enabled=true]
+ Native Library (jdk.NativeLibrary)
+   [period=everyChunk,enabled=true]
+ Native Memory Usage Per Type (jdk.NativeMemoryUsage)
+   [period=1000 ms,enabled=true]
+ Total Native Memory Usage (jdk.NativeMemoryUsageTotal)
+   [period=1000 ms,enabled=true]
+ Method Profiling Sample Native (jdk.NativeMethodSample)
+   [period=20 ms,enabled=true]
+ Network Utilization (jdk.NetworkUtilization)
+   [period=5 s,enabled=true]
+ OS Information (jdk.OSInformation)
+   [period=beginChunk,enabled=true]
+ Allocation in new TLAB (jdk.ObjectAllocationInNewTLAB)
+   [stackTrace=true,enabled=false]
+ Allocation outside TLAB (jdk.ObjectAllocationOutsideTLAB)
+   [stackTrace=true,enabled=false]
+ Object Allocation Sample (jdk.ObjectAllocationSample)
+   [stackTrace=true,throttle=150/s,enabled=true]
+ Object Count (jdk.ObjectCount)
+   [period=everyChunk,enabled=false]
+ Object Count after GC (jdk.ObjectCountAfterGC)
+   [enabled=false]
+ Old Garbage Collection (jdk.OldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Old Object Sample (jdk.OldObjectSample)
+   [stackTrace=false,cutoff=0 ns,enabled=true]
+ Parallel Scavenge Heap Summary (jdk.PSHeapSummary)
+   [enabled=true]
+ Parallel Old Garbage Collection (jdk.ParallelOldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Physical Memory (jdk.PhysicalMemory)
+   [period=everyChunk,enabled=true]
+ Process Start (jdk.ProcessStart)
+   [stackTrace=true,enabled=true]
+ Promotion in new PLAB (jdk.PromoteObjectInNewPLAB)
+   [enabled=false]
+ Promotion outside PLAB (jdk.PromoteObjectOutsidePLAB)
+   [enabled=false]
+ Promotion Failed (jdk.PromotionFailed)
+   [enabled=true]
+ Redefine Classes (jdk.RedefineClasses)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ Reserved Stack Activation (jdk.ReservedStackActivation)
+   [stackTrace=true,enabled=true]
+ Resident Set Size (jdk.ResidentSetSize)
+   [period=1000 ms,enabled=true]
+ Retransform Classes (jdk.RetransformClasses)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ Safepoint Begin (jdk.SafepointBegin)
+   [threshold=10 ms,enabled=true]
+ Safepoint Cleanup (jdk.SafepointCleanup)
+   [threshold=10 ms,enabled=false]
+ Safepoint Cleanup Task (jdk.SafepointCleanupTask)
+   [threshold=10 ms,enabled=false]
+ Safepoint End (jdk.SafepointEnd)
+   [threshold=10 ms,enabled=false]
+ Safepoint State Synchronization (jdk.SafepointStateSynchronization)
+   [threshold=10 ms,enabled=false]
+ Security Property Modification (jdk.SecurityPropertyModification)
+   [stackTrace=true,enabled=false]
+ Security Provider Instance Request (jdk.SecurityProviderService)
+   [stackTrace=true,enabled=false]
+ Shenandoah Heap Region Information (jdk.ShenandoahHeapRegionInformation)
+   [period=everyChunk,enabled=false]
+ Shenandoah Heap Region State Change (jdk.ShenandoahHeapRegionStateChange)
+   [enabled=false]
+ JVM Shutdown (jdk.Shutdown)
+   [stackTrace=true,enabled=true]
+ Socket Read (jdk.SocketRead)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Socket Write (jdk.SocketWrite)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ String Flag (jdk.StringFlag)
+   [period=beginChunk,enabled=true]
+ String Flag Changed (jdk.StringFlagChanged)
+   [enabled=true]
+ String Table Statistics (jdk.StringTableStatistics)
+   [period=10 s,enabled=false]
+ Symbol Table Statistics (jdk.SymbolTableStatistics)
+   [period=10 s,enabled=false]
+ Value Based Class Synchronization (jdk.SyncOnValueBasedClass)
+   [stackTrace=true,enabled=true]
+ System GC (jdk.SystemGC)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ System Process (jdk.SystemProcess)
+   [period=endChunk,enabled=true]
+ TLS Handshake (jdk.TLSHandshake)
+   [stackTrace=true,enabled=false]
+ Tenuring Distribution (jdk.TenuringDistribution)
+   [enabled=true]
+ Thread Allocation Statistics (jdk.ThreadAllocationStatistics)
+   [period=everyChunk,enabled=true]
+ Thread CPU Load (jdk.ThreadCPULoad)
+   [period=10 s,enabled=true]
+ Thread Context Switch Rate (jdk.ThreadContextSwitchRate)
+   [period=10 s,enabled=true]
+ Thread Dump (jdk.ThreadDump)
+   [period=everyChunk,enabled=true]
+ Java Thread End (jdk.ThreadEnd)
+   [enabled=true]
+ Java Thread Park (jdk.ThreadPark)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Sleep (jdk.ThreadSleep)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Java Thread Start (jdk.ThreadStart)
+   [stackTrace=true,enabled=true]
+ Unsigned Int Flag (jdk.UnsignedIntFlag)
+   [period=beginChunk,enabled=true]
+ Unsigned Int Flag Changed (jdk.UnsignedIntFlagChanged)
+   [enabled=true]
+ Unsigned Long Flag (jdk.UnsignedLongFlag)
+   [period=beginChunk,enabled=true]
+ Unsigned Long Flag Changed (jdk.UnsignedLongFlagChanged)
+   [enabled=true]
+ Virtual Thread End (jdk.VirtualThreadEnd)
+   [enabled=false]
+ Virtual Thread Pinned (jdk.VirtualThreadPinned)
+   [threshold=20 ms,stackTrace=true,enabled=true]
+ Virtual Thread Start (jdk.VirtualThreadStart)
+   [stackTrace=true,enabled=false]
+ Virtual Thread Submit Failed (jdk.VirtualThreadSubmitFailed)
+   [stackTrace=true,enabled=true]
+ Virtualization Information (jdk.VirtualizationInformation)
+   [period=beginChunk,enabled=true]
+ X509 Certificate (jdk.X509Certificate)
+   [stackTrace=true,enabled=false]
+ X509 Validation (jdk.X509Validation)
+   [stackTrace=true,enabled=false]
+ Young Garbage Collection (jdk.YoungGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ Young Generation Configuration (jdk.YoungGenerationConfiguration)
+   [period=beginChunk,enabled=true]
+ ZGC Allocation Stall (jdk.ZAllocationStall)
+   [threshold=0 ms,stackTrace=true,enabled=true]
+ ZGC Old Garbage Collection (jdk.ZOldGarbageCollection)
+   [threshold=0 ms,enabled=true]
+ ZGC Page Allocation (jdk.ZPageAllocation)
+   [threshold=1 ms,stackTrace=true,enabled=true]
+ ZGC Relocation Set (jdk.ZRelocationSet)
+   [threshold=0 ms,enabled=true]
+ ZGC Relocation Set Group (jdk.ZRelocationSetGroup)
+   [threshold=0 ms,enabled=true]
+ ZGC Statistics Counter (jdk.ZStatisticsCounter)
+   [threshold=0 ms,enabled=false]
+ ZGC Statistics Sampler (jdk.ZStatisticsSampler)
+   [threshold=0 ms,enabled=false]
+ ZGC Thread Phase (jdk.ZThreadPhase)
+   [threshold=0 ms,enabled=false]
+ ZGC Uncommit (jdk.ZUncommit)
+   [threshold=0 ms,enabled=true]
+ ZGC Unmap (jdk.ZUnmap)
+   [threshold=0 ms,enabled=true]
+ ZGC Young Garbage Collection (jdk.ZYoungGarbageCollection)
+   [threshold=0 ms,enabled=true]

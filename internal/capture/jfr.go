@@ -59,13 +59,47 @@ const jfrStartedReply = "Started recording"
 // The JVM writes to the temp directory (jfrRecordingPath); yc then stages the
 // result into the capture directory as jfrFileName. FullCapture reads its
 // result last, so the recording window overlaps the rest of the capture
-// instead of adding to it.
+// instead of adding to it. jfr_settings.go handles Settings and
+// ExcludeSensitiveData.
 type JFR struct {
 	Capture
 	Pid      int
 	JavaHome string
 	// Duration is how long the recording runs. Zero means jfrDefaultDuration.
 	Duration time.Duration
+	// Settings is "" (JDK default), a template (default, profile) or a .jfc path.
+	Settings string
+	// ExcludeSensitiveData keeps the jfrSensitiveEvents out of the recording.
+	ExcludeSensitiveData bool
+
+	// jcmd replaces runJcmd in tests.
+	jcmd func(command string) (string, error)
+	// jcmdFrom is where runJcmd starts: once a fallback has worked, the
+	// methods before it are skipped. On JDK 11, jcmd as root against
+	// another user's JVM takes 10.5s to fail every time.
+	jcmdFrom jcmdVia
+	// runCmd replaces executils.CommandCombinedOutputToWriter in tests.
+	runCmd func(w io.Writer, cmd executils.Command, hookers ...executils.Hooker) error
+}
+
+// jcmdVia is a way runJcmd sends a command, in the order it tries them.
+type jcmdVia int
+
+const (
+	viaJcmd       jcmdVia = iota // $JAVA_HOME/bin/jcmd
+	viaJattach                   // yc -jCmdCaptureMode
+	viaTmpJattach                // the same from a temp copy of yc
+)
+
+var jcmdViaNames = [...]string{viaJcmd: "jcmd", viaJattach: "jattach", viaTmpJattach: "tmp jattach"}
+
+// useJcmdVia makes via, which just worked, where runJcmd starts from now on.
+func (t *JFR) useJcmdVia(via jcmdVia) {
+	if via > t.jcmdFrom {
+		logger.Log("%s worked after %s failed; sending the rest of this JFR capture's commands to PID %d through %s",
+			jcmdViaNames[via], jcmdViaNames[t.jcmdFrom], t.Pid, jcmdViaNames[via])
+		t.jcmdFrom = via
+	}
 }
 
 func (t *JFR) Run() (Result, error) {
@@ -95,17 +129,10 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 		return nil, errors.New("MinimalTouch mode: skipping JFR capture (uses jcmd JFR.start, which is CPU-intensive)")
 	}
 
-	// Unique per invocation (pid + timestamp), not a fixed constant: back to
-	// back runs against the same long-lived JVM (e.g. repeated manual
-	// testing) must never collide with a still-active recording left behind
-	// by a previous run.
-	nanos := time.Now().UnixNano()
-	name := fmt.Sprintf("ycJFR-%d-%d", t.Pid, nanos)
-
 	duration := t.effectiveDuration()
 
-	jvmPath := jfrRecordingPath(t.Pid, nanos)
-	if err := t.startRecording(name, jvmPath, duration); err != nil {
+	name, jvmPath, err := t.start(duration)
+	if err != nil {
 		return nil, err
 	}
 
@@ -126,6 +153,16 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 		}
 	}()
 
+	// Unless the JVM shows the exclusions in force, the recording runs out
+	// (yc never sends JFR.stop) and is deleted instead of uploaded.
+	var discard error
+	if t.ExcludeSensitiveData {
+		if err := confirmExclusions(name, t.checkRecordingsVerbose); err != nil {
+			discard = fmt.Errorf("discarding JFR recording %s: excludeSensitiveData is on, but %v", name, err)
+			logger.Log("WARNING: %v. yc will delete the recording once the JVM has finished writing it, and will not upload it", discard)
+		}
+	}
+
 	logger.Log("JFR recording %s started, running for %s; then checking every %s, for up to %s, that the JVM has written it",
 		name, duration, jfrCheckInterval, jfrCheckTimeout)
 	time.Sleep(duration)
@@ -133,11 +170,20 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	if err := t.waitForRecording(name); err != nil {
 		if !errors.Is(err, errJVMGone) {
 			logger.Log("WARNING: leaving %s alone; the JVM may still be writing the recording there", jvmPath)
+			if discard != nil {
+				return nil, fmt.Errorf("%v; %w", discard, err)
+			}
 			return nil, err
 		}
 		// Nobody can be writing the file once the JVM is gone: an empty one
 		// is the stub JFR.start created, anything else is the recording.
 		finished = true
+		if discard != nil {
+			if resolved, err := resolveRecordingPath(t.Pid, jvmPath); err == nil {
+				sourcePath = resolved
+			}
+			return nil, discard
+		}
 		info, statErr := os.Stat(jvmPath)
 		if statErr != nil || info.Size() == 0 {
 			return nil, fmt.Errorf("the target JVM exited before it wrote JFR recording %s", name)
@@ -147,10 +193,24 @@ func (t *JFR) CaptureToFile() (*os.File, error) {
 	finished = true
 
 	resolved, err := resolveRecordingPath(t.Pid, jvmPath)
+	if err == nil {
+		sourcePath = resolved
+	}
+	if discard != nil {
+		return nil, discard
+	}
 	if err != nil {
 		return nil, err
 	}
-	sourcePath = resolved
+
+	// Another recording that ran during the window put its events in too.
+	if t.ExcludeSensitiveData {
+		if err := checkRecordingExcluded(name, sourcePath, t.checkRecordingsVerbose); err != nil {
+			err = fmt.Errorf("discarding JFR recording %s: excludeSensitiveData is on, but %v", name, err)
+			logger.Log("WARNING: %v. yc deletes the recording and will not upload it", err)
+			return nil, err
+		}
+	}
 
 	return stageRecording(sourcePath, jfrFileName)
 }
@@ -200,34 +260,108 @@ func jfrRecordingPath(pid int, nanos int64) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s.%d.%d", jfrFileName, pid, nanos))
 }
 
-// startRecording starts a JFR recording named name on the target JVM, writing
-// to jvmPath and running for duration.
+// start starts the recording with the jfrSettings settings, plus the
+// exclusions if ExcludeSensitiveData is set. It skips JFR rather than record
+// without the exclusions, and retries refused settings once with the JDK
+// default (a refused start creates no recording).
+func (t *JFR) start(duration time.Duration) (name, jvmPath string, err error) {
+	if t.ExcludeSensitiveData {
+		if err := checkNoSensitiveRecordings(t.checkRecordingsVerbose); err != nil {
+			return "", "", fmt.Errorf("skipping JFR capture: excludeSensitiveData is on, but %v", err)
+		}
+	}
+
+	settings := resolveJFRSettings(t.Settings)
+	base := settings.template
+	if settings.jfc != nil {
+		f, err := writeJFRSettingsFile(t.Pid, "yc-jfr-settings", settings.jfc)
+		if err != nil {
+			logger.Error().Msgf("jfrSettings: cannot use the JFR settings file %s: %v. Using the JDK's default JFR settings instead.", settings.source, err)
+		} else {
+			defer f.remove()
+			base = f.path
+		}
+	}
+
+	exclusions := ""
+	if t.ExcludeSensitiveData {
+		f, err := writeJFRSettingsFile(t.Pid, "yc-jfr-exclusions", []byte(jfrExclusionSettings))
+		if err != nil {
+			return "", "", fmt.Errorf("skipping JFR capture: excludeSensitiveData is on, but %v", err)
+		}
+		defer f.remove()
+		exclusions = f.path
+	}
+
+	name, jvmPath, err = t.startRecording(duration, jfrSettingsArgs(base, exclusions))
+	var refused *jfrSettingsRefusedError
+	if errors.As(err, &refused) && base != "" {
+		logger.Error().Msgf("jfrSettings: the JVM could not use the JFR settings %s (it answered %q). Starting the recording again with the JDK's default JFR settings.", t.Settings, refused.reply)
+		name, jvmPath, err = t.startRecording(duration, jfrSettingsArgs("", exclusions))
+	}
+	if errors.As(err, &refused) && exclusions != "" {
+		return "", "", fmt.Errorf("skipping JFR capture: excludeSensitiveData is on, but the JVM refused the settings file that turns off %s: %w",
+			strings.Join(jfrSensitiveEvents, " and "), err)
+	}
+	return name, jvmPath, err
+}
+
+// startRecording starts a recording with the given settings= values and
+// returns its name and the path the JVM writes it to.
 //
 // duration= puts the timer inside the JVM: it stops the recording and writes
 // the file with nobody attached, so the agent needs only this one diagnostic
 // command, and a recording can't outlive the agent if yc is killed partway
 // through.
-func (t *JFR) startRecording(name, jvmPath string, duration time.Duration) error {
+func (t *JFR) startRecording(duration time.Duration, settings []string) (name, jvmPath string, err error) {
+	// Unique per invocation (pid + timestamp), not a fixed constant: back to
+	// back runs against the same long-lived JVM (e.g. repeated manual
+	// testing) must never collide with a still-active recording left behind
+	// by a previous run.
+	nanos := time.Now().UnixNano()
+	name = fmt.Sprintf("ycJFR-%d-%d", t.Pid, nanos)
+	jvmPath = jfrRecordingPath(t.Pid, nanos)
 	if !jfrPathUsable(jvmPath) {
-		return fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", jvmPath)
+		return "", "", fmt.Errorf("JFR recording path %q contains a quote or newline, which jcmd can't express", jvmPath)
 	}
 
-	// duration= needs no quoting: jfrTimespan can only produce digits and
-	// 's'. No settings= - this uses the JDK's default.jfc (its built-in
-	// low-overhead template) rather than profile.jfc, pending a test of CPU
-	// behavior without profile's higher-frequency sampling.
-	cmd := fmt.Sprintf("JFR.start %s %s duration=%s",
-		jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
-	out, err := t.runJcmd(cmd)
+	out, err := t.jcmdRun(jfrStartCommand(name, jvmPath, duration, settings))
 	if err != nil {
-		return fmt.Errorf("failed to start JFR recording: %w", err)
+		return "", "", fmt.Errorf("failed to start JFR recording: %w", err)
 	}
 	if strings.Contains(out, jfrStartedReply) {
-		return nil
+		return name, jvmPath, nil
 	}
 
 	// Not in runJcmd: its jattach fallbacks would resend JFR.start.
-	return settleUnconfirmedStart(t.Pid, name, jvmPath, jcmdReply(t.Pid, out), t.checkRecordings)
+	reply := jcmdReply(t.Pid, out)
+	err = settleUnconfirmedStart(t.Pid, name, jvmPath, reply, t.checkRecordings)
+	var notListed *jfrNotListedError
+	if errors.As(err, &notListed) && jfrSettingsRefused(reply, settings) {
+		return "", "", &jfrSettingsRefusedError{reply: reply, err: err}
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return name, jvmPath, nil
+}
+
+// jfrStartCommand builds the JFR.start command. Each settings value is its own
+// settings= argument (a comma-separated list fails on every JDK); templates go
+// by name, files as quoted paths. No settings means the JDK's default.jfc.
+func jfrStartCommand(name, jvmPath string, duration time.Duration, settings []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "JFR.start %s %s duration=%s", jfrArg("name", name), jfrArg("filename", jvmPath), jfrTimespan(duration))
+	for _, s := range settings {
+		b.WriteByte(' ')
+		if IsJFRTemplate(s) {
+			b.WriteString("settings=")
+			b.WriteString(s)
+		} else {
+			b.WriteString(jfrArg("settings", s))
+		}
+	}
+	return b.String()
 }
 
 // jcmdReply strips jcmd's "<pid>:" header from out.
@@ -262,7 +396,7 @@ func settleUnconfirmedStart(pid int, name, jvmPath, reply string, check func() (
 		return nil
 	case state == "":
 		removeUnstartedRecording(pid, jvmPath)
-		return fail(fmt.Sprintf("JFR.check does not list recording %s", name))
+		return &jfrNotListedError{fail(fmt.Sprintf("JFR.check does not list recording %s", name))}
 	case state == "new":
 		removeUnstartedRecording(pid, jvmPath)
 		return fail(fmt.Sprintf("JFR.check lists recording %s as new, never started", name))
@@ -270,6 +404,12 @@ func settleUnconfirmedStart(pid int, name, jvmPath, reply string, check func() (
 		return fail(fmt.Sprintf("JFR.check lists recording %s as %s", name, state))
 	}
 }
+
+// jfrNotListedError is a failed start that JFR.check confirmed left no
+// recording, so starting again is safe.
+type jfrNotListedError struct{ error }
+
+func (e *jfrNotListedError) Unwrap() error { return e.error }
 
 // removeUnstartedRecording deletes jvmPath, here or in the target's mount
 // namespace, if it is empty. Call it only once no recording can write there.
@@ -306,11 +446,27 @@ func (t *JFR) waitForRecording(name string) error {
 
 // checkRecordings runs JFR.check, returning errJVMGone if the target is gone.
 func (t *JFR) checkRecordings() (string, error) {
-	out, err := t.runJcmd("JFR.check")
+	return t.check("JFR.check")
+}
+
+// checkRecordingsVerbose is checkRecordings with each recording's event settings.
+func (t *JFR) checkRecordingsVerbose() (string, error) {
+	return t.check("JFR.check verbose=true")
+}
+
+func (t *JFR) check(command string) (string, error) {
+	out, err := t.jcmdRun(command)
 	if err != nil && !IsProcessExists(t.Pid) {
 		return "", errJVMGone
 	}
 	return out, err
+}
+
+func (t *JFR) jcmdRun(command string) (string, error) {
+	if t.jcmd != nil {
+		return t.jcmd(command)
+	}
+	return t.runJcmd(command)
 }
 
 // waitForRecording is the loop behind JFR.waitForRecording, with the check
@@ -494,7 +650,8 @@ func copyRecording(src, dst string) error {
 
 // runJcmd runs a jcmd diagnostic command against t.Pid, trying the JDK's
 // jcmd binary first and falling back to jattach, then tmp jattach (mirrors
-// HDSub.executeJcmd). Every attempt goes through the timeout-bounded
+// HDSub.executeJcmd). Once a fallback works, later calls start from it
+// (jcmdFrom). Every attempt goes through the timeout-bounded
 // executils.CommandCombinedOutputToWriter (config.GlobalConfig.CmdTimeout),
 // so a hung jcmd/jattach process can't block the capture indefinitely. It
 // returns the command's response text on success.
@@ -504,35 +661,45 @@ func copyRecording(src, dst string) error {
 // prints an error and exits 0 if a recording by that name/id can't be
 // started). jcmdSucceeded checks the response text for that.
 func (t *JFR) runJcmd(command string) (string, error) {
+	run := t.runCmd
+	if run == nil {
+		run = executils.CommandCombinedOutputToWriter
+	}
 	var out bytes.Buffer
 
-	err := executils.CommandCombinedOutputToWriter(&out,
-		executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), command},
-		executils.SudoHooker{PID: t.Pid})
-	if err == nil && jcmdSucceeded(out.String()) {
-		logger.Log("jcmd %s: %s", command, out.String())
-		return out.String(), nil
+	if t.jcmdFrom <= viaJcmd {
+		err := run(&out,
+			executils.Command{path.Join(t.JavaHome, "bin/jcmd"), strconv.Itoa(t.Pid), command},
+			executils.SudoHooker{PID: t.Pid})
+		if err == nil && jcmdSucceeded(out.String()) {
+			logger.Log("jcmd %s: %s", command, jcmdLogText(out.String()))
+			return out.String(), nil
+		}
+		logger.Log("jcmd failed: %s. Falling back to jattach for: %s", jcmdFailure(err, out.String()), command)
+		out.Reset()
 	}
-	logger.Log("jcmd failed: %s. Falling back to jattach for: %s", jcmdFailure(err, out.String()), command)
-	out.Reset()
 
-	err = executils.CommandCombinedOutputToWriter(&out,
-		executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
-		executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
-	if err == nil && jcmdSucceeded(out.String()) {
-		logger.Log("jattach %s: %s", command, out.String())
-		return out.String(), nil
+	firstAttemptFailure := "jattach failed earlier in this JFR capture"
+	if t.jcmdFrom <= viaJattach {
+		err := run(&out,
+			executils.Command{executils.Executable(), "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
+			executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
+		if err == nil && jcmdSucceeded(out.String()) {
+			t.useJcmdVia(viaJattach)
+			logger.Log("jattach %s: %s", command, jcmdLogText(out.String()))
+			return out.String(), nil
+		}
+		logger.Log("jattach failed: %s. Falling back to tmp jattach for: %s", jcmdFailure(err, out.String()), command)
+		firstAttemptFailure = jcmdFailure(err, out.String())
+		out.Reset()
 	}
-	logger.Log("jattach failed: %s. Falling back to tmp jattach for: %s", jcmdFailure(err, out.String()), command)
-	firstAttemptFailure := jcmdFailure(err, out.String())
-	out.Reset()
 
 	tempPath, tmpErr := executils.Copy2TempPath()
 	if tmpErr != nil {
 		return "", fmt.Errorf("failed to run %q: %s (tmp jattach fallback failed: %v)", command, firstAttemptFailure, tmpErr)
 	}
 
-	err = executils.CommandCombinedOutputToWriter(&out,
+	err := run(&out,
 		executils.Command{tempPath, "-p", strconv.Itoa(t.Pid), "-jCmdCaptureMode", command},
 		executils.EnvHooker{"pid": strconv.Itoa(t.Pid)}, executils.SudoHooker{PID: t.Pid})
 	if err != nil {
@@ -541,8 +708,21 @@ func (t *JFR) runJcmd(command string) (string, error) {
 	if !jcmdSucceeded(out.String()) {
 		return "", fmt.Errorf("failed to run %q: %s", command, jcmdFailure(nil, out.String()))
 	}
-	logger.Log("tmp jattach %s: %s", command, out.String())
+	t.useJcmdVia(viaTmpJattach)
+	logger.Log("tmp jattach %s: %s", command, jcmdLogText(out.String()))
 	return out.String(), nil
+}
+
+// jcmdLogLines caps the reply lines runJcmd logs; JFR.check verbose=true runs
+// to hundreds.
+const jcmdLogLines = 40
+
+func jcmdLogText(out string) string {
+	if strings.Count(out, "\n") <= jcmdLogLines {
+		return out
+	}
+	lines := strings.SplitAfterN(out, "\n", jcmdLogLines+1)
+	return strings.Join(lines[:jcmdLogLines], "") + fmt.Sprintf("... (%d more lines not logged)", strings.Count(lines[jcmdLogLines], "\n"))
 }
 
 // jcmdFailure describes a failed jcmd/jattach attempt for a log or error
