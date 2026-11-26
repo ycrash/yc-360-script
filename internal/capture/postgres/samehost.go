@@ -416,12 +416,24 @@ func HostCaptureHint(reason string) string {
 		return "pg_backend_pid() was not read, so there was no process to look for"
 
 	case hostReasonNoConnection:
-		return "the database never answered; set agentOnDbHost: true in the postgres: block to " +
-			"declare that this machine runs it"
+		return "the agent could not connect to the database to check (see the connection error above); if the " +
+			"database is down and runs on this machine, set agentOnDbHost: true in the postgres: block to capture host data anyway"
 
 	case hostReasonPIDAbsent, hostReasonTitleMismatch:
 		return "the database runs on another machine"
 	}
 
 	return ""
+}
+
+// HostCaptureHintSomeConnected is HostCaptureHint for a run where other
+// connections opened, so the database is up and only the check's own failed.
+func HostCaptureHintSomeConnected(reason string) string {
+	if reason != hostReasonNoConnection {
+		return HostCaptureHint(reason)
+	}
+
+	return "the connection this check runs on failed, though others opened (see the warning above); run the " +
+		"capture again once it can connect, or, if the database runs on this machine, set agentOnDbHost: true " +
+		"in the postgres: block to capture host data anyway"
 }

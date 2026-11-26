@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"yc-agent/internal/capture/dbcore"
 	"yc-agent/internal/capture/executils"
 	"yc-agent/internal/capture/postgres"
 	"yc-agent/internal/config"
@@ -222,7 +223,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 	// rather than a burst before them.
 	metadata.AfterCollect(func(m postgres.Metadata) {
 		hostStarted = true
-		hostCollectors = p.startHostCapture(ctx, m, duration)
+		hostCollectors = p.startHostCapture(ctx, m, duration, true)
 	})
 
 	// Shared, not two collectors: Explain walks the read this one offers each sample,
@@ -277,6 +278,10 @@ func (p *PostgresCapture) Run() (Result, error) {
 
 	results := window.Run(ctx)
 
+	logConnectFailures("PostgreSQL", results, func(err error) dbcore.ConnectFailure {
+		return postgres.DescribeConnectFailure(err, target)
+	})
+
 	collected := metadata.ResolveHostDecision()
 
 	// The window never reached the server, so the probe never ran and the operator's
@@ -284,7 +289,7 @@ func (p *PostgresCapture) Run() (Result, error) {
 	// case it exists for: a database that is down cannot be asked which machine it
 	// runs on, and it is down exactly when the host readings matter most.
 	if !hostStarted {
-		hostCollectors = p.startHostCapture(ctx, collected, duration)
+		hostCollectors = p.startHostCapture(ctx, collected, duration, anyConnected(results))
 	}
 
 	hostMessages, hostOK := waitForHostCapture(hostCollectors)

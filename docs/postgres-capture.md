@@ -222,6 +222,62 @@ plan-capture code has no `ANALYZE` path at all — but it does plan it, which
 takes `AccessShareLock` on every relation involved. See the privileges and
 sensitivity sections below before turning it on.
 
+## When the agent cannot connect
+
+A connection the database refuses is reported once, on the console, before
+anything else the run says about it. The line names the likely cause and the
+settings to check, and ends with the driver's own error after `Details:`:
+
+```
+ERR PostgreSQL connection failed: nothing is accepting connections at localhost:5433.
+    Check port and host in the postgres: block, and that the database is running.
+    No database data was captured. Details: failed to connect to `user=yc_monitor
+    database=orders`: 127.0.0.1:5433 (localhost): dial error: dial tcp
+    127.0.0.1:5433: connect: connection refused
+```
+
+It is an error when no connection opened, so nothing was read from the
+database. It is a warning when only some did, which in practice means the
+server ran out of connection slots partway through dialling. The warning
+says how many files were not captured.
+
+| What is wrong | What the line says |
+| --- | --- |
+| the port, or the database is not running | nothing is accepting connections at `host:port` |
+| the host name | the host name `"…"` could not be resolved |
+| the host address, or a firewall in the way | `host:port` did not answer within 5s |
+| the database name | database `"…"` does not exist on the server |
+| the username or the password | the server rejected the login of user `"…"`: the username or the password is wrong |
+| the username, where `pg_hba.conf` trusts the connection; a role without `LOGIN`; or no `pg_hba.conf` entry admits this machine, user and database | the server refused user `"…"` on database `"…"`: the user does not exist, may not log in, or pg_hba.conf does not admit it from this machine |
+| the role has no `CONNECT` on the database | user `"…"` may not connect to database `"…"` (no CONNECT privilege) |
+| the server is starting, stopping or recovering | the server is starting up, shutting down or recovering … |
+| no free connection slot | the server has no free connection slot … |
+| `tls: enabled` against a server without SSL | tls is enabled for this target, but the server does not accept encrypted connections |
+| a certificate `verifyServerCertificate` rejects | the server's TLS certificate failed verification |
+
+**A wrong username reads the same as a wrong password.** With password
+authentication, PostgreSQL refuses a user that does not exist with the same
+answer as a wrong password, on purpose, so the line cannot say which of the two
+is wrong. The server's own log tells them apart (`Role "…" does not exist`).
+Where `pg_hba.conf` trusts the connection there is no password to check, and a
+user that does not exist gets the "refused user" line instead, the same SQLSTATE
+as a role without `LOGIN` and a connection `pg_hba.conf` does not admit.
+
+A cause the table does not list is still reported, with the address or the
+server's SQLSTATE, and its details. The password never appears in the line;
+the driver's error names the user and the database, as it does in the
+`connect_error=` row every file closes with.
+
+The run itself still completes. Every `pg_*.txt` file closes with
+`status=connect_failed`, the bundle is uploaded, and the agent exits as usual,
+because the bundle's record of the failed attempt is what tells a database that
+could not be reached apart from one that was never configured. Host capture is
+skipped, since no connection means the agent cannot confirm it runs on the
+database's machine. The host lines say so after the error, and they point to
+`agentOnDbHost` only for a database that is down on this machine. When some
+connections opened but not the one the check runs on, the host line says that
+instead, since the database is up.
+
 ## A database capture is its own run
 
 A configured block makes the run a database capture and nothing else. Passing an
@@ -885,7 +941,8 @@ on it, which close with `status=connect_failed` and
 `connect_error=too_many_connections`; the next connection is still tried, and
 the ones that opened run to the end. Any other refusal — the address, TLS, the
 password, the database — would fail every connection the same way, so it is
-tried once, and every file closes `connect_failed`.
+tried once, and every file closes `connect_failed`. Either way the console
+names the refusal in one line; see *When the agent cannot connect*.
 
 **A connection lost mid-capture.** Each connection is held for the whole
 window, and the agent does not reconnect: a new connection would restart every

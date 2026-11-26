@@ -33,7 +33,10 @@ func hostSpan(window time.Duration) time.Duration {
 // startHostCapture runs the host collectors when the run established this machine
 // is the database's, and records the skip otherwise: host files describe whichever
 // machine ran the agent. The caller must drain what it returns.
-func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metadata, window time.Duration) []hostCollector {
+// connected says some connection opened, which only the skip's hint reads.
+func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metadata, window time.Duration,
+	connected bool,
+) []hostCollector {
 	if m.DeclarationContradicted {
 		logger.Warn().Msgf("postgres agentOnDbHost is set, but this run measured that the database "+
 			"is on another machine (%s); host capture stays off - the measurement wins.",
@@ -41,7 +44,7 @@ func (p *PostgresCapture) startHostCapture(ctx context.Context, m postgres.Metad
 	}
 
 	if m.HostArtifacts != postgres.HostArtifactsCaptured {
-		p.logHostCaptureSkipped(m)
+		p.logHostCaptureSkipped(m, connected)
 
 		return nil
 	}
@@ -80,11 +83,16 @@ func runHostCollectors(ctx context.Context, endpoint string, window time.Duratio
 
 // logHostCaptureSkipped states the skip and, where one exists, the deployment
 // change that would lift it. Informational, not a warning: nothing failed.
-func (p *PostgresCapture) logHostCaptureSkipped(m postgres.Metadata) {
+func (p *PostgresCapture) logHostCaptureSkipped(m postgres.Metadata, connected bool) {
 	logger.Log("Host capture skipped: this run could not establish that this machine runs the "+
 		"database (agent_on_db_host=%s, reason=%s).", m.AgentOnDBHost, m.AgentOnDBHostReason)
 
-	if hint := postgres.HostCaptureHint(m.AgentOnDBHostReason); hint != "" {
+	hint := postgres.HostCaptureHint(m.AgentOnDBHostReason)
+	if connected {
+		hint = postgres.HostCaptureHintSomeConnected(m.AgentOnDBHostReason)
+	}
+
+	if hint != "" {
 		logger.Log("Host capture: %s", hint)
 	}
 }

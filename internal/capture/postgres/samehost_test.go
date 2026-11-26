@@ -450,6 +450,24 @@ func TestHostCaptureHintCoversEveryReason(t *testing.T) {
 	assert.Empty(t, HostCaptureHint(""), "a yes carries no reason and needs no hint")
 }
 
+func TestHostCaptureHintSomeConnectedChangesOnlyNoConnection(t *testing.T) {
+	for _, reason := range []string{
+		hostReasonBackendPIDUnread,
+		hostReasonContainer,
+		hostReasonProcRestricted,
+		hostReasonPlatformNoTitles,
+		hostReasonPIDAbsent,
+		hostReasonTitleMismatch,
+		"",
+	} {
+		assert.Equal(t, HostCaptureHint(reason), HostCaptureHintSomeConnected(reason), "reason %q", reason)
+	}
+
+	hint := HostCaptureHintSomeConnected(hostReasonNoConnection)
+	assert.Contains(t, hint, "though others opened")
+	assert.NotContains(t, hint, "is down", "the database answered on the other connections")
+}
+
 func TestCollectSameHostAlwaysSettlesHostArtifacts(t *testing.T) {
 	m := Metadata{}
 	collectSameHost(&m, Target{})

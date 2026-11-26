@@ -106,6 +106,10 @@ const (
 	errTooManyUserConns = 1203 // the account's max_user_connections
 	errUserLimit        = 1226 // a resource limit, max_user_connections among them
 	errDBAccessDenied   = 1044
+	errAccessDenied     = 1045 // wrong username or password, or host not allowed
+	errUnknownDatabase  = 1049
+	errHostNotAllowed   = 1130 // no account for this host
+	errSecureTransport  = 3159 // require_secure_transport
 	errTableAccess      = 1142
 	errColumnAccess     = 1143
 	errSpecificAccess   = 1227 // PROCESS, REPLICATION CLIENT and the like

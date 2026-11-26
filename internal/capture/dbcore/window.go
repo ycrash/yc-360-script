@@ -295,6 +295,9 @@ type ArtifactResult struct {
 	// Err is the last capture-level error, redacted; for the log only.
 	Err string
 
+	// ConnectErr is the dial error behind connect_failed, for the console; not written.
+	ConnectErr error
+
 	IOErr error
 }
 
@@ -452,9 +455,10 @@ type connectionTimeline[Q, E any] struct {
 	conn      Closer
 	sampleCtx SampleContext[E]
 
-	// connectErr is the artifact's token, connectDetail the full text for the log.
+	// connectErr is the artifact's token, connectDetail the log's text, dialErr the error.
 	connectErr    string
 	connectDetail string
+	dialErr       error
 
 	// stopped is the status that ended the timeline early; lostErr reveals a loss.
 	stopped string
@@ -597,6 +601,7 @@ func (w *Window[Q, E]) dialAll(ctx context.Context, lines []*connectionTimeline[
 			line.querier, line.conn = zero, nil
 			line.connectErr = w.Engine.ConnectErrorText(err)
 			line.connectDetail = w.errorText(err)
+			line.dialErr = err
 
 			if w.Engine.SlotRefused == nil || !w.Engine.SlotRefused(err) {
 				targetErr = err
@@ -692,6 +697,7 @@ func (w *Window[Q, E]) closeArtifacts(results []ArtifactResult, owner []*connect
 
 		if line.connectErr != "" {
 			results[i].Err = line.connectDetail
+			results[i].ConnectErr = line.dialErr
 		}
 
 		if results[i].Status == StatusConnectionLost && results[i].Err == "" {

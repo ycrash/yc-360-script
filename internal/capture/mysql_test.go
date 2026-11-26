@@ -2,7 +2,6 @@ package capture
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -49,29 +48,6 @@ func TestMySQLTargetRedactsThroughEveryVerb(t *testing.T) {
 	}})
 	assert.False(t, target.TLS.Disabled)
 	assert.Equal(t, "skip-verify", target.TLS.Mode())
-}
-
-func TestAMySQLConnectFailureIsAWarningOncePerError(t *testing.T) {
-	logs := captureLogOutput(t)
-
-	refused := "Error 1045 (28000): Access denied for user 'yc_monitor'@'10.0.0.7' (using password: YES)"
-
-	warnConnectFailures([]mysql.ArtifactResult{
-		{Status: mysql.StatusConnectFailed, Err: refused},
-		{Status: mysql.StatusConnectFailed, Err: refused},
-		{Status: mysql.StatusComplete},
-		{Status: mysql.StatusConnectFailed, Err: mysql.ErrTooManyConnections.Error()},
-	})
-
-	text := logs.String()
-	assert.Equal(t, 2, strings.Count(text, `"level":"warn"`))
-	assert.Equal(t, 1, strings.Count(text, "mysql connect failed: Error 1045"))
-	assert.Contains(t, text, "(2 of 4 files record connect_failed)")
-	assert.Contains(t, text, "mysql connect failed: too_many_connections (1 of 4 files")
-
-	logs.Reset()
-	warnConnectFailures([]mysql.ArtifactResult{{Status: mysql.StatusComplete}})
-	assert.Empty(t, logs.String())
 }
 
 func TestAMariaDBTargetIsAWarning(t *testing.T) {

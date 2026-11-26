@@ -141,6 +141,36 @@ for the container's whole life. An agent in a container of its own sees no
 process beside it and says `unknown`, `reason=container`; one that shares the
 server container's process table (`--pid=container:<name>`) can say yes.
 
+## When the agent cannot connect
+
+As for `postgres:`: one console line per refusal, naming the likely cause and
+the settings to check, ending with the driver's error after `Details:`. It is an
+error when no connection opened and a warning when only some did. The
+network causes (a closed port, a name that does not resolve, no answer within
+5s, a certificate that failed verification) read the same. MySQL's own answers:
+
+| What is wrong | What the line says |
+| --- | --- |
+| the username or the password, or an account that does not allow this machine | the server rejected the login of user `"…"`: the username or the password is wrong, or the account does not allow connections from this machine |
+| no account matches this machine's address at all | the server has no account that allows connections from this machine's address |
+| the database name | database `"…"` does not exist on the server |
+| the database name, for a user without global privileges; or no privilege on the database | database `"…"` does not exist, or user `"…"` has no access to it |
+| `require_secure_transport` with `tls: enabled: false` | the server accepts only encrypted connections (require_secure_transport) |
+| `tls: enabled` against a server without TLS | tls is enabled for this target, but the server does not accept encrypted connections |
+| a plaintext login that needs the server's RSA key (see `tls`) | the login needs the server's RSA public key over a plaintext connection … |
+| no free connection slot | the server has no free connection slot … |
+
+Error 1045 covers a user that does not exist, a wrong password and an account
+whose host part does not match this machine, so the line names all three. A
+user without global privileges gets error 1044, not 1049, for a database that
+does not exist, because the server checks access before existence; that line
+names both. Over a plaintext connection to an account on
+`caching_sha2_password`, a wrong password never reaches error 1045: the server
+asks for full authentication first, and the line is the RSA-key one. A username
+that does not exist gets either line, because the server fakes its login with a
+plugin it picks for that name and keeps until it restarts. Enable TLS to see the
+server's answer.
+
 ## A database capture is its own run
 
 As for `postgres:`. A `mysql:` block cannot run with `-m3`: M3 database

@@ -158,6 +158,11 @@ func TestWindowDialsAgainOnlyAfterARefusedSlot(t *testing.T) {
 	assert.Equal(t, 1, dials, "a refusal the engine does not call a slot refusal is the target's")
 	assert.Equal(t, StatusConnectFailed, results[0].Status)
 
+	for _, result := range results {
+		assert.ErrorIs(t, result.ConnectErr, slotRefused,
+			"%s: an undialled connection carries the refusal that stopped the dialling", result.Artifact.Name)
+	}
+
 	dials = 0
 	engine.SlotRefused = func(err error) bool { return errors.Is(err, slotRefused) }
 

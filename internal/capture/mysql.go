@@ -123,7 +123,9 @@ func (c *MySQLCapture) Run() (Result, error) {
 
 	results := window.Run(ctx)
 
-	warnConnectFailures(results)
+	logConnectFailures("MySQL", results, func(err error) dbcore.ConnectFailure {
+		return mysql.DescribeConnectFailure(err, target)
+	})
 
 	collected := metadata.ResolveHostDecision()
 
@@ -150,30 +152,6 @@ func warnMariaDB(m mysql.Metadata) {
 
 	logger.Warn().Msgf("The mysql: target is MariaDB %s, which the MySQL capture does not support: "+
 		"my_metadata.txt records the server, and the other my_* files what it refused or lacks.", m.Version)
-}
-
-// warnConnectFailures logs each distinct connect failure once.
-func warnConnectFailures(results []mysql.ArtifactResult) {
-	files := map[string]int{}
-
-	var failures []string
-
-	for _, artifact := range results {
-		if artifact.Status != mysql.StatusConnectFailed {
-			continue
-		}
-
-		if files[artifact.Err] == 0 {
-			failures = append(failures, artifact.Err)
-		}
-
-		files[artifact.Err]++
-	}
-
-	for _, failure := range failures {
-		logger.Warn().Msgf("mysql connect failed: %s (%d of %d files record connect_failed)",
-			failure, files[failure], len(results))
-	}
 }
 
 // Kill overrides Capture.Kill, which ignores a nil Cmd.
