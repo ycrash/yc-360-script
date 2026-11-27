@@ -299,7 +299,7 @@ func defaultConfig() Config {
 			LogLevel:           zerolog.InfoLevel.String(),
 			PingHost:           "google.com",
 			DeferDelete:        true,
-			AppLogLineCount:    10000,
+			AppLogLineCount:    100000,
 			TDCaptureDuration:  Duration(0 * time.Second), // Setting here 0 seconds as default since handling it in jstack.go
 			JFREnabled:         true,
 			JFRCaptureDuration: Duration(60 * time.Second),
